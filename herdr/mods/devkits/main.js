@@ -1,9 +1,12 @@
 import { View, div, svg, image } from 'gpui-kit';
 import { v_flex, h_flex } from 'gpui-base';
 import { agents, spaces, panes, theme, run, props, window, openOverlay, closeOverlay, setAgentOrder, layout, settings, pickFolder, shared, setShared, knownAgents, notify } from 'herdr';
-import { projectGroups, projectCatalog, folderKey } from './model.js';
+import { projectGroups, projectCatalog, folderKey, launcherChoices } from './model.js';
+import CodexLogin, { removeCodexAccount } from './codex-login.js';
 import { DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from './components/dropdown-menu.js';
 import { Button } from './components/button.js';
+import { Checkbox } from './components/checkbox.js';
+import { DialogContent, DialogTitle, DialogDescription, DialogFooter } from './components/dialog.js';
 import { AlertDialogContent, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from './components/alert-dialog.js';
 import { Empty, EmptyMedia, EmptyTitle, EmptyDescription } from './components/empty.js';
 import { Sidebar, SidebarContent, SidebarGroupLabel, SidebarMenuButton, SidebarFooter } from './components/sidebar.js';
@@ -11,18 +14,28 @@ import { Sidebar, SidebarContent, SidebarGroupLabel, SidebarMenuButton, SidebarF
 const glyph = (name, size = 14) => svg(`mods/devkits/assets/icons/${name}.svg`).size(size).flex_none();
 const stateColor = (status, t) => t[status] || t.muted;
 
+const launcherSections = ['Terminal', 'Agents', 'Your accounts'];
+const launcherIcon = (agent, t) => !agent ? glyph('terminal', 16) : agent.icon
+  ? (agent.tint ? svg(agent.icon).size(16).text_color(t.foreground) : image(agent.icon).size(16)) : glyph('mark', 16);
+
 export default class Devkits extends View {
   init(_props, cx) {
+    if (props()?.view === 'codex-login') {
+      this.login = new CodexLogin();
+      this.login.init(props(), cx);
+      return;
+    }
     this.folded = new Set();
     this.hovered = null;
     this.hoveredProject = null;
-    if (['close-project', 'project-menu', 'project-picker'].includes(props()?.view)) {
+    if (['close-project', 'remove-account', 'project-menu', 'project-picker'].includes(props()?.view)) {
       this.handle = cx.focus_handle();
       this.handle.focus();
       if (props().view === 'project-picker') this.projectIndex = -1;
     }
-    if (props()?.view === 'launcher') {
+    if (['launcher', 'manage-launchers'].includes(props()?.view)) {
       this.launchers = [];
+      this.manageIndex = 0;
       this.handle = cx.focus_handle();
       this.handle.focus();
       this.loadAgents(cx);
@@ -148,7 +161,8 @@ export default class Devkits extends View {
     cx.spawn(async cx => {
       try {
         const project = spaces().find(s => s.id === props().space);
-        this.launchers = (await knownAgents({ on: project?.machine })).filter(agent => agent.installed);
+        this.launchers = (await knownAgents({ on: project?.machine }))
+          .filter(agent => agent.installed && (!project?.machine || !agent.key.startsWith('devkits-codex-')));
       } catch { this.launchError = true; }
       this.loading = false;
       cx.notify();
@@ -164,27 +178,187 @@ export default class Devkits extends View {
     else run('space.new', { name: target.projectName, folder: target.folder, machine: '', ...(agent ? { tab: agent.name, argv: agent.run } : {}) });
   }
 
+  addCodexAccount() {
+    const target = props();
+    closeOverlay(target.overlay);
+    openOverlay({ mod: 'devkits', kind: 'dialog', modal: true, width: 520, height: 380,
+      props: { view: 'codex-login', returnTo: { view: 'manage-launchers', space: target.space } } });
+  }
+
+  async close() {
+    await this.login?.close();
+  }
+
+  confirmRemoveAccount(account) {
+    const target = props();
+    closeOverlay(target.overlay);
+    openOverlay({ mod: 'devkits', kind: 'dialog', modal: true, width: 480, height: 300,
+      props: { view: 'remove-account', account: { key: account.key, name: account.name }, space: target.space } });
+  }
+
+  removeAccountPrompt(t) {
+    const target = props();
+    const back = () => {
+      if (this.removing) return;
+      closeOverlay(target.overlay);
+      openOverlay({ mod: 'devkits', kind: 'dialog', modal: true, width: 680, height: 0.8,
+        props: { view: 'manage-launchers', space: target.space } });
+    };
+    const confirm = cx => {
+      if (this.removing) return;
+      this.removing = true; this.removeError = null; cx.notify();
+      cx.spawn(async cx => {
+        try {
+          await removeCodexAccount(target.account.key);
+          const key = `agent:${target.account.key}`;
+          for (const setting of ['devkits.hidden-launchers', 'devkits.launcher-order']) {
+            setShared(setting, (shared(setting) || []).filter(item => item !== key));
+          }
+          this.removing = false; back();
+        } catch (error) { this.removing = false; this.removeError = error.message; cx.notify(); }
+      });
+    };
+    return AlertDialogContent('remove-account-dialog', t).accessibility_label(`Remove ${target.account.name}?`)
+      .track_focus(this.handle).on_key_down((event, cx) => {
+        if (event.key === 'escape') back();
+        else if (event.key === 'enter') confirm(cx);
+        else return;
+        cx.stop_propagation();
+      })
+      .child(AlertDialogTitle().child(`Remove ${target.account.name}?`))
+      .child(AlertDialogDescription(t).child('This signs out this saved account and removes it from the menu. History and project files are kept. Running sessions stay open but may need to sign in again.'))
+      .when(Boolean(this.removeError), el => el.child(div().id('remove-account-error').text_size(12).text_color(t.destructive || t.foreground).child(this.removeError)))
+      .child(AlertDialogFooter().children([
+        AlertDialogCancel('cancel-remove-account', t).disabled(Boolean(this.removing)).on_click(back).child('Cancel'),
+        AlertDialogAction('confirm-remove-account', t).disabled(Boolean(this.removing))
+          .on_click((_event, cx) => confirm(cx)).child(this.removing ? 'Removing…' : 'Remove'),
+      ]));
+  }
+
+  manageLaunchers(t) {
+    const hidden = shared('devkits.hidden-launchers') || [];
+    const choices = launcherChoices(this.launchers, shared('devkits.launcher-order') || []);
+    const local = !spaces().find(space => space.id === props().space)?.machine;
+    const dragGroup = choices.find(choice => choice.key === this.dragKey)?.group;
+    const toggle = (key, cx) => {
+      const current = shared('devkits.hidden-launchers') || [];
+      setShared('devkits.hidden-launchers', current.includes(key) ? current.filter(item => item !== key) : [...current, key]);
+      cx.notify();
+    };
+    const done = () => closeOverlay(props().overlay);
+    const move = (index, target, cx) => {
+      if (!choices[index] || !choices[target] || choices[index].group !== choices[target].group || index === target) return;
+      const order = [...new Set([...(shared('devkits.launcher-order') || []), ...choices.map(choice => choice.key)])];
+      const key = choices[index].key;
+      order.splice(order.indexOf(key), 1);
+      order.splice(order.indexOf(choices[target].key) + (index < target ? 1 : 0), 0, key);
+      setShared('devkits.launcher-order', order);
+      this.manageIndex = target;
+      cx.notify();
+    };
+    const cancelDrag = cx => {
+      if (!this.dragKey) return;
+      this.dragKey = null; this.dropKey = null; cx.notify();
+    };
+    return DialogContent('manage-launchers', t).accessibility_label('Manage session menu')
+      .on_mouse_up('left', (_event, cx) => cancelDrag(cx))
+      .on_hover((inside, cx) => { if (!inside) cancelDrag(cx); })
+      .track_focus(this.handle).on_key_down((event, cx) => {
+        if (event.key === 'escape') {
+          if (this.dragKey) cancelDrag(cx); else done();
+          cx.stop_propagation(); return;
+        }
+        if (event.modifiers?.alt && ['up', 'down'].includes(event.key)) {
+          move(this.manageIndex, this.manageIndex + (event.key === 'up' ? -1 : 1), cx);
+        } else if (event.key === 'down') this.manageIndex = (this.manageIndex + 1) % choices.length;
+        else if (event.key === 'up') this.manageIndex = (this.manageIndex + choices.length - 1) % choices.length;
+        else if (event.key === 'enter' || event.key === 'space') toggle(choices[this.manageIndex].key, cx);
+        else return;
+        cx.stop_propagation(); cx.notify();
+      })
+      .child(DialogTitle().child('Manage session menu'))
+      .child(DialogDescription(t).child('Choose what appears in Add session. Drag within each section to reorder, or use Alt + ↑ / ↓. Changes are saved automatically.'))
+      .child(v_flex().id('manage-launchers-list').flex_1().min_h(0).overflow_y_scroll().gap(4)
+        .children(choices.flatMap((choice, index) => [
+          ...(index === 0 || choices[index - 1].group !== choice.group
+            ? [DropdownMenuLabel(t).id(`manage-section-${choice.group}`).mt(index ? 12 : 0).child(launcherSections[choice.group])] : []),
+          h_flex().id(`manage-${choice.key}`).h(44).flex_none().px(8).gap(8).items_center().rounded(6)
+          .bg(this.manageIndex === index ? t.selected : t.popover)
+          .border(1).border_color(this.dragKey && dragGroup === choice.group && this.dropKey === choice.key ? t.solid : t.popover)
+          .opacity(this.dragKey === choice.key ? 0.5 : 1)
+          .on_hover((inside, cx) => { if (inside) { this.manageIndex = index; cx.notify(); } })
+          .on_mouse_move((_event, cx) => {
+            if (this.dragKey && this.dropKey !== choice.key) { this.dropKey = choice.key; cx.notify(); }
+          })
+          .on_mouse_up('left', (_event, cx) => {
+            if (!this.dragKey) return;
+            move(choices.findIndex(item => item.key === this.dragKey), index, cx);
+            cancelDrag(cx); cx.stop_propagation();
+          })
+          .when(choice.group !== 0, el => el.child(Button(`drag-${choice.key}`, t, { variant: 'ghost', size: 'icon' }).cursor_grab()
+            .tooltip(`Drag ${choice.name} to reorder`).accessibility_label(`Reorder ${choice.name}. Use Alt + Up or Down.`)
+            .on_mouse_down('left', (_event, cx) => {
+              cx.stop_propagation(); this.handle?.focus();
+              this.dragKey = choice.key; this.dropKey = choice.key; this.manageIndex = index; cx.notify();
+            }).child(glyph('grip-vertical'))))
+          .when(choice.group === 0, el => el.child(div().size(28).flex_none()))
+          .child(Checkbox(`show-${choice.key}`, !hidden.includes(choice.key), t).h_full().flex_1().min_w(0)
+            .accessibility_label(choice.name).on_change((_checked, cx) => toggle(choice.key, cx))
+            .child(launcherIcon(choice.agent, t).flex_none())
+            .child(div().flex_1().min_w(0).truncate().text_size(13).child(choice.name)))
+          .when(local && choice.agent?.key === 'codex', el => el
+            .child(Button('add-codex-account', t, { variant: 'outline' })
+              .tooltip('Add a Codex account').accessibility_label('Add a Codex account')
+              .on_click(() => this.addCodexAccount()).child(glyph('plus')).child('Add account')))
+          .when(local && choice.group === 2, el => el.child(Button(`remove-${choice.agent.key}`, t, { variant: 'outline' })
+            .accessibility_label(`Remove ${choice.name}`).on_click(() => this.confirmRemoveAccount(choice.agent))
+            .child(glyph('close')).child('Remove')))
+        ]))
+        .when(local && !this.loading && !this.launchError && !choices.some(choice => choice.group === 2), el => el
+          .child(DropdownMenuLabel(t).id('manage-section-2').mt(12).child('Your accounts'))
+          .child(div().px(8).text_size(12).text_color(t.muted).child('No accounts added. Use Add account on the Codex row.')))
+        .when(this.loading, el => el.child(div().p(8).text_size(12).text_color(t.muted).child('Loading agents…')))
+        .when(this.launchError, el => el.child(Button('manage-retry-agents', t, { variant: 'outline' })
+          .on_click((_event, cx) => this.loadAgents(cx)).child('Could not load agents. Retry'))))
+      .child(DialogFooter().child(Button('manage-launchers-done', t).on_click(done).child('Done')));
+  }
+
   launcher(t) {
+    const hidden = shared('devkits.hidden-launchers') || [];
+    const choices = launcherChoices(this.launchers, shared('devkits.launcher-order') || []).filter(choice => !hidden.includes(choice.key));
+    const launchers = choices.filter(choice => choice.agent).map(choice => choice.agent);
     const row = (id, name, icon, action, hint) => DropdownMenuItem(id, t).on_click(action)
       .child(div().size(16).flex_none().flex().items_center().justify_center().text_color(t.muted).child(icon))
       .child(div().flex_1().min_w(0).truncate().child(name)).child(div().flex_none().text_size(11).text_color(t.muted).child(hint));
-    return DropdownMenuContent('thread-launcher', Math.min(360, 80 + Math.max(1, this.launchers.length) * 33), t)
+    return DropdownMenuContent('thread-launcher', undefined, t)
       .track_focus(this.handle).on_key_down(event => {
         if (event.modifiers.control || event.modifiers.platform || event.modifiers.alt) return;
-        const agent = /^[1-9]$/.test(event.key) ? this.launchers[Number(event.key) - 1] : null;
+        const agent = /^[1-9]$/.test(event.key) ? launchers[Number(event.key) - 1] : null;
         if (agent?.installed) this.startThread(agent);
       })
-      .child(DropdownMenuLabel(t).child('Add session'))
-      .child(row('new-terminal', 'Terminal', glyph('terminal'), () => this.startThread(), ''))
-      .child(DropdownMenuSeparator(t))
-      .child(v_flex().id('thread-launchers').flex_1().min_h(0).overflow_y_scrollbar().gap(1)
-        .children(this.launchers.map((agent, i) => row(`start-${agent.key}`, agent.name,
-          agent.icon ? (agent.tint ? svg(agent.icon).size(16).text_color(t.foreground) : image(agent.icon).size(16)) : glyph('mark', 16),
-          () => this.startThread(agent), i < 9 ? String(i + 1) : '')))
+      .child(v_flex().id('thread-launchers').flex_none().gap(1)
+        .children(choices.flatMap((choice, i) => {
+          const agent = choice.agent, index = launchers.indexOf(agent);
+          return [
+            ...(i > 0 && choices[i - 1].group !== choice.group ? [DropdownMenuSeparator(t)] : []),
+            ...(choice.group !== 0 && (i === 0 || choices[i - 1].group !== choice.group)
+              ? [DropdownMenuLabel(t).id(`launcher-section-${choice.group}`).child(launcherSections[choice.group])] : []),
+            row(agent ? `start-${agent.key}` : 'new-terminal', choice.name, launcherIcon(agent, t),
+              () => this.startThread(agent), index >= 0 && index < 9 ? String(index + 1) : ''),
+          ];
+        }))
         .when(this.loading, el => el.child(div().p(10).text_size(12).text_color(t.muted).child('Loading agents…')))
         .when(this.launchError, el => el.child(div().id('retry-agents').p(10).text_size(12).text_color(t.muted).cursor_pointer()
           .on_click((_event, cx) => this.loadAgents(cx)).child('Could not load agents. Click to retry.')))
-        .when(!this.loading && !this.launchError && !this.launchers.length, el => el.child(div().p(10).text_size(12).text_color(t.muted).child('No installed agents found.'))));
+        .when(!this.loading && !this.launchError && !choices.length, el => el.child(div().p(10).text_size(12).text_color(t.muted)
+          .child(this.launchers.length ? 'All agents are hidden. Use Manage to show them.' : 'No installed agents found.'))))
+      .child(DropdownMenuSeparator(t))
+      .child(row('manage-launchers-open', 'Manage…', glyph('settings'), () => {
+        const target = props();
+        closeOverlay(target.overlay);
+        openOverlay({ mod: 'devkits', kind: 'dialog', modal: true, width: 680, height: 0.8,
+          props: { view: 'manage-launchers', space: target.space } });
+      }, ''));
   }
 
   header(t) {
@@ -290,11 +464,14 @@ export default class Devkits extends View {
 
   render() {
     const t = theme();
+    if (props()?.view === 'codex-login') return this.login.render();
     if (props()?.view === 'header') return this.header(t);
     if (props()?.view === 'brand') return this.brand(t);
     if (props()?.view === 'pane') return this.paneHeader(t);
     if (props()?.view === 'status') return this.statusBar(t);
     if (props()?.view === 'launcher') return this.launcher(t);
+    if (props()?.view === 'manage-launchers') return this.manageLaunchers(t);
+    if (props()?.view === 'remove-account') return this.removeAccountPrompt(t);
     if (props()?.view === 'project-empty') return this.emptyProject(t);
     if (props()?.view === 'close-project') return this.closePrompt(t);
     if (props()?.view === 'project-menu') return this.projectMenu(t);
