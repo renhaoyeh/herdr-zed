@@ -1,0 +1,11 @@
+{
+  "name": "devkits",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "install:herdr": "node herdr/install.js",
+    "test": "node --test"
+  },
+  "engines": { "node": ">=22" }
+}
