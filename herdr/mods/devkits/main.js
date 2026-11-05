@@ -11,7 +11,6 @@ import { Select, SelectState } from './components/select.js';
 import { Progress } from './components/progress.js';
 import { DialogContent, DialogTitle, DialogDescription, DialogFooter } from './components/dialog.js';
 import { AlertDialogContent, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from './components/alert-dialog.js';
-import { Empty, EmptyMedia, EmptyTitle, EmptyDescription } from './components/empty.js';
 import { Sidebar, SidebarContent, SidebarGroupLabel, SidebarMenuButton, SidebarFooter } from './components/sidebar.js';
 
 const glyph = (name, size = 14) => svg(`mods/devkits/assets/icons/${name}.svg`).size(size).flex_none();
@@ -579,17 +578,6 @@ export default class Devkits extends View {
         .child(glyph('folder'))));
   }
 
-  emptyProject(t) {
-    const project = this.projects().find(p => p.active);
-    return Empty(t).size_full().bg(t.background)
-      .child(EmptyMedia(t).child(glyph('folder', 24)))
-      .child(EmptyTitle().child(project?.name || 'Project'))
-      .child(EmptyDescription(t).child(project?.folder || ''))
-      .child(EmptyDescription(t).child('Choose an agent to start your first session.'))
-      .child(DropdownMenuTrigger(Button('add-first-session', t).mt(8), 280,
-        (cx, at) => this.newThread(cx, undefined, at)).child(glyph('plus')).child('Add session'));
-  }
-
   threadRow(thread, t) {
     const agent = thread.agent;
     const isFocused = thread.active;
@@ -629,7 +617,7 @@ export default class Devkits extends View {
     if (props()?.view === 'launcher') return this.launcher(t);
     if (props()?.view === 'manage-launchers') return this.manageLaunchers(t);
     if (props()?.view === 'remove-account') return this.removeAccountPrompt(t);
-    if (props()?.view === 'project-empty') return this.emptyProject(t);
+    if (props()?.view === 'project-empty') return div().size_full().bg(t.background);
     if (props()?.view === 'close-project') return this.closePrompt(t);
     if (props()?.view === 'project-menu') return this.projectMenu(t);
     if (props()?.view === 'project-picker') return this.projectPicker(t);
@@ -659,12 +647,6 @@ export default class Devkits extends View {
     setAgentOrder(visible.map(a => a.address));
     return Sidebar(t)
       .child(SidebarContent()
-        .when(!groups.length, el => el.child(Empty(t).px(16).py(28)
-          .child(EmptyMedia(t).child(glyph('folder', 24)))
-          .child(EmptyTitle().child('Open a project'))
-          .child(EmptyDescription(t).child('Choose a folder to start your workspace.'))
-          .child(Button('open-first-project', t).mt(4)
-            .on_click((_event, cx) => this.openProject(cx)).child('Open folder…'))))
         .children(groups.map(({ space, threads }) => v_flex().gap(1)
           .child(SidebarGroupLabel(`project-${space.id}`, space.active, t)
             .on_hover((hovered, cx) => { this.hoveredProject = hovered ? space.id : null; cx.notify(); })
@@ -691,6 +673,7 @@ export default class Devkits extends View {
             .when(!threads.length, el => el.child(div().px(12).py(6).text_size(12).text_color(t.muted).child('No threads yet')))))))
       .child(SidebarFooter(t)
         .child(Button('settings', t, { variant: 'ghost', size: 'icon' }).tooltip('Settings').accessibility_label('Settings')
+          .h_full().rounded(0)
           .on_click(() => run('app.settings')).child(glyph('settings')))
         .child(div().flex_1()));
   }
