@@ -20,7 +20,8 @@ export function DropdownMenuTrigger(trigger, width, open, align = 'start') {
 }
 
 export function DropdownMenuContent(id, height, t) {
-  return v_flex().id(id).w_full().h(height).p(4).rounded(8).border(1).border_color(t.border).shadow_md()
+  return v_flex().id(id).w_full().h_auto().when(height !== undefined, el => el.h(height))
+    .p(4).rounded(8).border(1).border_color(t.border).shadow_md()
     .bg(t.popover).text_color(t.foreground).text_size(13);
 }
 
