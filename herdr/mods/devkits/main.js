@@ -3,6 +3,10 @@ import { v_flex, h_flex } from 'gpui-base';
 import { agents, spaces, panes, theme, run, props, window, openOverlay, closeOverlay, setAgentOrder, layout, settings, pickFolder, shared, setShared, knownAgents, notify } from 'herdr';
 import { projectGroups, projectCatalog, folderKey } from './model.js';
 import { DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from './components/dropdown-menu.js';
+import { Button } from './components/button.js';
+import { AlertDialogContent, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from './components/alert-dialog.js';
+import { Empty, EmptyMedia, EmptyTitle, EmptyDescription } from './components/empty.js';
+import { Sidebar, SidebarContent, SidebarGroupLabel, SidebarMenuButton, SidebarFooter } from './components/sidebar.js';
 
 const stop = (_event, cx) => cx.stop_propagation();
 const glyph = (name, size = 14) => svg(`mods/devkits/assets/icons/${name}.svg`).size(size).flex_none();
@@ -24,12 +28,6 @@ export default class Devkits extends View {
       this.handle.focus();
       this.loadAgents(cx);
     }
-  }
-
-  button(id, icon, tooltip, action, t) {
-    return div().id(id).size(28).flex_none().flex().items_center().justify_center().rounded(6)
-      .text_color(t.muted).hover(el => el.bg(t.hover).text_color(t.foreground)).cursor_pointer()
-      .tooltip(tooltip).on_mouse_down('left', stop).on_click(action).child(glyph(icon));
   }
 
   openProject(cx) {
@@ -122,21 +120,19 @@ export default class Devkits extends View {
     const target = props();
     const confirm = () => { closeOverlay(target.overlay); this.finishCloseProject(target.project); };
     const cancel = () => closeOverlay(target.overlay);
-    return v_flex().id('close-project-dialog').size_full().p(20).gap(16).bg(t.popover).text_color(t.foreground)
+    return AlertDialogContent('close-project-dialog', t).accessibility_label(`Close ${target.project.name}?`)
       .track_focus(this.handle).on_key_down((event, cx) => {
         if (event.key === 'escape') cancel();
         else if (event.key === 'enter') confirm();
         else return;
         cx.stop_propagation();
       })
-      .child(div().text_size(16).font_semibold().child(`Close ${target.project.name}?`))
-      .child(div().flex_1().text_size(13).text_color(t.muted)
+      .child(AlertDialogTitle().child(`Close ${target.project.name}?`))
+      .child(AlertDialogDescription(t)
         .child('This ends every session in this workspace, including running agents. Your project files stay on disk.'))
-      .child(h_flex().gap(8).justify_end().children([
-        div().id('cancel-close-project').h(32).px(12).flex().items_center().rounded(6).border(1).border_color(t.input)
-          .text_size(12).cursor_pointer().hover(el => el.bg(t.hover)).on_click(cancel).child('Cancel'),
-        div().id('confirm-close-project').h(32).px(12).flex().items_center().rounded(6).bg(t.solid).text_color(t.solid_foreground)
-          .text_size(12).cursor_pointer().hover(el => el.opacity(0.9)).on_click(confirm).child('Close workspace'),
+      .child(AlertDialogFooter().children([
+        AlertDialogCancel('cancel-close-project', t).on_click(cancel).child('Cancel'),
+        AlertDialogAction('confirm-close-project', t).on_click(confirm).child('Close workspace'),
       ]));
   }
 
@@ -210,9 +206,12 @@ export default class Devkits extends View {
         .child(glyph('chevron-down', 12).text_color(t.muted)))
       .child(div().flex_1())
       .when(Boolean(win?.buttons), el => el
-        .child(this.button('minimize', 'minus', 'Minimize', () => run('window.minimize'), t))
-        .child(this.button('maximize', 'square', 'Maximize / restore', () => run('window.maximize'), t))
-        .child(this.button('close-window', 'close', 'Close window', () => run('window.close'), t)));
+        .child(Button('minimize', t, { variant: 'ghost', size: 'icon' }).tooltip('Minimize').accessibility_label('Minimize')
+          .on_click(() => run('window.minimize')).child(glyph('minus')))
+        .child(Button('maximize', t, { variant: 'ghost', size: 'icon' }).tooltip('Maximize / restore').accessibility_label('Maximize / restore')
+          .on_click(() => run('window.maximize')).child(glyph('square')))
+        .child(Button('close-window', t, { variant: 'ghost', size: 'icon' }).tooltip('Close window').accessibility_label('Close window')
+          .on_click(() => run('window.close')).child(glyph('close'))));
   }
 
   brand(t) {
@@ -237,10 +236,14 @@ export default class Devkits extends View {
         .border(1).border_color(t.border).text_size(10).text_color(t.muted)
         .child(div().size(5).rounded(3).bg(stateColor(p.status, t)))
         .child(p.status === 'blocked' ? 'Needs you' : `${p.status[0].toUpperCase()}${p.status.slice(1)}`)))
-      .child(this.button(`split-right-${p.pane}`, 'split-right', 'Split right', () => run('pane.split', { pane: p.pane, direction: 'right' }), t))
-      .child(this.button(`split-down-${p.pane}`, 'split-down', 'Split down', () => run('pane.split', { pane: p.pane, direction: 'down' }), t))
-      .child(this.button(`zoom-${p.pane}`, 'square', p.zoomed ? 'Restore pane' : 'Zoom pane', () => run('pane.zoom', { pane: p.pane }), t))
-      .child(this.button(`close-${p.pane}`, 'close', 'Close pane', () => run('pane.close', { pane: p.pane }), t));
+      .child(Button(`split-right-${p.pane}`, t, { variant: 'ghost', size: 'icon' }).tooltip('Split right').accessibility_label('Split right')
+        .on_click(() => run('pane.split', { pane: p.pane, direction: 'right' })).child(glyph('split-right')))
+      .child(Button(`split-down-${p.pane}`, t, { variant: 'ghost', size: 'icon' }).tooltip('Split down').accessibility_label('Split down')
+        .on_click(() => run('pane.split', { pane: p.pane, direction: 'down' })).child(glyph('split-down')))
+      .child(Button(`zoom-${p.pane}`, t, { variant: 'ghost', size: 'icon' }).tooltip(p.zoomed ? 'Restore pane' : 'Zoom pane')
+        .accessibility_label(p.zoomed ? 'Restore pane' : 'Zoom pane').on_click(() => run('pane.zoom', { pane: p.pane })).child(glyph('square')))
+      .child(Button(`close-${p.pane}`, t, { variant: 'ghost', size: 'icon' }).tooltip('Close pane').accessibility_label('Close pane')
+        .on_click(() => run('pane.close', { pane: p.pane })).child(glyph('close')));
   }
 
   statusBar(t) {
@@ -255,14 +258,12 @@ export default class Devkits extends View {
 
   emptyProject(t) {
     const project = this.projects().find(p => p.active);
-    return v_flex().size_full().items_center().justify_center().gap(12).bg(t.background).text_color(t.foreground)
-      .child(div().size(48).flex().items_center().justify_center().rounded(10).border(1).border_color(t.border)
-        .child(glyph('folder', 24).text_color(t.muted)))
-      .child(div().text_size(18).font_semibold().child(project?.name || 'Project'))
-      .child(div().text_size(12).text_color(t.muted).child(project?.folder || ''))
-      .child(div().text_size(13).text_color(t.muted).child('Choose an agent to start your first session.'))
-      .child(h_flex().id('add-first-session').mt(8).h(34).px(12).gap(8).items_center().rounded(6)
-        .bg(t.solid).text_color(t.solid_foreground).text_size(12).cursor_pointer()
+    return Empty(t).size_full().bg(t.background)
+      .child(EmptyMedia(t).child(glyph('folder', 24)))
+      .child(EmptyTitle().child(project?.name || 'Project'))
+      .child(EmptyDescription(t).child(project?.folder || ''))
+      .child(EmptyDescription(t).child('Choose an agent to start your first session.'))
+      .child(Button('add-first-session', t).mt(8)
         .on_click((_event, cx) => this.newThread(cx)).child(glyph('plus')).child('Add session'));
   }
 
@@ -271,8 +272,7 @@ export default class Devkits extends View {
     const isFocused = thread.active;
     const p = agent?.program;
     const icon = p?.icon ? (p.tint ? svg(p.icon).size(14).text_color(t.muted) : image(p.icon).size(14)) : glyph('terminal', 14).text_color(t.muted);
-    return h_flex().id(`thread-${thread.tab.id}`).h(32).flex_none().mx(6).px(8).gap(8).items_center().rounded(4)
-      .bg(isFocused ? t.selected : t.chrome).hover(el => el.bg(t.hover)).cursor_pointer()
+    return SidebarMenuButton(`thread-${thread.tab.id}`, isFocused, t)
       .on_hover((hovered, cx) => { this.hovered = hovered ? thread.tab.id : null; cx.notify(); })
       .tooltip(`${thread.title}\n${p?.name || agent?.app || 'Terminal'} · ${thread.status}`)
       .on_click(() => {
@@ -283,10 +283,9 @@ export default class Devkits extends View {
       .child(div().flex_1().min_w(0).truncate().text_size(13).text_color(t.foreground)
         .when(isFocused, el => el.font_medium()).child(thread.title))
       .child(div().size(5).flex_none().rounded(3).bg(stateColor(thread.status, t)))
-      .child(div().id(`close-thread-${thread.tab.id}`).size(20).flex_none().flex().items_center().justify_center().rounded(4)
+      .child(Button(`close-thread-${thread.tab.id}`, t, { variant: 'ghost', size: 'icon-sm' })
         .opacity(isFocused || this.hovered === thread.tab.id ? 1 : 0)
-        .text_color(t.muted).hover(el => el.bg(t.raised).text_color(t.foreground)).cursor_pointer()
-        .tooltip('Close thread').on_mouse_down('left', stop)
+        .tooltip('Close thread').accessibility_label('Close thread')
         .on_click((_event, cx) => { cx.stop_propagation(); run('tab.close', { id: thread.tab.id }); })
         .child(glyph('close', 12)));
   }
@@ -325,19 +324,16 @@ export default class Devkits extends View {
     const groups = projectGroups(workspaces, all);
     const visible = groups.filter(g => !this.folded.has(g.space.id)).flatMap(g => g.threads.flatMap(thread => thread.agents));
     setAgentOrder(visible.map(a => a.address));
-    return v_flex().id('devkits-sidebar').size_full().min_h(0).bg(t.chrome).text_color(t.foreground)
-      .child(v_flex().id('project-list').flex_1().min_h(0).overflow_y_scrollbar().gap(8).pt(4)
-        .when(!groups.length, el => el.child(v_flex().px(16).py(28).gap(10).items_center().text_center()
-          .child(div().size(40).flex().items_center().justify_center().rounded(10).border(1).border_color(t.border).bg(t.raised)
-            .child(glyph('folder', 20).text_color(t.muted)))
-          .child(div().text_size(13).font_medium().child('Open a project'))
-          .child(div().text_size(12).text_color(t.muted).child('Choose a folder to start your workspace.'))
-          .child(div().id('open-first-project').mt(4).px(12).py(7).rounded(6)
-            .bg(t.solid).text_color(t.solid_foreground).text_size(12).cursor_pointer()
+    return Sidebar(t)
+      .child(SidebarContent()
+        .when(!groups.length, el => el.child(Empty(t).px(16).py(28)
+          .child(EmptyMedia(t).child(glyph('folder', 24)))
+          .child(EmptyTitle().child('Open a project'))
+          .child(EmptyDescription(t).child('Choose a folder to start your workspace.'))
+          .child(Button('open-first-project', t).mt(4)
             .on_click((_event, cx) => this.openProject(cx)).child('Open folder…'))))
         .children(groups.map(({ space, threads }) => v_flex().gap(1)
-          .child(h_flex().id(`project-${space.id}`).h(32).px(8).gap(4).items_center().text_size(12).font_medium().cursor_pointer()
-            .text_color(space.active ? t.foreground : t.muted).hover(el => el.bg(t.hover))
+          .child(SidebarGroupLabel(`project-${space.id}`, space.active, t)
             .on_hover((hovered, cx) => { this.hoveredProject = hovered ? space.id : null; cx.notify(); })
             .tooltip(space.folder).on_click((event, cx) => {
               const modifier = window()?.platform === 'macos' ? event?.modifiers?.platform : event?.modifiers?.control;
@@ -349,17 +345,20 @@ export default class Devkits extends View {
               .child(glyph(this.folded.has(space.id) ? 'chevron-right' : 'chevron-down', 12)))
             .when(Boolean(space.machine), el => el.child(div().text_size(9).text_color(t.muted).child(space.machine)))
             .child(div().flex_1())
-            .child(this.button(`new-thread-${space.id}`, 'plus', `Add session in ${space.name}`, (_event, cx) => {
+            .child(Button(`new-thread-${space.id}`, t, { variant: 'ghost', size: 'icon' })
+              .tooltip(`Add session in ${space.name}`).accessibility_label(`Add session in ${space.name}`).on_click((_event, cx) => {
               cx.stop_propagation(); this.newThread(cx, space.id);
-            }, t).opacity(this.hoveredProject === space.id ? 1 : 0))
-            .child(this.button(`project-menu-${space.id}`, 'ellipsis', `More actions for ${space.name}`, (_event, cx) => {
+            }).child(glyph('plus')).opacity(this.hoveredProject === space.id ? 1 : 0))
+            .child(Button(`project-menu-${space.id}`, t, { variant: 'ghost', size: 'icon' })
+              .tooltip(`More actions for ${space.name}`).accessibility_label(`More actions for ${space.name}`).on_click((_event, cx) => {
               cx.stop_propagation(); openOverlay({ mod: 'devkits', kind: 'popup', frame: 'none', width: 200,
                 props: { view: 'project-menu', project: space } });
-            }, t).opacity(this.hoveredProject === space.id ? 1 : 0)))
+            }).child(glyph('ellipsis')).opacity(this.hoveredProject === space.id ? 1 : 0)))
           .when(!this.folded.has(space.id), el => el.children(threads.map(thread => this.threadRow(thread, t)))
             .when(!threads.length, el => el.child(div().px(12).py(6).text_size(12).text_color(t.muted).child('No threads yet')))))))
-      .child(h_flex().id('sidebar-bottom-bar').h(32).flex_none().px(4).gap(4).border_t(1).border_color(t.border).items_center()
-        .child(this.button('settings', 'settings', 'Settings', () => run('app.settings'), t))
+      .child(SidebarFooter(t)
+        .child(Button('settings', t, { variant: 'ghost', size: 'icon' }).tooltip('Settings').accessibility_label('Settings')
+          .on_click(() => run('app.settings')).child(glyph('settings')))
         .child(div().flex_1()));
   }
 }
