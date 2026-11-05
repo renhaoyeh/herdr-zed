@@ -3,6 +3,7 @@ import { v_flex, h_flex } from 'gpui-base';
 import { agents, spaces, panes, theme, run, props, window, openOverlay, closeOverlay, setAgentOrder, layout, settings, pickFolder, shared, setShared, knownAgents, notify } from 'herdr';
 import { projectGroups, projectCatalog, folderKey, launcherChoices } from './model.js';
 import CodexLogin, { removeCodexAccount } from './codex-login.js';
+import FileViewer from './files.js';
 import { DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from './components/dropdown-menu.js';
 import { Button } from './components/button.js';
 import { Checkbox } from './components/checkbox.js';
@@ -20,6 +21,11 @@ const launcherIcon = (agent, t) => !agent ? glyph('terminal', 16) : agent.icon
 
 export default class Devkits extends View {
   init(_props, cx) {
+    if (props()?.view === 'files') {
+      this.files = new FileViewer();
+      this.files.init(cx);
+      return;
+    }
     if (props()?.view === 'codex-login') {
       this.login = new CodexLogin();
       this.login.init(props(), cx);
@@ -63,6 +69,7 @@ export default class Devkits extends View {
   }
 
   selectProject(project) {
+    setShared('devkits.files', null);
     setShared('devkits.selected-project', project.id);
     if (!project.pending) run('space.select', { id: project.id });
     run('layout.select', { stack: 'workspace-view', child: project.pending ? 'project-empty' : 'main' });
@@ -172,6 +179,7 @@ export default class Devkits extends View {
   startThread(agent) {
     const target = props();
     closeOverlay(target.overlay);
+    setShared('devkits.files', null);
     setShared('devkits.selected-project', null);
     run('layout.select', { stack: 'workspace-view', child: 'main' });
     if (target.space) run('tab.new', { space: target.space, folder: target.folder, ...(agent ? { name: agent.name, argv: agent.run } : {}) });
@@ -186,6 +194,7 @@ export default class Devkits extends View {
   }
 
   async close() {
+    this.files?.close();
     await this.login?.close();
   }
 
@@ -420,12 +429,17 @@ export default class Devkits extends View {
 
   statusBar(t) {
     const space = this.projects().find(s => s.active);
-    return h_flex().size_full().px(16).gap(8).items_center().bg(t.background).border_t(1).border_color(t.border)
+    return h_flex().size_full().pl(16).pr(4).gap(8).items_center().bg(t.background).border_t(1).border_color(t.border)
       .text_size(11).text_color(t.muted).child(glyph('terminal', 12)).child(space?.machine || 'Local workspace')
       .when(Boolean(space?.branch), el => el.child(glyph('branch', 12)).child(space.branch))
       .child(div().flex_1())
-      .child(div().id('commands').px(6).py(3).rounded(4).hover(el => el.bg(t.hover)).cursor_pointer()
-        .on_click(() => run('app.palette')).child('Commands'));
+      .when(Boolean(space), el => el.child(Button('open-files', t, { variant: 'ghost', size: 'icon' })
+        .h_full().rounded(0)
+        .bg(shared('devkits.files') === space.id ? t.selected : t.background)
+        .tooltip(shared('devkits.files') === space.id ? 'Hide files' : 'Show files')
+        .accessibility_label(shared('devkits.files') === space.id ? 'Hide files' : 'Show files')
+        .on_click(() => setShared('devkits.files', shared('devkits.files') === space.id ? null : space.id))
+        .child(glyph('folder'))));
   }
 
   emptyProject(t) {
@@ -462,8 +476,9 @@ export default class Devkits extends View {
         .child(glyph('close', 12)));
   }
 
-  render() {
+  render(cx) {
     const t = theme();
+    if (props()?.view === 'files') return this.files.render(this.projects().find(project => project.active), cx);
     if (props()?.view === 'codex-login') return this.login.render();
     if (props()?.view === 'header') return this.header(t);
     if (props()?.view === 'brand') return this.brand(t);
@@ -484,6 +499,7 @@ export default class Devkits extends View {
     const selection = `${active?.id || ''}:${active?.tabs.find(tab => tab.active)?.id || ''}`;
     if (shared('devkits.native-selection') !== selection) {
       if (shared('devkits.native-selection') !== undefined) {
+        setShared('devkits.files', null);
         setShared('devkits.selected-project', null);
         run('layout.select', { stack: 'workspace-view', child: 'main' });
       }
@@ -491,7 +507,7 @@ export default class Devkits extends View {
     }
     const workspaces = this.projects();
     const chosen = workspaces.find(p => p.active);
-    const content = chosen?.pending ? 'project-empty' : 'main';
+    const content = chosen && shared('devkits.files') === chosen.id ? 'files' : chosen?.pending ? 'project-empty' : 'main';
     if (this.shownContent !== content) {
       this.shownContent = content;
       run('layout.select', { stack: 'workspace-view', child: content });
