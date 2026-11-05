@@ -1,12 +1,13 @@
 import { View, div, svg, image } from 'gpui-kit';
 import { v_flex, h_flex } from 'gpui-base';
 import { agents, spaces, panes, theme, run, props, window, openOverlay, closeOverlay, setAgentOrder, layout, settings, pickFolder, shared, setShared, knownAgents, notify, exec, appHome } from 'herdr';
-import { projectGroups, projectCatalog, folderKey, launcherChoices, quotaResetLabel } from './model.js';
+import { projectGroups, projectCatalog, folderKey, launcherChoices, codexPermissionModes, isCodexLauncher, launcherArgv, quotaResetLabel } from './model.js';
 import CodexLogin, { removeCodexAccount } from './codex-login.js';
 import FileViewer from './files.js';
 import { DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from './components/dropdown-menu.js';
 import { Button } from './components/button.js';
 import { Checkbox } from './components/checkbox.js';
+import { Select, SelectState } from './components/select.js';
 import { Progress } from './components/progress.js';
 import { DialogContent, DialogTitle, DialogDescription, DialogFooter } from './components/dialog.js';
 import { AlertDialogContent, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from './components/alert-dialog.js';
@@ -15,13 +16,19 @@ import { Sidebar, SidebarContent, SidebarGroupLabel, SidebarMenuButton, SidebarF
 
 const glyph = (name, size = 14) => svg(`mods/devkits/assets/icons/${name}.svg`).size(size).flex_none();
 const stateColor = (status, t) => t[status] || t.muted;
-
 const launcherSections = ['Terminal', 'Agents', 'Your accounts'];
 const launcherIcon = (agent, t) => !agent ? glyph('terminal', 16) : agent.icon
   ? (agent.tint ? svg(agent.icon).size(16).text_color(t.foreground) : image(agent.icon).size(16)) : glyph('mark', 16);
 
 export default class Devkits extends View {
   init(_props, cx) {
+    // Return an already-open permissions dialog to Manage during live updates.
+    if (props()?.view === 'codex-permissions') {
+      const target = props(); closeOverlay(target.overlay);
+      openOverlay({ mod: 'devkits', kind: 'dialog', modal: true, width: 680, height: 0.8,
+        props: { view: 'manage-launchers', space: target.space } });
+      return;
+    }
     if (props()?.view === 'usage-details') cx.timer.every(60000, cx => cx.notify());
     if (props()?.view === 'header') {
       this.refreshUsage(cx);
@@ -47,6 +54,7 @@ export default class Devkits extends View {
     }
     if (['launcher', 'manage-launchers'].includes(props()?.view)) {
       this.launchers = [];
+      this.permissionSelects = new Map();
       this.manageIndex = 0;
       this.handle = cx.focus_handle();
       this.handle.focus();
@@ -176,6 +184,7 @@ export default class Devkits extends View {
         const project = spaces().find(s => s.id === props().space);
         this.launchers = (await knownAgents({ on: project?.machine }))
           .filter(agent => agent.installed && (!project?.machine || !agent.key.startsWith('devkits-codex-')));
+        if (props().view === 'manage-launchers') this.preparePermissionSelects(cx);
       } catch { this.launchError = true; }
       this.loading = false;
       cx.notify();
@@ -184,12 +193,15 @@ export default class Devkits extends View {
 
   startThread(agent) {
     const target = props();
+    let argv;
+    try { argv = launcherArgv(agent, shared('devkits.codex-permissions')?.[agent?.key]); }
+    catch (error) { notify({ title: 'Could not start session', body: error.message, level: 'error' }); return; }
     closeOverlay(target.overlay);
     setShared('devkits.files', null);
     setShared('devkits.selected-project', null);
     run('layout.select', { stack: 'workspace-view', child: 'main' });
-    if (target.space) run('tab.new', { space: target.space, folder: target.folder, ...(agent ? { name: agent.name, argv: agent.run } : {}) });
-    else run('space.new', { name: target.projectName, folder: target.folder, machine: '', ...(agent ? { tab: agent.name, argv: agent.run } : {}) });
+    if (target.space) run('tab.new', { space: target.space, folder: target.folder, ...(agent ? { name: agent.name, argv } : {}) });
+    else run('space.new', { name: target.projectName, folder: target.folder, machine: '', ...(agent ? { tab: agent.name, argv } : {}) });
   }
 
   addCodexAccount() {
@@ -229,6 +241,9 @@ export default class Devkits extends View {
           for (const setting of ['devkits.hidden-launchers', 'devkits.launcher-order']) {
             setShared(setting, (shared(setting) || []).filter(item => item !== key));
           }
+          const permissions = { ...(shared('devkits.codex-permissions') || {}) };
+          delete permissions[target.account.key];
+          setShared('devkits.codex-permissions', permissions);
           this.removing = false; back();
         } catch (error) { this.removing = false; this.removeError = error.message; cx.notify(); }
       });
@@ -248,6 +263,13 @@ export default class Devkits extends View {
         AlertDialogAction('confirm-remove-account', t).disabled(Boolean(this.removing))
           .on_click((_event, cx) => confirm(cx)).child(this.removing ? 'Removing…' : 'Remove'),
       ]));
+  }
+
+  preparePermissionSelects(cx) {
+    this.permissionSelects ||= new Map();
+    for (const agent of this.launchers.filter(isCodexLauncher)) {
+      if (!this.permissionSelects.has(agent.key)) this.permissionSelects.set(agent.key, new SelectState(cx));
+    }
   }
 
   manageLaunchers(t) {
@@ -321,6 +343,18 @@ export default class Devkits extends View {
             .accessibility_label(choice.name).on_change((_checked, cx) => toggle(choice.key, cx))
             .child(launcherIcon(choice.agent, t).flex_none())
             .child(div().flex_1().min_w(0).truncate().text_size(13).child(choice.name)))
+          .when(isCodexLauncher(choice.agent), el => {
+            const key = choice.agent.key;
+            const colors = { default: t.muted, 'read-only': t.done, 'workspace-write': t.working, 'danger-full-access': t.ansi1 };
+            return el.child(Select(`permissions-${key}`, this.permissionSelects.get(key),
+              shared('devkits.codex-permissions')?.[key] || 'default',
+              codexPermissionModes.map(mode => ({ ...mode, color: colors[mode.key] })),
+              `Default permissions for ${choice.name}`, mode => {
+                const saved = { ...(shared('devkits.codex-permissions') || {}) };
+                if (mode === 'default') delete saved[key]; else saved[key] = mode;
+                setShared('devkits.codex-permissions', saved);
+              }, t));
+          })
           .when(local && choice.agent?.key === 'codex', el => el
             .child(Button('add-codex-account', t, { variant: 'outline' })
               .tooltip('Add a Codex account').accessibility_label('Add a Codex account')
@@ -581,6 +615,7 @@ export default class Devkits extends View {
 
   render(cx) {
     const t = theme();
+    if (props()?.view === 'codex-permissions') return div();
     if (props()?.view === 'files') return this.files.render(this.projects().find(project => project.active), cx);
     if (props()?.view === 'codex-login') return this.login.render();
     if (props()?.view === 'header') {
