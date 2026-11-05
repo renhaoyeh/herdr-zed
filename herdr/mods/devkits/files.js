@@ -1,11 +1,11 @@
 import { div, svg } from 'gpui-kit';
-import { h_flex, v_flex, Editor, EditorState } from 'gpui-base';
+import { h_flex, v_flex, Editor, EditorState, TextView } from 'gpui-base';
 import { exec, readTextFile, watchFolder, settings, theme } from 'herdr';
 import { Button } from './components/button.js';
 import { Empty, EmptyTitle, EmptyDescription } from './components/empty.js';
 
 const icon = name => svg(`mods/devkits/assets/icons/${name}.svg`).size(14).flex_none();
-const LANG = { ts: 'js', tsx: 'js', jsx: 'js', mjs: 'js', cjs: 'js', mts: 'js', cts: 'js', jsonc: 'json', toml: 'yaml', vue: 'html', svelte: 'html', md: 'markdown' };
+const LANG = { ts: 'js', tsx: 'js', jsx: 'js', mjs: 'js', cjs: 'js', mts: 'js', cts: 'js', jsonc: 'json', toml: 'yaml', vue: 'html', svelte: 'html' };
 const PER_FOLDER = 500, TOTAL = 5000;
 
 export async function directory(path, on) {
@@ -27,6 +27,7 @@ export default class FileViewer {
     this.dirty = new Set();
     this.errors = new Map();
     this.request = 0;
+    this.markdown = null;
   }
 
   close() {
@@ -36,6 +37,7 @@ export default class FileViewer {
     this.request++;
     this.code?.release();
     this.code = null;
+    this.markdown = null;
   }
 
   refresh(project, cx) {
@@ -111,7 +113,7 @@ export default class FileViewer {
 
   show(path, cx, updating = false) {
     const request = ++this.request, context = this.context;
-    if (!updating) { this.code?.release(); this.code = null; }
+    if (!updating) { this.code?.release(); this.code = null; this.markdown = null; }
     this.file = path; this.fileError = null;
     cx.spawn(async cx => {
       try {
@@ -121,6 +123,7 @@ export default class FileViewer {
         if (text.includes('\0')) throw new Error('Binary file — no text preview.');
         // shortcut: cap preview rendering at 400k characters; add paging if larger files are needed.
         const value = text.length > 400000 ? text.slice(0, 400000) + '\n… (preview truncated)' : text;
+        if (/\.(md|markdown)$/i.test(path)) { this.markdown = value; return; }
         if (this.code) {
           if (this.code.value() !== value) this.code.set_value(value);
           return;
@@ -133,6 +136,7 @@ export default class FileViewer {
       } catch (error) {
         if (request === this.request && this.context === context) {
           this.code?.release(); this.code = null;
+          this.markdown = null;
           this.fileError = String(error.message || 'Cannot preview this file (unreadable, non-UTF-8, or larger than 1 MiB).');
         }
       } finally { cx.notify(); }
@@ -194,7 +198,9 @@ export default class FileViewer {
         .child(h_flex().h(40).flex_none().px(14).gap(8).items_center().border_b(1).border_color(t.border)
           .child(div().flex_1().min_w(0).truncate().text_size(12).tooltip(this.file || '').child(this.file || 'File preview'))
           .child(div().text_size(11).text_color(t.muted).child('Read only')))
-        .child(this.code ? Editor.new(this.code).flex_1().min_h(0) : Empty(t).flex_1()
+        .child(this.markdown !== null ? v_flex().id(`markdown-preview-${this.file}`).flex_1().min_h(0).overflow_y_scrollbar().p(24)
+          .child(TextView.markdown(`markdown-${this.file}`, this.markdown).selectable(true).scrollable(false).w_full())
+          : this.code ? Editor.new(this.code).flex_1().min_h(0) : Empty(t).flex_1()
           .child(EmptyTitle().child(this.file ? this.fileError ? 'Preview unavailable' : 'Loading file…' : 'Select a file'))
           .child(EmptyDescription(t).child(this.fileError || (this.file ? '' : 'Choose a file from the project tree.')))));
   }

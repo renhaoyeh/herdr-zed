@@ -129,6 +129,41 @@ test('automatic reload preserves expanded folders, selection and editor; deleted
   assert.match(view.fileError, /no longer available/);
 });
 
+test('Markdown previews handle empty files and live updates, and release the code editor when switching', async () => {
+  let text = 'const a = 1;';
+  const { view, cx, editors, drain } = await scenario(async () => text);
+  view.show('main.ts', cx); await drain();
+  const code = view.code;
+  text = '# Title\n\n- First\n- Second\n\n```js\nconst a = 1;\n```';
+  view.show('README.MD', cx); await drain();
+  assert.equal(code.released, true); assert.equal(view.code, null);
+  assert.equal(view.markdown, text); assert.equal(editors.length, 1);
+  view.expanded.add('src'); view.cursor = 'README.MD';
+  text = '# Updated'; view.reload(cx); await drain();
+  assert.equal(view.markdown, '# Updated'); assert.equal(view.expanded.has('src'), true);
+  assert.equal(view.cursor, 'README.MD');
+  text = ''; view.show('empty.markdown', cx); await drain();
+  assert.equal(view.markdown, ''); assert.equal(view.code, null);
+  text = 'plain text'; view.show('notes.txt', cx); await drain();
+  assert.equal(view.markdown, null); assert.equal(view.code.value(), 'plain text');
+  text = 'x'.repeat(400001); view.show('large.md', cx); await drain();
+  assert.ok(view.markdown.endsWith('(preview truncated)'));
+  text = null; view.reload(cx); await drain();
+  assert.equal(view.markdown, null); assert.match(view.fileError, /no longer available/);
+  text = 'a\0b'; view.show('binary.md', cx); await drain();
+  assert.equal(view.markdown, null); assert.match(view.fileError, /Binary/);
+});
+
+test('late Markdown reads cannot overwrite another file or reopen a closed preview', async () => {
+  const replies = [];
+  const { view, cx, drain } = await scenario(() => new Promise(resolve => replies.push(resolve)));
+  view.show('old.md', cx); view.show('new.ts', cx);
+  replies[1]('new code'); replies[0]('# Old'); await drain();
+  assert.equal(view.markdown, null); assert.equal(view.code.value(), 'new code');
+  view.show('closed.md', cx); view.close(); replies[2]('# Closed'); await drain();
+  assert.equal(view.markdown, null); assert.equal(view.code, null);
+});
+
 test('native watch coalesces events, ignores .git, and stops on project switch or close', async () => {
   const waits = [], tasks = [], loads = [];
   const { FileViewer } = await load({ watchFolder: path => new Promise((resolve, reject) => waits.push({ path, resolve, reject })),
