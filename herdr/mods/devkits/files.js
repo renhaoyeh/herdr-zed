@@ -195,13 +195,10 @@ export default class FileViewer {
             .child(this.errors.get('') || (this.pending.has('') ? 'Loading files…' : 'No files'))))
           .when(this.limited, el => el.child(div().p(12).text_size(11).text_color(t.muted).child('List limited to 500 entries per folder and 5,000 total.')))))
       .child(v_flex().flex_1().min_w(0).min_h(0).h_full()
-        .child(h_flex().h(40).flex_none().px(14).gap(8).items_center().border_b(1).border_color(t.border)
-          .child(div().flex_1().min_w(0).truncate().text_size(12).tooltip(this.file || '').child(this.file || 'File preview'))
-          .child(div().text_size(11).text_color(t.muted).child('Read only')))
-        .child(this.markdown !== null ? v_flex().id(`markdown-preview-${this.file}`).flex_1().min_h(0).overflow_y_scrollbar().p(24)
+        .when(this.file, el => el.child(this.markdown !== null ? v_flex().id(`markdown-preview-${this.file}`).flex_1().min_h(0).overflow_y_scrollbar().p(24)
           .child(TextView.markdown(`markdown-${this.file}`, this.markdown).selectable(true).scrollable(false).w_full())
           : this.code ? Editor.new(this.code).flex_1().min_h(0) : Empty(t).flex_1()
-          .child(EmptyTitle().child(this.file ? this.fileError ? 'Preview unavailable' : 'Loading file…' : 'Select a file'))
-          .child(EmptyDescription(t).child(this.fileError || (this.file ? '' : 'Choose a file from the project tree.')))));
+          .child(EmptyTitle().child(this.fileError ? 'Preview unavailable' : 'Loading file…'))
+          .child(EmptyDescription(t).child(this.fileError || '')))));
   }
 }
