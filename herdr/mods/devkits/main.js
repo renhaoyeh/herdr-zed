@@ -25,7 +25,7 @@ export default class Devkits extends View {
     // Return an already-open permissions dialog to Manage during live updates.
     if (props()?.view === 'codex-permissions') {
       const target = props(); closeOverlay(target.overlay);
-      openOverlay({ mod: 'devkits', kind: 'dialog', modal: true, width: 680, height: 0.8,
+      openOverlay({ mod: 'devkits', kind: 'dialog', modal: false, width: 680, height: 0.8,
         props: { view: 'manage-launchers', space: target.space } });
       return;
     }
@@ -228,7 +228,7 @@ export default class Devkits extends View {
     const back = () => {
       if (this.removing) return;
       closeOverlay(target.overlay);
-      openOverlay({ mod: 'devkits', kind: 'dialog', modal: true, width: 680, height: 0.8,
+      openOverlay({ mod: 'devkits', kind: 'dialog', modal: false, width: 680, height: 0.8,
         props: { view: 'manage-launchers', space: target.space } });
     };
     const confirm = cx => {
@@ -405,7 +405,7 @@ export default class Devkits extends View {
       .child(row('manage-launchers-open', 'Manage…', glyph('settings'), () => {
         const target = props();
         closeOverlay(target.overlay);
-        openOverlay({ mod: 'devkits', kind: 'dialog', modal: true, width: 680, height: 0.8,
+        openOverlay({ mod: 'devkits', kind: 'dialog', modal: false, width: 680, height: 0.8,
           props: { view: 'manage-launchers', space: target.space } });
       }, ''));
   }
