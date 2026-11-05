@@ -2,6 +2,7 @@ import { View, div, svg, image } from 'gpui-kit';
 import { v_flex, h_flex } from 'gpui-base';
 import { agents, spaces, panes, theme, run, props, window, openOverlay, closeOverlay, setAgentOrder, layout, settings, pickFolder, shared, setShared, knownAgents, notify } from 'herdr';
 import { projectGroups, projectCatalog, folderKey } from './model.js';
+import { DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from './components/dropdown-menu.js';
 
 const stop = (_event, cx) => cx.stop_propagation();
 const glyph = (name, size = 14) => svg(`mods/devkits/assets/icons/${name}.svg`).size(size).flex_none();
@@ -66,15 +67,14 @@ export default class Devkits extends View {
   projectMenu(t) {
     const target = props();
     const close = () => { closeOverlay(target.overlay); this.closeProject(target.project); };
-    return v_flex().id('project-menu').w_full().h(44).p(4).bg(t.popover).text_color(t.foreground).text_size(12)
+    return DropdownMenuContent('project-menu', 42, t)
       .track_focus(this.handle).on_key_down((event, cx) => {
         if (event.key === 'enter') close();
         else if (event.key === 'escape') closeOverlay(target.overlay);
         else return;
         cx.stop_propagation();
       })
-      .child(h_flex().id('menu-close-project').h(36).px(10).gap(8).items_center().rounded(6)
-        .hover(el => el.bg(t.hover)).cursor_pointer().on_click(close).child(glyph('close')).child('Close workspace'));
+      .child(DropdownMenuItem('menu-close-project', t).on_click(close).child(glyph('close')).child('Close workspace'));
   }
 
   projectPicker(t) {
@@ -83,9 +83,7 @@ export default class Devkits extends View {
       if (project) { closeOverlay(props().overlay); this.selectProject(project); }
       else this.openProject(cx);
     };
-    return v_flex().id('project-picker').w_full().h(Math.min(360, 80 + projects.length * 33)).p(4)
-      .rounded(8).border(1).border_color(t.border).shadow_md()
-      .bg(t.popover).text_color(t.foreground).text_size(13).track_focus(this.handle)
+    return DropdownMenuContent('project-picker', Math.min(360, 80 + projects.length * 33), t).track_focus(this.handle)
       .on_key_down((event, cx) => {
         if (event.key === 'escape') { cx.stop_propagation(); closeOverlay(props().overlay); return; }
         if (event.key === 'enter') {
@@ -98,18 +96,18 @@ export default class Devkits extends View {
         else return;
         cx.stop_propagation(); cx.notify();
       })
-      .child(div().h(28).flex_none().px(8).flex().items_center().font_medium().text_size(12).text_color(t.muted).child('Projects'))
+      .child(DropdownMenuLabel(t).child('Projects'))
       .child(v_flex().id('picker-projects').flex_1().min_h(0).overflow_y_scrollbar().gap(1)
-        .children(projects.map((project, index) => h_flex().id(`picker-project-${project.id}`).h(32).flex_none().px(8).gap(8)
-          .items_center().rounded(4).bg(this.projectIndex === index ? t.selected : t.popover)
+        .children(projects.map((project, index) => DropdownMenuItem(`picker-project-${project.id}`, t)
+          .bg(this.projectIndex === index ? t.selected : t.popover)
           .tooltip(project.folder).on_hover((inside, cx) => { if (inside) { this.projectIndex = index; cx.notify(); } })
-          .hover(el => el.bg(t.hover)).cursor_pointer().on_click((_event, cx) => choose(project, cx))
+          .on_click((_event, cx) => choose(project, cx))
           .child(glyph('folder').text_color(t.muted))
           .child(div().flex_1().min_w(0).truncate().child(project.name))
           .child(div().size(14).flex_none().when(project.active, el => el.child(glyph('check').text_color(t.foreground)))))))
-      .child(div().h(1).flex_none().my(4).bg(t.border))
-      .child(h_flex().id('picker-open-folder').h(32).flex_none().px(8).gap(8).items_center().rounded(4)
-        .bg(this.projectIndex === projects.length ? t.selected : t.popover).hover(el => el.bg(t.hover)).cursor_pointer()
+      .child(DropdownMenuSeparator(t))
+      .child(DropdownMenuItem('picker-open-folder', t)
+        .bg(this.projectIndex === projects.length ? t.selected : t.popover)
         .on_hover((inside, cx) => { if (inside) { this.projectIndex = projects.length; cx.notify(); } })
         .on_click((_event, cx) => choose(null, cx)).child(glyph('folder-plus').text_color(t.muted)).child('Open folder…'));
   }
@@ -145,7 +143,7 @@ export default class Devkits extends View {
   newThread(cx, id) {
     const project = this.projects().find(s => id ? s.id === id : s.active);
     if (!project) { this.openProject(cx); return; }
-    openOverlay({ mod: 'devkits', kind: 'popup', width: 280, height: 360,
+    openOverlay({ mod: 'devkits', kind: 'popup', frame: 'none', width: 280,
       props: { view: 'launcher', space: project.pending ? null : project.id, folder: project.folder, projectName: project.name } });
   }
 
@@ -172,20 +170,19 @@ export default class Devkits extends View {
   }
 
   launcher(t) {
-    const row = (id, name, icon, action, hint) => h_flex().id(id).h(36).px(10).gap(10).items_center().rounded(6)
-      .text_color(t.foreground).hover(el => el.bg(t.hover)).cursor_pointer().on_click(action).child(icon)
-      .child(div().flex_1().child(name)).child(div().text_size(11).text_color(t.muted).child(hint));
-    return v_flex().id('thread-launcher').w_full().h(Math.min(460, 104 + Math.max(1, this.launchers.length) * 38))
-      .p(6).gap(4).bg(t.popover).text_color(t.foreground).text_size(13)
+    const row = (id, name, icon, action, hint) => DropdownMenuItem(id, t).on_click(action)
+      .child(div().size(16).flex_none().flex().items_center().justify_center().text_color(t.muted).child(icon))
+      .child(div().flex_1().min_w(0).truncate().child(name)).child(div().flex_none().text_size(11).text_color(t.muted).child(hint));
+    return DropdownMenuContent('thread-launcher', Math.min(360, 80 + Math.max(1, this.launchers.length) * 33), t)
       .track_focus(this.handle).on_key_down(event => {
         if (event.modifiers.control || event.modifiers.platform || event.modifiers.alt) return;
         const agent = /^[1-9]$/.test(event.key) ? this.launchers[Number(event.key) - 1] : null;
         if (agent?.installed) this.startThread(agent);
       })
-      .child(div().px(10).py(8).text_size(11).text_color(t.muted).child('Add session'))
+      .child(DropdownMenuLabel(t).child('Add session'))
       .child(row('new-terminal', 'Terminal', glyph('terminal'), () => this.startThread(), ''))
-      .child(div().h(1).mx(4).my(4).bg(t.border))
-      .child(v_flex().id('thread-launchers').flex_1().min_h(0).overflow_y_scrollbar().gap(2)
+      .child(DropdownMenuSeparator(t))
+      .child(v_flex().id('thread-launchers').flex_1().min_h(0).overflow_y_scrollbar().gap(1)
         .children(this.launchers.map((agent, i) => row(`start-${agent.key}`, agent.name,
           agent.icon ? (agent.tint ? svg(agent.icon).size(16).text_color(t.foreground) : image(agent.icon).size(16)) : glyph('mark', 16),
           () => this.startThread(agent), i < 9 ? String(i + 1) : '')))
@@ -356,7 +353,7 @@ export default class Devkits extends View {
               cx.stop_propagation(); this.newThread(cx, space.id);
             }, t).opacity(this.hoveredProject === space.id ? 1 : 0))
             .child(this.button(`project-menu-${space.id}`, 'ellipsis', `More actions for ${space.name}`, (_event, cx) => {
-              cx.stop_propagation(); openOverlay({ mod: 'devkits', kind: 'popup', width: 200, height: 44,
+              cx.stop_propagation(); openOverlay({ mod: 'devkits', kind: 'popup', frame: 'none', width: 200,
                 props: { view: 'project-menu', project: space } });
             }, t).opacity(this.hoveredProject === space.id ? 1 : 0)))
           .when(!this.folded.has(space.id), el => el.children(threads.map(thread => this.threadRow(thread, t)))
