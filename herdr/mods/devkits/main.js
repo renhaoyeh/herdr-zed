@@ -1,12 +1,13 @@
 import { View, div, svg, image } from 'gpui-kit';
 import { v_flex, h_flex } from 'gpui-base';
-import { agents, spaces, panes, theme, run, props, window, openOverlay, closeOverlay, setAgentOrder, layout, settings, pickFolder, shared, setShared, knownAgents, notify } from 'herdr';
-import { projectGroups, projectCatalog, folderKey, launcherChoices } from './model.js';
+import { agents, spaces, panes, theme, run, props, window, openOverlay, closeOverlay, setAgentOrder, layout, settings, pickFolder, shared, setShared, knownAgents, notify, exec, appHome } from 'herdr';
+import { projectGroups, projectCatalog, folderKey, launcherChoices, quotaResetLabel } from './model.js';
 import CodexLogin, { removeCodexAccount } from './codex-login.js';
 import FileViewer from './files.js';
 import { DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from './components/dropdown-menu.js';
 import { Button } from './components/button.js';
 import { Checkbox } from './components/checkbox.js';
+import { Progress } from './components/progress.js';
 import { DialogContent, DialogTitle, DialogDescription, DialogFooter } from './components/dialog.js';
 import { AlertDialogContent, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from './components/alert-dialog.js';
 import { Empty, EmptyMedia, EmptyTitle, EmptyDescription } from './components/empty.js';
@@ -21,6 +22,11 @@ const launcherIcon = (agent, t) => !agent ? glyph('terminal', 16) : agent.icon
 
 export default class Devkits extends View {
   init(_props, cx) {
+    if (props()?.view === 'usage-details') cx.timer.every(60000, cx => cx.notify());
+    if (props()?.view === 'header') {
+      this.refreshUsage(cx);
+      cx.timer.every(60000, cx => this.refreshUsage(cx));
+    }
     if (props()?.view === 'files') {
       this.files = new FileViewer();
       this.files.init(cx);
@@ -34,7 +40,7 @@ export default class Devkits extends View {
     this.folded = new Set();
     this.hovered = null;
     this.hoveredProject = null;
-    if (['close-project', 'remove-account', 'project-menu', 'project-picker'].includes(props()?.view)) {
+    if (['close-project', 'remove-account', 'project-menu', 'project-picker', 'usage-details'].includes(props()?.view)) {
       this.handle = cx.focus_handle();
       this.handle.focus();
       if (props().view === 'project-picker') this.projectIndex = -1;
@@ -286,7 +292,7 @@ export default class Devkits extends View {
         cx.stop_propagation(); cx.notify();
       })
       .child(DialogTitle().child('Manage session menu'))
-      .child(DialogDescription(t).child('Choose what appears in Add session. Drag within each section to reorder, or use Alt + ↑ / ↓. Changes are saved automatically.'))
+      .child(DialogDescription(t).child('Choose what appears in Add session and the top usage bar. Drag within each section to reorder, or use Alt + ↑ / ↓. Changes are saved automatically.'))
       .child(v_flex().id('manage-launchers-list').flex_1().min_h(0).overflow_y_scroll().gap(4)
         .children(choices.flatMap((choice, index) => [
           ...(index === 0 || choices[index - 1].group !== choice.group
@@ -370,6 +376,66 @@ export default class Devkits extends View {
       }, ''));
   }
 
+  refreshUsage(cx, force = true) {
+    const machine = this.projects().find(project => project.active)?.machine || null;
+    const hidden = shared('devkits.hidden-launchers') || [];
+    const order = shared('devkits.launcher-order') || [];
+    const scope = JSON.stringify([machine, hidden, order]);
+    if (this.usageLoading || (!force && this.usageScope === scope)) return;
+    this.usageScope = scope;
+    this.usageLoading = true;
+    cx.spawn(async cx => {
+      try {
+        const agents = (await knownAgents({ on: machine }))
+          .filter(agent => agent.installed && (!machine || !agent.key.startsWith('devkits-codex-')));
+        this.usageAgents = agents;
+        if (this.usageMachine !== machine) this.usage = [];
+        this.usageMachine = machine;
+        this.usageError = null;
+        cx.notify();
+        const accounts = launcherChoices(this.usageAgents, order)
+          .filter(choice => !hidden.includes(choice.key) && !machine &&
+            choice.agent?.run.some(arg => /(^|\/)codex$/.test(arg))).map(choice => choice.agent);
+        if (accounts.length) {
+          const result = await exec('node', [`${appHome()}/mods/devkits/usage-reader.js`, JSON.stringify(accounts)]);
+          if (result.code !== 0) throw new Error('Could not read usage');
+          this.usage = JSON.parse(result.stdout);
+        }
+      } catch { this.usage = []; this.usageError = 'Could not read usage'; }
+      finally { this.usageLoading = false; cx.notify(); }
+    });
+  }
+
+  usageDetails(t) {
+    const { account, overlay } = props();
+    const close = () => closeOverlay(overlay);
+    return DialogContent('usage-details', t).track_focus(this.handle)
+      .accessibility_label(`${account.name} usage details`).on_key_down((event, cx) => {
+        if (event.key === 'escape') { cx.stop_propagation(); close(); }
+      })
+      .child(DialogTitle().child(account.name))
+      .child(DialogDescription(t).child(account.supported ? 'Account quota usage' : 'Not supported'))
+      .child(v_flex().id('usage-windows').flex_1().min_h(0).overflow_y_scrollbar().gap(16)
+        .when(Boolean(account.error), el => el.child(div().text_size(12).text_color(t.muted).child(account.error)))
+        .when(account.supported && !account.error && !account.windows?.length, el => el
+          .child(div().text_size(12).text_color(t.muted).child('No quota windows available.')))
+        .children((account.windows || []).map((window, index) => {
+          const duration = window.minutes === null ? 'Unknown duration' : window.minutes % 1440 === 0
+            ? `${window.minutes / 1440}d` : window.minutes % 60 === 0 ? `${window.minutes / 60}h` : `${window.minutes}m`;
+          return v_flex().gap(8)
+            .child(h_flex().justify_between().text_size(13)
+              .child(`${window.name} · ${duration}`)
+              .child(`${Math.round(window.usedPercent)}% used · ${Math.round(100 - window.usedPercent)}% remaining`))
+            .child(Progress(`usage-detail-meter-${index}`, window.usedPercent, t).h(6)
+              .accessibility_label(`${window.name} ${duration} used`))
+            .child(div().text_size(12).text_color(t.muted)
+              .child(quotaResetLabel(window)));
+        })))
+      .when(Boolean(account.fetchedAt), el => el.child(DialogDescription(t)
+        .child(`Updated ${new Date(account.fetchedAt).toLocaleString()}`)))
+      .child(DialogFooter().child(Button('usage-details-done', t).on_click(close).child('Done')));
+  }
+
   header(t) {
     const space = this.projects().find(s => s.active);
     const win = window();
@@ -386,6 +452,43 @@ export default class Devkits extends View {
         .child(div().max_w(220).truncate().child(space?.name || 'Open project'))
         .child(glyph('chevron-down', 12).text_color(t.muted)))
       .child(div().flex_1())
+      .child(h_flex().id('account-usage').max_w(760).min_w(0).gap(4).items_center().overflow_x_scroll()
+        .children(launcherChoices(this.usageMachine === (space?.machine || null) ? this.usageAgents || [] : [],
+          shared('devkits.launcher-order') || []).filter(choice => !(shared('devkits.hidden-launchers') || []).includes(choice.key))
+          .map(choice => {
+            const data = (this.usage || []).find(account => account.key === choice.agent?.key);
+            const supported = !space?.machine && Boolean(choice.agent?.run.some(arg => /(^|\/)codex$/.test(arg)));
+            const windows = supported ? [300, 10080].flatMap(minutes =>
+              data?.windows?.find(window => window.bucket === 'codex' && window.minutes === minutes) || []) : [];
+            const status = !supported ? 'Not supported' : data?.error || this.usageError ? 'Unavailable'
+              : windows.length ? windows.map(window => `${window.minutes === 300 ? '5h' : 'Week'} ${Math.round(window.usedPercent)}% used · ${quotaResetLabel(window)}`).join(' · ')
+                : this.usageLoading ? 'Loading…' : 'No quota';
+            const account = { ...data, name: choice.name, supported,
+              error: data?.error || (supported ? this.usageError || (this.usageLoading ? 'Reading account usage…' : null) : null) };
+            return Button(`usage-${choice.key}`, t, { variant: 'ghost' }).h(48).px(8).items_start().py(3)
+              .accessibility_label(`${choice.name}: ${status}. Open usage details`)
+              .on_click(() => openOverlay({ mod: 'devkits', kind: 'dialog', modal: false, width: 480, height: 400,
+                props: { view: 'usage-details', account } }))
+              .child(launcherIcon(choice.agent, t).self_center())
+              .child(v_flex().w(200).gap(3)
+                .child(div().truncate().text_size(12).font_semibold().text_color(t.foreground).child(choice.name.replace(/^Codex · /, '')))
+                .children(windows.map(window => {
+                  const label = window.minutes === 300 ? '5h' : 'Week';
+                  const reset = quotaResetLabel(window);
+                  const time = reset === 'Reset time unavailable' ? '—' : reset.startsWith('Reset due')
+                    ? 'Reset due' : reset.replace(/^Resets (?:in )?/, '');
+                  return h_flex().w_full().gap(4).items_center().text_size(10)
+                    .child(div().w(26).flex_none().child(label))
+                    .child(Progress(`usage-meter-${choice.key}-${window.minutes}`, window.usedPercent, t)
+                      .flex_1().w_auto().min_w(0).accessibility_label(`${choice.name} ${label} used`))
+                    .child(div().w(28).flex_none().text_right().child(`${Math.round(window.usedPercent)}%`))
+                    .child(div().id(`usage-reset-${choice.key}-${window.minutes}`).w(64).flex_none().text_right()
+                      .accessibility_label(reset).child(time));
+                }))
+                .when(!windows.length, el => el
+                  .child(div().text_size(10).child(status))
+                  .child(Progress(`usage-meter-${choice.key}`, null, t).accessibility_label(`${choice.name}: ${status}`))));
+          })))
       .when(Boolean(win?.buttons), el => el
         .child(Button('minimize', t, { variant: 'ghost', size: 'icon' }).tooltip('Minimize').accessibility_label('Minimize')
           .on_click(() => run('window.minimize')).child(glyph('minus')))
@@ -480,7 +583,11 @@ export default class Devkits extends View {
     const t = theme();
     if (props()?.view === 'files') return this.files.render(this.projects().find(project => project.active), cx);
     if (props()?.view === 'codex-login') return this.login.render();
-    if (props()?.view === 'header') return this.header(t);
+    if (props()?.view === 'header') {
+      if (cx) this.refreshUsage(cx, false);
+      return this.header(t);
+    }
+    if (props()?.view === 'usage-details') return this.usageDetails(t);
     if (props()?.view === 'brand') return this.brand(t);
     if (props()?.view === 'pane') return this.paneHeader(t);
     if (props()?.view === 'status') return this.statusBar(t);
