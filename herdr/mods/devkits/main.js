@@ -2,13 +2,12 @@ import { View, div, svg, image } from 'gpui-kit';
 import { v_flex, h_flex } from 'gpui-base';
 import { agents, spaces, panes, theme, run, props, window, openOverlay, closeOverlay, setAgentOrder, layout, settings, pickFolder, shared, setShared, knownAgents, notify } from 'herdr';
 import { projectGroups, projectCatalog, folderKey } from './model.js';
-import { DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from './components/dropdown-menu.js';
+import { DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from './components/dropdown-menu.js';
 import { Button } from './components/button.js';
 import { AlertDialogContent, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from './components/alert-dialog.js';
 import { Empty, EmptyMedia, EmptyTitle, EmptyDescription } from './components/empty.js';
 import { Sidebar, SidebarContent, SidebarGroupLabel, SidebarMenuButton, SidebarFooter } from './components/sidebar.js';
 
-const stop = (_event, cx) => cx.stop_propagation();
 const glyph = (name, size = 14) => svg(`mods/devkits/assets/icons/${name}.svg`).size(size).flex_none();
 const stateColor = (status, t) => t[status] || t.muted;
 
@@ -136,10 +135,10 @@ export default class Devkits extends View {
       ]));
   }
 
-  newThread(cx, id) {
+  newThread(cx, id, at) {
     const project = this.projects().find(s => id ? s.id === id : s.active);
     if (!project) { this.openProject(cx); return; }
-    openOverlay({ mod: 'devkits', kind: 'popup', frame: 'none', width: 280,
+    openOverlay({ mod: 'devkits', kind: 'popup', frame: 'none', width: 280, at,
       props: { view: 'launcher', space: project.pending ? null : project.id, folder: project.folder, projectName: project.name } });
   }
 
@@ -196,11 +195,10 @@ export default class Devkits extends View {
       ? (root.traffic_lights[0] + 64) / settings().zoom : 12;
     return h_flex().size_full().px(16).pl(inset).gap(12).items_center().bg(t.background).text_size(13)
       .border_b(1).border_color(t.border)
-      .child(h_flex().id('project-switcher').h(32).px(8).gap(6).items_center().rounded(6)
+      .child(DropdownMenuTrigger(h_flex().id('project-switcher').h(32).px(8).gap(6).items_center().rounded(6)
         .text_color(t.foreground).font_medium().hover(el => el.bg(t.hover)).cursor_pointer()
-        .tooltip(space?.folder || 'Open a project').on_mouse_down('left', stop)
-        .on_click(() => openOverlay({ mod: 'devkits', kind: 'popup', frame: 'none', width: 280,
-          at: { x: (sidebar?.hidden ? 0 : sidebar?.size?.px ?? 280) + inset, y: 48 },
+        .tooltip(space?.folder || 'Open a project'), 280,
+        (_cx, at) => openOverlay({ mod: 'devkits', kind: 'popup', frame: 'none', width: 280, at,
           props: { view: 'project-picker' } }))
         .child(div().max_w(220).truncate().child(space?.name || 'Open project'))
         .child(glyph('chevron-down', 12).text_color(t.muted)))
@@ -263,8 +261,8 @@ export default class Devkits extends View {
       .child(EmptyTitle().child(project?.name || 'Project'))
       .child(EmptyDescription(t).child(project?.folder || ''))
       .child(EmptyDescription(t).child('Choose an agent to start your first session.'))
-      .child(Button('add-first-session', t).mt(8)
-        .on_click((_event, cx) => this.newThread(cx)).child(glyph('plus')).child('Add session'));
+      .child(DropdownMenuTrigger(Button('add-first-session', t).mt(8), 280,
+        (cx, at) => this.newThread(cx, undefined, at)).child(glyph('plus')).child('Add session'));
   }
 
   threadRow(thread, t) {
@@ -345,15 +343,15 @@ export default class Devkits extends View {
               .child(glyph(this.folded.has(space.id) ? 'chevron-right' : 'chevron-down', 12)))
             .when(Boolean(space.machine), el => el.child(div().text_size(9).text_color(t.muted).child(space.machine)))
             .child(div().flex_1())
-            .child(Button(`new-thread-${space.id}`, t, { variant: 'ghost', size: 'icon' })
-              .tooltip(`Add session in ${space.name}`).accessibility_label(`Add session in ${space.name}`).on_click((_event, cx) => {
-              cx.stop_propagation(); this.newThread(cx, space.id);
-            }).child(glyph('plus')).opacity(this.hoveredProject === space.id ? 1 : 0))
-            .child(Button(`project-menu-${space.id}`, t, { variant: 'ghost', size: 'icon' })
-              .tooltip(`More actions for ${space.name}`).accessibility_label(`More actions for ${space.name}`).on_click((_event, cx) => {
-              cx.stop_propagation(); openOverlay({ mod: 'devkits', kind: 'popup', frame: 'none', width: 200,
-                props: { view: 'project-menu', project: space } });
-            }).child(glyph('ellipsis')).opacity(this.hoveredProject === space.id ? 1 : 0)))
+            .child(DropdownMenuTrigger(Button(`new-thread-${space.id}`, t, { variant: 'ghost', size: 'icon' })
+              .tooltip(`Add session in ${space.name}`).accessibility_label(`Add session in ${space.name}`), 280,
+              (cx, at) => this.newThread(cx, space.id, at), 'end')
+              .child(glyph('plus')).opacity(this.hoveredProject === space.id ? 1 : 0))
+            .child(DropdownMenuTrigger(Button(`project-menu-${space.id}`, t, { variant: 'ghost', size: 'icon' })
+              .tooltip(`More actions for ${space.name}`).accessibility_label(`More actions for ${space.name}`), 200,
+              (_cx, at) => openOverlay({ mod: 'devkits', kind: 'popup', frame: 'none', width: 200, at,
+                props: { view: 'project-menu', project: space } }), 'end')
+              .child(glyph('ellipsis')).opacity(this.hoveredProject === space.id ? 1 : 0)))
           .when(!this.folded.has(space.id), el => el.children(threads.map(thread => this.threadRow(thread, t)))
             .when(!threads.length, el => el.child(div().px(12).py(6).text_size(12).text_color(t.muted).child('No threads yet')))))))
       .child(SidebarFooter(t)
