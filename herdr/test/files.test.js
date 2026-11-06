@@ -41,17 +41,21 @@ test('folder listing preserves Unicode and shell metacharacters, skips .git and 
   await mkdir(folder);
   await mkdir(join(folder, '.git'));
   await mkdir(join(folder, 'src'));
-  for (const name of ['你好.ts', 'a\nb.js', '.env', "$(touch INJECTED).txt"]) await writeFile(join(folder, name), 'hello');
-  await symlink(join(folder, 'src'), join(folder, 'linked'));
+  // Windows forbids control characters in filenames; retain shell metacharacter coverage there.
+  const unusualName = process.platform === 'win32' ? 'a & b.js' : 'a\nb.js';
+  const filenames = ['你好.ts', unusualName, '.env', '$(touch INJECTED).txt'];
+  for (const name of filenames) await writeFile(join(folder, name), 'hello');
+  await symlink(join(folder, 'src'), join(folder, 'linked'), process.platform === 'win32' ? 'junction' : 'dir');
   const { directory } = await load({ exec: async (cmd, args, options) => {
     assert.equal(options.on, undefined);
     const { stdout, stderr } = await promisify(execFile)(cmd, args);
     return { code: 0, stdout, stderr };
   } });
-  const rows = await directory(folder);
+  const shellFolder = process.platform === 'win32' ? folder.replaceAll('\\', '/') : folder;
+  const rows = await directory(shellFolder);
   assert.deepEqual(rows.slice(0, 2).map(row => row.name), ['linked', 'src']);
-  assert.deepEqual(rows.filter(row => !row.dir).map(row => row.name).sort(), ['你好.ts', 'a\nb.js', '.env', '$(touch INJECTED).txt'].sort());
-  await assert.rejects(directory(join(root, 'missing')));
+  assert.deepEqual(rows.filter(row => !row.dir).map(row => row.name).sort(), filenames.sort());
+  await assert.rejects(directory(`${shellFolder}/missing`));
 });
 
 test('folder expansion is lazy and keyboard navigation opens a read-only syntax preview on the project machine', async () => {
