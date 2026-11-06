@@ -1,7 +1,7 @@
 import { View, div, svg, image } from 'gpui-kit';
 import { v_flex, h_flex, InputState, Input } from 'gpui-base';
 import { agents, spaces, panes, theme, run, props, window, openOverlay, closeOverlay, setAgentOrder, layout, settings, pickFolder, shared, setShared, knownAgents, notify, exec, appHome, home, readTextFile } from 'herdr';
-import { projectGroups, projectCatalog, folderKey, launcherChoices, isAccountLauncher, permissionModes, launcherArgv, sessionArgv, sessionKind, claudeModels, claudeEfforts, codexHome, codexModels, mergeModels, orderedOptions, moveOption, quotaResetLabel, quotaElapsedPercent, resolveThreadProfiles, threadProfile } from './model.js';
+import { projectGroups, projectCatalog, folderKey, launcherChoices, isAccountLauncher, permissionModes, launcherArgv, sessionArgv, sessionKind, claudeModels, claudeEfforts, codexHome, codexModels, mergeModels, orderedOptions, moveOption, effortLabel, sessionChoices, quotaResetLabel, quotaElapsedPercent, resolveThreadProfiles, threadProfile } from './model.js';
 import AccountLogin, { accountLabel, ensureClaudeStatusLine, removeAccountProfile, renameAccountProfile } from './account-login.js';
 import FileViewer from './files.js';
 import DiffViewer from './diff.js';
@@ -121,15 +121,55 @@ export default class Devkits extends View {
   // Manage lists the models every local Codex profile knows.
   loadCodexModels(cx) {
     this.codexModelList = [];
+    this.codexModelsByHome = new Map();
     cx.spawn(async cx => {
       try {
         const agents = await this.cachedAgents(null);
         const dirs = [...new Set(agents.filter(agent => sessionKind(agent) === 'codex').map(agent => codexHome(agent, home())))];
-        this.codexModelList = mergeModels(await Promise.all(dirs.map(async dir => codexModels(await readTextFile(`${dir}/models_cache.json`) || ''))));
+        const lists = await Promise.all(dirs.map(async dir => [dir, codexModels(await readTextFile(`${dir}/models_cache.json`) || '')]));
+        this.codexModelsByHome = new Map(lists);
+        this.codexModelList = mergeModels(lists.map(([, models]) => models));
       } catch {}
       cx.notify();
     });
   }
+
+  // A profile's settings line under its name: default permissions and, for local profiles, the model and effort
+  // every new session starts with. Default adds no flag and leaves the profile's own Claude Code or Codex configuration.
+  profileSettings(agent, local, t) {
+    const key = agent.key, kind = sessionKind(agent);
+    const colors = [t.muted, t.done, t.working, t.ansi1];
+    const line = h_flex().id(`profile-settings-${key}`).pl(92).pr(8).pb(10).gap(8).items_center()
+      .child(Select(`permissions-${key}`, this.permissionSelects.get(key), shared('devkits.codex-permissions')?.[key] || 'default',
+        permissionModes(agent).map((mode, index) => ({ ...mode, color: colors[index] })), `Default permissions for ${agent.name}`, mode => {
+          const saved = { ...(shared('devkits.codex-permissions') || {}) };
+          if (mode === 'default') delete saved[key]; else saved[key] = mode;
+          setShared('devkits.codex-permissions', saved);
+        }, t, { width: 168, prefix: 'Permissions' }));
+    const selects = this.sessionSelects?.get(key);
+    if (!local || !kind || !selects) return line;
+    const settings = shared('devkits.session-options')?.[kind] || {};
+    const stored = shared('devkits.profile-sessions')?.[key] || {};
+    const saved = { model: settings.models?.includes(stored.model) ? null : stored.model,
+      effort: settings.efforts?.includes(stored.effort) ? null : stored.effort };
+    const codexList = this.codexModelsByHome?.get(codexHome(agent, home())) || this.codexModelList;
+    const { models, efforts } = sessionChoices(kind, codexList, settings, saved.model);
+    const set = change => setShared('devkits.profile-sessions', { ...(shared('devkits.profile-sessions') || {}),
+      [key]: { model: saved.model || null, effort: saved.effort || null, ...change } });
+    const option = (value, label) => ({ key: value, label, color: value === 'default' ? t.muted : t.foreground });
+    return line
+      .child(Select(`profile-model-${key}`, selects.model, models.some(item => item.key === saved.model) ? saved.model : 'default',
+        [option('default', 'Default'), ...models.map(item => option(item.key, item.label))], `Default model for ${agent.name}`,
+        value => {
+          const model = value === 'default' ? null : value;
+          const supported = sessionChoices(kind, codexList, settings, model).efforts;
+          set({ model, effort: supported.includes(saved.effort) ? saved.effort : null });
+        }, t, { width: 168, prefix: 'Model' }))
+      .child(Select(`profile-effort-${key}`, selects.effort, efforts.includes(saved.effort) ? saved.effort : 'default',
+        [option('default', 'Default'), ...efforts.map(item => option(item, effortLabel(item)))], `Default effort for ${agent.name}`,
+        value => set({ effort: value === 'default' ? null : value }), t, { width: 168, prefix: 'Effort' }));
+  }
+
 
   // Which models and efforts Asana's session composer offers, like Cursor's model list: one row and switch per model,
   // and efforts as joined segments as in Claude Code and Codex. Turned-off ones are hidden; Default always stays.
@@ -143,8 +183,17 @@ export default class Devkits extends View {
       const hidden = current[kind]?.[field] || [];
       setShared('devkits.session-options', { ...current, [kind]: { ...current[kind],
         [field]: hidden.includes(key) ? hidden.filter(item => item !== key) : [...hidden, key] } });
+      if (!hidden.includes(key)) {
+        const profiles = { ...(shared('devkits.profile-sessions') || {}) };
+        for (const [profileKey, profile] of Object.entries(profiles)) {
+          if (sessionKind({ key: profileKey }) !== kind) continue;
+          const setting = field === 'models' ? 'model' : 'effort';
+          if (profile[setting] === key) profiles[profileKey] = { ...profile, [setting]: null };
+        }
+        setShared('devkits.profile-sessions', profiles);
+      }
     };
-    const title = effort => effort === 'xhigh' ? 'XHigh' : effort[0].toUpperCase() + effort.slice(1);
+    const title = effortLabel;
     return [DropdownMenuLabel(t).id('manage-section-session').mt(12).child('MODELS AND EFFORT'),
       ...kinds.map(kind => {
         const models = orderedOptions(kind === 'claude' ? claudeModels : this.codexModelList || [], saved[kind]?.order);
@@ -403,7 +452,14 @@ export default class Devkits extends View {
   startThread(agent, target = props(), options = {}) {
     const task = target.task;
     let argv;
-    try { argv = agent && sessionArgv(agent, launcherArgv(agent, shared('devkits.codex-permissions')?.[agent?.key]), options); }
+    // A choice made for this session wins; otherwise the profile's own default model and effort apply.
+    const profile = shared('devkits.profile-sessions')?.[agent?.key] || {};
+    const session = { model: options.model === undefined ? profile.model : options.model,
+      effort: options.effort === undefined ? profile.effort : options.effort };
+    const allowed = shared('devkits.session-options')?.[sessionKind(agent)] || {};
+    if (allowed.models?.includes(session.model)) session.model = null;
+    if (allowed.efforts?.includes(session.effort)) session.effort = null;
+    try { argv = agent && sessionArgv(agent, launcherArgv(agent, shared('devkits.codex-permissions')?.[agent?.key]), session); }
     catch (error) { notify({ title: 'Could not start session', body: error.message, level: 'error' }); return; }
     if (task) argv = [...argv, taskPrompt(task)];
     const name = task?.name || agent?.name;
@@ -517,9 +573,11 @@ export default class Devkits extends View {
           for (const setting of ['devkits.hidden-launchers', 'devkits.launcher-order']) {
             setShared(setting, (shared(setting) || []).filter(item => item !== key));
           }
-          const permissions = { ...(shared('devkits.codex-permissions') || {}) };
-          delete permissions[target.account.key];
-          setShared('devkits.codex-permissions', permissions);
+          for (const setting of ['devkits.codex-permissions', 'devkits.profile-sessions']) {
+            const saved = { ...(shared(setting) || {}) };
+            delete saved[target.account.key];
+            setShared(setting, saved);
+          }
           this.removing = false; back();
         } catch (error) { this.removing = false; this.removeError = error.message; cx.notify(); }
       });
@@ -543,8 +601,10 @@ export default class Devkits extends View {
 
   preparePermissionSelects(cx) {
     this.permissionSelects ||= new Map();
+    this.sessionSelects ||= new Map();
     for (const agent of this.launchers.filter(permissionModes)) {
       if (!this.permissionSelects.has(agent.key)) this.permissionSelects.set(agent.key, new SelectState(cx));
+      if (!this.sessionSelects.has(agent.key)) this.sessionSelects.set(agent.key, { model: new SelectState(cx), effort: new SelectState(cx) });
     }
   }
 
@@ -595,7 +655,7 @@ export default class Devkits extends View {
         .children(choices.flatMap((choice, index) => [
           ...(index === 0 || choices[index - 1].group !== choice.group
             ? [DropdownMenuLabel(t).id(`manage-section-${choice.group}`).mt(index ? 12 : 0).child(launcherSections[choice.group].toUpperCase())] : []),
-          h_flex().id(`manage-${choice.key}`).h(44).flex_none().px(8).gap(8).items_center().rounded(0)
+          v_flex().id(`manage-${choice.key}`).flex_none().rounded(0)
           .bg(this.manageIndex === index ? t.selected : t.popover)
           .border(1).border_color(this.dragKey && dragGroup === choice.group && this.dropKey === choice.key ? t.solid : t.popover)
           .opacity(this.dragKey === choice.key ? 0.5 : 1)
@@ -608,6 +668,7 @@ export default class Devkits extends View {
             move(choices.findIndex(item => item.key === this.dragKey), index, cx);
             cancelDrag(cx); cx.stop_propagation();
           })
+          .child(h_flex().h(44).px(8).gap(8).items_center()
           .when(choice.group !== 0, el => el.child(Button(`drag-${choice.key}`, t, { variant: 'ghost', size: 'icon' }).cursor_grab()
             .accessibility_label(`Reorder ${choice.name}. Use Alt + Up or Down.`)
             .on_mouse_down('left', (_event, cx) => {
@@ -619,18 +680,6 @@ export default class Devkits extends View {
             .accessibility_label(choice.name).on_change((_checked, cx) => toggle(choice.key, cx))
             .child(launcherIcon(choice.agent, t).flex_none())
             .child(div().flex_1().min_w(0).truncate().text_size(13).child(choice.name)))
-          .when(Boolean(permissionModes(choice.agent)), el => {
-            const key = choice.agent.key;
-            const colors = [t.muted, t.done, t.working, t.ansi1];
-            return el.child(Select(`permissions-${key}`, this.permissionSelects.get(key),
-              shared('devkits.codex-permissions')?.[key] || 'default',
-              permissionModes(choice.agent).map((mode, index) => ({ ...mode, color: colors[index] })),
-              `Default permissions for ${choice.name}`, mode => {
-                const saved = { ...(shared('devkits.codex-permissions') || {}) };
-                if (mode === 'default') delete saved[key]; else saved[key] = mode;
-                setShared('devkits.codex-permissions', saved);
-              }, t));
-          })
           .when(local && ['codex', 'claude'].includes(choice.agent?.key), el => el
             .child(Button(`add-${choice.agent.key}-account`, t, { variant: 'outline' })
               .accessibility_label(`Add a ${choice.agent.key === 'codex' ? 'Codex' : 'Claude'} account`)
@@ -639,7 +688,9 @@ export default class Devkits extends View {
             .accessibility_label(`Rename ${choice.name}`).on_click(() => this.renameAccount(choice.agent)).child('Rename')))
           .when(local && choice.group === 2, el => el.child(Button(`remove-${choice.agent.key}`, t, { variant: 'outline' })
             .accessibility_label(`Remove ${choice.name}`).on_click(() => this.confirmRemoveAccount(choice.agent))
-            .child(glyph('close')).child('Remove')))
+            .child(glyph('close')).child('Remove'))))
+          .when(Boolean(permissionModes(choice.agent)) && Boolean(this.permissionSelects?.get(choice.agent.key)), el => el
+            .child(this.profileSettings(choice.agent, local, t))),
         ]))
         .when(local && !this.loading && !this.launchError && !choices.some(choice => choice.group === 2), el => el
           .child(DropdownMenuLabel(t).id('manage-section-2').mt(12).child('YOUR ACCOUNTS'))

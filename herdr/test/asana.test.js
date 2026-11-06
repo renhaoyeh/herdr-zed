@@ -1,13 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { claudeModels, claudeEfforts, codexHome, codexModels, isClaudeLauncher, isCodexLauncher, sessionArgv, sessionKind, shownOptions, mergeModels, orderedOptions, moveOption } from '../mods/devkits/model.js';
+import { claudeModels, claudeEfforts, codexHome, codexModels, isClaudeLauncher, isCodexLauncher, sessionArgv, sessionKind, shownOptions, mergeModels, orderedOptions, moveOption, effortLabel, sessionChoices } from '../mods/devkits/model.js';
 
 const names = ['AsanaPanel', 'AsanaProjectPicker', 'previewWidthAt', 'avatarColor', 'statusKind', 'initials', 'dueLabel', 'savedTasks', 'unsaveTask', 'searchProjects', 'projectTasksPage', 'myProjectTasks', 'projectWorkspace', 'openSubtasks', 'taskDetails', 'taskComments', 'relativeTime', 'reconcileSaved',
   'filterTasks', 'taskPrompt', 'readAsanaToken', 'saveAsanaToken'];
 async function load(host = {}) {
   const source = await readFile(new URL('../mods/devkits/asana.js', import.meta.url), 'utf8');
-  host = { fetch: () => assert.fail('unexpected request'), Button: () => {}, claudeModels, claudeEfforts, codexHome, codexModels, isClaudeLauncher, isCodexLauncher, sessionKind, shownOptions, orderedOptions,
+  host = { fetch: () => assert.fail('unexpected request'), Button: () => {}, claudeModels, claudeEfforts, codexHome, codexModels, isClaudeLauncher, isCodexLauncher, sessionKind, shownOptions, orderedOptions, effortLabel,
     home: () => '/home', Select: () => element(), SelectState: class {}, ...host };
   return new Function(...Object.keys(host), source.replace(/^import .*;\n/gm, '')
     .replace('export default class', 'class').replace(/^export /gm, '')
@@ -321,6 +321,42 @@ test('Codex models come from its cache, listed ones only, with their efforts; th
   assert.equal(codexHome({ run: ['codex'] }, '/home'), '/home/.codex');
 });
 
+test('model and effort overrides replace conflicting launcher flags and preserve unrelated config and literal arguments', () => {
+  const codex = { key: 'codex' };
+  const argv = ['env', 'CODEX_HOME=/work', 'codex', '--model=old', '-molder', '--config', 'model="old"',
+    '-cmodel_reasoning_effort="low"', '--config=model_reasoning_effort="medium"', '-c', 'other=true', '--', '--model=literal'];
+  assert.deepEqual(sessionArgv(codex, argv, { model: 'new', effort: 'high' }),
+    ['env', 'CODEX_HOME=/work', 'codex', '-m', 'new', '-c', 'model_reasoning_effort="high"', '-c', 'other=true', '--', '--model=literal']);
+  const claude = { key: 'claude' }, command = ['claude', '--model', 'opus', '--effort=low', '--permission-mode', 'plan'];
+  assert.deepEqual(sessionArgv(claude, command, { model: 'sonnet' }), ['claude', '--model', 'sonnet', '--effort=low', '--permission-mode', 'plan']);
+  assert.deepEqual(sessionArgv(claude, command, { effort: 'high' }), ['claude', '--effort', 'high', '--model', 'opus', '--permission-mode', 'plan']);
+});
+
+test('Asana names and applies profile defaults, narrows efforts to the effective model and drops incompatible inherited effort', async () => {
+  const memory = { 'devkits.profile-sessions': { codex: { model: 'a', effort: 'high' } } };
+  const picks = new Map(); let click, started;
+  const button = new Proxy({}, { get: (_target, key) => (...args) => { if (key === 'on_click') click = args[0]; return button; } });
+  const { AsanaPanel } = await load({ ...ui, shared: key => memory[key],
+    Select: (id, state, value, options) => { picks.set(id, { value, options }); return element(); }, Button: () => button });
+  const panel = new AsanaPanel(); panel.init({ focus_handle: () => ({ focus() {} }) });
+  panel.codexModels.set('/home/.codex', [{ key: 'a', label: 'A', efforts: ['low', 'high'] }, { key: 'b', label: 'B', efforts: ['low'] }]);
+  const agents = [{ key: 'codex', name: 'Codex', run: ['codex'] }];
+  const render = () => panel.launchRow({ gid: 'task' }, agents, (_agent, _task, options) => { started = options; }, {});
+  render();
+  assert.deepEqual(panel.session(agents).efforts, ['low', 'high']);
+  assert.equal(picks.get('asana-model').options[0].label, 'Default (A)');
+  assert.equal(picks.get('asana-effort').options[0].label, 'Default (High)');
+  click(); assert.deepEqual(started, { model: 'a', effort: 'high' });
+  memory['devkits.asana-session'] = { agent: 'codex', model: 'b' };
+  render(); click(); assert.deepEqual(started, { model: 'b', effort: null });
+  assert.equal(picks.get('asana-effort').options[0].label, 'Default');
+  memory['devkits.asana-session'] = {};
+  memory['devkits.session-options'] = { codex: { models: ['a'], efforts: ['high'] } };
+  render(); click(); assert.deepEqual(started, { model: null, effort: null });
+  assert.equal(picks.get('asana-model').options[0].label, 'Default');
+  assert.deepEqual(panel.session(agents).efforts, ['low']);
+});
+
 test('the composer remembers the agent and drops a model or effort the new agent lacks', async () => {
   const memory = { 'devkits.asana-session': { agent: 'codex', model: 'opus', effort: 'max' } };
   const { AsanaPanel } = await load({ ...ui, shared: key => memory[key], setShared: (key, value) => { memory[key] = value; },
@@ -392,4 +428,12 @@ test('models follow the dragged order, new ones keep theirs after it, and the co
   const { AsanaPanel } = await load({ ...ui, shared: key => memory[key], setShared: (key, value) => { memory[key] = value; } });
   const panel = new AsanaPanel(); panel.init({ focus_handle: () => ({ focus() {} }) });
   assert.deepEqual(panel.session([{ key: 'claude', name: 'Claude', run: ['claude'] }]).models.map(model => model.key), ['haiku', 'opus', 'fable']);
+});
+
+test('a provider’s choices follow Manage, and Codex efforts narrow to the chosen model', () => {
+  const codex = [{ key: 'a', label: 'A', efforts: ['low', 'high'] }, { key: 'b', label: 'B', efforts: ['max'] }];
+  assert.deepEqual(sessionChoices('codex', codex, { order: ['b'], efforts: ['low'] }), { models: [codex[1], codex[0]], efforts: ['max', 'high'] });
+  assert.deepEqual(sessionChoices('codex', codex, {}, 'a').efforts, ['low', 'high']);
+  assert.deepEqual(sessionChoices('claude', [], { models: ['haiku'] }).models.map(model => model.key), ['fable', 'opus', 'sonnet']);
+  assert.equal(effortLabel('xhigh'), 'XHigh');
 });
