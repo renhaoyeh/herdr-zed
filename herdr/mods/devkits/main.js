@@ -1,7 +1,7 @@
 import { View, div, svg, image } from 'gpui-kit';
 import { v_flex, h_flex, InputState, Input } from 'gpui-base';
 import { agents, spaces, panes, theme, run, props, window, openOverlay, closeOverlay, setAgentOrder, layout, settings, pickFolder, shared, setShared, knownAgents, notify, exec, appHome, home, readTextFile } from 'herdr';
-import { projectGroups, projectCatalog, folderKey, launcherChoices, codexPermissionModes, isAccountLauncher, isCodexLauncher, launcherArgv, quotaResetLabel } from './model.js';
+import { projectGroups, projectCatalog, folderKey, launcherChoices, isAccountLauncher, permissionModes, launcherArgv, quotaResetLabel } from './model.js';
 import AccountLogin, { accountLabel, ensureClaudeStatusLine, removeAccountProfile, renameAccountProfile } from './account-login.js';
 import FileViewer from './files.js';
 import { DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from './components/dropdown-menu.js';
@@ -406,7 +406,7 @@ export default class Devkits extends View {
 
   preparePermissionSelects(cx) {
     this.permissionSelects ||= new Map();
-    for (const agent of this.launchers.filter(isCodexLauncher)) {
+    for (const agent of this.launchers.filter(permissionModes)) {
       if (!this.permissionSelects.has(agent.key)) this.permissionSelects.set(agent.key, new SelectState(cx));
     }
   }
@@ -482,12 +482,12 @@ export default class Devkits extends View {
             .accessibility_label(choice.name).on_change((_checked, cx) => toggle(choice.key, cx))
             .child(launcherIcon(choice.agent, t).flex_none())
             .child(div().flex_1().min_w(0).truncate().text_size(13).child(choice.name)))
-          .when(isCodexLauncher(choice.agent), el => {
+          .when(Boolean(permissionModes(choice.agent)), el => {
             const key = choice.agent.key;
-            const colors = { default: t.muted, 'read-only': t.done, 'workspace-write': t.working, 'danger-full-access': t.ansi1 };
+            const colors = [t.muted, t.done, t.working, t.ansi1];
             return el.child(Select(`permissions-${key}`, this.permissionSelects.get(key),
               shared('devkits.codex-permissions')?.[key] || 'default',
-              codexPermissionModes.map(mode => ({ ...mode, color: colors[mode.key] })),
+              permissionModes(choice.agent).map((mode, index) => ({ ...mode, color: colors[index] })),
               `Default permissions for ${choice.name}`, mode => {
                 const saved = { ...(shared('devkits.codex-permissions') || {}) };
                 if (mode === 'default') delete saved[key]; else saved[key] = mode;
