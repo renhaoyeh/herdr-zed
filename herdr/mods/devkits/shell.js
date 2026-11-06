@@ -1,4 +1,5 @@
 import { exec } from 'herdr';
+import { gitShellCommand } from './shell-command.js';
 
 const gitShellMachines = new Set();
 
@@ -9,5 +10,6 @@ export async function execShell(args, options = {}) {
     catch { gitShellMachines.add(machine); }
   }
   // Git for Windows sets up its bundled shell and Unix tools without changing the user's PATH.
-  return exec('git', ['-c', 'alias.devkits-shell=!sh', 'devkits-shell', ...args], options);
+  const [command, ...shellArgs] = gitShellCommand(args);
+  return exec(command, shellArgs, options);
 }

@@ -178,7 +178,10 @@ export async function gitRemoteAction(folder, on, action, remote, account) {
 }
 
 /** Only commits move HEAD; other .git activity cannot change a working-tree diff against it. */
-export const affectsDiff = rest => !rest.split('/').includes('.git') || /(^|\/)\.git\/(HEAD|packed-refs|refs\/)/.test(rest);
+export const affectsDiff = rest => {
+  rest = rest.replaceAll('\\', '/');
+  return !rest.split('/').includes('.git') || /(^|\/)\.git\/(HEAD|packed-refs|refs\/)/.test(rest);
+};
 
 /** Marks the changed middle of a replaced line pair, when the pair is similar enough to compare. */
 export function changedRanges(before, after) {
@@ -327,7 +330,8 @@ export default class DiffViewer {
         while (this.context === context) {
           const paths = await watchFolder(context.folder);
           if (this.context !== context) return;
-          if (!paths.some(path => affectsDiff(path.slice(context.folder.length)) || /(^|\/)\.git\/config$/.test(path.slice(context.folder.length)))) continue;
+          const rests = paths.map(path => path.slice(context.folder.length).replaceAll('\\', '/'));
+          if (!rests.some(rest => affectsDiff(rest) || /(^|\/)\.git\/config$/.test(rest))) continue;
           if (!this.queued) this.queued = cx.timer.after(500, cx => {
             this.queued = null;
             if (this.context === context) this.reload(cx);

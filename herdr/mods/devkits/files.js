@@ -182,7 +182,7 @@ export default class FileViewer {
         while (this.context === context) {
           const paths = await watchFolder(context.folder);
           if (this.context !== context) return;
-          const rests = paths.map(path => path.slice(context.folder.length));
+          const rests = paths.map(path => path.slice(context.folder.length).replaceAll('\\', '/'));
           if (!rests.some(rest => !rest.split('/').includes('.git'))) {
             // A commit, checkout or staging change recolors names without changing the tree.
             if (rests.some(rest => /(^|\/)\.git\/(HEAD|index|packed-refs|refs\/|info\/exclude)/.test(rest))) this.loadStatus(cx);

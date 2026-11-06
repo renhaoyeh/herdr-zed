@@ -13,7 +13,8 @@ async function load(host = {}) {
   const history = await readFile(new URL('../mods/devkits/git-history.js', import.meta.url), 'utf8');
   const auth = await readFile(new URL('../mods/devkits/git-auth.js', import.meta.url), 'utf8');
   const shell = await readFile(new URL('../mods/devkits/shell.js', import.meta.url), 'utf8');
-  return new Function(...Object.keys(host), (shell + '\n' + menu + '\n' + history + '\n' + auth + '\n' + source).replace(/^import .*;\r?\n/gm, '')
+  const command = await readFile(new URL('../mods/devkits/shell-command.js', import.meta.url), 'utf8');
+  return new Function(...Object.keys(host), (command + '\n' + shell + '\n' + menu + '\n' + history + '\n' + auth + '\n' + source).replace(/^import .*;\r?\n/gm, '')
     .replace('export default class', 'class').replace(/^export /gm, '') + '\nreturn { DiffViewer, DropdownMenu, DropdownMenuState, parseDiff, readDiff, readPushState, pushBranch, gitRemoteAction, affectsDiff, pairLines, changedRanges, changeSections, changeTree, wrapLine, isLockFile };')(...Object.values(host));
 }
 const run = promisify(execFile);
@@ -468,6 +469,8 @@ test('rows form one multibuffer in unified or split layout, collapsing per file'
   assert.ok(affectsDiff('/src/a.js'));
   assert.ok(affectsDiff('/.git/refs/heads/main') && affectsDiff('/.git/HEAD'));
   assert.ok(!affectsDiff('/.git/index') && !affectsDiff('/.git/objects/ab/cd'));
+  assert.ok(!affectsDiff('\\.git\\index') && !affectsDiff('\\.git\\objects\\ab\\cd'));
+  assert.ok(affectsDiff('\\.git\\HEAD') && affectsDiff('\\.git\\refs\\heads\\main') && affectsDiff('\\src\\main.js'));
 });
 
 test('History previews reuse the diff renderer without replacing working changes', async () => {

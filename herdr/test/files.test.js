@@ -15,7 +15,8 @@ async function load(host = {}) {
   }, ...host };
   const source = await readFile(new URL('../mods/devkits/files.js', import.meta.url), 'utf8');
   const shell = await readFile(new URL('../mods/devkits/shell.js', import.meta.url), 'utf8');
-  return new Function(...Object.keys(host), (shell + '\n' + source).replace(/^import .*;\r?\n/gm, '')
+  const command = await readFile(new URL('../mods/devkits/shell-command.js', import.meta.url), 'utf8');
+  return new Function(...Object.keys(host), (command + '\n' + shell + '\n' + source).replace(/^import .*;\r?\n/gm, '')
     .replace('export default class', 'class').replace(/^export /gm, '') + '\nreturn { FileViewer, FileMenu, fullPath, revealPath, directory, parseStatus, gitStatus };')(...Object.values(host));
 }
 const project = { id: 'project', folder: '/project', machine: 'server' };
@@ -237,7 +238,7 @@ test('native watch coalesces events, ignores .git, and stops on project switch o
   } };
   const tick = () => new Promise(resolve => setImmediate(resolve));
   const view = new FileViewer(); view.init(cx); view.refresh({ id: 'local', folder: '/local' }, cx); await tick();
-  waits[0].resolve(['/local/.git/index']); await tick();
+  waits[0].resolve(['/local\\.git\\index']); await tick();
   assert.equal(cx.timer.scheduled.filter(timer => timer.kind === 'after').length, 0);
   waits[1].resolve(['/local/a.ts']); await tick();
   waits[2].resolve(['/local/new.ts']); await tick();

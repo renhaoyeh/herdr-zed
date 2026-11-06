@@ -5,11 +5,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { execFile } from 'node:child_process';
+import { gitShellCommand } from '../mods/devkits/shell-command.js';
 
 const run = promisify(execFile);
 async function load(host = {}) {
   const source = await readFile(new URL('../mods/devkits/git-auth.js', import.meta.url), 'utf8');
-  return new Function(...Object.keys(host), source.replace(/^import .*;\n/gm, '').replace(/^export /gm, '')
+  return new Function(...Object.keys(host), source.replace(/^import .*;\r?\n/gm, '').replace(/^export /gm, '')
     + '\nreturn { gitAccount, setGitAccount, readGitAccounts, gitAuthArgs };')(...Object.values(host));
 }
 
@@ -67,7 +68,11 @@ test('Git uses the selected account through a host-scoped helper without global 
   const env = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1',
     GIT_TERMINAL_PROMPT: '0', GH_TOKEN: 'override', GITHUB_TOKEN: 'override',
     GH_ENTERPRISE_TOKEN: 'override', GITHUB_ENTERPRISE_TOKEN: 'override' };
-  const invoke = host => run('sh', ['-c', script, 'fixture', folder.replaceAll('\\', '/'), host, ...args], { env });
+  const invoke = host => {
+    const shellArgs = ['-c', script, 'fixture', folder.replaceAll('\\', '/'), host, ...args];
+    const [command, ...argv] = process.platform === 'win32' ? gitShellCommand(shellArgs) : ['sh', ...shellArgs];
+    return run(command, argv, { env });
+  };
   const result = await invoke('github.com');
   assert.match(result.stdout, /username=alice/);
   assert.match(result.stdout, /password=fixture-password/);

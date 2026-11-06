@@ -10,7 +10,8 @@ const run = promisify(execFile);
 async function load(host = {}) {
   const source = await readFile(new URL('../mods/devkits/git-history.js', import.meta.url), 'utf8');
   const shell = await readFile(new URL('../mods/devkits/shell.js', import.meta.url), 'utf8');
-  return new Function(...Object.keys(host), (shell + '\n' + source).replace(/^import .*;\r?\n/gm, '').replace(/^export /gm, '')
+  const command = await readFile(new URL('../mods/devkits/shell-command.js', import.meta.url), 'utf8');
+  return new Function(...Object.keys(host), (command + '\n' + shell + '\n' + source).replace(/^import .*;\r?\n/gm, '').replace(/^export /gm, '')
     + '\nreturn { CommitHistory, parseCommitHistory, readCommitHistory, readCommitPatch, commitAge };')(...Object.values(host));
 }
 const record = (sha, subject) => [sha, sha.slice(0, 7), '作者 Name', '1700000000', `${subject}\n\nBody | $(literal)\n`].join('\0') + '\0';
