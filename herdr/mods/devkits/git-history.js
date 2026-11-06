@@ -137,10 +137,7 @@ export class CommitHistory {
   render(t) {
     const length = this.entries.length, version = this.version;
     const count = length + (this.hasMore ? 1 : 0);
-    // Register before the deferred renderer: its first layout event requests the next page.
-    const tail = h_flex().id(`history-tail-${version}-${length}`).h(56).px(12).items_center().text_size(12).text_color(t.muted)
-      .on_size_change((size, cx) => { if (size.height > 0) this.loadMore(cx, version, length); })
-      .child(this.error ? '' : 'Loading…');
+    let tailQueued = false;
     const note = text => v_flex().flex_1().items_center().justify_center().p(12).text_size(12).text_color(t.muted).child(text);
     return v_flex().flex_1().min_h(0).relative().track_focus(this.focus)
       .on_key_down((event, cx) => {
@@ -159,9 +156,17 @@ export class CommitHistory {
           .on_click((_event, cx) => this.load(cx, this.retryMore)).child('Retry'))))
       .child(count ? v_virtual_list('git-history-rows', count, 56,
         index => this.entries[index]?.sha || 'more',
-        range => Array.from({ length: range.end - range.start }, (_, offset) => {
+        (range, cx) => Array.from({ length: range.end - range.start }, (_, offset) => {
           const index = range.start + offset, commit = this.entries[index];
-          return commit ? this.row(commit, index, t) : tail;
+          if (commit) return this.row(commit, index, t);
+          // Deferred rows have their own element arena on each layout pass.
+          // Queue the read after layout and never reuse an eager element here.
+          if (!tailQueued) {
+            tailQueued = true;
+            cx.timer.after(0, cx => this.loadMore(cx, version, length));
+          }
+          return h_flex().h(56).px(12).items_center().text_size(12).text_color(t.muted)
+            .child(this.error ? '' : 'Loading…');
         })).size_full().track_scroll(this.scroll)
         .on_item_click((key, cx) => {
           this.focus?.focus();
