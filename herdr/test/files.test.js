@@ -9,7 +9,7 @@ import { execFile } from 'node:child_process';
 async function load(host = {}) {
   const source = await readFile(new URL('../mods/devkits/files.js', import.meta.url), 'utf8');
   return new Function(...Object.keys(host), source.replace(/^import .*;\n/gm, '')
-    .replace('export default class', 'class').replace(/^export /gm, '') + '\nreturn { FileViewer, directory };')(...Object.values(host));
+    .replace('export default class', 'class').replace(/^export /gm, '') + '\nreturn { FileViewer, directory, parseStatus, gitStatus };')(...Object.values(host));
 }
 const project = { id: 'project', folder: '/project', machine: 'server' };
 function timers() {
@@ -106,7 +106,7 @@ test('binary, absent and unreadable files show an error; long previews are bound
 
 test('directory failures and entry caps are visible without retaining stale refresh results', async () => {
   const replies = [];
-  const { FileViewer } = await load({ exec: () => new Promise(resolve => replies.push(resolve)) });
+  const { FileViewer } = await load({ exec: (_cmd, args) => args[2] === 'devkits-status' ? Promise.resolve({ code: 0, stdout: '' }) : new Promise(resolve => replies.push(resolve)) });
   const tasks = [], cx = { timer: timers(), notify() {}, focus_handle: () => ({}), spawn(fn) { tasks.push(fn(cx)); } };
   const view = new FileViewer(); view.init(cx);
   view.refresh(project, cx); view.refresh(project, cx);
@@ -171,7 +171,7 @@ test('late Markdown reads cannot overwrite another file or reopen a closed previ
 test('native watch coalesces events, ignores .git, and stops on project switch or close', async () => {
   const waits = [], tasks = [], loads = [];
   const { FileViewer } = await load({ watchFolder: path => new Promise((resolve, reject) => waits.push({ path, resolve, reject })),
-    exec: async (_cmd, args) => { loads.push(args.at(-1)); return { code: 0, stdout: 'f\0a.ts\0' }; } });
+    exec: async (_cmd, args) => { if (args[2] === 'devkits-status') return { code: 0, stdout: '' }; loads.push(args.at(-1)); return { code: 0, stdout: 'f\0a.ts\0' }; } });
   const cx = { timer: timers(), notify() {}, focus_handle: () => ({}), spawn(fn) {
     const task = { promise: fn(cx), cancel() { this.cancelled = true; } }; tasks.push(task); return task;
   } };
@@ -215,7 +215,7 @@ test('remote projects poll automatically and watch failures fall back to polling
 
 test('changes during an in-flight listing schedule a second read rather than leaving a stale tree', async () => {
   const replies = [], tasks = [];
-  const { FileViewer } = await load({ exec: () => new Promise(resolve => replies.push(resolve)) });
+  const { FileViewer } = await load({ exec: (_cmd, args) => args[2] === 'devkits-status' ? Promise.resolve({ code: 0, stdout: '' }) : new Promise(resolve => replies.push(resolve)) });
   const cx = { timer: timers(), notify() {}, focus_handle: () => ({}), spawn(fn) { tasks.push(fn(cx)); } };
   const view = new FileViewer(); view.init(cx); view.refresh(project, cx);
   view.reload(cx); view.reload(cx);
@@ -223,4 +223,28 @@ test('changes during an in-flight listing schedule a second read rather than lea
   assert.equal(replies.length, 2);
   replies[1]({ code: 0, stdout: 'f\0new.ts\0' }); await Promise.all(tasks.splice(0));
   assert.deepEqual(view.rows().map(row => row.name), ['new.ts']);
+});
+
+test('git status colors files and folders relative to a project inside the repository', async () => {
+  const { parseStatus } = await load();
+  const status = parseStatus(['app/', ' M app/src/a.js', '?? app/src/new/b.js', 'A  app/docs/c.md', 'R  app/d.js', 'app/old.js', ' D app/src/gone.js', '?? other/x', ''].join('\0'));
+  assert.deepEqual(Object.fromEntries(status), {
+    'src/a.js': 'modified', src: 'modified', 'src/new/b.js': 'added', 'src/new': 'added',
+    'docs/c.md': 'added', docs: 'added', 'd.js': 'modified', 'src/gone.js': 'deleted' });
+});
+
+test('git status reads the project machine and treats folders outside Git as unchanged', async t => {
+  const folder = await mkdtemp(join(tmpdir(), 'devkits status '));
+  t.after(() => rm(folder, { recursive: true, force: true }));
+  const run = promisify(execFile);
+  const { gitStatus } = await load({ exec: async (cmd, args, options) => {
+    assert.equal(options.on, 'box');
+    const { stdout, stderr } = await run(cmd, args); return { code: 0, stdout, stderr };
+  } });
+  const shellFolder = process.platform === 'win32' ? folder.replaceAll(String.fromCharCode(92), '/') : folder;
+  assert.equal((await gitStatus(shellFolder, 'box')).size, 0);
+  await run('git', ['init', '-q'], { cwd: folder });
+  await mkdir(join(folder, 'src'));
+  await writeFile(join(folder, 'src', '新.js'), 'x');
+  assert.deepEqual(Object.fromEntries(await gitStatus(shellFolder, 'box')), { 'src/新.js': 'added', src: 'added' });
 });

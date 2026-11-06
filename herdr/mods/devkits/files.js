@@ -1,7 +1,7 @@
 import { div, svg } from 'gpui-kit';
 import { h_flex, v_flex, Editor, EditorState, TextView } from 'gpui-base';
 import { exec, readTextFile, watchFolder, settings, theme } from 'herdr';
-import { Button } from './components/button.js';
+import { TreeItem, TreeItemIcon, TreeItemLabel, GitStatusColor } from './components/tree.js';
 import { Empty, EmptyTitle, EmptyDescription } from './components/empty.js';
 
 const icon = name => svg(`mods/devkits/assets/icons/${name}.svg`).size(14).flex_none();
@@ -18,6 +18,40 @@ export async function directory(path, on) {
   return entries.sort((a, b) => Number(b.dir) - Number(a.dir) || a.name.localeCompare(b.name));
 }
 
+// The prefix comes first so paths from the repository root can be made relative to the project.
+const STATUS_SCRIPT = 'cd "$1" || exit 0; prefix=$(git rev-parse --show-prefix 2>/dev/null) || exit 0; printf "%s\\0" "$prefix"; '
+  + 'git -c core.quotepath=false status --porcelain=v1 -z --untracked-files=all -- . 2>/dev/null; exit 0';
+
+/**
+ * `git status --porcelain -z` as Zed's project panel colors it: each changed path is added or
+ * modified, and a folder takes modified when anything inside changed, added when all of it is new.
+ */
+export function parseStatus(stdout) {
+  const fields = stdout.split('\0'), prefix = fields[0] || '', status = new Map();
+  for (let i = 1; i < fields.length; i++) {
+    const entry = fields[i];
+    if (entry.length < 4) continue;
+    const code = entry.slice(0, 2);
+    // A rename or copy is followed by its original path.
+    if (code[0] === 'R' || code[0] === 'C') i++;
+    if (!entry.slice(3).startsWith(prefix)) continue;
+    const path = entry.slice(3 + prefix.length).replace(/\/$/, '');
+    const kind = code === '??' || code.includes('A') ? 'added' : code.includes('D') ? 'deleted' : 'modified';
+    status.set(path, kind);
+    const parts = path.split('/');
+    for (let n = 1; n < parts.length; n++) {
+      const folder = parts.slice(0, n).join('/'), current = status.get(folder);
+      status.set(folder, kind === 'added' && (!current || current === 'added') ? 'added' : 'modified');
+    }
+  }
+  return status;
+}
+
+export async function gitStatus(folder, on) {
+  const result = await exec('sh', ['-c', STATUS_SCRIPT, 'devkits-status', folder], { on });
+  return parseStatus(result.code === 0 ? result.stdout : '');
+}
+
 export default class FileViewer {
   init(cx) {
     this.handle = cx.focus_handle();
@@ -26,6 +60,7 @@ export default class FileViewer {
     this.pending = new Set();
     this.dirty = new Set();
     this.errors = new Map();
+    this.status = new Map();
     this.request = 0;
     this.markdown = null;
   }
@@ -44,9 +79,9 @@ export default class FileViewer {
     const file = this.context?.folder === project?.folder && this.context?.machine === project?.machine ? this.file : null;
     this.close();
     this.context = project ? { ...project } : null;
-    this.entries.clear(); this.expanded.clear(); this.pending.clear(); this.dirty.clear(); this.errors.clear();
+    this.entries.clear(); this.expanded.clear(); this.pending.clear(); this.dirty.clear(); this.errors.clear(); this.status = new Map();
     this.cursor = null; this.file = null; this.fileError = null; this.limited = false;
-    if (project?.folder) { this.observe(cx); this.loadFolder('', cx); }
+    if (project?.folder) { this.observe(cx); this.loadFolder('', cx); this.loadStatus(cx); }
     if (file) this.show(file, cx);
   }
 
@@ -58,7 +93,12 @@ export default class FileViewer {
         while (this.context === context) {
           const paths = await watchFolder(context.folder);
           if (this.context !== context) return;
-          if (!paths.some(path => !path.slice(context.folder.length).split('/').includes('.git'))) continue;
+          const rests = paths.map(path => path.slice(context.folder.length));
+          if (!rests.some(rest => !rest.split('/').includes('.git'))) {
+            // A commit, checkout or staging change recolors names without changing the tree.
+            if (rests.some(rest => /(^|\/)\.git\/(HEAD|index|packed-refs|refs\/)/.test(rest))) this.loadStatus(cx);
+            continue;
+          }
           if (!this.queued) this.queued = cx.timer.after(100, cx => {
             this.queued = null;
             if (this.context === context) this.reload(cx);
@@ -77,6 +117,23 @@ export default class FileViewer {
     this.limited = false;
     for (const path of new Set(['', ...this.expanded])) this.loadFolder(path, cx);
     if (this.file) this.show(this.file, cx, true);
+    this.loadStatus(cx);
+  }
+
+  loadStatus(cx) {
+    if (this.statusLoading) { this.statusDirty = true; return; }
+    const context = this.context;
+    this.statusLoading = true;
+    cx.spawn(async cx => {
+      try {
+        const status = await gitStatus(context.folder, context.machine);
+        if (this.context === context) this.status = status;
+      } catch {} finally {
+        this.statusLoading = false;
+        if (this.context === context && this.statusDirty) { this.statusDirty = false; this.loadStatus(cx); }
+        cx.notify();
+      }
+    });
   }
 
   loadFolder(path, cx) {
@@ -179,16 +236,15 @@ export default class FileViewer {
         .child(v_flex().id('file-tree').flex_1().min_h(0).overflow_y_scrollbar()
           .track_focus(this.handle).on_key_down((event, cx) => this.navigate(event, cx))
           .children(this.rows().map(row => v_flex().flex_none()
-            .child(Button(`file-${row.path}`, t, { variant: 'ghost' }).w_full().h(28).pl(12 + row.depth * 16).pr(12).justify_start()
-              .bg(this.cursor === row.path || this.file === row.path ? t.selected : t.chrome)
+            .child(TreeItem(`file-${row.path}`, row.depth, this.cursor === row.path || this.file === row.path, t)
               .accessibility_label(`${row.dir ? 'Folder' : 'File'} ${row.path}`)
               .on_click((_event, cx) => {
                 this.handle.focus(); this.cursor = row.path;
                 row.dir ? this.toggle(row.path, cx) : this.show(row.path, cx);
               })
-              .child(row.dir ? icon(this.expanded.has(row.path) ? 'chevron-down' : 'chevron-right') : div().w(14).flex_none())
-              .when(row.dir, el => el.child(icon('folder')))
-              .child(div().flex_1().min_w(0).truncate().text_size(12).text_color(t.foreground).child(row.name)))
+              .child(TreeItemIcon(icon(row.dir ? (this.expanded.has(row.path) ? 'folder-open' : 'folder') : 'file').text_color(t.muted)))
+              .child(TreeItemLabel(t).when(this.status.has(row.path), el => el.text_color(GitStatusColor[this.status.get(row.path)]))
+                .child(row.name)))
             .when(row.dir && this.expanded.has(row.path) && (this.pending.has(row.path) || this.errors.has(row.path)), el => el
               .child(div().px(12).py(4).text_size(11).text_color(t.muted).child(this.errors.get(row.path) || 'Loading…')))))
           .when(!this.entries.get('')?.length, el => el.child(div().p(12).text_size(12).text_color(t.muted)
