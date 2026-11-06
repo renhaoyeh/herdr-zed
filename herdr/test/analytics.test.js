@@ -108,7 +108,7 @@ test('native statistics view switches providers, changes ranges and clears group
     props: () => ({ overlay: 'statistics' }), closeOverlay: () => { closed = true; },
     Button: id => element().id(id), DialogContent: id => element().id(id), DialogTitle: element,
     DialogDescription: element, DialogFooter: element };
-  const Type = new Function(...Object.keys(host), source.replace(/^import .*;\n/gm, '').replace('export default class', 'return class'))(...Object.values(host));
+  const Type = new Function(...Object.keys(host), source.replace(/^import .*;\r?\n/gm, '').replace('export default class', 'return class'))(...Object.values(host));
   const view = new Type(); view.days = 30; view.tab = 'model'; view.page = 0; view.filters = {};
   const day = localDay(new Date());
   view.data = { events: [

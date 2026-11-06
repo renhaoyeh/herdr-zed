@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { commandArgv } from './shell-command.js';
 
 export const claudeUsageFile = 'devkits-usage.json';
 const claudeLimits = [['five_hour', '5-hour', 300], ['seven_day', 'Weekly', 10080]];
@@ -46,8 +47,8 @@ export function usageWindows(result = {}) {
 
 export function readUsage(argv, timeout = 18000) {
   return new Promise((resolve, reject) => {
-    const args = argv.filter(arg => arg !== '--no-daemon');
-    const child = spawn(args[0], [...args.slice(1), 'app-server'], { stdio: ['pipe', 'pipe', 'ignore'] });
+    const args = commandArgv(argv.filter(arg => arg !== '--no-daemon'), process.platform === 'win32' ? 'windows' : process.platform);
+    const child = spawn(args[0], [...args.slice(1), 'app-server'], { stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true });
     const lines = createInterface({ input: child.stdout });
     let done = false;
     const finish = (error, result) => {

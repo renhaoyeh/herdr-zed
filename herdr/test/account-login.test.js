@@ -1,15 +1,65 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { readFile, mkdtemp, rm, stat } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 async function load(host = {}) {
+  host = { window: () => ({ platform: 'macos' }), ...host };
   const source = await readFile(new URL('../mods/devkits/account-login.js', import.meta.url), 'utf8');
-  const factory = new Function('View', ...Object.keys(host), source.replace(/^import .*;\n/gm, '')
+  const helpers = await Promise.all(['shell-command'].map(name => readFile(new URL(`../mods/devkits/${name}.js`, import.meta.url), 'utf8')));
+  const factory = new Function('View', ...Object.keys(host), [...helpers, source].join('\n').replace(/^import .*;\r?\n/gm, '')
     .replace('export default class', 'class').replace(/^export /gm, '') + '\nreturn { AccountLogin, accountProfile, registerAccount, removeAccountProfile, renameAccountProfile, ensureClaudeStatusLine };');
   return factory(class {}, ...Object.values(host));
 }
 
 const profileId = 'account-000000000001';
+
+test('Windows Add account allocates private directories and saves launchers without a system shell', async t => {
+  const root = await mkdtemp(join(tmpdir(), "devkits accounts 中文 ' $(literal) "));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const run = promisify(execFile);
+  for (const provider of ['codex', 'claude']) {
+    let source = null, pending;
+    const { AccountLogin } = await load({ appHome: () => root, window: () => ({ platform: 'windows' }),
+      InputState: { new: () => ({ value: () => '工作帳號', on() {}, focus() {} }) },
+      exec: async (command, args) => {
+        assert.equal(command, 'node');
+        const { stdout, stderr } = await run(command, args); return { code: 0, stdout, stderr };
+      }, readTextFile: async path => path.endsWith('/programs.json') ? source : null,
+      writeTextFile: async (path, next, expected) => {
+        if (path.endsWith('/programs.json')) { assert.equal(expected, source); source = next; }
+      } });
+    const cx = { notify() {}, focus_handle: () => ({}), timer: { after: () => ({ cancel() {} }) },
+      spawn(fn) { pending = fn(cx); } };
+    const view = new AccountLogin(); view.init({ provider }, cx);
+    view.signInCodex = view.signInClaude = async profile => {
+      assert.equal((await stat(profile.directory)).isDirectory(), true);
+      assert.match(profile.key, new RegExp(`^devkits-${provider}-account-[a-zA-Z0-9]{12}$`));
+      assert.equal(profile.run[0], 'git');
+      return 'fixture@example.com';
+    };
+    view.start(cx); await pending;
+    assert.equal(view.phase, 'success', view.error);
+    assert.equal(JSON.parse(source).programs[view.profile.key].run[0], 'git');
+  }
+});
+
+test('Windows logout supports legacy env launchers while keeping credentials scoped to the profile', async () => {
+  const root = 'C:\\App Data', key = `devkits-codex-${profileId}`, calls = [];
+  const home = `CODEX_HOME=${root}/data/devkits/codex/${profileId}`;
+  let source = JSON.stringify({ programs: { [key]: { run: ['env', home, 'codex'] } } });
+  const { removeAccountProfile } = await load({ appHome: () => root, window: () => ({ platform: 'windows' }),
+    readTextFile: async () => source, writeTextFile: async (_path, next) => { source = next; },
+    exec: async (command, args) => { calls.push([command, args]); return { code: 0 }; } });
+  await removeAccountProfile(key);
+  assert.equal(calls[0][0], 'git');
+  assert.ok(calls[0][1].includes(home));
+  assert.equal(calls[0][1].at(-1), 'logout');
+  assert.deepEqual(JSON.parse(source), { programs: {} });
+});
 
 test('renaming changes only the display label and uses an atomic settings write', async () => {
   const key = `devkits-codex-${profileId}`;
@@ -153,7 +203,7 @@ async function scenario({ success = true, confirm = true, existing = false, fail
     InputState: { new: () => ({ value: () => inputName, on() {}, focus() {} }) },
     exec: async (...args) => {
       commands.push(args);
-      return { code: 0, stdout: args[0] === 'mktemp' ? `${root}/data/devkits/codex/${profileId}\n` : '' };
+      return { code: 0, stdout: args[0] === 'node' ? `${root}/data/devkits/codex/${profileId}\n` : '' };
     },
     hc: async args => {
       commands.push(['hc', args]);
@@ -257,7 +307,7 @@ test('retrying with a different display name keeps the same identity and credent
   assert.equal(result.view.phase, 'success');
   assert.equal(result.view.profile.directory, original.directory);
   assert.equal(result.view.profile.key, original.key);
-  assert.equal(result.commands.filter(([command]) => command === 'mktemp').length, 1);
+  assert.equal(result.commands.filter(([command]) => command === 'node').length, 1);
   assert.equal(result.messages.filter(message => message.method === 'account/login/start').length, 1);
   assert.equal(result.source.programs[original.key].name, 'Codex · PERSONAL');
 });
@@ -311,7 +361,7 @@ async function claudeScenario({ reads, loggedInAfter = Infinity, existing = fals
     InputState: { new: () => ({ value: () => 'work', on() {}, focus() {}, set_value() {} }) },
     exec: async (command, args) => {
       commands.push([command, args]);
-      if (command === 'mktemp') return { code: 0, stdout: allocated ?? `${root}/data/devkits/claude\\${profileId}\r\n` };
+      if (command === 'node') return { code: 0, stdout: allocated ?? `${root}/data/devkits/claude\\${profileId}\r\n` };
       if (args.includes('status')) {
         statusCalls++;
         const loggedIn = existing || readCalls >= loggedInAfter;

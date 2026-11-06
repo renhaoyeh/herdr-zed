@@ -65,6 +65,27 @@ test('usage reader handles missing binary, protocol errors, and timeout', async 
   await assert.rejects(readUsage([process.execPath, '-e', 'process.stdin.resume()', '--'], 30), /timed out/);
 });
 
+test('usage reads a saved env launcher through an npm-style shell shim on Windows', async t => {
+  const { mkdtemp, writeFile, rm } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const directory = await mkdtemp(join(tmpdir(), "devkits usage 中文 ' $(literal) "));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const shim = join(directory, 'codex'), server = join(directory, 'server.cjs');
+  await writeFile(shim, '#!/bin/sh\nexec "$DEVKITS_FIXTURE_NODE" "$DEVKITS_FIXTURE_SERVER" "$@"\n', { mode: 0o755 });
+  await writeFile(server, `
+    require('node:readline').createInterface({ input: process.stdin }).on('line', line => {
+      const m = JSON.parse(line);
+      if (m.method === 'initialize') console.log(JSON.stringify({ id: m.id, result: {} }));
+      if (m.method === 'account/rateLimits/read') console.log(JSON.stringify({ id: m.id,
+        result: { rateLimits: { primary: { windowDurationMins: 300, usedPercent: 12 } } } }));
+    });
+  `);
+  const windows = await readUsage(['env', `CODEX_HOME=${directory}`, `DEVKITS_FIXTURE_NODE=${process.execPath}`,
+    `DEVKITS_FIXTURE_SERVER=${server}`, shim, '--no-daemon']);
+  assert.equal(windows[0].usedPercent, 12);
+});
+
 test('Claude usage comes only from the status line recording in the account directory', async () => {
   const { claudeUsageWindows, readClaudeUsage, claudeConfigDir } = await import('../mods/devkits/usage-reader.js');
   const { record, statusText } = await import('../mods/devkits/claude-statusline.js');

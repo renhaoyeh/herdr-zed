@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 
 async function load(host = {}) {
   const source = await readFile(new URL('../mods/devkits-simulator/simulator.js', import.meta.url), 'utf8');
-  return new Function(...Object.keys(host), source.replace(/^import .*;\n/gm, '')
+  return new Function(...Object.keys(host), source.replace(/^import .*;\r?\n/gm, '')
     .replace('export default class', 'class').replace(/^export /gm, '')
     + '\nreturn { keyUsages, parseSimulators, targetDevice, jpegAspect, touchEdge, simulatorShown, listSimulators, previewUrl, openPreviewWindow, externalClient, SimulatorPanel, SimulatorMenu };')(...Object.values(host));
 }

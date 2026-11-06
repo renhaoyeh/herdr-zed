@@ -2,6 +2,7 @@ import { View, div, svg, image } from 'gpui-kit';
 import { v_flex, h_flex } from 'gpui-base';
 import { agents, spaces, panes, theme, run, props, window, openOverlay, closeOverlay, setAgentOrder, layout, settings, pickFolder, shared, setShared, knownAgents, notify, appHome, readTextFile } from 'herdr';
 import { projectGroups, projectCatalog, folderKey, launcherChoices, isAccountLauncher, launcherArgv, sessionArgv, sessionKind, resolveThreadProfiles, threadProfile } from './model.js';
+import { commandArgv } from './shell-command.js';
 import AccountLogin from './account-login.js';
 import FileViewer, { FileMenu } from './files.js';
 import DiffViewer from './diff.js';
@@ -309,6 +310,7 @@ export default class Devkits extends View {
     catch (error) { notify({ title: 'Could not start session', body: error.message, level: 'error' }); return; }
     if (target.overlay) closeOverlay(target.overlay);
     if (task) argv = [...argv, taskPrompt(task)];
+    if (!spaces().find(space => space.id === target.space)?.machine) argv = commandArgv(argv, window()?.platform);
     const name = task?.name || agent?.name;
     if (task) unsaveTask(target.folder, task.gid);
     // Commands do not return the new tab, so the sidebar matches it once it appears.

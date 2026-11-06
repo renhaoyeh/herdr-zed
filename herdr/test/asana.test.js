@@ -9,7 +9,7 @@ async function load(host = {}) {
   const source = await readFile(new URL('../mods/devkits/asana.js', import.meta.url), 'utf8');
   host = { fetch: () => assert.fail('unexpected request'), Button: () => {}, claudeModels, claudeEfforts, codexHome, codexModels, isClaudeLauncher, isCodexLauncher, sessionKind, shownOptions, orderedOptions, effortLabel,
     home: () => '/home', Select: () => element(), SelectState: class {}, ...host };
-  return new Function(...Object.keys(host), source.replace(/^import .*;\n/gm, '')
+  return new Function(...Object.keys(host), source.replace(/^import .*;\r?\n/gm, '')
     .replace('export default class', 'class').replace(/^export /gm, '')
     + `\nreturn { ${names.join(', ')} };`)(...Object.values(host));
 }

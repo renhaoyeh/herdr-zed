@@ -12,7 +12,7 @@ const plist = (workspace, date = '2026-10-11T17:27:01Z') => `<?xml version="1.0"
 async function loadDialog(host) {
   const read = name => readFile(new URL(`../mods/devkits/${name}`, import.meta.url), 'utf8');
   const sources = await Promise.all(['components/button.js', 'components/checkbox.js', 'components/dropdown-menu.js', 'components/dialog.js', 'xcode-storage.js'].map(read));
-  const body = sources.join('\n').replace(/^import [\s\S]*?;\n/gm, '').replace('export default class', 'class').replace(/^export /gm, '');
+  const body = sources.join('\n').replace(/^import [\s\S]*?;\r?\n/gm, '').replace('export default class', 'class').replace(/^export /gm, '');
   return new Function(...Object.keys(host), `${body}\nreturn { XcodeStorage, workspaceLabel, derivedGroups, bytes, simulatorGroups, lastUsedLabel };`)(...Object.values(host));
 }
 

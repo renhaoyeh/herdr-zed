@@ -1,7 +1,8 @@
 import { div } from 'gpui-kit';
 import { v_flex, h_flex, InputState, Input } from 'gpui-base';
 import { WebSocket } from 'websocket';
-import { appHome, exec, hc, readTextFile, writeTextFile, theme, closeOverlay, openOverlay } from 'herdr';
+import { appHome, exec, hc, readTextFile, writeTextFile, theme, closeOverlay, openOverlay, window } from 'herdr';
+import { commandArgv } from './shell-command.js';
 import { Button } from './components/button.js';
 
 // Each account owns a private credentials directory; the CLI itself signs in, stores, and refreshes tokens.
@@ -42,7 +43,8 @@ export function accountProfile(providerId, name, root, id) {
   name = accountName(name);
   if (!/^account-[a-zA-Z0-9]{12}$/.test(id || '')) throw new Error(`Invalid ${source.label} account ID.`);
   const directory = `${root}/data/devkits/${providerId}/${id}`;
-  return { provider: providerId, name, directory, key: `devkits-${providerId}-${id}`, run: source.command(directory) };
+  return { provider: providerId, name, directory, key: `devkits-${providerId}-${id}`,
+    run: commandArgv(source.command(directory), window()?.platform) };
 }
 
 // Windows tools may print `\` or `/c/` for the same folder; drive paths are case-insensitive.
@@ -135,7 +137,7 @@ export async function removeAccountProfile(key) {
   if (Object.entries(data.programs).some(([other, value]) => other !== key && Array.isArray(value?.run) && value.run.includes(home))) {
     throw new Error('Another entry shares this account’s credentials. Nothing was changed.');
   }
-  const [command, ...args] = source.command(directory);
+  const [command, ...args] = commandArgv(source.command(directory), window()?.platform);
   const result = await exec(command, [...args, ...source.logout]);
   if (result.code !== 0) throw new Error('Could not sign out. The account entry was kept.');
   try {
@@ -236,12 +238,13 @@ export default class AccountLogin {
         if (!this.profile) {
           const root = appHome();
           const parent = `${root}/data/devkits/${this.provider}`;
-          const created = await exec('mkdir', ['-p', '-m', '700', parent]);
-          if (created.code !== 0) throw new Error('Could not create the account directory.');
-          if (this.closed || this.stopped) return;
           // Atomically allocate an ID so even case-insensitive filesystems keep accounts separate.
-          const allocated = await exec('mktemp', ['-d', `${parent}/account-XXXXXXXXXXXX`]);
+          const allocated = await exec('node', ['-e', 'const fs = require("node:fs"), path = require("node:path"); '
+            + 'const parent = process.argv[1]; fs.mkdirSync(parent, { recursive: true, mode: 0o700 }); '
+            + 'const directory = path.join(parent, "account-" + require("node:crypto").randomBytes(6).toString("hex")); '
+            + 'fs.mkdirSync(directory, { mode: 0o700 }); console.log(directory);', parent]);
           if (allocated.code !== 0) throw new Error('Could not create the account directory.');
+          if (this.closed || this.stopped) return;
           const output = allocated.stdout.trim();
           const profile = accountProfile(this.provider, name, root, output.split(/[\\/]/).at(-1));
           if (samePath(output) !== samePath(profile.directory)) {
