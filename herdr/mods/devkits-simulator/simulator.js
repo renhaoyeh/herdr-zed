@@ -6,9 +6,9 @@ import net from 'net';
 import { writeFile } from 'fs/promises';
 import { DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from './components/dropdown-menu.js';
 import { Button } from './components/button.js';
-import { lastUsedLabel } from './xcode-storage.js';
 
-// The live iOS Simulator panel, adapted from herdr-sim (github.com/wobsoriano/herdr-sim, MIT).
+// The live iOS Simulator panel, adapted from herdr-sim (github.com/wobsoriano/herdr-sim, MIT). It is its own mod so a
+// layout without the simulator block leaves it out entirely; components/ holds copies of the devkits components it uses.
 // serve-sim streams the simulator as MJPEG and takes input over a WebSocket; it runs locally only.
 // A login shell resolves the same Node as the user's terminals.
 const SERVE_SIM = "SERVE_SIM_DISABLE_DEVICE_HUB_KEYBOARD=1 exec \"${SHELL:-/bin/zsh}\" -lic 'npx --yes serve-sim@0.1.49 \"$@\"' serve-sim \"$@\"";
@@ -26,6 +26,12 @@ const ROTATE = { portrait: 'landscape_left', landscape_left: 'portrait_upside_do
 const glyph = (name, size = 14) => svg(`mods/devkits/assets/icons/${name}.svg`).size(size).flex_none();
 const sleep = (cx, ms) => new Promise(resolve => cx.timer.after(ms, () => resolve()));
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+const DAY = 86400000;
+// Matches Xcode storage's labels in the devkits mod.
+const lastUsedLabel = (value, now = Date.now()) => {
+  const days = Math.floor((now - value) / DAY);
+  return days < 1 ? 'Today' : days === 1 ? 'Yesterday' : days < 60 ? `${days} days ago` : `${Math.floor(days / 30)} months ago`;
+};
 
 // A touch starting in the bottom 7% is the home-indicator edge, so a swipe up from there goes home.
 export const touchEdge = p => (p.y >= 0.93 ? 3 : 0);
@@ -379,7 +385,7 @@ export default class SimulatorPanel {
     return h_flex().h(32).flex_none().items_center().border_b(1).border_color(t.border)
       .child(DropdownMenuTrigger(h_flex().id('simulator-device').h_full().min_w(0).pl(10).pr(6).gap(6).items_center()
         .text_color(t.foreground).font_medium().hover(el => el.bg(t.hover)).cursor_pointer(), 280,
-        (_cx, at) => openOverlay({ mod: 'devkits', kind: 'popup', frame: 'none', width: 280, at, props: { view: 'simulator-devices' } }))
+        (_cx, at) => openOverlay({ mod: 'devkits-simulator', kind: 'popup', frame: 'none', width: 280, at, props: { view: 'simulator-devices' } }))
         .child(glyph('circle-check', 12).text_color(status))
         .child(div().min_w(0).truncate().child(device ? `${device.name} · ${device.os}` : 'Choose simulator'))
         .child(glyph('chevron-down', 12).text_color(t.muted)))
@@ -484,6 +490,7 @@ export class SimulatorMenu {
     exec('xcrun', ['simctl', 'shutdown', device.id]);
   }
 
+  // Xcode storage is a devkits dialog.
   storage() {
     closeOverlay(props().overlay);
     openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: false, width: 760, height: 0.85, props: { view: 'xcode-storage' } });

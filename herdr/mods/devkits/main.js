@@ -5,7 +5,6 @@ import { projectGroups, projectCatalog, folderKey, launcherChoices, isAccountLau
 import AccountLogin from './account-login.js';
 import FileViewer, { FileMenu } from './files.js';
 import DiffViewer from './diff.js';
-import SimulatorPanel, { SimulatorMenu, simulatorShown, toggleSimulator } from './simulator.js';
 import Analytics from './analytics.js';
 import XcodeStorage from './xcode-storage.js';
 import AsanaPanel, { AsanaProjectPicker, taskPrompt, unsaveTask } from './asana.js';
@@ -27,6 +26,7 @@ const showPanel = (name, id) => { hidePanels(); setShared(`devkits.${name}`, id)
 const restorePanel = id => { const name = shared('devkits.project-panels')?.[id]; if (name) setShared(`devkits.${name}`, id); return Boolean(name); };
 const togglePanel = (name, id) => { if (shared(`devkits.${name}`) === id) { hidePanels(); rememberPanel(id, null); } else showPanel(name, id); };
 const agentLoads = new Map();
+const layoutNode = (node, id) => node?.id === id ? node : (node?.children ?? []).map(child => layoutNode(child, id)).find(Boolean) ?? null;
 
 export default class Devkits extends View {
   init(_props, cx) {
@@ -71,16 +71,6 @@ export default class Devkits extends View {
     if (props()?.view === 'diff') {
       this.diff = new DiffViewer();
       this.diff.init(cx);
-      return;
-    }
-    if (props()?.view === 'simulator') {
-      this.simulator = new SimulatorPanel();
-      this.simulator.init(cx);
-      return;
-    }
-    if (props()?.view === 'simulator-devices') {
-      this.simulatorMenu = new SimulatorMenu();
-      this.simulatorMenu.init(cx);
       return;
     }
     if (props()?.view === 'account-login') {
@@ -347,7 +337,6 @@ export default class Devkits extends View {
   async close() {
     this.files?.close();
     this.diff?.close();
-    await this.simulator?.close();
     await this.login?.close();
   }
 
@@ -414,16 +403,18 @@ export default class Devkits extends View {
 
   statusBar(t) {
     const space = this.projects().find(s => s.active);
+    // The Simulator panel is the devkits-simulator mod; a layout without its block has no simulator button.
+    const simulator = window()?.platform === 'macos' ? layoutNode(layout(), 'simulator') : null;
     return h_flex().size_full().pl(16).pr(4).gap(8).items_center().bg(t.background).border_t(1).border_color(t.border)
       .text_size(11).text_color(t.muted).child(glyph('terminal', 12)).child(space?.machine || 'Local project')
       .when(Boolean(space?.branch), el => el.child(glyph('branch', 12)).child(space.branch))
       .child(div().flex_1())
-      .when(window()?.platform === 'macos', el => el
+      .when(Boolean(simulator), el => el
         .child(Button('open-simulator', t, { variant: 'ghost', size: 'icon' })
           .h_full().rounded(0)
-          .bg(simulatorShown(layout()) ? t.selected : t.background)
-          .accessibility_label(simulatorShown(layout()) ? 'Hide simulator' : 'Show simulator')
-          .on_click(() => toggleSimulator())
+          .bg(simulator.hidden ? t.background : t.selected)
+          .accessibility_label(simulator.hidden ? 'Show simulator' : 'Hide simulator')
+          .on_click(() => run('layout.toggle', { id: 'simulator' }))
           .child(glyph('smartphone'))))
       .when(Boolean(space), el => el
         .child(Button('open-diff', t, { variant: 'ghost', size: 'icon' })
@@ -479,8 +470,6 @@ export default class Devkits extends View {
     if (props()?.view === 'file-menu') return this.fileMenu.render();
     if (props()?.view === 'files') return this.files.render(this.projects().find(project => project.active), cx);
     if (props()?.view === 'diff') return this.diff.render(this.projects().find(project => project.active), cx);
-    if (props()?.view === 'simulator') return this.simulator.render();
-    if (props()?.view === 'simulator-devices') return this.simulatorMenu.render();
     if (props()?.view === 'account-login') return this.login.render();
     if (props()?.view === 'header') return this.header(t);
     if (props()?.view === 'usage-details') return this.usageDetails(t);
