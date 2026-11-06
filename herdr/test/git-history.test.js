@@ -113,6 +113,7 @@ test('history keeps previews during refresh, ignores stale selections and isolat
 
 test('history virtualizes rows and dispatches clicks and keyboard selection outside deferred rows', async () => {
   let list, deferred = false, built = 0, selected;
+  const nodes = new Map();
   const element = () => {
     built++;
     const data = {};
@@ -121,8 +122,10 @@ test('history virtualizes rows and dispatches clicks and keyboard selection outs
       if (key === 'when') return (condition, render) => { if (condition) render(el); return el; };
       return (...args) => {
         if (deferred && key.startsWith('on_')) assert.fail(`Deferred row registered ${key}`);
+        if (key === 'id') nodes.set(args[0], data);
         if (key === 'on_item_click') data.click = args[0];
         if (key === 'on_key_down') data.key = args[0];
+        if (key === 'on_size_change') data.sizeChange = args[0];
         return el;
       };
     } });
@@ -138,13 +141,32 @@ test('history virtualizes rows and dispatches clicks and keyboard selection outs
     shortSha: String(index), subject: `Commit ${index}`, author: 'Author', at: 1700000000 }));
   history.hasMore = true;
   history.select = entry => { selected = entry; };
+  let pages = 0;
+  history.load = (_cx, more) => { assert.equal(more, true); pages++; history.loading = true; };
   const panel = history.render({});
   assert.equal(list.count, 5001); assert.equal(list.height, 56); assert.ok(built < 20);
   deferred = true;
   assert.equal(list.render({ start: 10, end: 20 }).length, 10);
   deferred = false;
+  assert.equal(pages, 0, 'Constructing the list and painting ordinary rows do not fetch pages');
   list.el.click(list.key(12), {}); assert.equal(selected, history.entries[12]);
   panel.key({ key: 'down' }, { stop_propagation() {}, notify() {} });
   panel.key({ key: 'enter' }, { stop_propagation() {}, notify() {} });
   assert.equal(selected, history.entries[13]);
+  const tail = nodes.get(`history-tail-${history.version}-${history.entries.length}`);
+  deferred = true;
+  assert.equal(list.render({ start: 5000, end: 5001 }).length, 1);
+  deferred = false;
+  tail.sizeChange({ height: 56 }, {});
+  tail.sizeChange({ height: 56 }, {});
+  assert.equal(pages, 1, 'The visible tail loads the next page once, without clicking');
+  history.loading = false; history.error = 'failed';
+  tail.sizeChange({ height: 56 }, {});
+  assert.equal(pages, 1, 'A failure waits for Retry instead of looping');
+  history.error = null; history.entries.push({ sha: 'f'.repeat(40) });
+  tail.sizeChange({ height: 56 }, {});
+  assert.equal(pages, 1, 'Old tail callbacks cannot request a later page');
+  history.reset({ folder: '/other' }); history.entries = Array(5000); history.hasMore = true;
+  tail.sizeChange({ height: 56 }, {});
+  assert.equal(pages, 1, 'A closed project cannot paginate its replacement');
 });

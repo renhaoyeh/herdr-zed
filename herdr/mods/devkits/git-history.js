@@ -117,6 +117,11 @@ export class CommitHistory {
     });
   }
 
+  loadMore(cx, version, length) {
+    if (this.version !== version || this.entries.length !== length || this.loading || this.error || !this.hasMore) return;
+    this.load(cx, true);
+  }
+
   row(commit, index, t) {
     const selected = (this.pending || this.preview?.commit.sha) === commit.sha;
     return v_flex().h(56).w_full().min_w(0).px(12).py(8).gap(4).cursor_pointer()
@@ -130,18 +135,23 @@ export class CommitHistory {
   }
 
   render(t) {
-    const count = this.entries.length + (this.hasMore ? 1 : 0);
+    const length = this.entries.length, version = this.version;
+    const count = length + (this.hasMore ? 1 : 0);
+    // Register before the deferred renderer: its first layout event requests the next page.
+    const tail = h_flex().id(`history-tail-${version}-${length}`).h(56).px(12).items_center().text_size(12).text_color(t.muted)
+      .on_size_change((size, cx) => { if (size.height > 0) this.loadMore(cx, version, length); })
+      .child(this.error ? '' : 'Loading…');
     const note = text => v_flex().flex_1().items_center().justify_center().p(12).text_size(12).text_color(t.muted).child(text);
     return v_flex().flex_1().min_h(0).relative().track_focus(this.focus)
       .on_key_down((event, cx) => {
-        if (!count) return;
-        if (event.key === 'down') this.index = Math.min(count - 1, this.index + 1);
+        if (!length) return;
+        if (event.key === 'down') this.index = Math.min(length - 1, this.index + 1);
         else if (event.key === 'up') this.index = Math.max(0, this.index - 1);
         else if (event.key === 'home') this.index = 0;
-        else if (event.key === 'end') this.index = count - 1;
-        else if (event.key === 'enter') {
-          this.index === this.entries.length ? this.load(cx, true) : this.select(this.entries[this.index], cx);
-        } else return;
+        else if (event.key === 'end') this.index = length - 1;
+        else if (event.key === 'enter') this.select(this.entries[this.index], cx);
+        else return;
+        if (this.index >= length - 5) this.loadMore(cx, version, length);
         this.keyboard = true; this.scroll.scroll_to_item(this.index, 'top'); cx.stop_propagation(); cx.notify();
       })
       .when(Boolean(this.error), el => el.child(v_flex().flex_none().p(12).gap(8).text_size(12).text_color(t.muted)
@@ -151,14 +161,12 @@ export class CommitHistory {
         index => this.entries[index]?.sha || 'more',
         range => Array.from({ length: range.end - range.start }, (_, offset) => {
           const index = range.start + offset, commit = this.entries[index];
-          return commit ? this.row(commit, index, t) : h_flex().h(56).px(12).items_center().text_size(12)
-            .text_color(t.muted).cursor_pointer().hover(el => el.bg(t.hover)).child(this.loading ? 'Loading…' : 'Load more');
+          return commit ? this.row(commit, index, t) : tail;
         })).size_full().track_scroll(this.scroll)
         .on_item_click((key, cx) => {
           this.focus?.focus();
           this.keyboard = false;
-          if (key === 'more') this.load(cx, true);
-          else { this.index = this.entries.findIndex(entry => entry.sha === key); this.select(this.entries[this.index], cx); }
+          if (key !== 'more') { this.index = this.entries.findIndex(entry => entry.sha === key); this.select(this.entries[this.index], cx); }
         }) : note(this.loading ? 'Loading history…' : this.error ? 'History unavailable' : 'No commits yet'))
       .when(count > 0, el => el.child(Scrollbar.vertical('git-history-rows').absolute().inset_0()));
   }
