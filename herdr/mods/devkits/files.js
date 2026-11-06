@@ -174,12 +174,12 @@ export default class FileViewer {
     const t = theme();
     return h_flex().id('file-viewer').flex_row_reverse().size_full().min_h(0).bg(t.background).text_color(t.foreground)
       .child(v_flex().w(240).flex_none().min_h(0).h_full().bg(t.chrome).border_l(1).border_color(t.border)
-        .child(h_flex().h(40).flex_none().px(12).gap(8).items_center().border_b(1).border_color(t.border)
+        .child(h_flex().h(32).flex_none().px(12).gap(8).items_center().border_b(1).border_color(t.border)
           .child(div().flex_1().min_w(0).truncate().text_size(12).font_medium().child(project?.name || 'Files')))
-        .child(v_flex().id('file-tree').flex_1().min_h(0).overflow_y_scrollbar().py(6)
+        .child(v_flex().id('file-tree').flex_1().min_h(0).overflow_y_scrollbar()
           .track_focus(this.handle).on_key_down((event, cx) => this.navigate(event, cx))
           .children(this.rows().map(row => v_flex().flex_none()
-            .child(Button(`file-${row.path}`, t, { variant: 'ghost' }).h(28).mx(4).pl(8 + row.depth * 16).pr(8).justify_start()
+            .child(Button(`file-${row.path}`, t, { variant: 'ghost' }).w_full().h(28).pl(12 + row.depth * 16).pr(12).justify_start()
               .bg(this.cursor === row.path || this.file === row.path ? t.selected : t.chrome)
               .accessibility_label(`${row.dir ? 'Folder' : 'File'} ${row.path}`)
               .on_click((_event, cx) => {
