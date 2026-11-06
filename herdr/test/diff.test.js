@@ -7,10 +7,12 @@ import { promisify } from 'node:util';
 import { execFile } from 'node:child_process';
 
 async function load(host = {}) {
+  host = { shared: () => undefined, setShared() {}, ...host };
   const source = await readFile(new URL('../mods/devkits/diff.js', import.meta.url), 'utf8');
   const menu = await readFile(new URL('../mods/devkits/components/dropdown-menu.js', import.meta.url), 'utf8');
   const history = await readFile(new URL('../mods/devkits/git-history.js', import.meta.url), 'utf8');
-  return new Function(...Object.keys(host), (menu + '\n' + history + '\n' + source).replace(/^import .*;\n/gm, '')
+  const auth = await readFile(new URL('../mods/devkits/git-auth.js', import.meta.url), 'utf8');
+  return new Function(...Object.keys(host), (menu + '\n' + history + '\n' + auth + '\n' + source).replace(/^import .*;\n/gm, '')
     .replace('export default class', 'class').replace(/^export /gm, '') + '\nreturn { DiffViewer, DropdownMenu, DropdownMenuState, parseDiff, readDiff, readPushState, pushBranch, gitRemoteAction, affectsDiff, pairLines, changedRanges, changeSections, changeTree, wrapLine };')(...Object.values(host));
 }
 const run = promisify(execFile);
@@ -103,6 +105,9 @@ test('Git menu runs only known commands and passes remote names as literal argum
   await assert.rejects(gitRemoteAction('/project', null, 'reset'), /Unknown/);
   assert.equal(calls.length, 6);
   await assert.rejects(gitRemoteAction('/project', null, 'publish'), /Choose a Git remote/);
+  await gitRemoteAction('/project', 'box', 'push', 'origin', { host: 'github.com', login: 'alice' });
+  assert.ok(calls.at(-1)[1].includes('credential.https://github.com.username=alice'));
+  assert.deepEqual(calls.at(-1)[1].slice(-3), ['push', '--', 'origin']);
 });
 
 test('Zed remote actions publish, fetch every remote, pull before push and republish a missing upstream', async t => {
@@ -181,6 +186,8 @@ test('Zed remote actions publish, fetch every remote, pull before push and repub
 test('split button menu exposes Git operations, counts and keyboard navigation while loading stays centered', async () => {
   const nodes = new Map(), actions = [], painted = [];
   const editors = [];
+  let accountSettings;
+  const tasks = [];
   const element = () => {
     const data = { children: [] };
     const el = new Proxy(data, { get(target, key) {
@@ -199,10 +206,14 @@ test('split button menu exposes Git operations, counts and keyboard navigation w
   };
   const { DiffViewer } = await load({ div: element, svg: element, v_flex: element, h_flex: element,
     Button: id => element().id(id), Popup: { new: id => element().id(id) },
-    Empty: element, EmptyDescription: element, theme: () => ({}), settings: () => ({}), shared: () => undefined,
+    Empty: element, EmptyDescription: element, theme: () => ({}), settings: () => ({}),
+    shared: key => key === 'devkits.git-accounts' ? accountSettings : undefined,
+    setShared: (_key, value) => { accountSettings = value; },
+    exec: async () => ({ code: 0, stdout: JSON.stringify([{ host: 'github.com', login: 'alice', state: 'success' },
+      { host: 'github.com', login: 'bob', state: 'error' }]) }),
     VirtualListScrollHandle: { new: () => ({}) }, Editor: { new: element },
     EditorState: { new: options => { const state = { ...options, release() { this.released = true; } }; editors.push(state); return state; } } });
-  const cx = { notify() {}, stop_propagation() {}, focus_handle: () => ({ focus() {} }) };
+  const cx = { notify() {}, stop_propagation() {}, focus_handle: () => ({ focus() {} }), spawn(fn) { tasks.push(fn(cx)); } };
   const view = new DiffViewer(); view.init(cx);
   view.context = { id: 'project', folder: '/project', branch: 'native/main' };
   view.render(view.context, cx);
@@ -277,6 +288,44 @@ test('split button menu exposes Git operations, counts and keyboard navigation w
   nodes.get('git-toast-close').click({}, cx);
   assert.equal(view.toastVisible, false);
   assert.equal(view.pushResult.failed, true, 'Dismissal retains the result');
+  view.pushFooter({});
+  nodes.get('diff-git-actions-accounts').click({}, cx);
+  assert.equal(view.gitMenu.page, 'accounts');
+  assert.equal(view.gitMenu.open, true);
+  await Promise.all(tasks.splice(0));
+  view.pushFooter({});
+  nodes.get('diff-git-actions-account:1').click({}, cx);
+  assert.equal(accountSettings, undefined, 'Unavailable accounts cannot be selected');
+  nodes.get('diff-git-actions-account:0').click({}, cx);
+  assert.equal(view.gitMenu.page, null);
+  view.pushFooter({});
+  assert.ok(painted.includes('GitHub account…'));
+  assert.ok(painted.includes('alice'));
+  assert.deepEqual(Object.values(accountSettings), [{ host: 'github.com', login: 'alice' }]);
+  nodes.get('diff-git-actions-accounts').click({}, cx);
+  await Promise.all(tasks.splice(0));
+  view.pushFooter({});
+  nodes.get('diff-git-actions-account:default').click({}, cx);
+  assert.deepEqual(accountSettings, {});
+});
+
+test('account reads avoid duplicate requests and ignore results after changing projects', async () => {
+  const pending = [], tasks = [], machines = [];
+  const { DiffViewer } = await load({ VirtualListScrollHandle: { new: () => ({}) },
+    exec: (_cmd, _args, options) => { machines.push(options.on); return new Promise(resolve => pending.push(resolve)); } });
+  const cx = { notify() {}, spawn(fn) { tasks.push(fn(cx)); } };
+  const view = new DiffViewer(); view.init();
+  view.context = { folder: '/one', machine: 'remote' };
+  view.loadAccounts(cx); view.loadAccounts(cx);
+  assert.equal(pending.length, 1);
+  view.context = { folder: '/two' }; view.accountsLoading = false;
+  view.loadAccounts(cx);
+  pending[1]({ code: 0, stdout: '[{"host":"github.com","login":"current","state":"success"}]' });
+  await tasks[1];
+  pending[0]({ code: 0, stdout: '[{"host":"github.com","login":"stale","state":"success"}]' });
+  await tasks[0];
+  assert.equal(view.accounts[0].login, 'current');
+  assert.deepEqual(machines, ['remote', undefined]);
 });
 
 test('push prevents duplicate actions, retains errors for retry and isolates project changes', async () => {

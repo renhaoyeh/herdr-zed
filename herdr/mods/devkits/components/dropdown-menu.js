@@ -1,4 +1,4 @@
-import { div } from 'gpui-kit';
+import { div, svg } from 'gpui-kit';
 import { h_flex, v_flex, Popup } from 'gpui-base';
 import { settings } from 'herdr';
 
@@ -48,7 +48,7 @@ export class DropdownMenuState {
 }
 
 /** An anchored action menu with native dismissal and focus, and keyboard navigation. */
-export function DropdownMenu(id, state, trigger, items, onSelect, t, { side = 'bottom' } = {}) {
+export function DropdownMenu(id, state, trigger, items, onSelect, t, { side = 'bottom', align = 'end' } = {}) {
   const close = cx => { state.open = false; state.page = null; state.trigger?.focus(); cx.notify(); };
   const choose = (item, cx) => {
     cx.stop_propagation();
@@ -78,10 +78,16 @@ export function DropdownMenu(id, state, trigger, items, onSelect, t, { side = 'b
     .children(items.flatMap((item, index) => [
       ...(item.separator ? [DropdownMenuSeparator(t)] : []),
       DropdownMenuItem(`${id}-${item.key}`, t).role('menu_item').accessibility_label(item.label)
+        .min_w(0).when(Boolean(item.description), el => el.h(44))
         .when(item.disabled, el => el.opacity(0.4).cursor_default())
         .when(!item.disabled && state.index === index, el => el.bg(t.selected).aria_active_descendant())
         .on_hover((inside, cx) => { if (inside && !item.disabled) { state.index = index; cx.notify(); } })
-        .on_click((_event, cx) => choose(item, cx)).child(item.label),
+        .on_click((_event, cx) => choose(item, cx))
+        .child(v_flex().flex_1().min_w(0)
+          .child(div().min_w(0).truncate().child(item.label))
+          .when(Boolean(item.description), el => el.child(div().min_w(0).truncate().text_size(11).text_color(t.muted).child(item.description))))
+        .when(item.checked !== undefined, el => el.child(div().w(14).flex_none()
+          .when(item.checked, el => el.child(svg('mods/devkits/assets/icons/check.svg').size(14))))),
     ]));
   const open = cx => {
     state.open = true; state.index = enabled[0] ?? 0; state.focus?.focus(); cx.notify();
@@ -91,5 +97,9 @@ export function DropdownMenu(id, state, trigger, items, onSelect, t, { side = 'b
     .on_key_down((event, cx) => {
       if (['down', 'up', 'enter', 'space'].includes(event.key)) { cx.stop_propagation(); open(cx); }
     });
-  return Popup.new(id, trigger).anchor(side === 'top' ? 'bottom_right' : 'top_right').when(state.open, el => el.content(content));
+  // Popup measures an absolute canvas inside its host. Contain that canvas so
+  // it measures the trigger, rather than an enclosing workspace's bounds.
+  // Native Popup then fits the content to the window edges.
+  const anchor = `${side === 'top' ? 'bottom' : 'top'}_${align === 'start' ? 'left' : 'right'}`;
+  return Popup.new(id, trigger).relative().flex_none().anchor(anchor).when(state.open, el => el.content(content));
 }

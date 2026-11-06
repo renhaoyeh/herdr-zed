@@ -6,6 +6,7 @@ import { DropdownMenu, DropdownMenuState } from './components/dropdown-menu.js';
 import { TreeItem, TreeItemIcon, TreeItemLabel, GitStatusColor } from './components/tree.js';
 import { Empty, EmptyDescription } from './components/empty.js';
 import { CommitHistory } from './git-history.js';
+import { gitAccount, setGitAccount, readGitAccounts, gitAuthArgs } from './git-auth.js';
 
 const icon = name => svg(`mods/devkits/assets/icons/${name}.svg`).size(12).flex_none();
 const MAX_BYTES = 4000000, MAX_ROWS = 20000, MAX_LINE = 2000;
@@ -158,7 +159,7 @@ const gitActions = [
   { key: 'force-push', label: 'Force Push (with lease)', progress: 'Pushing…', args: ['push', '--force-with-lease'] },
 ];
 
-export async function gitRemoteAction(folder, on, action, remote) {
+export async function gitRemoteAction(folder, on, action, remote, account) {
   const operation = gitActions.find(item => item.key === action);
   if (!operation) throw new Error('Unknown Git operation.');
   const publish = action === 'publish' || action === 'republish';
@@ -168,7 +169,7 @@ export async function gitRemoteAction(folder, on, action, remote) {
     + (publish ? 'branch=$(git symbolic-ref --quiet --short HEAD) || exit 3; set -- "$@" "HEAD:refs/heads/$branch"; ' : '')
     + 'GIT_TERMINAL_PROMPT=0 GCM_INTERACTIVE=never git "$@"';
   const result = await exec('sh', ['-c', script,
-    'devkits-git', folder, ...args], { on });
+    'devkits-git', folder, ...gitAuthArgs(account), ...args], { on });
   if (result.code !== 0) throw new Error(result.stderr.trim() || result.stdout.trim() || `${operation.label} failed.`);
 }
 
@@ -283,6 +284,7 @@ export default class DiffViewer {
     this.error = null; this.loaded = false; this.truncated = false; this.diffText = null;
     this.loading = false; this.dirty = false;
     this.pushState = null; this.pushStateError = null; this.pushResult = null;
+    this.accounts = null; this.accountsError = null; this.accountsLoading = false;
     this.gitMenu.open = false; this.gitMenu.page = null;
     if (project?.folder) { this.observe(cx); this.reload(cx); }
     if (project?.folder && this.panelTab === 'history') this.history.load(cx);
@@ -378,7 +380,7 @@ export default class DiffViewer {
     cx.notify();
     cx.spawn(async cx => {
       let message = `${operation.label} completed.`, failed = false;
-      try { await gitRemoteAction(context.folder, context.machine, action, remote); }
+      try { await gitRemoteAction(context.folder, context.machine, action, remote, gitAccount(context)); }
       catch (error) { message = String(error.message || error); failed = true; }
       this.pushing = null;
       if (this.context === context) {
@@ -400,6 +402,22 @@ export default class DiffViewer {
     if (action !== 'fetch' && !this.pushState.committed) return 'Create a commit first';
     if (!this.pushState.remote) return 'No Git remote configured';
     return null;
+  }
+
+  loadAccounts(cx) {
+    if (this.accountsLoading) return;
+    const context = this.context;
+    this.accountsLoading = true; this.accountsError = null;
+    cx.spawn(async cx => {
+      try {
+        const accounts = await readGitAccounts(context.machine);
+        if (this.context === context) this.accounts = accounts;
+      } catch {
+        if (this.context === context) this.accountsError = 'Run gh auth login on this machine, then retry.';
+      } finally {
+        if (this.context === context) { this.accountsLoading = false; cx.notify(); }
+      }
+    });
   }
 
   openLog(cx) {
@@ -444,7 +462,20 @@ export default class DiffViewer {
     const counts = `${behind > 0 ? `↓${behind} ` : ''}${ahead > 0 ? `↑${ahead} ` : ''}`;
     const pushUnavailable = Boolean(this.pushUnavailable('push'));
     const page = this.gitMenu.page;
-    const items = page ? [
+    const account = gitAccount(this.context);
+    const accountLabel = account?.login || 'Default';
+    const items = page === 'accounts' ? [
+      { key: 'back', label: '‹ Git operations' },
+      { key: 'account:default', label: 'Default', checked: !account, disabled: Boolean(this.pushing) },
+      ...(this.accounts || []).map((entry, index) => ({ key: `account:${index}`,
+        label: entry.login, description: `${entry.host}${entry.available ? '' : ' · Sign in required'}`,
+        checked: account?.host === entry.host && account?.login === entry.login,
+        disabled: Boolean(this.pushing) || !entry.available })),
+      ...(this.accountsLoading ? [{ key: 'accounts-loading', label: 'Loading accounts…', disabled: true }]
+        : this.accountsError ? [{ key: 'accounts-error', label: 'Could not load accounts', description: 'Run gh auth login, then Retry', disabled: true }]
+          : !this.accounts?.length ? [{ key: 'accounts-empty', label: 'No signed-in accounts', description: 'Run gh auth login', disabled: true }] : []),
+      { key: 'accounts-retry', label: this.accountsError ? 'Retry' : 'Refresh accounts', disabled: this.accountsLoading },
+    ] : page ? [
       { key: 'back', label: '‹ Git operations' },
       ...(this.pushState?.remotes || []).map(remote => ({ key: `remote:${remote}`, label: remote })),
       ...(page === 'fetch' && this.pushState?.remotes.length > 1 ? [{ key: 'all', label: 'All' }] : []),
@@ -456,9 +487,19 @@ export default class DiffViewer {
       { key: 'push', label: 'Push', disabled: pushUnavailable, separator: true },
       { key: 'push-to', label: 'Push To…', disabled: pushUnavailable },
       { key: 'force-push', label: 'Force Push (with lease)', disabled: pushUnavailable },
+      { key: 'accounts', label: 'GitHub account…', description: accountLabel, separator: true, disabled: Boolean(this.pushing) },
     ];
     const choose = (key, cx) => {
-      if (key === 'back' || key === 'fetch-from' || key === 'push-to') {
+      if (key === 'accounts' || key === 'accounts-retry') {
+        this.gitMenu.page = 'accounts'; this.gitMenu.index = 0; this.gitMenu.open = true;
+        this.loadAccounts(cx);
+      } else if (key.startsWith('account:')) {
+        if (this.pushing) return;
+        const chosen = key === 'account:default' ? null : this.accounts?.[Number(key.slice(8))];
+        if (key !== 'account:default' && !chosen?.available) return;
+        setGitAccount(this.context, chosen);
+        this.gitMenu.page = null;
+      } else if (key === 'back' || key === 'fetch-from' || key === 'push-to') {
         this.gitMenu.page = key === 'back' ? null : key === 'fetch-from' ? 'fetch' : 'push';
         this.gitMenu.index = 0; this.gitMenu.open = true;
       } else this.remoteAction(page || key, cx, page && key !== 'all' ? key.slice(7) : undefined);
