@@ -21,7 +21,7 @@ export function Select(id, state, value, options, label, onChange, t) {
   const selected = options.find(option => option.key === value) || options[0];
   const close = cx => { state.open = false; state.trigger.focus(); cx.notify(); };
   const choose = (option, cx) => { cx.stop_propagation(); onChange(option.key, cx); close(cx); };
-  const trigger = SelectTrigger(id, selected.color, t).tooltip(selected.description)
+  const trigger = SelectTrigger(id, selected.color, t)
     .on_mouse_down('left', (_event, cx) => { cx.stop_propagation(); state.trigger.focus(); })
     .on_click((_event, cx) => {
       cx.stop_propagation();
@@ -46,7 +46,7 @@ export function Select(id, state, value, options, label, onChange, t) {
     })
     .children(options.map((option, index) => DropdownMenuItem(`${id}-option-${option.key}`, t)
       .role('list_box_option').text_color(option.color).bg(state.index === index ? t.selected : t.popover)
-      .accessibility_label(`${option.label}${selected.key === option.key ? ', selected' : ''}`).tooltip(option.description)
+      .accessibility_label(`${option.label}${selected.key === option.key ? ', selected' : ''}`)
       .when(state.index === index, el => el.aria_active_descendant())
       .on_hover((inside, cx) => { if (inside) { state.index = index; cx.notify(); } })
       .on_click((_event, cx) => choose(option, cx))
