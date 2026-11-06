@@ -1,7 +1,8 @@
 import { div, svg } from 'gpui-kit';
 import { h_flex, v_flex, v_virtual_list, Scrollbar, VirtualListScrollHandle } from 'gpui-base';
-import { exec, watchFolder, settings, theme, shared, setShared } from 'herdr';
+import { exec, watchFolder, settings, theme, shared, setShared, notify } from 'herdr';
 import { Button } from './components/button.js';
+import { DropdownMenu, DropdownMenuState } from './components/dropdown-menu.js';
 import { TreeItem, TreeItemIcon, TreeItemLabel, GitStatusColor } from './components/tree.js';
 import { Empty, EmptyDescription } from './components/empty.js';
 
@@ -123,6 +124,41 @@ export async function readDiff(folder, on) {
   return { files: parseDiff(text), truncated: text.length >= MAX_BYTES };
 }
 
+/** Read only refs and configuration; this must also work in a clean or unborn repository. */
+export async function readPushState(folder, on) {
+  const result = await exec('sh', ['-c', 'cd "$1" || exit 2; '
+    + 'git rev-parse --git-dir >/dev/null 2>&1 || exit 3; '
+    + 'branch=$(git symbolic-ref --quiet --short HEAD); commit=$(git rev-parse --verify -q HEAD); '
+    + 'counts=$(git rev-list --left-right --count "HEAD...@{upstream}" 2>/dev/null); '
+    + 'printf "%s\n%s\n%s\n" "$branch" "$commit" "$counts"; git remote', 'devkits-push-state', folder], { on });
+  if (result.code !== 0) throw new Error(result.stderr.trim() || 'Cannot read Git branch.');
+  const [branch, commit, counts, ...remotes] = result.stdout.split(/\r?\n/);
+  const match = /^(\d+)\s+(\d+)$/.exec(counts || '');
+  return { branch: branch || null, committed: /^[a-f0-9]{40,64}$/.test(commit || ''), remote: remotes.some(Boolean), remotes: remotes.filter(Boolean),
+    ahead: match ? Number(match[1]) : null, behind: match ? Number(match[2]) : null };
+}
+
+export async function pushBranch(folder, on) {
+  return gitRemoteAction(folder, on, 'push');
+}
+
+const gitActions = [
+  { key: 'fetch', label: 'Fetch', progress: 'Fetching…', args: ['fetch'] },
+  { key: 'pull', label: 'Pull', progress: 'Pulling…', args: ['pull'] },
+  { key: 'pull-rebase', label: 'Pull (Rebase)', progress: 'Rebasing…', args: ['pull', '--rebase'] },
+  { key: 'push', label: 'Push', progress: 'Pushing…', args: ['push'] },
+  { key: 'force-push', label: 'Force Push (with lease)', progress: 'Pushing…', args: ['push', '--force-with-lease'] },
+];
+
+export async function gitRemoteAction(folder, on, action, remote) {
+  const operation = gitActions.find(item => item.key === action);
+  if (!operation) throw new Error('Unknown Git operation.');
+  const args = [...operation.args, ...(remote ? ['--', remote] : [])];
+  const result = await exec('sh', ['-c', 'cd "$1" || exit 2; shift; GIT_TERMINAL_PROMPT=0 GCM_INTERACTIVE=never git "$@"',
+    'devkits-git', folder, ...args], { on });
+  if (result.code !== 0) throw new Error(result.stderr.trim() || result.stdout.trim() || `${operation.label} failed.`);
+}
+
 /** Only commits move HEAD; other .git activity cannot change a working-tree diff against it. */
 export const affectsDiff = rest => !rest.split('/').includes('.git') || /(^|\/)\.git\/(HEAD|packed-refs|refs\/)/.test(rest);
 
@@ -206,6 +242,7 @@ export default class DiffViewer {
     this.folders = new Set();
     this.request = 0;
     this.scroll = VirtualListScrollHandle.new();
+    this.gitMenu = new DropdownMenuState(cx);
   }
 
   close() {
@@ -220,6 +257,9 @@ export default class DiffViewer {
     this.context = project ? { ...project } : null;
     this.files = []; this.collapsed.clear(); this.folders.clear(); this.rowCache = null; this.selected = null;
     this.error = null; this.loaded = false; this.truncated = false; this.diffText = null;
+    this.loading = false; this.dirty = false;
+    this.pushState = null; this.pushStateError = null; this.pushResult = null;
+    this.gitMenu.open = false; this.gitMenu.page = null;
     if (project?.folder) { this.observe(cx); this.reload(cx); }
   }
 
@@ -231,7 +271,7 @@ export default class DiffViewer {
         while (this.context === context) {
           const paths = await watchFolder(context.folder);
           if (this.context !== context) return;
-          if (!paths.some(path => affectsDiff(path.slice(context.folder.length)))) continue;
+          if (!paths.some(path => affectsDiff(path.slice(context.folder.length)) || /(^|\/)\.git\/config$/.test(path.slice(context.folder.length)))) continue;
           if (!this.queued) this.queued = cx.timer.after(500, cx => {
             this.queued = null;
             if (this.context === context) this.reload(cx);
@@ -251,8 +291,14 @@ export default class DiffViewer {
     let changed = !this.loaded;
     cx.spawn(async cx => {
       try {
-        const text = await readDiffText(context.folder, context.machine);
+        const [text, state] = await Promise.all([
+          readDiffText(context.folder, context.machine),
+          readPushState(context.folder, context.machine).then(value => ({ value }), error => ({ error: String(error.message || error) })),
+        ]);
         if (request !== this.request || this.context !== context) return;
+        if (JSON.stringify(state.value) !== JSON.stringify(this.pushState) || (state.error || null) !== this.pushStateError) {
+          this.pushState = state.value; this.pushStateError = state.error || null; changed = true;
+        }
         // Like Zed, keep what is shown until the result actually differs; most events change nothing.
         if (text !== this.diffText || this.error) {
           this.diffText = text; this.files = parseDiff(text); this.truncated = text.length >= MAX_BYTES;
@@ -261,6 +307,7 @@ export default class DiffViewer {
       } catch (error) {
         if (request === this.request && this.context === context) {
           this.diffText = null; this.files = []; this.rowCache = null; this.error = String(error.message || error); changed = true;
+          this.pushState = null; this.pushStateError = this.error;
         }
       } finally {
         if (this.context === context) {
@@ -270,6 +317,81 @@ export default class DiffViewer {
         if (changed) cx.notify();
       }
     });
+  }
+
+  push(cx) { this.remoteAction('push', cx); }
+
+  remoteAction(action, cx, remote) {
+    if (this.pushing || this.pushUnavailable(action)) return;
+    const operation = gitActions.find(item => item.key === action);
+    if (!operation) return;
+    const context = this.context;
+    this.pushing = context; this.operation = operation; this.pushResult = null;
+    this.gitMenu.open = false; this.gitMenu.page = null;
+    cx.notify();
+    cx.spawn(async cx => {
+      let message = `${operation.label} completed.`, failed = false;
+      try { await gitRemoteAction(context.folder, context.machine, action, remote); }
+      catch (error) { message = String(error.message || error); failed = true; }
+      this.pushing = null;
+      notify({ title: `${operation.label} ${failed ? 'failed' : 'completed'}`, body: `${context.name || context.folder}\n${message}`, level: failed ? 'error' : 'success' });
+      if (this.context === context) {
+        this.pushResult = { message, failed };
+        this.reload(cx);
+      }
+      cx.notify();
+    });
+  }
+
+  pushUnavailable(action = 'push') {
+    if (!this.pushState) return this.pushStateError || (this.loaded ? 'Git branch unavailable' : 'Loading branch…');
+    if (action !== 'fetch' && !this.pushState.branch) return 'Check out a branch first';
+    if (action !== 'fetch' && !this.pushState.committed) return 'Create a commit first';
+    if (!this.pushState.remote) return 'No Git remote configured';
+    return null;
+  }
+
+  pushFooter(t) {
+    const unavailable = this.pushUnavailable();
+    const message = this.pushResult?.message || (this.loaded ? unavailable : null);
+    const { ahead, behind } = this.pushState || {};
+    const counts = ahead == null ? '' : `${behind > 0 ? ` ↓${behind}` : ''} ↑${ahead}`;
+    const page = this.gitMenu.page;
+    const items = page ? [
+      { key: 'back', label: '‹ Git operations' },
+      ...(this.pushState?.remotes || []).map(remote => ({ key: `remote:${remote}`, label: remote })),
+    ] : [
+      { key: 'fetch', label: 'Fetch', disabled: Boolean(this.pushUnavailable('fetch')) },
+      { key: 'fetch-from', label: 'Fetch From…', disabled: Boolean(this.pushUnavailable('fetch')) },
+      { key: 'pull', label: 'Pull', disabled: Boolean(this.pushUnavailable('pull')) },
+      { key: 'pull-rebase', label: 'Pull (Rebase)', disabled: Boolean(this.pushUnavailable('pull-rebase')) },
+      { key: 'push', label: 'Push', disabled: Boolean(unavailable), separator: true },
+      { key: 'push-to', label: 'Push To…', disabled: Boolean(unavailable) },
+      { key: 'force-push', label: 'Force Push (with lease)', disabled: Boolean(unavailable) },
+    ];
+    const choose = (key, cx) => {
+      if (key === 'back' || key === 'fetch-from' || key === 'push-to') {
+        this.gitMenu.page = key === 'back' ? null : key === 'fetch-from' ? 'fetch' : 'push';
+        this.gitMenu.index = 0; this.gitMenu.open = true;
+      } else this.remoteAction(page || key, cx, page ? key.slice(7) : undefined);
+    };
+    return v_flex().id('diff-git-footer').flex_none().border_t(1).border_color(t.border)
+      .child(h_flex().h(38).px(8).gap(8).items_center()
+        .child(icon('branch').text_color(t.muted))
+        .child(div().flex_1().min_w(0).truncate().text_size(12).text_color(t.foreground)
+          .accessibility_label(`Current branch: ${this.pushState?.branch || (this.pushState ? 'Detached HEAD' : 'unavailable')}`)
+          .child(this.pushState?.branch || (this.pushState ? 'Detached HEAD' : '—')))
+        .child(h_flex().flex_none().items_center()
+          .child(Button('diff-push', t).h(26).px(10).font_medium()
+            .disabled(Boolean(this.pushing || unavailable))
+            .accessibility_label(`Push current branch${ahead == null ? '' : `, ${ahead} commits ahead, ${behind} commits behind upstream`}`)
+            .on_click((_event, cx) => this.push(cx)).child(this.pushing ? this.operation.progress : `Push${counts}`))
+          .child(DropdownMenu('diff-git-actions', this.gitMenu,
+            Button('diff-git-menu', t, { size: 'icon' }).w(24).h(26).border_l(1).border_color(t.chrome)
+              .disabled(Boolean(this.pushing)).accessibility_label('More Git operations')
+              .child(icon('chevron-down')), items, choose, t, { side: 'top' }))))
+      .when(Boolean(message), el => el.child(div().max_h(120).overflow_y_scrollbar().px(8).pb(8).text_size(12)
+        .text_color(this.pushResult?.failed ? t.destructive || t.foreground : t.muted).child(message)));
   }
 
   toggle(path, cx) {
@@ -331,7 +453,8 @@ export default class DiffViewer {
                   .child(div().text_color(GitStatusColor.added).child(`+${row.file.added}`))
                   .child(div().text_color(GitStatusColor.deleted).child(`−${row.file.removed}`))));
             })));
-        })));
+        })))
+      .child(this.pushFooter(t));
   }
 
   get split() { return shared('devkits.diff-layout') === 'split'; }

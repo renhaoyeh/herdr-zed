@@ -8,10 +8,195 @@ import { execFile } from 'node:child_process';
 
 async function load(host = {}) {
   const source = await readFile(new URL('../mods/devkits/diff.js', import.meta.url), 'utf8');
-  return new Function(...Object.keys(host), source.replace(/^import .*;\n/gm, '')
-    .replace('export default class', 'class').replace(/^export /gm, '') + '\nreturn { DiffViewer, parseDiff, readDiff, affectsDiff, pairLines, changedRanges, changeSections, changeTree, wrapLine };')(...Object.values(host));
+  const menu = await readFile(new URL('../mods/devkits/components/dropdown-menu.js', import.meta.url), 'utf8');
+  return new Function(...Object.keys(host), (menu + '\n' + source).replace(/^import .*;\n/gm, '')
+    .replace('export default class', 'class').replace(/^export /gm, '') + '\nreturn { DiffViewer, DropdownMenu, DropdownMenuState, parseDiff, readDiff, readPushState, pushBranch, gitRemoteAction, affectsDiff, pairLines, changedRanges, changeSections, changeTree, wrapLine };')(...Object.values(host));
 }
 const run = promisify(execFile);
+
+test('push reads clean, unborn and detached branches and respects Git push configuration', async t => {
+  const folder = await mkdtemp(join(tmpdir(), "devkits push ' $(x)"));
+  t.after(() => rm(folder, { recursive: true, force: true }));
+  const repo = join(folder, 'work'), origin = join(folder, 'origin.git'), target = join(folder, 'target.git');
+  const git = (...args) => run('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args]);
+  await git('init', '-q', '-b', 'main', repo);
+  await git('init', '-q', '--bare', origin);
+  await git('init', '-q', '--bare', target);
+  const { readPushState, pushBranch, gitRemoteAction } = await load({ exec: async (cmd, args, options) => {
+    assert.equal(options.on, 'machine');
+    try { const { stdout, stderr } = await run(cmd, args); return { code: 0, stdout, stderr }; }
+    catch (error) { return { code: error.code, stdout: error.stdout, stderr: error.stderr }; }
+  } });
+  const path = repo.replaceAll('\\', '/');
+  assert.deepEqual(await readPushState(path, 'machine'), { branch: 'main', committed: false, remote: false, remotes: [], ahead: null, behind: null });
+  await git('-C', repo, 'remote', 'add', 'origin', origin);
+  await git('-C', repo, 'remote', 'add', 'target', target);
+  await writeFile(join(repo, 'a.txt'), 'first\n');
+  await git('-C', repo, 'add', '.');
+  await git('-C', repo, 'commit', '-qm', 'initial');
+  assert.deepEqual(await readPushState(path, 'machine'), { branch: 'main', committed: true, remote: true, remotes: ['origin', 'target'], ahead: null, behind: null });
+  await git('-C', repo, 'config', 'push.default', 'simple');
+  await git('-C', repo, 'config', 'push.autoSetupRemote', 'false');
+  await assert.rejects(pushBranch(path, 'machine'), /no upstream branch/);
+  await git('-C', repo, 'push', '-qu', 'origin', 'main');
+  assert.equal((await readPushState(path, 'machine')).ahead, 0);
+  assert.equal((await readPushState(path, 'machine')).behind, 0);
+  await git('-C', repo, 'config', 'branch.main.pushRemote', 'target');
+  // A dirty working tree is not committed or staged by Push.
+  await writeFile(join(repo, 'a.txt'), 'uncommitted\n');
+  await pushBranch(path, 'machine');
+  const { stdout: pushed } = await git('--git-dir', target, 'show', 'main:a.txt');
+  assert.equal(pushed, 'first\n');
+  const { stdout: dirty } = await git('-C', repo, 'status', '--porcelain');
+  assert.match(dirty, / M a.txt/);
+  await writeFile(join(repo, 'a.txt'), 'first\n');
+  const { stdout: upstream } = await git('-C', repo, 'rev-parse', '@{upstream}');
+  await git('-C', repo, 'commit', '--allow-empty', '-qm', 'local commit');
+  let state = await readPushState(path, 'machine');
+  assert.deepEqual([state.ahead, state.behind], [1, 0]);
+  const { stdout: remoteCommit } = await git('-C', repo, 'commit-tree', 'HEAD^{tree}', '-p', upstream.trim(), '-m', 'remote commit');
+  await git('-C', repo, 'update-ref', 'refs/remotes/origin/main', remoteCommit.trim());
+  state = await readPushState(path, 'machine');
+  assert.deepEqual([state.ahead, state.behind], [1, 1]);
+  await git('-C', repo, 'update-ref', 'refs/remotes/origin/main', upstream.trim());
+  await git('-C', repo, 'push', '-q', 'origin', 'main');
+  state = await readPushState(path, 'machine');
+  assert.deepEqual([state.ahead, state.behind], [0, 0]);
+  // A rejected update must surface the error and leave the remote ref alone.
+  await git('-C', repo, 'config', '--unset', 'branch.main.pushRemote');
+  await git('-C', repo, 'checkout', '-q', '--orphan', 'other');
+  await git('-C', repo, 'commit', '-qam', 'unrelated');
+  const { stdout: other } = await git('-C', repo, 'rev-parse', 'HEAD');
+  await git('--git-dir', target, 'fetch', '-q', repo, 'other');
+  await git('--git-dir', target, 'update-ref', 'refs/heads/main', other.trim());
+  await git('-C', repo, 'checkout', '-q', 'main');
+  await git('-C', repo, 'config', 'remote.pushDefault', 'target');
+  await assert.rejects(pushBranch(path, 'machine'), /rejected/);
+  await assert.rejects(gitRemoteAction(path, 'machine', 'force-push'), /rejected/);
+  const { stdout: unchanged } = await git('--git-dir', target, 'rev-parse', 'main');
+  assert.equal(unchanged, other);
+  await gitRemoteAction(path, 'machine', 'fetch', 'target');
+  await gitRemoteAction(path, 'machine', 'force-push', 'target');
+  const { stdout: forced } = await git('--git-dir', target, 'rev-parse', 'main');
+  const { stdout: local } = await git('-C', repo, 'rev-parse', 'HEAD');
+  assert.equal(forced, local);
+  await git('-C', repo, 'checkout', '-q', '--detach');
+  assert.deepEqual(await readPushState(path, 'machine'), { branch: null, committed: true, remote: true, remotes: ['origin', 'target'], ahead: null, behind: null });
+  await assert.rejects(readPushState(folder.replaceAll('\\', '/'), 'machine'), /Git branch|git repository/);
+});
+
+test('Git menu runs only known commands and passes remote names as literal arguments', async () => {
+  const calls = [];
+  const { gitRemoteAction } = await load({ exec: async (...args) => { calls.push(args); return { code: 0 }; } });
+  for (const [action, args] of [['fetch', ['fetch']], ['pull', ['pull']], ['pull-rebase', ['pull', '--rebase']],
+    ['push', ['push']], ['force-push', ['push', '--force-with-lease']]]) {
+    await gitRemoteAction('/folder $(x)', 'box', action);
+    assert.deepEqual(calls.at(-1).slice(1), [[
+      '-c', 'cd "$1" || exit 2; shift; GIT_TERMINAL_PROMPT=0 GCM_INTERACTIVE=never git "$@"',
+      'devkits-git', '/folder $(x)', ...args,
+    ], { on: 'box' }]);
+  }
+  await gitRemoteAction('/project', null, 'fetch', 'remote$(x)');
+  assert.deepEqual(calls.at(-1)[1].slice(-3), ['fetch', '--', 'remote$(x)']);
+  await assert.rejects(gitRemoteAction('/project', null, 'reset'), /Unknown/);
+  assert.equal(calls.length, 6);
+});
+
+test('split button menu exposes Git operations, counts and keyboard navigation while loading stays centered', async () => {
+  const nodes = new Map(), actions = [], painted = [];
+  const element = () => {
+    const data = { children: [] };
+    const el = new Proxy(data, { get(target, key) {
+      if (key === 'when') return (condition, render) => { if (condition) render(el); return el; };
+      return (...args) => {
+        if (key === 'id') nodes.set(args[0], data);
+        if (key === 'child') { data.children.push(args[0]); if (typeof args[0] === 'string') painted.push(args[0]); }
+        if (key === 'children') data.children.push(...args[0]);
+        if (key === 'on_click') data.click = args[0];
+        if (key === 'on_key_down') data.key = args[0];
+        if (key === 'on_open_change') data.openChange = args[0];
+        return el;
+      };
+    } });
+    return el;
+  };
+  const { DiffViewer } = await load({ div: element, svg: element, v_flex: element, h_flex: element,
+    Button: id => element().id(id), Popup: { new: id => element().id(id) },
+    Empty: element, EmptyDescription: element, theme: () => ({}), settings: () => ({}), shared: () => undefined,
+    VirtualListScrollHandle: { new: () => ({}) } });
+  const cx = { notify() {}, stop_propagation() {}, focus_handle: () => ({ focus() {} }) };
+  const view = new DiffViewer(); view.init(cx);
+  view.context = { id: 'project', folder: '/project' };
+  view.render(view.context, cx);
+  assert.ok(painted.includes('Loading changes…'));
+  assert.ok(!painted.includes('Loading branch…'));
+  assert.equal(nodes.get('diff-git-footer').children.length, 1);
+  view.loaded = true;
+  view.pushState = { branch: 'main', committed: true, remote: true, remotes: ['origin', 'back'], ahead: 3, behind: 2 };
+  view.remoteAction = (...args) => actions.push(args);
+  view.pushFooter({});
+  assert.equal(nodes.get('diff-git-footer').children.length, 1);
+  assert.ok(nodes.get('diff-push').children.includes('Push ↓2 ↑3'));
+  view.pushState.ahead = 0; view.pushState.behind = 0; view.pushFooter({});
+  assert.ok(nodes.get('diff-push').children.includes('Push ↑0'));
+  view.pushState.ahead = null; view.pushState.behind = null; view.pushFooter({});
+  assert.ok(nodes.get('diff-push').children.includes('Push'));
+  for (const key of ['fetch', 'fetch-from', 'pull', 'pull-rebase', 'push', 'push-to', 'force-push']) {
+    assert.ok(nodes.has(`diff-git-actions-${key}`));
+  }
+  nodes.get('diff-git-menu').click({}, cx);
+  nodes.get('diff-git-actions-content').key({ key: 'down' }, cx);
+  nodes.get('diff-git-actions-content').key({ key: 'enter' }, cx);
+  assert.equal(view.gitMenu.page, 'fetch');
+  assert.equal(actions.length, 0);
+  assert.equal(view.gitMenu.open, true);
+  view.pushFooter({});
+  nodes.get('diff-git-actions-remote:back').click({}, cx);
+  assert.deepEqual(actions[0], ['fetch', cx, 'back']);
+  view.gitMenu.page = null; view.pushFooter({});
+  nodes.get('diff-git-actions-pull-rebase').click({}, cx);
+  assert.deepEqual(actions[1], ['pull-rebase', cx, undefined]);
+  view.pushState.branch = null; view.pushFooter({});
+  nodes.get('diff-git-actions-push').click({}, cx);
+  assert.equal(actions.length, 2);
+  nodes.get('diff-git-actions-fetch').click({}, cx);
+  assert.equal(actions.length, 3);
+});
+
+test('push prevents duplicate actions, retains errors for retry and isolates project changes', async () => {
+  const tasks = [], notices = [], calls = [];
+  let complete;
+  const { DiffViewer } = await load({ VirtualListScrollHandle: { new: () => ({}) },
+    notify: notice => notices.push(notice),
+    exec: (cmd, args, options) => { calls.push({ cmd, args, options }); return new Promise(resolve => { complete = resolve; }); } });
+  const cx = { notify() {}, spawn(fn) { tasks.push(fn(cx)); } };
+  const view = new DiffViewer(); view.init();
+  view.context = { folder: '/project', machine: 'remote' };
+  view.pushState = { branch: 'main', committed: true, remote: false };
+  view.push(cx);
+  assert.equal(calls.length, 0);
+  view.pushState.remote = true;
+  let reloads = 0;
+  view.reload = () => { reloads++; };
+  view.push(cx); view.push(cx);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].options.on, 'remote');
+  assert.deepEqual(calls[0].args.slice(-2), ['/project', 'push']);
+  complete({ code: 1, stderr: 'authentication failed', stdout: '' });
+  await Promise.all(tasks.splice(0));
+  assert.equal(view.pushing, null);
+  assert.deepEqual(view.pushResult, { message: 'authentication failed', failed: true });
+  assert.equal(notices[0].level, 'error');
+  assert.equal(reloads, 1);
+  view.push(cx);
+  assert.equal(calls.length, 2);
+  view.close(); view.context = { folder: '/another' }; view.pushResult = null;
+  complete({ code: 0, stderr: '', stdout: '' });
+  await Promise.all(tasks);
+  assert.equal(view.pushResult, null);
+  assert.equal(reloads, 1);
+  assert.equal(notices[1].level, 'success');
+});
 
 test('parser numbers old and new lines and classifies added, deleted, renamed and binary files', async () => {
   const { parseDiff } = await load();
