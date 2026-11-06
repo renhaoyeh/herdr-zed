@@ -19,6 +19,7 @@ import { AlertDialogContent, AlertDialogTitle, AlertDialogDescription, AlertDial
 import { Sidebar, SidebarContent, SidebarGroup, SidebarGroupLabel, SidebarMenuButton, SidebarFooter } from './components/sidebar.js';
 
 const glyph = (name, size = 14) => svg(`mods/devkits/assets/icons/${name}.svg`).size(size).flex_none();
+const pluginSyncs = new Map();
 // Files and Changes replace the terminals for one project; selecting anything else returns to them.
 const hidePanels = () => { setShared('devkits.files', null); setShared('devkits.diff', null); setShared('devkits.asana', null); };
 // Each project remembers its open panel and gets it back when selected again; choosing a thread forgets it.
@@ -451,7 +452,7 @@ export default class Devkits extends View {
 
   // An Asana task becomes the thread name and the agent's opening prompt, and leaves Saved once started.
   // `options` picks this session's model and effort; Default leaves the launcher's own.
-  startThread(agent, target = props(), options = {}) {
+  async startThread(agent, target = props(), options = {}) {
     const task = target.task;
     let argv;
     // A choice made for this session wins; otherwise the profile's own default model and effort apply.
@@ -463,6 +464,18 @@ export default class Devkits extends View {
     if (allowed.efforts?.includes(session.effort)) session.effort = null;
     try { argv = agent && sessionArgv(agent, launcherArgv(agent, shared('devkits.codex-permissions')?.[agent?.key]), session); }
     catch (error) { notify({ title: 'Could not start session', body: error.message, level: 'error' }); return; }
+    if (isAccountLauncher(agent) && sessionKind(agent) === 'codex' && !spaces().find(space => space.id === target.space)?.machine) {
+      const directory = codexHome(agent, home());
+      try {
+        if (!pluginSyncs.has(directory)) pluginSyncs.set(directory, exec('node', [
+          `${appHome()}/mods/devkits/plugin-sync.js`, `${home()}/.codex`, directory,
+        ]));
+        const result = await pluginSyncs.get(directory);
+        if (result.code !== 0) throw new Error(result.stderr?.trim() || 'Could not synchronize global plugins.');
+      } catch (error) {
+        notify({ title: 'Plugin sync failed', body: `${error.message}\nThe session will start with the profile's existing plugins.`, level: 'error' });
+      } finally { pluginSyncs.delete(directory); }
+    }
     if (task) argv = [...argv, taskPrompt(task)];
     const name = task?.name || agent?.name;
     if (target.overlay) closeOverlay(target.overlay);
