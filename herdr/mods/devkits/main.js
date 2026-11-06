@@ -659,7 +659,7 @@ export default class Devkits extends View {
     const root = layout(), sidebar = root?.children?.find(node => node.id === 'sidebar');
     const inset = win?.platform === 'macos' && !win.fullscreen && sidebar?.hidden
       ? (root.traffic_lights[0] + 64) / settings().zoom : 12;
-    return h_flex().size_full().pr(4).pl(inset).gap(4).items_center().bg(t.background).text_size(13)
+    return h_flex().size_full().pr(4).pl(inset - 8).gap(4).items_center().bg(t.background).text_size(13)
       .border_b(1).border_color(t.border)
       .child(DropdownMenuTrigger(h_flex().id('project-switcher').h(28).px(8).gap(6).items_center().rounded(0)
         .text_color(t.foreground).font_medium().hover(el => el.bg(t.hover)).cursor_pointer(), 280,
