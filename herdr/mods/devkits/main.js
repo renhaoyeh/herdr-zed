@@ -19,7 +19,7 @@ import { AlertDialogContent, AlertDialogTitle, AlertDialogDescription, AlertDial
 import { Sidebar, SidebarContent, SidebarGroup, SidebarGroupLabel, SidebarMenuButton, SidebarFooter } from './components/sidebar.js';
 
 const glyph = (name, size = 14) => svg(`mods/devkits/assets/icons/${name}.svg`).size(size).flex_none();
-const pluginSyncs = new Map();
+const startingThreads = new Set();
 // Files and Changes replace the terminals for one project; selecting anything else returns to them.
 const hidePanels = () => { setShared('devkits.files', null); setShared('devkits.diff', null); setShared('devkits.asana', null); };
 // Each project remembers its open panel and gets it back when selected again; choosing a thread forgets it.
@@ -60,7 +60,6 @@ export default class Devkits extends View {
     if (!props()?.view && cx) {
       // Shared values survive restarts; discover once for this app session.
       setShared('devkits.agent-cache', {});
-      setShared('devkits.plugin-syncs', {});
       this.refreshUsage(cx);
       const activeMachine = this.projects().find(project => project.active)?.machine || null;
       for (const machine of new Set([null, ...spaces().map(space => space.machine || null)])) {
@@ -454,6 +453,15 @@ export default class Devkits extends View {
   // An Asana task becomes the thread name and the agent's opening prompt, and leaves Saved once started.
   // `options` picks this session's model and effort; Default leaves the launcher's own.
   async startThread(agent, target = props(), options = {}) {
+    const key = JSON.stringify([target.space || folderKey(target.folder || ''), agent?.key || agent?.run,
+      target.task?.gid || null]);
+    if (startingThreads.has(key)) return;
+    startingThreads.add(key);
+    try { await this.launchThread(agent, target, options); }
+    finally { startingThreads.delete(key); }
+  }
+
+  async launchThread(agent, target, options) {
     const task = target.task;
     let argv;
     // A choice made for this session wins; otherwise the profile's own default model and effort apply.
@@ -465,29 +473,9 @@ export default class Devkits extends View {
     if (allowed.efforts?.includes(session.effort)) session.effort = null;
     try { argv = agent && sessionArgv(agent, launcherArgv(agent, shared('devkits.codex-permissions')?.[agent?.key]), session); }
     catch (error) { notify({ title: 'Could not start session', body: error.message, level: 'error' }); return; }
-    if (isAccountLauncher(agent) && sessionKind(agent) === 'codex' && !spaces().find(space => space.id === target.space)?.machine) {
-      const directory = codexHome(agent, home());
-      const syncing = shared('devkits.plugin-syncs') || {};
-      setShared('devkits.plugin-syncs', { ...syncing, [directory]: (syncing[directory] || 0) + 1 });
-      try {
-        if (!pluginSyncs.has(directory)) pluginSyncs.set(directory, exec('node', [
-          `${appHome()}/mods/devkits/plugin-sync.js`, `${home()}/.codex`, directory,
-        ]));
-        const result = await pluginSyncs.get(directory);
-        if (result.code !== 0) throw new Error(result.stderr?.trim() || 'Could not synchronize global plugins.');
-      } catch (error) {
-        notify({ title: 'Plugin sync failed', body: `${error.message}\nThe session will start with the profile's existing plugins.`, level: 'error' });
-      } finally {
-        pluginSyncs.delete(directory);
-        const syncing = { ...(shared('devkits.plugin-syncs') || {}) };
-        if (syncing[directory] > 1) syncing[directory]--;
-        else delete syncing[directory];
-        setShared('devkits.plugin-syncs', syncing);
-      }
-    }
+    if (target.overlay) closeOverlay(target.overlay);
     if (task) argv = [...argv, taskPrompt(task)];
     const name = task?.name || agent?.name;
-    if (target.overlay) closeOverlay(target.overlay);
     if (task) unsaveTask(target.folder, task.gid);
     // Commands do not return the new tab, so the sidebar matches it once it appears.
     if (agent) setShared('devkits.pending-profiles', [...(shared('devkits.pending-profiles') || []), { key: agent.key,
@@ -971,11 +959,6 @@ export default class Devkits extends View {
     return h_flex().size_full().pl(16).pr(4).gap(8).items_center().bg(t.background).border_t(1).border_color(t.border)
       .text_size(11).text_color(t.muted).child(glyph('terminal', 12)).child(space?.machine || 'Local project')
       .when(Boolean(space?.branch), el => el.child(glyph('branch', 12)).child(space.branch))
-      .when(Object.keys(shared('devkits.plugin-syncs') || {}).length > 0, el => el
-        .child(h_flex().id('plugin-sync-progress').min_w(0).gap(6).items_center().text_color(t.muted)
-          .accessibility_label('Syncing plugins')
-          .child(glyph('loader', 12).spin(900))
-          .child(div().min_w(0).truncate().child('Syncing plugins…'))))
       .child(div().flex_1())
       .when(Boolean(space), el => el
         .child(Button('open-diff', t, { variant: 'ghost', size: 'icon' })
