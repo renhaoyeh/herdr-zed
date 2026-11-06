@@ -130,11 +130,16 @@ export async function readPushState(folder, on) {
     + 'git rev-parse --git-dir >/dev/null 2>&1 || exit 3; '
     + 'branch=$(git symbolic-ref --quiet --short HEAD); commit=$(git rev-parse --verify -q HEAD); '
     + 'counts=$(git rev-list --left-right --count "HEAD...@{upstream}" 2>/dev/null); '
-    + 'printf "%s\n%s\n%s\n" "$branch" "$commit" "$counts"; git remote', 'devkits-push-state', folder], { on });
+    + 'upstream=; if [ -n "$branch" ]; then upstream=$(git for-each-ref --format="%(upstream)" "refs/heads/$branch"); fi; '
+    + 'push_remote=$(git config --get "branch.$branch.pushRemote" || git config --get remote.pushDefault || git config --get "branch.$branch.remote"); '
+    + 'printf "%s\n%s\n%s\n%s\n%s\n" "$branch" "$commit" "$counts" "$upstream" "$push_remote"; git remote', 'devkits-push-state', folder], { on });
   if (result.code !== 0) throw new Error(result.stderr.trim() || 'Cannot read Git branch.');
-  const [branch, commit, counts, ...remotes] = result.stdout.split(/\r?\n/);
+  const [branch, commit, counts, upstream, configuredRemote, ...remoteLines] = result.stdout.split(/\r?\n/);
+  const remotes = remoteLines.filter(Boolean);
   const match = /^(\d+)\s+(\d+)$/.exec(counts || '');
-  return { branch: branch || null, committed: /^[a-f0-9]{40,64}$/.test(commit || ''), remote: remotes.some(Boolean), remotes: remotes.filter(Boolean),
+  return { branch: branch || null, committed: /^[a-f0-9]{40,64}$/.test(commit || ''), remote: remotes.length > 0, remotes,
+    upstream: !upstream ? 'none' : match ? 'tracked' : 'gone',
+    pushRemote: configuredRemote || (remotes.includes('origin') ? 'origin' : remotes.length === 1 ? remotes[0] : null),
     ahead: match ? Number(match[1]) : null, behind: match ? Number(match[2]) : null };
 }
 
@@ -147,14 +152,21 @@ const gitActions = [
   { key: 'pull', label: 'Pull', progress: 'Pulling…', args: ['pull'] },
   { key: 'pull-rebase', label: 'Pull (Rebase)', progress: 'Rebasing…', args: ['pull', '--rebase'] },
   { key: 'push', label: 'Push', progress: 'Pushing…', args: ['push'] },
+  { key: 'publish', label: 'Publish', progress: 'Publishing…', args: ['push', '--set-upstream'] },
+  { key: 'republish', label: 'Republish', progress: 'Publishing…', args: ['push', '--set-upstream'] },
   { key: 'force-push', label: 'Force Push (with lease)', progress: 'Pushing…', args: ['push', '--force-with-lease'] },
 ];
 
 export async function gitRemoteAction(folder, on, action, remote) {
   const operation = gitActions.find(item => item.key === action);
   if (!operation) throw new Error('Unknown Git operation.');
-  const args = [...operation.args, ...(remote ? ['--', remote] : [])];
-  const result = await exec('sh', ['-c', 'cd "$1" || exit 2; shift; GIT_TERMINAL_PROMPT=0 GCM_INTERACTIVE=never git "$@"',
+  const publish = action === 'publish' || action === 'republish';
+  if (publish && !remote) throw new Error('Choose a Git remote to publish to.');
+  const args = [...operation.args, ...(remote ? ['--', remote] : action === 'fetch' ? ['--all'] : [])];
+  const script = 'cd "$1" || exit 2; shift; '
+    + (publish ? 'branch=$(git symbolic-ref --quiet --short HEAD) || exit 3; set -- "$@" "HEAD:refs/heads/$branch"; ' : '')
+    + 'GIT_TERMINAL_PROMPT=0 GCM_INTERACTIVE=never git "$@"';
+  const result = await exec('sh', ['-c', script,
     'devkits-git', folder, ...args], { on });
   if (result.code !== 0) throw new Error(result.stderr.trim() || result.stdout.trim() || `${operation.label} failed.`);
 }
@@ -321,8 +333,27 @@ export default class DiffViewer {
 
   push(cx) { this.remoteAction('push', cx); }
 
+  primaryRemoteAction() {
+    const state = this.pushState;
+    if (!state?.branch || !state.committed) return 'fetch';
+    if (state.upstream === 'none') return 'publish';
+    if (state.upstream === 'gone') return 'republish';
+    return state.behind > 0 ? 'pull' : state.ahead > 0 ? 'push' : 'fetch';
+  }
+
   remoteAction(action, cx, remote) {
     if (this.pushing || this.pushUnavailable(action)) return;
+    if (action === 'push' && ['none', 'gone'].includes(this.pushState.upstream)) {
+      action = this.pushState.upstream === 'gone' ? 'republish' : 'publish';
+    }
+    if (action === 'publish' || action === 'republish') {
+      remote ||= this.pushState.pushRemote;
+      if (!remote) {
+        this.gitMenu.page = action; this.gitMenu.index = 0; this.gitMenu.open = true;
+        this.gitMenu.focus?.focus(); cx.notify();
+        return;
+      }
+    }
     const operation = gitActions.find(item => item.key === action);
     if (!operation) return;
     const context = this.context;
@@ -352,28 +383,32 @@ export default class DiffViewer {
   }
 
   pushFooter(t) {
-    const unavailable = this.pushUnavailable();
+    const action = this.primaryRemoteAction();
+    const operation = gitActions.find(item => item.key === action);
+    const unavailable = this.pushUnavailable(action);
     const message = this.pushResult?.message || (this.loaded ? unavailable : null);
     const { ahead, behind } = this.pushState || {};
-    const counts = ahead == null ? '' : `${behind > 0 ? ` ↓${behind}` : ''} ↑${ahead}`;
+    const counts = `${behind > 0 ? `↓${behind} ` : ''}${ahead > 0 ? `↑${ahead} ` : ''}`;
+    const pushUnavailable = Boolean(this.pushUnavailable('push'));
     const page = this.gitMenu.page;
     const items = page ? [
       { key: 'back', label: '‹ Git operations' },
       ...(this.pushState?.remotes || []).map(remote => ({ key: `remote:${remote}`, label: remote })),
+      ...(page === 'fetch' && this.pushState?.remotes.length > 1 ? [{ key: 'all', label: 'All' }] : []),
     ] : [
       { key: 'fetch', label: 'Fetch', disabled: Boolean(this.pushUnavailable('fetch')) },
       { key: 'fetch-from', label: 'Fetch From…', disabled: Boolean(this.pushUnavailable('fetch')) },
       { key: 'pull', label: 'Pull', disabled: Boolean(this.pushUnavailable('pull')) },
       { key: 'pull-rebase', label: 'Pull (Rebase)', disabled: Boolean(this.pushUnavailable('pull-rebase')) },
-      { key: 'push', label: 'Push', disabled: Boolean(unavailable), separator: true },
-      { key: 'push-to', label: 'Push To…', disabled: Boolean(unavailable) },
-      { key: 'force-push', label: 'Force Push (with lease)', disabled: Boolean(unavailable) },
+      { key: 'push', label: 'Push', disabled: pushUnavailable, separator: true },
+      { key: 'push-to', label: 'Push To…', disabled: pushUnavailable },
+      { key: 'force-push', label: 'Force Push (with lease)', disabled: pushUnavailable },
     ];
     const choose = (key, cx) => {
       if (key === 'back' || key === 'fetch-from' || key === 'push-to') {
         this.gitMenu.page = key === 'back' ? null : key === 'fetch-from' ? 'fetch' : 'push';
         this.gitMenu.index = 0; this.gitMenu.open = true;
-      } else this.remoteAction(page || key, cx, page ? key.slice(7) : undefined);
+      } else this.remoteAction(page || key, cx, page && key !== 'all' ? key.slice(7) : undefined);
     };
     return v_flex().id('diff-git-footer').flex_none().border_t(1).border_color(t.border)
       .child(h_flex().h(38).px(8).gap(8).items_center()
@@ -384,8 +419,8 @@ export default class DiffViewer {
         .child(h_flex().flex_none().items_center()
           .child(Button('diff-push', t).h(26).px(10).font_medium()
             .disabled(Boolean(this.pushing || unavailable))
-            .accessibility_label(`Push current branch${ahead == null ? '' : `, ${ahead} commits ahead, ${behind} commits behind upstream`}`)
-            .on_click((_event, cx) => this.push(cx)).child(this.pushing ? this.operation.progress : `Push${counts}`))
+            .accessibility_label(`${operation.label} current branch${ahead == null ? '' : `, ${ahead} commits ahead, ${behind} commits behind upstream`}`)
+            .on_click((_event, cx) => this.remoteAction(action, cx)).child(this.pushing ? this.operation.progress : `${counts}${operation.label}`))
           .child(DropdownMenu('diff-git-actions', this.gitMenu,
             Button('diff-git-menu', t, { size: 'icon' }).w(24).h(26).border_l(1).border_color(t.chrome)
               .disabled(Boolean(this.pushing)).accessibility_label('More Git operations')

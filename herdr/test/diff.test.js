@@ -28,13 +28,13 @@ test('push reads clean, unborn and detached branches and respects Git push confi
     catch (error) { return { code: error.code, stdout: error.stdout, stderr: error.stderr }; }
   } });
   const path = repo.replaceAll('\\', '/');
-  assert.deepEqual(await readPushState(path, 'machine'), { branch: 'main', committed: false, remote: false, remotes: [], ahead: null, behind: null });
+  assert.deepEqual(await readPushState(path, 'machine'), { branch: 'main', committed: false, remote: false, remotes: [], upstream: 'none', pushRemote: null, ahead: null, behind: null });
   await git('-C', repo, 'remote', 'add', 'origin', origin);
   await git('-C', repo, 'remote', 'add', 'target', target);
   await writeFile(join(repo, 'a.txt'), 'first\n');
   await git('-C', repo, 'add', '.');
   await git('-C', repo, 'commit', '-qm', 'initial');
-  assert.deepEqual(await readPushState(path, 'machine'), { branch: 'main', committed: true, remote: true, remotes: ['origin', 'target'], ahead: null, behind: null });
+  assert.deepEqual(await readPushState(path, 'machine'), { branch: 'main', committed: true, remote: true, remotes: ['origin', 'target'], upstream: 'none', pushRemote: 'origin', ahead: null, behind: null });
   await git('-C', repo, 'config', 'push.default', 'simple');
   await git('-C', repo, 'config', 'push.autoSetupRemote', 'false');
   await assert.rejects(pushBranch(path, 'machine'), /no upstream branch/);
@@ -81,14 +81,14 @@ test('push reads clean, unborn and detached branches and respects Git push confi
   const { stdout: local } = await git('-C', repo, 'rev-parse', 'HEAD');
   assert.equal(forced, local);
   await git('-C', repo, 'checkout', '-q', '--detach');
-  assert.deepEqual(await readPushState(path, 'machine'), { branch: null, committed: true, remote: true, remotes: ['origin', 'target'], ahead: null, behind: null });
+  assert.deepEqual(await readPushState(path, 'machine'), { branch: null, committed: true, remote: true, remotes: ['origin', 'target'], upstream: 'none', pushRemote: 'target', ahead: null, behind: null });
   await assert.rejects(readPushState(folder.replaceAll('\\', '/'), 'machine'), /Git branch|git repository/);
 });
 
 test('Git menu runs only known commands and passes remote names as literal arguments', async () => {
   const calls = [];
   const { gitRemoteAction } = await load({ exec: async (...args) => { calls.push(args); return { code: 0 }; } });
-  for (const [action, args] of [['fetch', ['fetch']], ['pull', ['pull']], ['pull-rebase', ['pull', '--rebase']],
+  for (const [action, args] of [['fetch', ['fetch', '--all']], ['pull', ['pull']], ['pull-rebase', ['pull', '--rebase']],
     ['push', ['push']], ['force-push', ['push', '--force-with-lease']]]) {
     await gitRemoteAction('/folder $(x)', 'box', action);
     assert.deepEqual(calls.at(-1).slice(1), [[
@@ -100,6 +100,80 @@ test('Git menu runs only known commands and passes remote names as literal argum
   assert.deepEqual(calls.at(-1)[1].slice(-3), ['fetch', '--', 'remote$(x)']);
   await assert.rejects(gitRemoteAction('/project', null, 'reset'), /Unknown/);
   assert.equal(calls.length, 6);
+  await assert.rejects(gitRemoteAction('/project', null, 'publish'), /Choose a Git remote/);
+});
+
+test('Zed remote actions publish, fetch every remote, pull before push and republish a missing upstream', async t => {
+  const folder = await mkdtemp(join(tmpdir(), "devkits publish ' $(x)"));
+  t.after(() => rm(folder, { recursive: true, force: true }));
+  const repo = join(folder, 'work'), alpha = join(folder, 'alpha.git'), beta = join(folder, 'beta.git');
+  const git = (...args) => run('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args]);
+  const branch = 'feature/中文$(x)';
+  await git('init', '-q', '-b', branch, repo);
+  for (const [name, path] of [['alpha', alpha], ['beta', beta]]) {
+    await git('init', '-q', '--bare', path);
+    await git('-C', repo, 'remote', 'add', name, path);
+  }
+  await writeFile(join(repo, 'a.txt'), 'initial\n');
+  await git('-C', repo, 'add', '.'); await git('-C', repo, 'commit', '-qm', 'initial');
+  await git('-C', repo, 'config', 'push.default', 'nothing');
+  await git('-C', repo, 'config', 'remote.alpha.push', 'HEAD:refs/heads/wrong');
+  await git('-C', repo, 'config', 'pull.rebase', 'true');
+  const { DiffViewer, readPushState, gitRemoteAction } = await load({
+    VirtualListScrollHandle: { new: () => ({}) }, notify() {},
+    exec: async (cmd, args) => {
+      try { const { stdout, stderr } = await run(cmd, args); return { code: 0, stdout, stderr }; }
+      catch (error) { return { code: error.code, stdout: error.stdout, stderr: error.stderr }; }
+    },
+  });
+  const tasks = [], cx = { notify() {}, spawn(fn) { tasks.push(fn(cx)); } };
+  const path = repo.replaceAll('\\', '/');
+  const view = new DiffViewer(); view.init(); view.context = { folder: path };
+  view.reload = () => {};
+  const refresh = async () => { view.pushState = await readPushState(path); return view.primaryRemoteAction(); };
+  assert.equal(await refresh(), 'publish');
+  assert.equal(view.pushState.pushRemote, null);
+  view.remoteAction('publish', cx);
+  assert.equal(view.gitMenu.open, true);
+  assert.equal(view.gitMenu.page, 'publish');
+  assert.equal(tasks.length, 0, 'Multiple remotes without a default require selection');
+  await writeFile(join(repo, 'a.txt'), 'uncommitted\n');
+  view.remoteAction('push', cx, 'alpha'); await Promise.all(tasks.splice(0));
+  assert.equal(view.pushResult.failed, false);
+  assert.equal(await refresh(), 'fetch');
+  assert.equal(view.pushState.upstream, 'tracked');
+  assert.equal(view.pushState.pushRemote, 'alpha');
+  assert.equal((await git('-C', repo, 'config', '--get', 'branch.' + branch + '.merge')).stdout.trim(), 'refs/heads/' + branch);
+  assert.equal(await readFile(join(repo, 'a.txt'), 'utf8'), 'uncommitted\n');
+  await assert.rejects(git('--git-dir', alpha, 'rev-parse', '--verify', 'refs/heads/wrong'));
+  await writeFile(join(repo, 'a.txt'), 'initial\n');
+  const initial = (await git('-C', repo, 'rev-parse', 'HEAD')).stdout.trim();
+  const tree = (await git('-C', repo, 'rev-parse', 'HEAD^{tree}')).stdout.trim();
+  const remoteCommit = (await git('--git-dir', alpha, 'commit-tree', tree, '-p', initial, '-m', 'remote')).stdout.trim();
+  await git('--git-dir', alpha, 'update-ref', 'refs/heads/' + branch, remoteCommit);
+  await git('--git-dir', beta, 'fetch', '-q', repo, 'HEAD:refs/heads/other');
+  assert.equal(await refresh(), 'fetch', 'No network operation runs when reading state');
+  await gitRemoteAction(path, null, 'fetch');
+  assert.equal((await git('-C', repo, 'rev-parse', 'refs/remotes/beta/other')).stdout.trim(), initial);
+  assert.equal(await refresh(), 'pull');
+  assert.deepEqual([view.pushState.ahead, view.pushState.behind], [0, 1]);
+  await git('-C', repo, 'commit', '--allow-empty', '-qm', 'local');
+  assert.equal(await refresh(), 'pull', 'Divergence prioritizes Pull');
+  assert.deepEqual([view.pushState.ahead, view.pushState.behind], [1, 1]);
+  await gitRemoteAction(path, null, 'pull');
+  assert.equal(await refresh(), 'push');
+  await git('--git-dir', alpha, 'update-ref', '-d', 'refs/heads/' + branch);
+  await git('-C', repo, 'update-ref', '-d', 'refs/remotes/alpha/' + branch);
+  assert.equal(await refresh(), 'republish');
+  view.remoteAction('push', cx); await Promise.all(tasks.splice(0));
+  assert.equal(view.pushResult.failed, false);
+  assert.equal(await refresh(), 'fetch');
+  await git('-C', repo, 'config', 'remote.pushDefault', 'beta');
+  await refresh(); assert.equal(view.pushState.pushRemote, 'beta');
+  await git('-C', repo, 'config', 'branch.' + branch + '.pushRemote', 'alpha');
+  await refresh(); assert.equal(view.pushState.pushRemote, 'alpha');
+  await git('-C', repo, 'checkout', '-q', '--detach');
+  assert.equal(await refresh(), 'fetch');
 });
 
 test('split button menu exposes Git operations, counts and keyboard navigation while loading stays centered', async () => {
@@ -136,11 +210,25 @@ test('split button menu exposes Git operations, counts and keyboard navigation w
   view.remoteAction = (...args) => actions.push(args);
   view.pushFooter({});
   assert.equal(nodes.get('diff-git-footer').children.length, 1);
-  assert.ok(nodes.get('diff-push').children.includes('Push ↓2 ↑3'));
+  assert.ok(nodes.get('diff-push').children.includes('↓2 ↑3 Pull'));
+  nodes.get('diff-push').click({}, cx);
+  assert.deepEqual(actions.pop(), ['pull', cx]);
   view.pushState.ahead = 0; view.pushState.behind = 0; view.pushFooter({});
-  assert.ok(nodes.get('diff-push').children.includes('Push ↑0'));
-  view.pushState.ahead = null; view.pushState.behind = null; view.pushFooter({});
-  assert.ok(nodes.get('diff-push').children.includes('Push'));
+  assert.ok(nodes.get('diff-push').children.includes('Fetch'));
+  nodes.get('diff-push').click({}, cx);
+  assert.deepEqual(actions.pop(), ['fetch', cx]);
+  view.pushState.ahead = 3; view.pushFooter({});
+  assert.ok(nodes.get('diff-push').children.includes('↑3 Push'));
+  nodes.get('diff-push').click({}, cx);
+  assert.deepEqual(actions.pop(), ['push', cx]);
+  view.pushState.ahead = null; view.pushState.behind = null; view.pushState.upstream = 'none'; view.pushFooter({});
+  assert.ok(nodes.get('diff-push').children.includes('Publish'));
+  nodes.get('diff-push').click({}, cx);
+  assert.deepEqual(actions.pop(), ['publish', cx]);
+  view.pushState.upstream = 'gone'; view.pushFooter({});
+  assert.ok(nodes.get('diff-push').children.includes('Republish'));
+  nodes.get('diff-push').click({}, cx);
+  assert.deepEqual(actions.pop(), ['republish', cx]);
   for (const key of ['fetch', 'fetch-from', 'pull', 'pull-rebase', 'push', 'push-to', 'force-push']) {
     assert.ok(nodes.has(`diff-git-actions-${key}`));
   }
@@ -151,6 +239,7 @@ test('split button menu exposes Git operations, counts and keyboard navigation w
   assert.equal(actions.length, 0);
   assert.equal(view.gitMenu.open, true);
   view.pushFooter({});
+  assert.ok(nodes.has('diff-git-actions-all'));
   nodes.get('diff-git-actions-remote:back').click({}, cx);
   assert.deepEqual(actions[0], ['fetch', cx, 'back']);
   view.gitMenu.page = null; view.pushFooter({});
