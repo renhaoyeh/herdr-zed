@@ -504,9 +504,8 @@ export class SimulatorMenu {
         .child(div().text_size(11).text_color(t.muted).child(d.lastUsed ? `${d.os} · ${lastUsedLabel(d.lastUsed)}` : d.os)))
       .when(d.id === target?.id, el => el.child(glyph('check')))
       // Each booted simulator shuts down from its own row, so two booted ones are never confused.
-      .when(d.booted, el => el.child(Button(`simulator-shutdown-${d.id}`, t, { variant: 'ghost', size: 'icon' })
-        // Rows already hover with t.hover, so the button uses a stronger background to read as its own target.
-        .hover(el => el.bg(t.input).text_color(t.foreground)).accessibility_label(`Shut down ${d.name}`)
+      .when(d.booted, el => el.child(Button(`simulator-shutdown-${d.id}`, t, { variant: 'row', size: 'icon' })
+        .accessibility_label(`Shut down ${d.name}`)
         .on_click((_event, cx) => { cx.stop_propagation(); this.shutdown(d); }).child(glyph('power'))))]);
     const message = this.devices == null ? 'Loading…' : this.error || (!this.devices.length ? 'No simulators. Create one in Xcode.' : null);
     // A scrolling list needs a definite height: rows up to 360px, plus the label, message and actions below.

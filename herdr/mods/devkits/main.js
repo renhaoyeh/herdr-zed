@@ -1126,7 +1126,7 @@ export default class Devkits extends View {
       .child(div().size(16).flex_none().flex().items_center().justify_center().child(icon))
       .child(div().flex_1().min_w(0).truncate().text_size(13).text_color(t.foreground)
         .when(isFocused, el => el.font_medium()).child(thread.title))
-      .child(Button(`close-thread-${thread.tab.id}`, t, { variant: 'ghost', size: 'icon-sm' })
+      .child(Button(`close-thread-${thread.tab.id}`, t, { variant: 'row', size: 'icon-sm' })
         .opacity(this.hovered === thread.tab.id ? 1 : 0)
         .accessibility_label('Close thread')
         .on_click((_event, cx) => { cx.stop_propagation(); run('tab.close', { id: thread.tab.id }); })
@@ -1226,11 +1226,11 @@ export default class Devkits extends View {
               .child(glyph(this.folded.has(space.id) ? 'chevron-right' : 'chevron-down', 12)))
             .when(Boolean(space.machine), el => el.child(div().text_size(9).text_color(t.muted).child(space.machine)))
             .child(div().flex_1())
-            .child(DropdownMenuTrigger(Button(`new-thread-${space.id}`, t, { variant: 'ghost', size: 'icon' })
+            .child(DropdownMenuTrigger(Button(`new-thread-${space.id}`, t, { variant: 'row', size: 'icon' })
               .accessibility_label(`Add session in ${space.name}`), 280,
               (cx, at) => this.newThread(cx, space.id, at), 'end')
               .child(glyph('plus')).opacity(this.hoveredProject === space.id ? 1 : 0))
-            .child(DropdownMenuTrigger(Button(`project-menu-${space.id}`, t, { variant: 'ghost', size: 'icon' })
+            .child(DropdownMenuTrigger(Button(`project-menu-${space.id}`, t, { variant: 'row', size: 'icon' })
               .accessibility_label(`More actions for ${space.name}`), 200,
               (_cx, at) => openOverlay({ mod: 'devkits', kind: 'popup', frame: 'none', width: 200, at,
                 props: { view: 'project-menu', project: space } }), 'end')
