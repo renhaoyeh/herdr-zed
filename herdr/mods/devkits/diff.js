@@ -3,7 +3,7 @@ import { h_flex, v_flex, v_virtual_list, Scrollbar, VirtualListScrollHandle } fr
 import { exec, watchFolder, settings, theme, shared, setShared } from 'herdr';
 import { Button } from './components/button.js';
 import { TreeItem, TreeItemIcon, TreeItemLabel, GitStatusColor } from './components/tree.js';
-import { Empty, EmptyTitle, EmptyDescription } from './components/empty.js';
+import { Empty, EmptyDescription } from './components/empty.js';
 
 const icon = name => svg(`mods/devkits/assets/icons/${name}.svg`).size(12).flex_none();
 const MAX_BYTES = 4000000, MAX_ROWS = 20000, MAX_LINE = 2000;
@@ -180,7 +180,7 @@ export default class DiffViewer {
     this.close();
     this.context = project ? { ...project } : null;
     this.files = []; this.collapsed.clear(); this.folders.clear(); this.rowCache = null; this.selected = null;
-    this.error = null; this.loaded = false; this.truncated = false; this.text = null;
+    this.error = null; this.loaded = false; this.truncated = false; this.diffText = null;
     if (project?.folder) { this.observe(cx); this.reload(cx); }
   }
 
@@ -215,13 +215,13 @@ export default class DiffViewer {
         const text = await readDiffText(context.folder, context.machine);
         if (request !== this.request || this.context !== context) return;
         // Like Zed, keep what is shown until the result actually differs; most events change nothing.
-        if (text !== this.text || this.error) {
-          this.text = text; this.files = parseDiff(text); this.truncated = text.length >= MAX_BYTES;
+        if (text !== this.diffText || this.error) {
+          this.diffText = text; this.files = parseDiff(text); this.truncated = text.length >= MAX_BYTES;
           this.error = null; this.rowCache = null; changed = true;
         }
       } catch (error) {
         if (request === this.request && this.context === context) {
-          this.text = null; this.files = []; this.rowCache = null; this.error = String(error.message || error); changed = true;
+          this.diffText = null; this.files = []; this.rowCache = null; this.error = String(error.message || error); changed = true;
         }
       } finally {
         if (this.context === context) {
@@ -264,8 +264,9 @@ export default class DiffViewer {
         .child(div().font_medium().text_color(t.foreground).child('Changes'))
         .child(div().text_color(t.muted).child(`(${this.files.length})`))
         .child(div().flex_1())
-        .child(div().text_color(GitStatusColor.added).child(`+${added}`))
-        .child(div().text_color(GitStatusColor.deleted).child(`−${removed}`)))
+        .when(this.files.length > 0, el => el
+          .child(div().text_color(GitStatusColor.added).child(`+${added}`))
+          .child(div().text_color(GitStatusColor.deleted).child(`−${removed}`))))
       .child(v_flex().id('diff-files').flex_1().min_h(0).overflow_y_scrollbar().py(4)
         .children(changeSections(this.files).map(section => {
           const key = `section:${section.label}`, open = !this.folders.has(key);
@@ -387,12 +388,13 @@ export default class DiffViewer {
       .on_click((_event, cx) => this.setLayout(value, cx)).child(label);
     // The editor and the Git panel are side by side, each with its own 32px header, like Files.
     return h_flex().id('diff-viewer').flex_row_reverse().size_full().min_h(0).bg(t.background).text_color(t.foreground)
-      .when(this.files.length > 0, el => el.child(this.panel(t)))
+      .child(this.panel(t))
       .child(v_flex().flex_1().min_w(0).min_h(0).h_full()
         .child(h_flex().h(32).flex_none().pl(12).pr(4).gap(8).items_center().bg(t.chrome).border_b(1).border_color(t.border).text_size(12)
           .child(div().flex_1().min_w(0).truncate().font_medium().child('Uncommitted changes'))
-          .child(choice('diff-unified', 'Unified', 'unified'))
-          .child(choice('diff-split', 'Split', 'split')))
+          .when(rows.length > 0, el => el
+            .child(choice('diff-unified', 'Unified', 'unified'))
+            .child(choice('diff-split', 'Split', 'split'))))
         .when(this.truncated || limited, el => el.child(div().flex_none().px(12).py(6).text_size(11).text_color(t.muted).border_b(1).border_color(t.border)
           .child('Diff limited to 4 MB and 20,000 rows.')))
         .child(rows.length
@@ -402,8 +404,8 @@ export default class DiffViewer {
               .size_full().track_scroll(this.scroll)
               .on_item_click((key, cx) => { if (key.startsWith('file:')) this.toggle(key.slice(5), cx); }))
             .child(Scrollbar.vertical('diff-rows').absolute().inset_0())
-          : Empty(t).flex_1()
-            .child(EmptyTitle().child(this.error ? 'Changes unavailable' : this.loaded ? 'No changes' : 'Loading changes…'))
-            .child(EmptyDescription(t).child(this.error || (this.loaded ? 'The working tree matches HEAD.' : '')))));
+          : Empty(t).flex_1().p(24).gap(4).font_family('Geist')
+            .child(EmptyDescription(t).text_size(13).child(this.error ? 'Changes unavailable' : this.loaded ? 'No uncommitted changes' : 'Loading changes…'))
+            .when(Boolean(this.error), el => el.child(EmptyDescription(t).child(this.error)))));
   }
 }

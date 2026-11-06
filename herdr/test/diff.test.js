@@ -132,3 +132,34 @@ test('reloads keep the shown diff and skip repainting until git diff output chan
   assert.notEqual(view.files, files);
   assert.equal(notified, 2);
 });
+
+test('loaded diff text preserves row rendering in unified and split views', async () => {
+  const memory = {}, painted = [];
+  const element = () => {
+    const el = new Proxy({}, { get: (_target, key) => {
+      if (key === 'when') return (condition, render) => { if (condition) render(el); return el; };
+      if (key === 'child') return value => { if (typeof value === 'string') painted.push(value); return el; };
+      return () => el;
+    } });
+    return el;
+  };
+  const text = ['diff --git a/a.js b/a.js', '--- a/a.js', '+++ b/a.js', '@@ -1 +1 @@', '-before', '+after'].join('\n');
+  const { DiffViewer } = await load({ div: element, svg: element, h_flex: element, v_flex: element,
+    GitStatusColor: { added: '#27a657', deleted: '#e06c76' },
+    shared: key => memory[key], setShared: (key, value) => { memory[key] = value; },
+    VirtualListScrollHandle: { new: () => ({}) }, exec: async () => ({ code: 0, stdout: text }) });
+  const tasks = [], cx = { notify() {}, spawn(fn) { tasks.push(fn(cx)); } };
+  const view = new DiffViewer(); view.init(); view.observe = () => {};
+  view.refresh({ id: 'project', folder: '/project' }, cx);
+  await Promise.all(tasks);
+  for (const layout of ['unified', 'split']) {
+    painted.length = 0;
+    view.setLayout(layout, cx);
+    const { rows, gutter } = view.rows();
+    for (const row of rows) view.row(row, {}, 'monospace', gutter);
+    assert.ok(painted.includes('a.js'), `${layout} paints the file header`);
+    assert.ok(painted.includes('before'), `${layout} paints deleted text`);
+    assert.ok(painted.includes('after'), `${layout} paints added text`);
+    assert.ok(painted.includes('1'), `${layout} paints line numbers`);
+  }
+});
