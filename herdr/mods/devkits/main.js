@@ -41,6 +41,20 @@ const launcherIcon = (agent, t) => !agent ? glyph('terminal', 16) : agent.icon
 
 export default class Devkits extends View {
   init(_props, cx) {
+    if (props()?.view === 'codex-sharing') {
+      this.handle = cx.focus_handle(); this.handle.focus();
+      this.sharingItems = []; this.sharingLoading = true;
+      cx.spawn(async cx => {
+        try {
+          const result = await exec('node', [`${appHome()}/mods/devkits/codex-sharing.js`, appHome(), props().agent.key, '--list']);
+          const data = JSON.parse(result.stdout);
+          if (result.code !== 0 || data.error) throw new Error(data.error || 'Could not read shared items.');
+          this.sharingItems = data.items;
+        } catch (error) { this.sharingError = error.message; }
+        finally { this.sharingLoading = false; cx.notify(); }
+      });
+      return;
+    }
     if (props()?.view === 'file-menu') {
       this.fileMenu = new FileMenu(); this.fileMenu.init(cx); return;
     }
@@ -119,6 +133,83 @@ export default class Devkits extends View {
       this.loadAgents(cx);
       if (props().view === 'manage-launchers') this.loadCodexModels(cx);
     }
+  }
+
+  openCodexSharing(agent) {
+    const target = props(); closeOverlay(target.overlay);
+    openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: false, width: 640, height: 0.7,
+      props: { view: 'codex-sharing', agent, space: target.space } });
+  }
+
+  finishCodexSharing() {
+    const target = props(); closeOverlay(target.overlay);
+    openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: false, width: 680, height: 0.8,
+      props: { view: 'manage-launchers', space: target.space } });
+  }
+
+  sharingDialog(t) {
+    const agent = props().agent;
+    const available = this.sharingItems.filter(item => !item.unavailable);
+    const selected = available.filter(item => item.selected).length;
+    return DialogContent('codex-sharing', t).track_focus(this.handle)
+      .on_key_down((event, cx) => { if (event.key === 'escape' && !this.sharingBusy) { cx.stop_propagation(); this.finishCodexSharing(); } })
+      .child(DialogTitle().child('Shared plugins and skills'))
+      .child(DialogDescription(t).child(`Choose what ${accountLabel(agent.name)} shares from ~/.codex. Uncheck an item to stop sharing it.`))
+      .child(v_flex().id('sharing-table').flex_1().min_h(0).border(1).border_color(t.border)
+        .child(h_flex().id('sharing-table-header').h(32).px(8).gap(8).items_center().flex_none()
+          .border_b(1).border_color(t.border).text_size(11).text_color(t.muted)
+          .child(Checkbox('share-all', available.length > 0 && selected === available.length, t).w(16).flex_none()
+          .disabled(Boolean(this.sharingBusy) || this.sharingLoading || !available.length).accessibility_label('Select all plugins and skills')
+          .on_change((checked, cx) => {
+            for (const item of available) item.selected = checked;
+            cx.notify();
+          }))
+          .child(div().flex_1().min_w(0).child('NAME'))
+          .child(div().w(140).flex_none().child('SOURCE'))
+          .child(div().w(108).flex_none().child('STATUS')))
+      .child(v_flex().flex_1().min_h(0).overflow_y_scroll()
+        .when(this.sharingLoading, el => el.child(div().p(8).text_size(13).text_color(t.muted).child('Checking shared settings…')))
+        .children(['plugins', 'skills'].flatMap(kind => {
+          const items = this.sharingItems.filter(item => item.kind === kind);
+          return items.length ? [DropdownMenuLabel(t).h(28).px(8).bg(t.hover).child(kind.toUpperCase()), ...items.map((item, index) =>
+            Checkbox(`share-${kind}-${index}`, item.selected, t).h(36).px(8).flex_none().border_b(1).border_color(t.border)
+              .disabled(Boolean(this.sharingBusy) || Boolean(item.unavailable))
+              .accessibility_label(`${item.label}${item.detail ? `, ${item.detail}` : ''}`)
+              .on_change((checked, cx) => { item.selected = checked; cx.notify(); })
+              .child(div().flex_1().min_w(0).truncate().text_size(13).child(item.label))
+              .child(div().w(140).flex_none().truncate().text_size(12).text_color(t.muted).child(item.detail || '~/.codex/skills'))
+              .child(div().w(108).flex_none().text_size(12)
+                .text_color(item.status === 'synced' ? t.done : item.status === 'conflict' ? t.ansi1 : t.muted)
+                .child(({ synced: 'Synced', pending: 'Update needed', conflict: 'Conflict', 'not-shared': 'Not shared', 'source-missing': 'Source missing' })[item.status] || '—')))] : [];
+        }))
+        .when(!this.sharingLoading && !this.sharingError && !this.sharingItems.length, el => el.child(div().p(8).text_size(13).text_color(t.muted).child('No local plugins or custom skills in ~/.codex.')))))
+      .child(div().text_size(12).text_color(t.muted).child('Personal skills in ~/.agents/skills are already shared. Remote plugins are managed per account in /plugins.'))
+      .when(Boolean(this.sharingError), el => el.child(div().text_size(12).text_color(t.ansi1).child(this.sharingError)))
+      .child(DialogFooter()
+        .child(Button('sharing-cancel', t, { variant: 'ghost' }).disabled(Boolean(this.sharingBusy)).on_click(() => this.finishCodexSharing()).child('Cancel'))
+        .child(Button('sharing-apply', t).disabled(Boolean(this.sharingBusy) || this.sharingLoading || Boolean(this.sharingError && !this.sharingItems.length))
+          .on_click((_event, cx) => this.syncCodexSettings(agent, cx)).child(this.sharingBusy ? 'Syncing…' : `Sync ${selected} items`)));
+  }
+
+  // Only the selection dialog's explicit action runs synchronization.
+  syncCodexSettings(agent, cx) {
+    if (this.sharingBusy) return;
+    this.sharingBusy = agent.key;
+    this.sharingError = null;
+    const selection = { plugins: [], skills: [] };
+    for (const item of this.sharingItems) if (item.selected && !item.unavailable) selection[item.kind].push(item.key);
+    cx.notify();
+    cx.spawn(async cx => {
+      try {
+        const result = await exec('node', [`${appHome()}/mods/devkits/codex-sharing.js`, appHome(), agent.key, JSON.stringify(selection)]);
+        let data;
+        try { data = JSON.parse(result.stdout); } catch { throw new Error('Could not synchronize settings. Check that Node.js and Codex CLI are installed.'); }
+        if (result.code !== 0 || data.error) throw new Error(data.error || 'Could not synchronize settings.');
+        notify({ title: 'Shared settings updated', body: data.message });
+        this.finishCodexSharing();
+      } catch (error) { this.sharingError = error.message; }
+      finally { this.sharingBusy = null; cx.notify(); }
+    });
   }
 
   // Manage lists the models every local Codex profile knows.
@@ -698,6 +789,9 @@ export default class Devkits extends View {
               .on_click(() => this.addAccount(choice.agent.key)).child(glyph('plus')).child('Add account')))
           .when(local && choice.group === 2, el => el.child(Button(`rename-${choice.agent.key}`, t, { variant: 'outline' })
             .accessibility_label(`Rename ${choice.name}`).on_click(() => this.renameAccount(choice.agent)).child('Rename')))
+          .when(local && choice.agent?.key?.startsWith('devkits-codex-'), el => el.child(Button(`sync-${choice.agent.key}`, t, { variant: 'outline' })
+            .accessibility_label(`Choose shared plugins and skills for ${choice.name}`)
+            .on_click(() => this.openCodexSharing(choice.agent)).child('Sync…')))
           .when(local && choice.group === 2, el => el.child(Button(`remove-${choice.agent.key}`, t, { variant: 'outline' })
             .accessibility_label(`Remove ${choice.name}`).on_click(() => this.confirmRemoveAccount(choice.agent))
             .child(glyph('close')).child('Remove'))))
@@ -1015,6 +1109,7 @@ export default class Devkits extends View {
 
   render(cx) {
     const t = theme();
+    if (props()?.view === 'codex-sharing') return this.sharingDialog(t);
     if (props()?.view === 'token-statistics') return this.analytics.render();
     if (props()?.view === 'codex-permissions') return div();
     if (props()?.view === 'file-menu') return this.fileMenu.render();
