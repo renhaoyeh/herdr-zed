@@ -1,12 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { claudeModels, claudeEfforts, codexHome, codexModels, isClaudeLauncher, isCodexLauncher, sessionArgv } from '../mods/devkits/model.js';
 
 const names = ['AsanaPanel', 'AsanaProjectPicker', 'previewWidthAt', 'avatarColor', 'statusKind', 'initials', 'dueLabel', 'savedTasks', 'unsaveTask', 'searchProjects', 'projectTasksPage', 'myProjectTasks', 'projectWorkspace', 'openSubtasks', 'taskDetails', 'taskComments', 'relativeTime', 'reconcileSaved',
   'filterTasks', 'taskPrompt', 'readAsanaToken', 'saveAsanaToken'];
 async function load(host = {}) {
   const source = await readFile(new URL('../mods/devkits/asana.js', import.meta.url), 'utf8');
-  host = { fetch: () => assert.fail('unexpected request'), Button: () => {}, ...host };
+  host = { fetch: () => assert.fail('unexpected request'), Button: () => {}, claudeModels, claudeEfforts, codexHome, codexModels, isClaudeLauncher, isCodexLauncher,
+    home: () => '/home', Select: () => element(), SelectState: class {}, ...host };
   return new Function(...Object.keys(host), source.replace(/^import .*;\n/gm, '')
     .replace('export default class', 'class').replace(/^export /gm, '')
     + `\nreturn { ${names.join(', ')} };`)(...Object.values(host));
@@ -150,7 +152,7 @@ test('Mine loads only my tasks; All loads a page when shown and more on request;
     folderKey: path => path.replace(/\/+$/, ''), appHome: () => '/herdr', readTextFile: async () => '{"token":"secret"}', fetch: asana(tasks, urls) });
   const { cx, settle } = harness();
   const panel = new AsanaPanel(); panel.init(cx);
-  const render = async () => { panel.render({ folder: '/Code/api/' }, () => assert.fail('nothing starts on preview'), () => {}, cx); await settle(); };
+  const render = async () => { panel.render({ folder: '/Code/api/' }, [], () => assert.fail('nothing starts on preview'), () => {}, cx); await settle(); };
   await render(); await render();
   assert.equal(panel.tab, 'mine');
   assert.deepEqual(panel.rows().map(row => row.task.gid), ['t1']);
@@ -187,8 +189,8 @@ test('an unbound project loads nothing until a project is chosen from the dropdo
     fetch: asana([{ gid: 'w1', name: 'Mine', me: true, projects: ['p9'] }], urls) });
   const { cx, settle } = harness();
   const panel = new AsanaPanel(); panel.init(cx);
-  panel.render({ folder: '/Code/web' }, () => {}, () => {}, cx); await settle();
-  panel.render({ folder: '/Code/web' }, () => {}, () => {}, cx); await settle();
+  panel.render({ folder: '/Code/web' }, [], () => {}, () => {}, cx); await settle();
+  panel.render({ folder: '/Code/web' }, [], () => {}, () => {}, cx); await settle();
   assert.deepEqual(panel.rows(), []);
   assert.equal(urls.length, 0);
   const picker = new AsanaProjectPicker(); picker.init({ folder: '/Code/web', overlay: 'menu' }, cx); await settle();
@@ -196,7 +198,7 @@ test('an unbound project loads nothing until a project is chosen from the dropdo
   picker.choose(picker.projects[0]);
   assert.deepEqual(memory['devkits.asana-projects'], { '["","/Code/web"]': { gid: 'p9', name: 'Web', workspace: 'w' } });
   assert.deepEqual(closed, ['menu']);
-  panel.render({ folder: '/Code/web' }, () => {}, () => {}, cx); await settle();
+  panel.render({ folder: '/Code/web' }, [], () => {}, () => {}, cx); await settle();
   assert.equal(panel.loadedGid, 'p9');
   assert.deepEqual(panel.rows().map(row => row.task.gid), ['w1']);
   assert.ok(!urls.some(url => url.includes('opt_fields=workspace.gid')));
@@ -238,7 +240,7 @@ test('switching Devkits projects keeps each project’s tasks, selection and pre
     fetch: asana([{ gid: 'a1', name: 'A task', me: true, projects: ['pa'] }, { gid: 'b1', name: 'B task', me: true, projects: ['pb'] }], urls) });
   const { cx, settle } = harness();
   const panel = new AsanaPanel(); panel.init(cx);
-  const show = async folder => { panel.render({ folder }, () => {}, () => {}, cx); await settle(); panel.render({ folder }, () => {}, () => {}, cx); await settle(); };
+  const show = async folder => { panel.render({ folder }, [], () => {}, () => {}, cx); await settle(); panel.render({ folder }, [], () => {}, () => {}, cx); await settle(); };
   await show('/a');
   panel.show(panel.mine[0], cx); await settle();
   await show('/b');
@@ -293,4 +295,48 @@ test('each task keeps its own instructions draft, and Start session carries it',
   assert.equal(panel.note.value(), 'Use the new API');
   assert.equal(panel.notes.get('a1'), 'Use the new API');
   void settle; void started;
+});
+
+test('model and effort flags go right after the Claude or Codex executable; Default leaves the command alone', () => {
+  const claude = { key: 'devkits-claude-work', run: ['env', 'CLAUDE_CONFIG_DIR=/c', 'claude', '--permission-mode', 'plan'] };
+  assert.deepEqual(sessionArgv(claude, claude.run, { model: 'sonnet', effort: 'high' }),
+    ['env', 'CLAUDE_CONFIG_DIR=/c', 'claude', '--model', 'sonnet', '--effort', 'high', '--permission-mode', 'plan']);
+  const codex = { key: 'codex', run: ['codex', '--no-daemon'] };
+  assert.deepEqual(sessionArgv(codex, codex.run, { model: 'gpt-6-luna', effort: 'xhigh' }),
+    ['codex', '-m', 'gpt-6-luna', '-c', 'model_reasoning_effort="xhigh"', '--no-daemon']);
+  assert.deepEqual(sessionArgv(codex, codex.run, { effort: 'low' }), ['codex', '-c', 'model_reasoning_effort="low"', '--no-daemon']);
+  assert.equal(sessionArgv(claude, claude.run, {}), claude.run);
+  const other = { key: 'aider', run: ['aider'] };
+  assert.equal(sessionArgv(other, other.run, { model: 'x' }), other.run);
+  assert.throws(() => sessionArgv({ key: 'codex', run: ['wrapper'] }, ['wrapper'], { model: 'x' }), /Could not find Codex/);
+});
+
+test('Codex models come from its cache, listed ones only, with their efforts; the home follows CODEX_HOME', () => {
+  const cache = JSON.stringify({ models: [
+    { slug: 'gpt-6-luna', display_name: 'GPT-6 Luna', visibility: 'list', supported_reasoning_levels: [{ effort: 'low' }, { effort: 'high' }] },
+    { slug: 'hidden', visibility: 'hide', supported_reasoning_levels: [] }] });
+  assert.deepEqual(codexModels(cache), [{ key: 'gpt-6-luna', label: 'GPT-6 Luna', efforts: ['low', 'high'] }]);
+  assert.deepEqual(codexModels('not json'), []);
+  assert.equal(codexHome({ run: ['env', 'CODEX_HOME=/x/acct', 'codex'] }, '/home'), '/x/acct');
+  assert.equal(codexHome({ run: ['codex'] }, '/home'), '/home/.codex');
+});
+
+test('the composer remembers the agent and drops a model or effort the new agent lacks', async () => {
+  const memory = { 'devkits.asana-session': { agent: 'codex', model: 'opus', effort: 'max' } };
+  const { AsanaPanel } = await load({ ...ui, shared: key => memory[key], setShared: (key, value) => { memory[key] = value; },
+    readTextFile: async () => JSON.stringify({ models: [{ slug: 'gpt-6-luna', visibility: 'list', supported_reasoning_levels: [{ effort: 'high' }] }] }) });
+  const panel = new AsanaPanel(); panel.init({ focus_handle: () => ({ focus() {} }) });
+  const agents = [{ key: 'claude', name: 'Claude', run: ['claude'] }, { key: 'codex', name: 'Codex', run: ['codex'] }];
+  const pending = [];
+  panel.cx = { notify() {}, spawn: task => { pending.push(task(panel.cx)); } };
+  panel.session(agents); await Promise.all(pending);
+  const codex = panel.session(agents);
+  assert.equal(codex.agent.key, 'codex');
+  assert.equal(codex.model, null);
+  assert.equal(codex.effort, null);
+  assert.deepEqual(codex.models.map(model => model.key), ['gpt-6-luna']);
+  memory['devkits.asana-session'] = { agent: 'claude', model: 'opus', effort: 'max' };
+  assert.deepEqual([panel.session(agents).model, panel.session(agents).effort], ['opus', 'max']);
+  memory['devkits.asana-session'] = { agent: 'gone' };
+  assert.equal(panel.session(agents).agent.key, 'claude');
 });

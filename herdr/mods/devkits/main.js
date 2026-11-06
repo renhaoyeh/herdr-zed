@@ -1,7 +1,7 @@
 import { View, div, svg, image } from 'gpui-kit';
 import { v_flex, h_flex, InputState, Input } from 'gpui-base';
 import { agents, spaces, panes, theme, run, props, window, openOverlay, closeOverlay, setAgentOrder, layout, settings, pickFolder, shared, setShared, knownAgents, notify, exec, appHome, home, readTextFile } from 'herdr';
-import { projectGroups, projectCatalog, folderKey, launcherChoices, isAccountLauncher, permissionModes, launcherArgv, quotaResetLabel, quotaElapsedPercent, resolveThreadProfiles, threadProfile } from './model.js';
+import { projectGroups, projectCatalog, folderKey, launcherChoices, isAccountLauncher, permissionModes, launcherArgv, sessionArgv, quotaResetLabel, quotaElapsedPercent, resolveThreadProfiles, threadProfile } from './model.js';
 import AccountLogin, { accountLabel, ensureClaudeStatusLine, removeAccountProfile, renameAccountProfile } from './account-login.js';
 import FileViewer from './files.js';
 import DiffViewer from './diff.js';
@@ -100,6 +100,8 @@ export default class Devkits extends View {
     if (props()?.view === 'asana') {
       this.asana = new AsanaPanel();
       this.asana.init(cx);
+      // The composer offers the local agents Add session shows.
+      cx.spawn(async cx => { try { await this.cachedAgents(null); } catch {} cx.notify(); });
       return;
     }
     if (['launcher', 'manage-launchers'].includes(props()?.view)) {
@@ -318,14 +320,15 @@ export default class Devkits extends View {
   }
 
   // An Asana task becomes the thread name and the agent's opening prompt, and leaves Saved once started.
-  startThread(agent) {
-    const target = props(), task = target.task;
+  // `options` picks this session's model and effort; Default leaves the launcher's own.
+  startThread(agent, target = props(), options = {}) {
+    const task = target.task;
     let argv;
-    try { argv = launcherArgv(agent, shared('devkits.codex-permissions')?.[agent?.key]); }
+    try { argv = agent && sessionArgv(agent, launcherArgv(agent, shared('devkits.codex-permissions')?.[agent?.key]), options); }
     catch (error) { notify({ title: 'Could not start session', body: error.message, level: 'error' }); return; }
     if (task) argv = [...argv, taskPrompt(task)];
     const name = task?.name || agent?.name;
-    closeOverlay(target.overlay);
+    if (target.overlay) closeOverlay(target.overlay);
     if (task) unsaveTask(target.folder, task.gid);
     // Commands do not return the new tab, so the sidebar matches it once it appears.
     if (agent) setShared('devkits.pending-profiles', [...(shared('devkits.pending-profiles') || []), { key: agent.key,
@@ -338,11 +341,14 @@ export default class Devkits extends View {
     else run('space.new', { name: target.projectName, folder: target.folder, machine: '', ...(agent ? { tab: name, argv } : {}) });
   }
 
-  // Start session in the Asana preview reuses Add session's agent menu, carrying the previewed task.
+  // The Asana composer starts the session itself with the chosen agent, model and effort.
   asanaPanel(cx) {
     const project = this.projects().find(project => project.active);
-    return this.asana.render(project, (task, at) => openOverlay({ mod: 'devkits', kind: 'popup', frame: 'none', width: 280, at,
-      props: { view: 'launcher', space: project.pending ? null : project.id, folder: project.folder, projectName: project.name, task } }),
+    const hidden = shared('devkits.hidden-launchers') || [];
+    const agents = launcherChoices(shared('devkits.agent-cache')?.[JSON.stringify(null)] || [], shared('devkits.launcher-order') || [])
+      .filter(choice => choice.agent && !hidden.includes(choice.key)).map(choice => choice.agent);
+    return this.asana.render(project, agents,
+      (agent, task, options) => this.startThread(agent, { space: project.pending ? null : project.id, folder: project.folder, projectName: project.name, task }, options),
       () => { hidePanels(); rememberPanel(project.id, null); }, cx);
   }
 
@@ -566,9 +572,7 @@ export default class Devkits extends View {
 
   launcher(t) {
     const hidden = shared('devkits.hidden-launchers') || [];
-    const task = props().task;
-    const choices = launcherChoices(this.launchers, shared('devkits.launcher-order') || [])
-      .filter(choice => !hidden.includes(choice.key) && (!task || choice.agent));
+    const choices = launcherChoices(this.launchers, shared('devkits.launcher-order') || []).filter(choice => !hidden.includes(choice.key));
     const launchers = choices.filter(choice => choice.agent).map(choice => choice.agent);
     const row = (id, name, icon, action) => DropdownMenuItem(id, t).on_click(action)
       .child(div().size(16).flex_none().flex().items_center().justify_center().text_color(t.muted).child(icon))
@@ -595,13 +599,13 @@ export default class Devkits extends View {
           .on_click((_event, cx) => this.loadAgents(cx)).child('Could not load agents. Click to retry.')))
         .when(!this.loading && !this.launchError && !choices.length, el => el.child(div().p(10).text_size(12).text_color(t.muted)
           .child(this.launchers.length ? 'All agents are hidden. Use Manage to show them.' : 'No installed agents found.'))))
-      .when(!task, el => el.child(DropdownMenuSeparator(t))
-        .child(row('manage-launchers-open', 'Manage…', glyph('settings'), () => {
-          const target = props();
-          closeOverlay(target.overlay);
-          openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: false, width: 680, height: 0.8,
-            props: { view: 'manage-launchers', space: target.space } });
-        })));
+      .child(DropdownMenuSeparator(t))
+      .child(row('manage-launchers-open', 'Manage…', glyph('settings'), () => {
+        const target = props();
+        closeOverlay(target.overlay);
+        openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: false, width: 680, height: 0.8,
+          props: { view: 'manage-launchers', space: target.space } });
+      }));
   }
 
   refreshUsage(cx, force = true) {
