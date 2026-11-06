@@ -1,8 +1,9 @@
 import { div, svg } from 'gpui-kit';
 import { h_flex, v_flex, Editor, EditorState, TextView } from 'gpui-base';
-import { exec, readTextFile, watchFolder, settings, theme } from 'herdr';
+import { exec, readTextFile, watchFolder, settings, theme, window, props, openOverlay, closeOverlay, notify } from 'herdr';
 import { TreeItem, TreeItemIcon, TreeItemLabel, GitStatusColor } from './components/tree.js';
 import { Empty, EmptyTitle, EmptyDescription } from './components/empty.js';
+import { DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from './components/dropdown-menu.js';
 
 const icon = name => svg(`mods/devkits/assets/icons/${name}.svg`).size(14).flex_none();
 const LANG = { ts: 'js', tsx: 'js', jsx: 'js', mjs: 'js', cjs: 'js', mts: 'js', cts: 'js', jsonc: 'json', toml: 'yaml', vue: 'html', svelte: 'html' };
@@ -52,6 +53,66 @@ export function parseStatus(stdout) {
 export async function gitStatus(folder, on) {
   const result = await exec('sh', ['-c', STATUS_SCRIPT, 'devkits-status', folder], { on });
   return parseStatus(result.code === 0 ? result.stdout : '');
+}
+
+export function fullPath(folder, path) {
+  const joined = `${folder.replace(/[/\\]+$/, '')}/${path}`;
+  return /^(?:[A-Za-z]:|\\\\|\/\/)/.test(folder) ? joined.replaceAll('/', '\\') : joined;
+}
+
+export async function revealPath(folder, path, platform) {
+  const full = fullPath(folder, path);
+  const result = platform === 'windows' ? await exec('explorer.exe', [`/select,${full}`])
+    : platform === 'macos' ? await exec('open', ['-R', full])
+      : await exec('xdg-open', [full.slice(0, full.lastIndexOf('/')) || '/']);
+  // Explorer can return 1 when delegating to an existing window.
+  if (result.code !== 0 && !(platform === 'windows' && result.code === 1)) throw new Error(result.stderr || 'Could not reveal this path.');
+}
+
+export class FileMenu {
+  init(cx) { this.handle = cx.focus_handle(); this.handle.focus(); this.index = 0; }
+
+  render() {
+    const t = theme(), target = props(), platform = window()?.platform;
+    const actions = [
+      { key: 'relative', label: 'Copy Relative Path' },
+      { key: 'full', label: 'Copy Full Path' },
+      { key: 'reveal', label: platform === 'windows' ? 'Reveal in File Explorer' : platform === 'macos' ? 'Reveal in Finder' : 'Reveal in File Manager', disabled: Boolean(target.machine) },
+    ];
+    const choose = (action, cx) => {
+      cx.stop_propagation();
+      if (action.disabled) return;
+      if (action.key === 'reveal') {
+        cx.spawn(async () => {
+          try { await revealPath(target.folder, target.path, platform); }
+          catch (error) { notify({ title: 'Could not reveal path', body: error.message, level: 'error' }); }
+          finally { closeOverlay(target.overlay); }
+        });
+        return;
+      }
+      cx.write_to_clipboard(action.key === 'relative' ? target.path : fullPath(target.folder, target.path));
+      closeOverlay(target.overlay);
+    };
+    const enabled = actions.map((action, i) => action.disabled ? -1 : i).filter(i => i >= 0);
+    return DropdownMenuContent('file-menu', undefined, t).role('menu').accessibility_label('File actions')
+      .track_focus(this.handle).on_key_down((event, cx) => {
+        if (event.key === 'escape') closeOverlay(target.overlay);
+        else if (event.key === 'enter' || event.key === 'space') choose(actions[this.index], cx);
+        else if (event.key === 'down' || event.key === 'up') {
+          this.index = enabled[(enabled.indexOf(this.index) + (event.key === 'up' ? -1 : 1) + enabled.length) % enabled.length];
+          cx.notify();
+        } else return;
+        cx.stop_propagation();
+      })
+      .children(actions.flatMap((action, i) => [
+        ...(action.key === 'reveal' ? [DropdownMenuSeparator(t)] : []),
+        DropdownMenuItem(`file-menu-${action.key}`, t).role('menu_item').accessibility_label(action.label)
+          .when(action.disabled, el => el.opacity(0.4).cursor_default())
+          .when(!action.disabled && this.index === i, el => el.bg(t.selected))
+          .on_hover((inside, cx) => { if (inside && !action.disabled) { this.index = i; cx.notify(); } })
+          .on_click((_event, cx) => choose(action, cx)).child(action.label),
+      ]));
+  }
 }
 
 export default class FileViewer {
@@ -233,6 +294,13 @@ export default class FileViewer {
     cx.stop_propagation(); cx.notify();
   }
 
+  openMenu(path, at, cx) {
+    this.handle.focus(); this.cursor = path;
+    openOverlay({ mod: 'devkits', kind: 'popup', frame: 'none', width: 224, at,
+      props: { view: 'file-menu', folder: this.context.folder, machine: this.context.machine, path } });
+    cx.notify();
+  }
+
   render(project, cx) {
     if (this.context?.id !== project?.id || this.context?.folder !== project?.folder || this.context?.machine !== project?.machine) this.refresh(project, cx);
     const t = theme();
@@ -245,6 +313,9 @@ export default class FileViewer {
           .children(this.rows().map(row => v_flex().flex_none()
             .child(TreeItem(`file-${row.path}`, row.depth, this.cursor === row.path || this.file === row.path, t)
               .accessibility_label(`${row.dir ? 'Folder' : 'File'} ${row.path}`)
+              .on_mouse_down('right', (event, cx) => {
+                cx.stop_propagation(); this.openMenu(row.path, event.position, cx);
+              })
               .on_click((_event, cx) => {
                 this.handle.focus(); this.cursor = row.path;
                 row.dir ? this.toggle(row.path, cx) : this.show(row.path, cx);

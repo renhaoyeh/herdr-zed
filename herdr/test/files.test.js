@@ -9,7 +9,7 @@ import { execFile } from 'node:child_process';
 async function load(host = {}) {
   const source = await readFile(new URL('../mods/devkits/files.js', import.meta.url), 'utf8');
   return new Function(...Object.keys(host), source.replace(/^import .*;\n/gm, '')
-    .replace('export default class', 'class').replace(/^export /gm, '') + '\nreturn { FileViewer, directory, parseStatus, gitStatus };')(...Object.values(host));
+    .replace('export default class', 'class').replace(/^export /gm, '') + '\nreturn { FileViewer, FileMenu, fullPath, revealPath, directory, parseStatus, gitStatus };')(...Object.values(host));
 }
 const project = { id: 'project', folder: '/project', machine: 'server' };
 function timers() {
@@ -275,4 +275,60 @@ test('ignored folders dim descendants without marking their parents changed', as
     ['src', false], ['src/generated', true], ['src/generated/output.js', true],
     ['src/gpui-kit.d.ts', true], ['src/main.js', false],
   ]);
+});
+
+test('file actions copy project-relative and native full paths, and remote Reveal stays disabled', async () => {
+  const nodes = new Map(), copied = [], closed = [], overlays = [];
+  const element = id => {
+    const el = new Proxy({}, { get: (_target, key) => {
+      if (key in _target) return _target[key];
+      if (key === 'when') return (condition, fn) => condition ? fn(el) : el;
+      if (key === 'on_click' || key === 'on_key_down') return fn => { el[key === 'on_click' ? 'click' : 'keydown'] = fn; return el; };
+      return () => el;
+    } });
+    nodes.set(id, el); return el;
+  };
+  let target = { folder: 'C:\\dev\\my project', path: 'src/你好.ts', overlay: 'actions' };
+  const { FileMenu, FileViewer, fullPath } = await load({ theme: () => ({}), props: () => target,
+    window: () => ({ platform: 'windows' }), closeOverlay: id => closed.push(id), openOverlay: value => overlays.push(value),
+    DropdownMenuContent: element, DropdownMenuItem: element, DropdownMenuSeparator: () => element('separator') });
+  const cx = { focus_handle: () => ({ focus() {} }), stop_propagation() {}, notify() {}, write_to_clipboard: text => copied.push(text) };
+  const menu = new FileMenu(); menu.init(cx); menu.render();
+  nodes.get('file-menu-relative').click({}, cx);
+  nodes.get('file-menu-full').click({}, cx);
+  assert.deepEqual(copied, ['src/你好.ts', 'C:\\dev\\my project\\src\\你好.ts']);
+  assert.deepEqual(closed, ['actions', 'actions']);
+  assert.equal(fullPath('/', 'src/file'), '/src/file');
+  assert.equal(fullPath('/project/', 'src/file'), '/project/src/file');
+  assert.equal(fullPath('C:/', 'file'), 'C:\\file');
+  assert.equal(fullPath('\\\\server\\share\\', 'folder/file'), '\\\\server\\share\\folder\\file');
+  target = { folder: '/remote/project', machine: 'server', path: 'src/file', overlay: 'remote-actions' };
+  menu.index = 0; menu.render();
+  nodes.get('file-menu-reveal').click({}, cx);
+  assert.equal(closed.length, 2);
+  nodes.get('file-menu').keydown({ key: 'up' }, cx);
+  assert.equal(menu.index, 1);
+  nodes.get('file-menu').keydown({ key: 'enter' }, cx);
+  assert.equal(copied.at(-1), '/remote/project/src/file');
+  const view = new FileViewer(); view.init(cx); view.context = target;
+  view.openMenu('src', { x: 120, y: 80 }, cx);
+  assert.equal(view.cursor, 'src');
+  assert.deepEqual(overlays[0].at, { x: 120, y: 80 });
+  assert.deepEqual(overlays[0].props, { view: 'file-menu', folder: target.folder, machine: 'server', path: 'src' });
+});
+
+test('Reveal passes paths as arguments to the platform file manager and reports failures', async () => {
+  const calls = [];
+  let code = 0;
+  const { revealPath } = await load({ exec: async (cmd, args) => { calls.push([cmd, args]); return { code, stderr: 'failed' }; } });
+  await revealPath('C:/dev/my project', 'src/你好.ts', 'windows');
+  await revealPath('/my project', 'src/a.ts', 'macos');
+  await revealPath('/my project', 'src/a.ts', 'linux');
+  assert.deepEqual(calls, [
+    ['explorer.exe', ['/select,C:\\dev\\my project\\src\\你好.ts']],
+    ['open', ['-R', '/my project/src/a.ts']], ['xdg-open', ['/my project/src']],
+  ]);
+  code = 1; await revealPath('C:/dev', 'file', 'windows');
+  await assert.rejects(revealPath('/project', 'file', 'macos'), /failed/);
+  code = 2; await assert.rejects(revealPath('C:/dev', 'file', 'windows'), /failed/);
 });
