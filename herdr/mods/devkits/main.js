@@ -969,7 +969,14 @@ export default class Devkits extends View {
     const icon = working ? glyph('loader', 14).text_color(t.working).spin(900).accessibility_label('Working')
       : p?.icon ? (p.tint ? svg(p.icon).size(14).text_color(t.muted) : image(p.icon).size(14)) : glyph('terminal', 14).text_color(t.muted);
     return SidebarMenuButton(`thread-${thread.tab.id}`, isFocused, t)
-      .on_hover((hovered, cx) => { this.hovered = hovered ? thread.tab.id : null; cx.notify(); })
+      .on_hover((hovered, cx) => {
+        // A previous row's leave event can arrive after the next row's enter.
+        if (!hovered && this.hovered !== thread.tab.id) return;
+        const next = hovered ? thread.tab.id : null;
+        if (this.hovered === next) return;
+        this.hovered = next;
+        cx.notify();
+      })
       .on_click(() => {
         rememberPanel(thread.space, null);
         this.selectProject(this.projects().find(project => project.id === thread.space));
@@ -979,7 +986,7 @@ export default class Devkits extends View {
       .child(div().flex_1().min_w(0).truncate().text_size(13).text_color(t.foreground)
         .when(isFocused, el => el.font_medium()).child(thread.title))
       .child(Button(`close-thread-${thread.tab.id}`, t, { variant: 'ghost', size: 'icon-sm' })
-        .opacity(isFocused || this.hovered === thread.tab.id ? 1 : 0)
+        .opacity(this.hovered === thread.tab.id ? 1 : 0)
         .accessibility_label('Close thread')
         .on_click((_event, cx) => { cx.stop_propagation(); run('tab.close', { id: thread.tab.id }); })
         .child(glyph('close', 12)));
