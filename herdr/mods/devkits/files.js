@@ -20,7 +20,7 @@ export async function directory(path, on) {
 
 // The prefix comes first so paths from the repository root can be made relative to the project.
 const STATUS_SCRIPT = 'cd "$1" || exit 0; prefix=$(git rev-parse --show-prefix 2>/dev/null) || exit 0; printf "%s\\0" "$prefix"; '
-  + 'git -c core.quotepath=false status --porcelain=v1 -z --untracked-files=all -- . 2>/dev/null; exit 0';
+  + 'git -c core.quotepath=false status --porcelain=v1 -z --untracked-files=all --ignored=matching -- . 2>/dev/null; exit 0';
 
 /**
  * `git status --porcelain -z` as Zed's project panel colors it: each changed path is added or
@@ -36,6 +36,8 @@ export function parseStatus(stdout) {
     if (code[0] === 'R' || code[0] === 'C') i++;
     if (!entry.slice(3).startsWith(prefix)) continue;
     const path = entry.slice(3 + prefix.length).replace(/\/$/, '');
+    // Ignored directories cover their descendants, but never recolor their parents.
+    if (code === '!!') { status.set(path, 'ignored'); continue; }
     const kind = code === '??' || code.includes('A') ? 'added' : code.includes('D') ? 'deleted' : 'modified';
     status.set(path, kind);
     const parts = path.split('/');
@@ -97,7 +99,7 @@ export default class FileViewer {
           const rests = paths.map(path => path.slice(context.folder.length));
           if (!rests.some(rest => !rest.split('/').includes('.git'))) {
             // A commit, checkout or staging change recolors names without changing the tree.
-            if (rests.some(rest => /(^|\/)\.git\/(HEAD|index|packed-refs|refs\/)/.test(rest))) this.loadStatus(cx);
+            if (rests.some(rest => /(^|\/)\.git\/(HEAD|index|packed-refs|refs\/|info\/exclude)/.test(rest))) this.loadStatus(cx);
             continue;
           }
           if (!this.queued) this.queued = cx.timer.after(300, cx => {
@@ -205,13 +207,14 @@ export default class FileViewer {
     cx.notify();
   }
 
-  rows(prefix = '', depth = 0, out = []) {
+  rows(prefix = '', depth = 0, out = [], parentIgnored = false) {
     if (depth > 40) return out;
     for (const entry of this.entries.get(prefix) || []) {
       if (out.length >= TOTAL) break;
       const path = prefix ? `${prefix}/${entry.name}` : entry.name;
-      out.push({ ...entry, path, depth });
-      if (entry.dir && this.expanded.has(path)) this.rows(path, depth + 1, out);
+      const ignored = parentIgnored || this.status.get(path) === 'ignored';
+      out.push({ ...entry, path, depth, ignored });
+      if (entry.dir && this.expanded.has(path)) this.rows(path, depth + 1, out, ignored);
     }
     return out;
   }
@@ -246,8 +249,8 @@ export default class FileViewer {
                 this.handle.focus(); this.cursor = row.path;
                 row.dir ? this.toggle(row.path, cx) : this.show(row.path, cx);
               })
-              .child(TreeItemIcon(icon(row.dir ? (this.expanded.has(row.path) ? 'folder-open' : 'folder') : 'file').text_color(t.muted)))
-              .child(TreeItemLabel(t).when(this.status.has(row.path), el => el.text_color(GitStatusColor[this.status.get(row.path)]))
+              .child(TreeItemIcon(icon(row.dir ? (this.expanded.has(row.path) ? 'folder-open' : 'folder') : 'file').text_color(row.ignored ? t.dim : t.muted)))
+              .child(TreeItemLabel(t).text_color(row.ignored ? t.dim : GitStatusColor[this.status.get(row.path)] || t.foreground)
                 .child(row.name)))
             // Only a folder's first read shows Loading; refreshes keep the current rows until the new ones arrive.
             .when(row.dir && this.expanded.has(row.path) && ((this.pending.has(row.path) && !this.entries.has(row.path)) || this.errors.has(row.path)), el => el

@@ -247,4 +247,32 @@ test('git status reads the project machine and treats folders outside Git as unc
   await mkdir(join(folder, 'src'));
   await writeFile(join(folder, 'src', '新.js'), 'x');
   assert.deepEqual(Object.fromEntries(await gitStatus(shellFolder, 'box')), { 'src/新.js': 'added', src: 'added' });
+  await writeFile(join(folder, '.gitignore'), '*.d.ts\ncache/\n!keep.d.ts\n');
+  await writeFile(join(folder, 'src', 'gpui-kit.d.ts'), 'ignored');
+  await writeFile(join(folder, 'keep.d.ts'), 'visible');
+  await mkdir(join(folder, 'cache'));
+  await writeFile(join(folder, 'cache', 'output.js'), 'ignored descendant');
+  const status = await gitStatus(shellFolder, 'box');
+  assert.equal(status.get('src/gpui-kit.d.ts'), 'ignored');
+  assert.equal(status.get('src'), 'added');
+  assert.equal(status.get('cache'), 'ignored');
+  assert.equal(status.get('keep.d.ts'), 'added');
+  const nested = await gitStatus(`${shellFolder}/src`, 'box');
+  assert.equal(nested.get('gpui-kit.d.ts'), 'ignored');
+});
+
+test('ignored folders dim descendants without marking their parents changed', async () => {
+  const { FileViewer, parseStatus } = await load();
+  const view = new FileViewer();
+  view.init({ focus_handle: () => ({}) });
+  view.status = parseStatus('\0!! src/generated/\0!! src/gpui-kit.d.ts\0');
+  assert.equal(view.status.has('src'), false);
+  view.entries.set('', [{ name: 'src', dir: true }]);
+  view.entries.set('src', [{ name: 'generated', dir: true }, { name: 'gpui-kit.d.ts', dir: false }, { name: 'main.js', dir: false }]);
+  view.entries.set('src/generated', [{ name: 'output.js', dir: false }]);
+  view.expanded = new Set(['src', 'src/generated']);
+  assert.deepEqual(view.rows().map(row => [row.path, row.ignored]), [
+    ['src', false], ['src/generated', true], ['src/generated/output.js', true],
+    ['src/gpui-kit.d.ts', true], ['src/main.js', false],
+  ]);
 });
