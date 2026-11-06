@@ -1,0 +1,98 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtemp, writeFile, readFile, mkdir } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { parseTranscript, scan, compactEvents } from '../mods/devkits/analytics-reader.js';
+import { summarize, localDay } from '../mods/devkits/analytics-model.js';
+
+const stamp = new Date(2026, 10, 6, 12).toISOString();
+const meta = { type: 'session_meta', payload: { id: 'one', cwd: '/project' } };
+const token = (input, cached, output) => ({ timestamp: stamp, payload: { type: 'token_count', info: {
+  total_token_usage: { input_tokens: input, cached_input_tokens: cached, output_tokens: output, total_tokens: input + output },
+} } });
+const write = (file, records) => writeFile(file, records.map(o => JSON.stringify(o)).join('\n') + '\n');
+
+test('Codex counts cumulative differences, skips repeated snapshots and separates cached input', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'analytics-')), path = join(root, 'one.jsonl');
+  await write(path, [meta, { type: 'turn_context', payload: { model: 'test-model' } }, token(100, 80, 10), token(100, 80, 10), token(150, 100, 20)]);
+  const events = await parseTranscript(path, 'codex'), result = summarize(events, 1, new Date(stamp));
+  assert.equal(events.length, 2);
+  assert.deepEqual(result.totals, { input: 50, output: 20, cacheRead: 100, cacheWrite: 0, reasoning: 0, total: 170 });
+  assert.equal(result.model[0].label, 'test-model'); assert.equal(result.sessions, 1);
+  assert.equal(result.daily[0].label, localDay(new Date(stamp)));
+  assert.deepEqual(summarize(compactEvents(events), 1, new Date(stamp)).totals, result.totals);
+});
+
+test('Claude replaces streamed message revisions and includes cache creation without counting thinking twice', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'analytics-')), path = join(root, 'one.jsonl');
+  const response = output => ({ type: 'assistant', timestamp: stamp, sessionId: 'claude-one', cwd: '/project',
+    message: { id: 'message-one', model: 'claude-test', usage: { input_tokens: 2, output_tokens: output,
+      cache_read_input_tokens: 100, cache_creation_input_tokens: 10, output_tokens_details: { thinking_tokens: 5 } } } });
+  await write(path, [response(6), response(20)]);
+  const events = await parseTranscript(path, 'claude');
+  assert.equal(events.length, 1); assert.equal(events[0].total, 132); assert.equal(events[0].reasoning, 5);
+});
+
+test('scan deduplicates copied transcripts, reuses cache, handles append and incomplete final lines', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'analytics-')), cache = join(root, 'cache.json');
+  await mkdir(join(root, 'sessions')); const a = join(root, 'sessions', 'a.jsonl'), b = join(root, 'sessions', 'b.jsonl');
+  await write(a, [meta, token(100, 80, 10)]); await write(b, [meta, token(100, 80, 10)]);
+  const sources = [{ directory: root, provider: 'codex', account: 'Test' }];
+  const first = await scan(sources, cache); assert.equal(first.events.length, 1); assert.equal(first.fileCount, 2);
+  assert.deepEqual((await scan(sources, cache)).events, first.events);
+  await write(a, [meta, token(100, 80, 10), token(150, 100, 20)]);
+  await writeFile(a, (await readFile(a, 'utf8')) + '{"type":');
+  const next = await scan(sources, cache); assert.equal(next.events.length, 2);
+  assert.equal(summarize(next.events, 1, new Date(stamp)).totals.total, 170);
+});
+
+test('ranges use local calendar days, fill missing days and compose filters', () => {
+  const now = new Date(2026, 10, 6, 12), timestamp = new Date(2026, 10, 5, 0).getTime();
+  const events = [{ timestamp, day: localDay(new Date(timestamp)), model: 'a', project: 'p', account: 'c', session: 's', total: 10 }];
+  assert.equal(summarize(events, 1, now).totals.total, 0);
+  const week = summarize(events, 7, now); assert.equal(week.daily.length, 7); assert.equal(week.totals.total, 10);
+  assert.equal(summarize(events, 7, now, { model: 'b' }).totals.total, 0);
+  assert.equal(summarize(events, 0, now, { project: 'p', account: 'c' }).sessions, 1);
+});
+
+test('projects group transcript subfolders by their nearest Git root, including worktrees', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'analytics-'));
+  const project = join(root, 'project'); await mkdir(join(project, 'src'), { recursive: true });
+  await writeFile(join(project, '.git'), 'gitdir: unused-reference');
+  await mkdir(join(root, 'sessions'));
+  await write(join(root, 'sessions', 'one.jsonl'), [{ ...meta, payload: { ...meta.payload, cwd: join(project, 'src') } }, token(100, 80, 10)]);
+  const result = await scan([{ directory: root, provider: 'codex', account: 'Test' }]);
+  assert.equal(result.events[0].project.toLowerCase(), project.toLowerCase());
+});
+
+test('native statistics view renders history, changes ranges and clears grouped filters', async () => {
+  const source = await readFile(new URL('../mods/devkits/analytics.js', import.meta.url), 'utf8');
+  const nodes = new Map(), texts = [];
+  const element = () => {
+    const state = {};
+    const proxy = new Proxy(state, { get: (_target, key) => (...args) => {
+      if (key === 'when') { if (args[0]) args[1](proxy); }
+      else if (key === 'id') nodes.set(args[0], state);
+      else if (key === 'on_click') state.click = args[0];
+      else if (key === 'child' && typeof args[0] === 'string') texts.push(args[0]);
+      return proxy;
+    } });
+    return proxy;
+  };
+  let closed = false;
+  const host = { div: element, h_flex: element, v_flex: element, theme: () => ({}), summarize,
+    props: () => ({ overlay: 'statistics' }), closeOverlay: () => { closed = true; },
+    Button: id => element().id(id), DialogContent: id => element().id(id), DialogTitle: element,
+    DialogDescription: element, DialogFooter: element };
+  const Type = new Function(...Object.keys(host), source.replace(/^import .*;\n/gm, '').replace('export default class', 'return class'))(...Object.values(host));
+  const view = new Type(); view.days = 30; view.tab = 'model'; view.page = 0; view.filters = {};
+  view.data = { events: [{ timestamp: Date.now(), day: localDay(new Date()), model: 'test-model', project: '/p', account: 'Test', session: 's', total: 123 }], fileCount: 1, updatedAt: Date.now() };
+  view.render(); assert.ok(nodes.has('token-statistics')); assert.ok(texts.includes('test-model'));
+  const cx = { notify() {} };
+  nodes.get('analytics-range-7').click(null, cx); assert.equal(view.days, 7);
+  nodes.get('analytics-row-0').click(null, cx); assert.deepEqual(view.filters, { model: 'test-model' });
+  view.render(); nodes.get('analytics-clear').click(null, cx); assert.deepEqual(view.filters, {});
+  nodes.get('analytics-tab-session').click(null, cx); assert.equal(view.tab, 'session');
+  nodes.get('analytics-done').click(); assert.ok(closed);
+});

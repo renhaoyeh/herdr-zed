@@ -5,6 +5,7 @@ import { projectGroups, projectCatalog, folderKey, launcherChoices, isAccountLau
 import AccountLogin, { accountLabel, ensureClaudeStatusLine, removeAccountProfile, renameAccountProfile } from './account-login.js';
 import FileViewer from './files.js';
 import DiffViewer from './diff.js';
+import Analytics from './analytics.js';
 import AsanaPanel, { AsanaProjectPicker, taskPrompt, unsaveTask } from './asana.js';
 import { DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from './components/dropdown-menu.js';
 import { Button } from './components/button.js';
@@ -38,6 +39,11 @@ const launcherIcon = (agent, t) => !agent ? glyph('terminal', 16) : agent.icon
 
 export default class Devkits extends View {
   init(_props, cx) {
+    if (props()?.view === 'token-statistics') {
+      this.analytics = new Analytics();
+      this.analytics.init(cx);
+      return;
+    }
     // Return an already-open permissions dialog to Manage during live updates.
     if (props()?.view === 'codex-permissions') {
       const target = props(); closeOverlay(target.overlay);
@@ -692,6 +698,10 @@ export default class Devkits extends View {
       .border_t(1).border_color(t.border)
       .child(h_flex().h(32).flex_none().px(12).gap(8).items_center()
         .child(div().flex_1().text_size(11).font_medium().text_color(t.muted).child('AGENT PROFILES'))
+        .child(Button('open-token-statistics', t, { variant: 'ghost', size: 'icon-sm' })
+          .accessibility_label('Token statistics')
+          .on_click(() => openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: false, width: 1080, height: 0.85,
+            props: { view: 'token-statistics' } })).child(glyph('chart-column')))
         .child(Button('manage-agent-profiles', t, { variant: 'ghost', size: 'icon-sm' })
           .accessibility_label('Manage agent profiles')
           .on_click(() => openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: false, width: 680, height: 0.8,
@@ -836,6 +846,7 @@ export default class Devkits extends View {
 
   render(cx) {
     const t = theme();
+    if (props()?.view === 'token-statistics') return this.analytics.render();
     if (props()?.view === 'codex-permissions') return div();
     if (props()?.view === 'files') return this.files.render(this.projects().find(project => project.active), cx);
     if (props()?.view === 'diff') return this.diff.render(this.projects().find(project => project.active), cx);
