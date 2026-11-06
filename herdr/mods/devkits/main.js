@@ -1,8 +1,8 @@
 import { View, div, svg, image } from 'gpui-kit';
 import { v_flex, h_flex, InputState, Input } from 'gpui-base';
 import { agents, spaces, panes, theme, run, props, window, openOverlay, closeOverlay, setAgentOrder, layout, settings, pickFolder, shared, setShared, knownAgents, notify, exec, appHome, readTextFile } from 'herdr';
-import { projectGroups, projectCatalog, folderKey, launcherChoices, codexPermissionModes, isCodexLauncher, launcherArgv, quotaResetLabel } from './model.js';
-import CodexLogin, { removeCodexAccount, renameCodexAccount } from './codex-login.js';
+import { projectGroups, projectCatalog, folderKey, launcherChoices, codexPermissionModes, isAccountLauncher, isCodexLauncher, launcherArgv, quotaResetLabel } from './model.js';
+import AccountLogin, { accountLabel, removeAccountProfile, renameAccountProfile } from './account-login.js';
 import FileViewer from './files.js';
 import { DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from './components/dropdown-menu.js';
 import { Button } from './components/button.js';
@@ -46,15 +46,15 @@ export default class Devkits extends View {
       this.files.init(cx);
       return;
     }
-    if (props()?.view === 'codex-login') {
-      this.login = new CodexLogin();
+    if (props()?.view === 'account-login') {
+      this.login = new AccountLogin();
       this.login.init(props(), cx);
       return;
     }
     this.folded = new Set();
     if (props()?.view === 'rename-account') {
       this.renameInput = InputState.new({ placeholder: 'Account name' });
-      this.renameInput.set_value(props().account.name.replace(/^Codex · /, ''));
+      this.renameInput.set_value(accountLabel(props().account.name));
       this.renameInput.on('submit', (_event, cx) => this.saveAccountName(cx));
       this.renameInput.focus();
     }
@@ -239,7 +239,7 @@ export default class Devkits extends View {
     if (agentLoads.has(key)) return agentLoads.get(key);
     const pending = (async () => {
       let agents = (await knownAgents({ on: machine }))
-        .filter(agent => agent.installed && (!machine || !agent.key.startsWith('devkits-codex-')));
+        .filter(agent => agent.installed && (!machine || !isAccountLauncher(agent)));
       // The native program table may still contain old labels just after a write.
       if (!machine) {
         const source = await readTextFile(`${appHome()}/programs.json`);
@@ -289,11 +289,11 @@ export default class Devkits extends View {
     else run('space.new', { name: target.projectName, folder: target.folder, machine: '', ...(agent ? { tab: agent.name, argv } : {}) });
   }
 
-  addCodexAccount() {
+  addAccount(provider) {
     const target = props();
     closeOverlay(target.overlay);
     openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: true, width: 520, height: 380,
-      props: { view: 'codex-login', returnTo: { view: 'manage-launchers', space: target.space } } });
+      props: { view: 'account-login', provider, returnTo: { view: 'manage-launchers', space: target.space } } });
   }
 
   async close() {
@@ -322,7 +322,7 @@ export default class Devkits extends View {
     const name = this.renameInput.value();
     cx.spawn(async cx => {
       try {
-        await renameCodexAccount(props().account.key, name);
+        await renameAccountProfile(props().account.key, name);
         setShared('devkits.agent-cache', {});
         setShared('devkits.profile-revision', (shared('devkits.profile-revision') || 0) + 1);
         this.renaming = false; this.finishRename();
@@ -367,7 +367,7 @@ export default class Devkits extends View {
       this.removing = true; this.removeError = null; cx.notify();
       cx.spawn(async cx => {
         try {
-          await removeCodexAccount(target.account.key);
+          await removeAccountProfile(target.account.key);
           setShared('devkits.agent-cache', {});
           const key = `agent:${target.account.key}`;
           for (const setting of ['devkits.hidden-launchers', 'devkits.launcher-order']) {
@@ -487,10 +487,10 @@ export default class Devkits extends View {
                 setShared('devkits.codex-permissions', saved);
               }, t));
           })
-          .when(local && choice.agent?.key === 'codex', el => el
-            .child(Button('add-codex-account', t, { variant: 'outline' })
-              .accessibility_label('Add a Codex account')
-              .on_click(() => this.addCodexAccount()).child(glyph('plus')).child('Add account')))
+          .when(local && ['codex', 'claude'].includes(choice.agent?.key), el => el
+            .child(Button(`add-${choice.agent.key}-account`, t, { variant: 'outline' })
+              .accessibility_label(`Add a ${choice.agent.key === 'codex' ? 'Codex' : 'Claude'} account`)
+              .on_click(() => this.addAccount(choice.agent.key)).child(glyph('plus')).child('Add account')))
           .when(local && choice.group === 2, el => el.child(Button(`rename-${choice.agent.key}`, t, { variant: 'outline' })
             .accessibility_label(`Rename ${choice.name}`).on_click(() => this.renameAccount(choice.agent)).child('Rename')))
           .when(local && choice.group === 2, el => el.child(Button(`remove-${choice.agent.key}`, t, { variant: 'outline' })
@@ -499,7 +499,7 @@ export default class Devkits extends View {
         ]))
         .when(local && !this.loading && !this.launchError && !choices.some(choice => choice.group === 2), el => el
           .child(DropdownMenuLabel(t).id('manage-section-2').mt(12).child('YOUR ACCOUNTS'))
-          .child(div().px(8).text_size(12).text_color(t.muted).child('No accounts added. Use Add account on the Codex row.')))
+          .child(div().px(8).text_size(12).text_color(t.muted).child('No accounts added. Use Add account on the Codex or Claude row.')))
         .when(this.loading, el => el.child(div().p(8).text_size(12).text_color(t.muted).child('Loading agents…')))
         .when(this.launchError, el => el.child(Button('manage-retry-agents', t, { variant: 'outline' })
           .on_click((_event, cx) => this.loadAgents(cx)).child('Could not load agents. Retry'))))
@@ -632,7 +632,7 @@ export default class Devkits extends View {
                 props: { view: 'usage-details', account } }))
               .child(launcherIcon(choice.agent, t).self_center())
               .child(v_flex().flex_1().min_w(0).gap(3).line_height('12px')
-                .child(div().truncate().text_size(12).font_semibold().text_color(t.foreground).child(choice.name.replace(/^Codex · /, '')))
+                .child(div().truncate().text_size(12).font_semibold().text_color(t.foreground).child(accountLabel(choice.name)))
                 .children(windows.map(window => {
                   const label = window.minutes === 300 ? '5h' : 'Week';
                   const reset = quotaResetLabel(window);
@@ -741,7 +741,7 @@ export default class Devkits extends View {
     const t = theme();
     if (props()?.view === 'codex-permissions') return div();
     if (props()?.view === 'files') return this.files.render(this.projects().find(project => project.active), cx);
-    if (props()?.view === 'codex-login') return this.login.render();
+    if (props()?.view === 'account-login') return this.login.render();
     if (props()?.view === 'header') return this.header(t);
     if (props()?.view === 'usage-details') return this.usageDetails(t);
     if (props()?.view === 'brand') return this.brand(t);
