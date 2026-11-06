@@ -4,6 +4,7 @@ import { agents, spaces, panes, theme, run, props, window, openOverlay, closeOve
 import { projectGroups, projectCatalog, folderKey, launcherChoices, isAccountLauncher, permissionModes, launcherArgv, quotaResetLabel } from './model.js';
 import AccountLogin, { accountLabel, ensureClaudeStatusLine, removeAccountProfile, renameAccountProfile } from './account-login.js';
 import FileViewer from './files.js';
+import AsanaTasks, { taskPrompt } from './asana.js';
 import { DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from './components/dropdown-menu.js';
 import { Button } from './components/button.js';
 import { Checkbox } from './components/checkbox.js';
@@ -72,7 +73,11 @@ export default class Devkits extends View {
       if (props().view !== 'rename-account') this.handle.focus();
       if (props().view === 'project-picker') this.projectIndex = -1;
     }
-    if (['launcher', 'manage-launchers'].includes(props()?.view)) {
+    if (props()?.view === 'asana-tasks') {
+      this.asana = new AsanaTasks();
+      this.asana.init(cx);
+    }
+    if (['launcher', 'manage-launchers', 'asana-tasks'].includes(props()?.view)) {
       if (props().refreshAgents) setShared('devkits.agent-cache', {});
       this.launchers = [];
       this.permissionSelects = new Map();
@@ -283,17 +288,27 @@ export default class Devkits extends View {
     });
   }
 
-  startThread(agent) {
+  // An Asana task becomes the thread name and the agent's opening prompt.
+  startThread(agent, task) {
     const target = props();
     let argv;
     try { argv = launcherArgv(agent, shared('devkits.codex-permissions')?.[agent?.key]); }
     catch (error) { notify({ title: 'Could not start session', body: error.message, level: 'error' }); return; }
+    if (task) argv = [...argv, taskPrompt(task)];
+    const name = task?.name || agent?.name;
     closeOverlay(target.overlay);
     setShared('devkits.files', null);
     setShared('devkits.selected-project', null);
     run('layout.select', { stack: 'workspace-view', child: 'main' });
-    if (target.space) run('tab.new', { space: target.space, folder: target.folder, ...(agent ? { name: agent.name, argv } : {}) });
-    else run('space.new', { name: target.projectName, folder: target.folder, machine: '', ...(agent ? { tab: agent.name, argv } : {}) });
+    if (target.space) run('tab.new', { space: target.space, folder: target.folder, ...(agent ? { name, argv } : {}) });
+    else run('space.new', { name: target.projectName, folder: target.folder, machine: '', ...(agent ? { tab: name, argv } : {}) });
+  }
+
+  asanaTasks(t) {
+    const hidden = shared('devkits.hidden-launchers') || [];
+    const agents = launcherChoices(this.launchers, shared('devkits.launcher-order') || [])
+      .filter(choice => choice.agent && !hidden.includes(choice.key)).map(choice => choice.agent);
+    return this.asana.render(t, agents, (agent, task) => this.startThread(agent, task), () => closeOverlay(props().overlay), this.handle);
   }
 
   addAccount(provider) {
@@ -543,6 +558,13 @@ export default class Devkits extends View {
         .when(!this.loading && !this.launchError && !choices.length, el => el.child(div().p(10).text_size(12).text_color(t.muted)
           .child(this.launchers.length ? 'All agents are hidden. Use Manage to show them.' : 'No installed agents found.'))))
       .child(DropdownMenuSeparator(t))
+      .when(!spaces().find(space => space.id === props().space)?.machine, el => el
+        .child(row('start-from-asana', 'Asana task…', glyph('list-todo'), () => {
+          const target = props();
+          closeOverlay(target.overlay);
+          openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: true, width: 560, height: 0.7,
+            props: { view: 'asana-tasks', space: target.space, folder: target.folder, projectName: target.projectName } });
+        })))
       .child(row('manage-launchers-open', 'Manage…', glyph('settings'), () => {
         const target = props();
         closeOverlay(target.overlay);
@@ -780,6 +802,7 @@ export default class Devkits extends View {
     if (props()?.view === 'pane') return this.paneHeader(t);
     if (props()?.view === 'status') return this.statusBar(t);
     if (props()?.view === 'launcher') return this.launcher(t);
+    if (props()?.view === 'asana-tasks') return this.asanaTasks(t);
     if (props()?.view === 'manage-launchers') return this.manageLaunchers(t);
     if (props()?.view === 'remove-account') return this.removeAccountPrompt(t);
     if (props()?.view === 'rename-account') return this.renameAccountPrompt(t);
