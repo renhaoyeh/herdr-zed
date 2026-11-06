@@ -13,9 +13,44 @@ async function load(host = {}) {
   const history = await readFile(new URL('../mods/devkits/git-history.js', import.meta.url), 'utf8');
   const auth = await readFile(new URL('../mods/devkits/git-auth.js', import.meta.url), 'utf8');
   return new Function(...Object.keys(host), (menu + '\n' + history + '\n' + auth + '\n' + source).replace(/^import .*;\n/gm, '')
-    .replace('export default class', 'class').replace(/^export /gm, '') + '\nreturn { DiffViewer, DropdownMenu, DropdownMenuState, parseDiff, readDiff, readPushState, pushBranch, gitRemoteAction, affectsDiff, pairLines, changedRanges, changeSections, changeTree, wrapLine };')(...Object.values(host));
+    .replace('export default class', 'class').replace(/^export /gm, '') + '\nreturn { DiffViewer, DropdownMenu, DropdownMenuState, parseDiff, readDiff, readPushState, pushBranch, gitRemoteAction, affectsDiff, pairLines, changedRanges, changeSections, changeTree, wrapLine, isLockFile };')(...Object.values(host));
 }
 const run = promisify(execFile);
+
+test('lockfile preference filters working changes and history without discarding Git data', async () => {
+  const memory = {};
+  const { DiffViewer, isLockFile, parseDiff } = await load({
+    shared: key => memory[key], setShared: (key, value) => { memory[key] = value; },
+    VirtualListScrollHandle: { new: () => ({ scroll_to_item() {} }) },
+  });
+  for (const name of ['Cargo.lock', 'nested/Cargo.lock', 'yarn.lock', 'package-lock.json', 'pnpm-lock.yaml',
+    'npm-shrinkwrap.json', 'bun.lock', 'bun.lockb', 'Pipfile.lock', 'poetry.lock', 'composer.lock', 'Gemfile.lock']) {
+    assert.equal(isLockFile(name), true, name);
+  }
+  for (const name of ['Cargo.toml', 'package.json', 'src/lock.json.ts', 'src/clock.json', 'src/locksmith.yaml', 'Cargo.lock/README.md']) {
+    assert.equal(isLockFile(name), false, name);
+  }
+  const patch = name => [`diff --git a/${name} b/${name}`, `--- a/${name}`, `+++ b/${name}`, '@@ -1 +1 @@', '-old', '+new'].join('\n');
+  const view = new DiffViewer(); view.init();
+  view.files = parseDiff(patch('Cargo.lock') + '\n' + patch('Cargo.toml'));
+  assert.deepEqual(view.displayFiles.map(file => file.path), ['Cargo.toml']);
+  assert.equal(view.displayFiles, view.displayFiles, 'Stable filtering preserves the asynchronous row cache');
+  assert.deepEqual(view.rows().rows.filter(row => row.kind === 'file').map(row => row.file.path), ['Cargo.toml']);
+  view.panelTab = 'history';
+  view.history.preview = { files: parseDiff(patch('package-lock.json')) };
+  const previewFiles = view.displayFiles;
+  view.visibleFiles(view.files);
+  assert.equal(view.displayFiles, previewFiles, 'Panel rendering must not invalidate the commit row cache');
+  assert.equal(view.rows().rows.length, 0);
+  view.toggleLockFiles({ notify() {} });
+  assert.equal(memory['devkits.diff-hide-lock-files'], false);
+  assert.equal(view.rows().rows[0].file.path, 'package-lock.json');
+  view.panelTab = 'changes';
+  assert.equal(view.displayFiles, view.files);
+  assert.equal(view.files.length, 2);
+  const reopened = new DiffViewer(); reopened.init();
+  assert.equal(reopened.hideLockFiles, false);
+});
 
 test('push reads clean, unborn and detached branches and respects Git push configuration', async t => {
   const folder = await mkdtemp(join(tmpdir(), "devkits push ' $(x)"));
