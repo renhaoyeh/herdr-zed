@@ -340,3 +340,21 @@ test('the composer remembers the agent and drops a model or effort the new agent
   memory['devkits.asana-session'] = { agent: 'gone' };
   assert.equal(panel.session(agents).agent.key, 'claude');
 });
+
+test('a thread’s Asana link opens its task in the preview once, for the matching project only', async () => {
+  const memory = { 'devkits.asana-projects': { '["","/a"]': { gid: 'pa', name: 'A', workspace: 'w' } },
+    'devkits.asana-focus': { folder: '/a/', gid: 'a2' } };
+  const { AsanaPanel } = await load({ ...ui, shared: key => memory[key], setShared: (key, value) => { memory[key] = value; },
+    folderKey: path => path.replace(/\/+$/, ''), appHome: () => '/herdr', readTextFile: async () => '{"token":"secret"}',
+    fetch: asana([{ gid: 'a1', name: 'One', me: true, projects: ['pa'] }, { gid: 'a2', name: 'Two', projects: ['pa'] }]) });
+  const { cx, settle } = harness();
+  const panel = new AsanaPanel(); panel.init(cx);
+  panel.render({ folder: '/b' }, [], () => {}, () => {}, cx); await settle();
+  panel.render({ folder: '/b' }, [], () => {}, () => {}, cx); await settle();
+  assert.ok(memory['devkits.asana-focus']);
+  panel.render({ folder: '/a' }, [], () => {}, () => {}, cx); await settle();
+  panel.render({ folder: '/a' }, [], () => {}, () => {}, cx); await settle();
+  assert.equal(memory['devkits.asana-focus'], null);
+  assert.equal(panel.selected, 'a2');
+  assert.equal(panel.detail.name, 'Two');
+});

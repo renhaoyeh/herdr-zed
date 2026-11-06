@@ -332,7 +332,8 @@ export default class Devkits extends View {
     if (task) unsaveTask(target.folder, task.gid);
     // Commands do not return the new tab, so the sidebar matches it once it appears.
     if (agent) setShared('devkits.pending-profiles', [...(shared('devkits.pending-profiles') || []), { key: agent.key,
-      space: target.space || null, folder: target.folder, before: spaces().flatMap(space => space.tabs.map(tab => tab.id)), at: Date.now() }]);
+      space: target.space || null, folder: target.folder, before: spaces().flatMap(space => space.tabs.map(tab => tab.id)), at: Date.now(),
+      ...(task ? { task: { gid: task.gid, name: task.name, folder: target.folder } } : {}) }]);
     hidePanels();
     rememberPanel(target.space, null);
     setShared('devkits.selected-project', null);
@@ -787,6 +788,7 @@ export default class Devkits extends View {
     const profile = thread?.agent ? threadProfile(thread.tab, shared('devkits.agent-cache')?.[JSON.stringify(machine)],
       shared('devkits.thread-profiles') || {}) : null;
     const title = thread?.title || p.title || 'Terminal';
+    const link = shared('devkits.thread-tasks')?.[p.tab];
     const icon = program?.icon ? (program.tint ? svg(program.icon).size(14).text_color(t.muted) : image(program.icon).size(14)) : glyph('terminal');
     return h_flex().size_full().px(12).gap(8).items_center().bg(t.chrome).border_b(1).border_color(t.border)
       .text_size(12).text_color(t.muted).on_click(() => run('pane.focus', { pane: p.pane }))
@@ -794,10 +796,23 @@ export default class Devkits extends View {
       .child(div().min_w(0).truncate().text_color(t.foreground).child(title))
       .when(Boolean(profile) && profile !== title, el => el.child(div().flex_none().child(profile)))
       .child(div().flex_1())
+      .when(Boolean(link), el => el.child(Button(`asana-link-${p.tab}`, t, { variant: 'ghost' }).h(22).px(6).gap(5).text_size(10)
+        .border(1).border_color(t.border).accessibility_label(`Show Asana task ${link.name}`)
+        .on_click((_event, cx) => { cx.stop_propagation(); this.openTask(thread.space, link); })
+        .child(glyph('list-todo', 12)).child('Asana')))
       .when(Boolean(p.status), el => el.child(h_flex().h(22).px(7).gap(5).items_center().rounded(0)
         .border(1).border_color(t.border).text_size(10).text_color(t.muted)
         .child(div().size(5).rounded(3).bg(stateColor(p.status, t)))
         .child(p.status === 'blocked' ? 'Needs you' : `${p.status[0].toUpperCase()}${p.status.slice(1)}`)));
+  }
+
+  // Opens the thread's project on its Asana panel with the linked task in the preview.
+  openTask(spaceId, task) {
+    const project = this.projects().find(project => project.id === spaceId);
+    if (!project) return;
+    this.selectProject(project);
+    showPanel('asana', project.id);
+    setShared('devkits.asana-focus', { folder: task.folder, gid: task.gid });
   }
 
   statusBar(t) {
@@ -910,9 +925,11 @@ export default class Devkits extends View {
     }
     if (defaultsChanged) setShared('devkits.default-terminals', defaults);
     if (shared('devkits.pending-profiles')?.length) {
-      const resolved = resolveThreadProfiles(native, shared('devkits.pending-profiles'), shared('devkits.thread-profiles') || {});
+      const resolved = resolveThreadProfiles(native, shared('devkits.pending-profiles'), shared('devkits.thread-profiles') || {},
+        Date.now(), shared('devkits.thread-tasks') || {});
       if (resolved.pending.length !== shared('devkits.pending-profiles').length) {
         setShared('devkits.thread-profiles', resolved.profiles);
+        setShared('devkits.thread-tasks', resolved.tasks);
         setShared('devkits.pending-profiles', resolved.pending);
       }
     }
