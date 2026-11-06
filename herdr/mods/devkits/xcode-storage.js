@@ -154,7 +154,7 @@ export default class XcodeStorage {
       .child(v_flex().id('xcode-storage-list').flex_1().min_h(0).overflow_y_scroll()
         .when(!data, el => el.child(DialogDescription(t).py(8).child(this.loading ? 'Measuring Xcode storage…' : 'No storage information available.')))
         .when(Boolean(data), el => el
-          .child(this.section(t, 'DERIVED DATA', missing.length ? Button('xcode-storage-select-missing', t, { variant: 'ghost' })
+          .child(this.section(t, 'DERIVED DATA', missing.length ? Button('xcode-storage-select-missing', t, { variant: 'secondary' })
             .disabled(Boolean(this.busy)).child(`Select ${missing.length} with missing workspace`)
             .on_click((_event, cx) => this.toggle(missing, true, cx)) : null))
           .children(derivedGroups(derived).flatMap(group => [
@@ -184,12 +184,12 @@ export default class XcodeStorage {
           ? `Delete ${chosen.length} items (${bytes(chosenSize)})? This cannot be undone.`
           : chosen.length ? `${chosen.length} selected · ${bytes(chosenSize)}` : this.loading && data ? 'Measuring…' : ''))
         .when(this.confirming, el => el
-          .child(Button('xcode-storage-cancel', t, { variant: 'ghost' }).disabled(Boolean(this.busy)).child('Cancel')
+          .child(Button('xcode-storage-cancel', t, { variant: 'secondary' }).disabled(Boolean(this.busy)).child('Cancel')
             .on_click((_event, cx) => { this.confirming = false; cx.notify(); }))
           .child(Button('xcode-storage-delete', t).disabled(Boolean(this.busy)).child(this.busy ? 'Deleting…' : 'Delete')
             .on_click((_event, cx) => this.remove(cx))))
         .when(!this.confirming, el => el
-          .child(Button('xcode-storage-review', t, { variant: 'outline' }).disabled(!chosen.length || this.loading).child('Delete…')
+          .child(Button('xcode-storage-review', t, { variant: 'secondary' }).disabled(!chosen.length || this.loading).child('Delete…')
             .on_click((_event, cx) => { this.confirming = true; cx.notify(); }))
           .child(Button('xcode-storage-done', t).child('Done').on_click(close))));
   }

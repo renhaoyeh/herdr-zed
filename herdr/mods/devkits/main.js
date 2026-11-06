@@ -203,7 +203,7 @@ export default class Devkits extends View {
       .child(div().text_size(12).text_color(t.muted).child('Personal skills in ~/.agents/skills are already shared. Remote plugins are managed per account in /plugins.'))
       .when(Boolean(this.sharingError), el => el.child(div().text_size(12).text_color(t.ansi1).child(this.sharingError)))
       .child(DialogFooter()
-        .child(Button('sharing-cancel', t, { variant: 'ghost' }).disabled(Boolean(this.sharingBusy)).on_click(() => this.finishCodexSharing()).child('Cancel'))
+        .child(Button('sharing-cancel', t, { variant: 'secondary' }).disabled(Boolean(this.sharingBusy)).on_click(() => this.finishCodexSharing()).child('Cancel'))
         .child(Button('sharing-apply', t).disabled(Boolean(this.sharingBusy) || this.sharingLoading || Boolean(this.sharingError && !this.sharingItems.length))
           .on_click((_event, cx) => this.syncCodexSettings(agent, cx)).child(this.sharingBusy ? 'Syncing…' : `Sync ${selected} items`)));
   }
@@ -664,7 +664,7 @@ export default class Devkits extends View {
       .when(Boolean(this.renameError), el => el.child(div().id('rename-account-error').text_size(12)
         .text_color(t.destructive || t.foreground).child(this.renameError)))
       .child(DialogFooter().children([
-        Button('cancel-rename-account', t, { variant: 'outline' }).disabled(Boolean(this.renaming)).on_click(() => this.finishRename()).child('Cancel'),
+        Button('cancel-rename-account', t, { variant: 'secondary' }).disabled(Boolean(this.renaming)).on_click(() => this.finishRename()).child('Cancel'),
         Button('save-rename-account', t).disabled(Boolean(this.renaming)).on_click((_event, cx) => this.saveAccountName(cx)).child(this.renaming ? 'Saving…' : 'Save'),
       ]));
   }
@@ -807,7 +807,7 @@ export default class Devkits extends View {
                     .child(launcherIcon(choice.agent, t).flex_none())
                     .child(div().flex_1().min_w(0).truncate().text_size(13).child(choice.name)))
                   .when(local && ['codex', 'claude'].includes(choice.agent?.key), el => el
-                    .child(Button(`add-${choice.agent.key}-account`, t, { variant: 'row' })
+                    .child(Button(`add-${choice.agent.key}-account`, t, { variant: 'secondary' }).h(28).px(10).gap(6)
                       .accessibility_label(`Add a ${choice.agent.key === 'codex' ? 'Codex' : 'Claude'} account`)
                       .on_click(() => this.addAccount(choice.agent.key)).child(glyph('plus')).child('Add account')))
                   // Account actions live in one menu so every row's controls line up.
@@ -827,7 +827,7 @@ export default class Devkits extends View {
           .child(div().text_size(12).text_color(t.muted).child('No accounts added. Use Add account on the Codex or Claude row.')))
         .when(local && !this.loading && !this.launchError, el => el.children(this.sessionOptions(choices, t)))
         .when(this.loading, el => el.child(div().p(8).text_size(12).text_color(t.muted).child('Loading agents…')))
-        .when(this.launchError, el => el.child(Button('manage-retry-agents', t, { variant: 'outline' })
+        .when(this.launchError, el => el.child(Button('manage-retry-agents', t, { variant: 'secondary' })
           .on_click((_event, cx) => this.loadAgents(cx)).child('Could not load agents. Retry'))))
       .child(DialogFooter().child(Button('manage-launchers-done', t).on_click(done).child('Done')));
   }
