@@ -618,7 +618,6 @@ export default class Devkits extends View {
     const icon = p?.icon ? (p.tint ? svg(p.icon).size(14).text_color(t.muted) : image(p.icon).size(14)) : glyph('terminal', 14).text_color(t.muted);
     return SidebarMenuButton(`thread-${thread.tab.id}`, isFocused, t)
       .on_hover((hovered, cx) => { this.hovered = hovered ? thread.tab.id : null; cx.notify(); })
-      .tooltip(`${thread.title}\n${p?.name || agent?.app || 'Terminal'} · ${thread.status}`)
       .on_click(() => {
         this.selectProject(this.projects().find(project => project.id === thread.space));
         run('tab.select', { id: thread.tab.id });
@@ -626,9 +625,10 @@ export default class Devkits extends View {
       .child(div().size(16).flex_none().flex().items_center().justify_center().child(icon))
       .child(div().flex_1().min_w(0).truncate().text_size(13).text_color(t.foreground)
         .when(isFocused, el => el.font_medium()).child(thread.title))
-      .child(working
+      .child(div().size(16).flex_none().flex().items_center().justify_center().child(working
         ? glyph('loader', 14).text_color(t.working).spin(900).accessibility_label('Working')
-        : div().size(5).flex_none().rounded(3).bg(stateColor(thread.status, t)))
+        : glyph(thread.status === 'done' ? 'check' : thread.status === 'blocked' ? 'circle-alert' : 'circle', 14)
+          .text_color(stateColor(thread.status, t)).accessibility_label(thread.status)))
       .child(Button(`close-thread-${thread.tab.id}`, t, { variant: 'ghost', size: 'icon-sm' })
         .opacity(isFocused || this.hovered === thread.tab.id ? 1 : 0)
         .tooltip('Close thread').accessibility_label('Close thread')
