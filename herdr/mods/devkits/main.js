@@ -1,7 +1,7 @@
 import { View, div, svg, image } from 'gpui-kit';
 import { v_flex, h_flex, InputState, Input } from 'gpui-base';
 import { agents, spaces, panes, theme, run, props, window, openOverlay, closeOverlay, setAgentOrder, layout, settings, pickFolder, shared, setShared, knownAgents, notify, exec, appHome, home, readTextFile } from 'herdr';
-import { projectGroups, projectCatalog, folderKey, launcherChoices, isAccountLauncher, permissionModes, launcherArgv, quotaResetLabel } from './model.js';
+import { projectGroups, projectCatalog, folderKey, launcherChoices, isAccountLauncher, permissionModes, launcherArgv, quotaResetLabel, resolveThreadProfiles, threadProfile } from './model.js';
 import AccountLogin, { accountLabel, ensureClaudeStatusLine, removeAccountProfile, renameAccountProfile } from './account-login.js';
 import FileViewer from './files.js';
 import AsanaTasks, { taskPrompt } from './asana.js';
@@ -297,6 +297,9 @@ export default class Devkits extends View {
     if (task) argv = [...argv, taskPrompt(task)];
     const name = task?.name || agent?.name;
     closeOverlay(target.overlay);
+    // Commands do not return the new tab, so the sidebar matches it once it appears.
+    if (agent) setShared('devkits.pending-profiles', [...(shared('devkits.pending-profiles') || []), { key: agent.key,
+      space: target.space || null, folder: target.folder, before: spaces().flatMap(space => space.tabs.map(tab => tab.id)), at: Date.now() }]);
     setShared('devkits.files', null);
     setShared('devkits.selected-project', null);
     run('layout.select', { stack: 'workspace-view', child: 'main' });
@@ -740,11 +743,17 @@ export default class Devkits extends View {
     if (!p) return div();
     const program = p.program;
     const thread = projectGroups(spaces(), agents()).flatMap(group => group.threads).find(thread => thread.tab.id === p.tab);
+    const machine = spaces().find(space => space.id === thread?.space)?.machine || null;
+    const profile = thread?.agent ? threadProfile(thread.tab, shared('devkits.agent-cache')?.[JSON.stringify(machine)],
+      shared('devkits.thread-profiles') || {}) : null;
+    const title = thread?.title || p.title || 'Terminal';
     const icon = program?.icon ? (program.tint ? svg(program.icon).size(14).text_color(t.muted) : image(program.icon).size(14)) : glyph('terminal');
     return h_flex().size_full().px(12).gap(8).items_center().bg(t.chrome).border_b(1).border_color(t.border)
       .text_size(12).text_color(t.muted).on_click(() => run('pane.focus', { pane: p.pane }))
       .child(div().flex_none().child(icon))
-      .child(div().flex_1().min_w(0).truncate().text_color(t.foreground).child(thread?.title || p.title || 'Terminal'))
+      .child(div().min_w(0).truncate().text_color(t.foreground).child(title))
+      .when(Boolean(profile) && profile !== title, el => el.child(div().flex_none().child(profile)))
+      .child(div().flex_1())
       .when(Boolean(p.status), el => el.child(h_flex().h(22).px(7).gap(5).items_center().rounded(0)
         .border(1).border_color(t.border).text_size(10).text_color(t.muted)
         .child(div().size(5).rounded(3).bg(stateColor(p.status, t)))
@@ -844,6 +853,13 @@ export default class Devkits extends View {
       if (tab) { defaults[space.id] = tab.id; defaultsChanged = true; }
     }
     if (defaultsChanged) setShared('devkits.default-terminals', defaults);
+    if (shared('devkits.pending-profiles')?.length) {
+      const resolved = resolveThreadProfiles(native, shared('devkits.pending-profiles'), shared('devkits.thread-profiles') || {});
+      if (resolved.pending.length !== shared('devkits.pending-profiles').length) {
+        setShared('devkits.thread-profiles', resolved.profiles);
+        setShared('devkits.pending-profiles', resolved.pending);
+      }
+    }
     const groups = projectGroups(workspaces, all, defaults);
     const visible = groups.filter(g => !this.folded.has(g.space.id)).flatMap(g => g.threads.flatMap(thread => thread.agents));
     setAgentOrder(visible.map(a => a.address));
