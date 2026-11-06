@@ -514,10 +514,10 @@ export default class Devkits extends View {
       .border_t(1).border_color(t.border)
       .child(h_flex().h(32).flex_none().px(12).gap(8).items_center()
         .child(div().flex_1().text_size(11).font_medium().text_color(t.muted).child('AGENT PROFILES'))
-        .child(Button('manage-agent-profiles', t, { variant: 'ghost', size: 'sm' }).h(24).px(4)
+        .child(Button('manage-agent-profiles', t, { variant: 'ghost', size: 'icon-sm' })
           .accessibility_label('Manage agent profiles')
           .on_click(() => openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: false, width: 680, height: 0.8,
-            props: { view: 'manage-launchers', space: space?.id } })).child('Manage')))
+            props: { view: 'manage-launchers', space: space?.id } })).child(glyph('settings'))))
       .child(v_flex().id('account-usage-list').w_full().h_auto().flex_none()
         .children(choices.map(choice => {
             const data = (this.usage || []).find(account => account.key === choice.agent?.key);
@@ -533,7 +533,7 @@ export default class Devkits extends View {
               .accessibility_label(`${choice.name}: ${status}. Open usage details`)
               .on_click(() => openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: false, width: 480, height: 400,
                 props: { view: 'usage-details', account } }))
-              .child(launcherIcon(choice.agent, t).mt(1))
+              .child(launcherIcon(choice.agent, t).self_center())
               .child(v_flex().flex_1().min_w(0).gap(3).line_height('12px')
                 .child(div().truncate().text_size(12).font_semibold().text_color(t.foreground).child(choice.name.replace(/^Codex · /, '')))
                 .children(windows.map(window => {
