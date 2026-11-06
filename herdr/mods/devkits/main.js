@@ -5,6 +5,7 @@ import { projectGroups, projectCatalog, folderKey, launcherChoices, isAccountLau
 import AccountLogin, { accountLabel, ensureClaudeStatusLine, removeAccountProfile, renameAccountProfile } from './account-login.js';
 import FileViewer, { FileMenu } from './files.js';
 import DiffViewer from './diff.js';
+import SimulatorPanel, { SimulatorMenu, simulatorShown, toggleSimulator } from './simulator.js';
 import Analytics from './analytics.js';
 import AsanaPanel, { AsanaProjectPicker, taskPrompt, unsaveTask } from './asana.js';
 import { DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from './components/dropdown-menu.js';
@@ -90,6 +91,16 @@ export default class Devkits extends View {
     if (props()?.view === 'diff') {
       this.diff = new DiffViewer();
       this.diff.init(cx);
+      return;
+    }
+    if (props()?.view === 'simulator') {
+      this.simulator = new SimulatorPanel();
+      this.simulator.init(cx);
+      return;
+    }
+    if (props()?.view === 'simulator-devices') {
+      this.simulatorMenu = new SimulatorMenu();
+      this.simulatorMenu.init(cx);
       return;
     }
     if (props()?.view === 'account-login') {
@@ -601,6 +612,7 @@ export default class Devkits extends View {
   async close() {
     this.files?.close();
     this.diff?.close();
+    await this.simulator?.close();
     await this.login?.close();
   }
 
@@ -1062,6 +1074,13 @@ export default class Devkits extends View {
       .text_size(11).text_color(t.muted).child(glyph('terminal', 12)).child(space?.machine || 'Local project')
       .when(Boolean(space?.branch), el => el.child(glyph('branch', 12)).child(space.branch))
       .child(div().flex_1())
+      .when(window()?.platform === 'macos', el => el
+        .child(Button('open-simulator', t, { variant: 'ghost', size: 'icon' })
+          .h_full().rounded(0)
+          .bg(simulatorShown(layout()) ? t.selected : t.background)
+          .accessibility_label(simulatorShown(layout()) ? 'Hide simulator' : 'Show simulator')
+          .on_click(() => toggleSimulator())
+          .child(glyph('smartphone'))))
       .when(Boolean(space), el => el
         .child(Button('open-diff', t, { variant: 'ghost', size: 'icon' })
           .h_full().rounded(0)
@@ -1115,6 +1134,8 @@ export default class Devkits extends View {
     if (props()?.view === 'file-menu') return this.fileMenu.render();
     if (props()?.view === 'files') return this.files.render(this.projects().find(project => project.active), cx);
     if (props()?.view === 'diff') return this.diff.render(this.projects().find(project => project.active), cx);
+    if (props()?.view === 'simulator') return this.simulator.render();
+    if (props()?.view === 'simulator-devices') return this.simulatorMenu.render();
     if (props()?.view === 'account-login') return this.login.render();
     if (props()?.view === 'header') return this.header(t);
     if (props()?.view === 'usage-details') return this.usageDetails(t);
