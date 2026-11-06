@@ -99,7 +99,17 @@ export default class Devkits extends View {
   }
 
   projects() {
-    return projectCatalog(spaces(), shared('devkits.projects') || [], shared('devkits.project-roots') || {}, shared('devkits.selected-project'));
+    return projectCatalog(spaces(), shared('devkits.projects') || [], shared('devkits.project-roots') || {}, shared('devkits.selected-project'), shared('devkits.project-order') || []);
+  }
+
+  moveProject(id, direction) {
+    const projects = this.projects();
+    const from = projects.findIndex(project => project.id === id);
+    const to = from + direction;
+    if (from >= 0 && to >= 0 && to < projects.length) {
+      projects.splice(to, 0, projects.splice(from, 1)[0]);
+      setShared('devkits.project-order', projects.map(project => JSON.stringify([project.machine || '', folderKey(project.folder) || project.id])));
+    }
   }
 
   selectProject(project) {
@@ -117,15 +127,41 @@ export default class Devkits extends View {
 
   projectMenu(t) {
     const target = props();
+    const projects = this.projects();
+    const index = projects.findIndex(project => project.id === target.project.id);
     const close = () => { closeOverlay(target.overlay); this.closeProject(target.project); };
-    return DropdownMenuContent('project-menu', 42, t)
+    const actions = [
+      { id: 'menu-project-up', label: 'Move up', enabled: index > 0, action: () => this.moveProject(target.project.id, -1) },
+      { id: 'menu-project-down', label: 'Move down', enabled: index >= 0 && index < projects.length - 1, action: () => this.moveProject(target.project.id, 1) },
+      { id: 'menu-close-project', label: 'Close project', enabled: true, action: close },
+    ];
+    const activate = action => {
+      if (!action.enabled) return;
+      if (action.id !== 'menu-close-project') closeOverlay(target.overlay);
+      action.action();
+    };
+    this.projectMenuIndex ??= actions.findIndex(action => action.enabled);
+    return DropdownMenuContent('project-menu', undefined, t)
       .track_focus(this.handle).on_key_down((event, cx) => {
-        if (event.key === 'enter') close();
+        if (event.key === 'enter' || event.key === 'space') activate(actions[this.projectMenuIndex]);
         else if (event.key === 'escape') closeOverlay(target.overlay);
+        else if (event.key === 'up' || event.key === 'down') {
+          const step = event.key === 'up' ? -1 : 1;
+          do { this.projectMenuIndex = (this.projectMenuIndex + step + actions.length) % actions.length; }
+          while (!actions[this.projectMenuIndex].enabled);
+          cx.notify();
+        }
         else return;
         cx.stop_propagation();
       })
-      .child(DropdownMenuItem('menu-close-project', t).on_click(close).child(glyph('close')).child('Close project'));
+      .children(actions.flatMap((action, i) => [
+        ...(i === 2 ? [DropdownMenuSeparator(t)] : []),
+        DropdownMenuItem(action.id, t).opacity(action.enabled ? 1 : 0.4)
+          .bg(this.projectMenuIndex === i && action.enabled ? t.hover : t.popover)
+          .on_hover((inside, cx) => { if (inside && action.enabled) { this.projectMenuIndex = i; cx.notify(); } })
+          .on_click(() => activate(action))
+          .when(i === 2, el => el.child(glyph('close'))).child(action.label),
+      ]));
   }
 
   projectPicker(t) {
