@@ -118,3 +118,12 @@ test('the device list puts the most recently used simulators first and never-use
   } }));
   assert.deepEqual(devices.map(d => d.id), ['pro16', 'pro17', 'max', 'e', 'air']);
 });
+
+test('the device menu shuts down the chosen simulator after closing itself', async () => {
+  const closed = [], calls = [];
+  const { SimulatorMenu } = await load({ props: () => ({ overlay: 'menu' }), closeOverlay: id => closed.push(id),
+    exec: async (cmd, args) => { calls.push([cmd, ...args]); return { code: 0 }; } });
+  new SimulatorMenu().shutdown({ id: 'ABC', name: 'iPhone 17 Pro' });
+  assert.deepEqual(closed, ['menu']);
+  assert.deepEqual(calls, [['xcrun', 'simctl', 'shutdown', 'ABC']]);
+});
