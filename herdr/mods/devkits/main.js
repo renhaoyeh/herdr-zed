@@ -9,7 +9,7 @@ import SimulatorPanel, { SimulatorMenu, simulatorShown, toggleSimulator } from '
 import Analytics from './analytics.js';
 import XcodeStorage from './xcode-storage.js';
 import AsanaPanel, { AsanaProjectPicker, taskPrompt, unsaveTask } from './asana.js';
-import { DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from './components/dropdown-menu.js';
+import { DropdownMenu, DropdownMenuState, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from './components/dropdown-menu.js';
 import { Button } from './components/button.js';
 import { Checkbox } from './components/checkbox.js';
 import { Switch } from './components/switch.js';
@@ -250,13 +250,14 @@ export default class Devkits extends View {
   profileSettings(agent, local, t) {
     const key = agent.key, kind = sessionKind(agent);
     const colors = [t.muted, t.done, t.working, t.ansi1];
-    const line = h_flex().id(`profile-settings-${key}`).pl(92).pr(8).pb(10).gap(8).items_center()
+    // Labels sit above bordered selects whose left edges line up with the profile name.
+    const line = h_flex().id(`profile-settings-${key}`).pl(92).pr(8).pb(12).gap(8).items_center()
       .child(Select(`permissions-${key}`, this.permissionSelects.get(key), shared('devkits.codex-permissions')?.[key] || 'default',
         permissionModes(agent).map((mode, index) => ({ ...mode, color: colors[index] })), `Default permissions for ${agent.name}`, mode => {
           const saved = { ...(shared('devkits.codex-permissions') || {}) };
           if (mode === 'default') delete saved[key]; else saved[key] = mode;
           setShared('devkits.codex-permissions', saved);
-        }, t, { width: 168, prefix: 'Permissions' }));
+        }, t, { width: 168, prefix: 'Permissions', boxed: true }));
     const selects = this.sessionSelects?.get(key);
     if (!local || !kind || !selects) return line;
     const settings = shared('devkits.session-options')?.[kind] || {};
@@ -275,10 +276,10 @@ export default class Devkits extends View {
           const model = value === 'default' ? null : value;
           const supported = sessionChoices(kind, codexList, settings, model).efforts;
           set({ model, effort: supported.includes(saved.effort) ? saved.effort : null });
-        }, t, { width: 168, prefix: 'Model' }))
+        }, t, { width: 168, prefix: 'Model', boxed: true }))
       .child(Select(`profile-effort-${key}`, selects.effort, efforts.includes(saved.effort) ? saved.effort : 'default',
         [option('default', 'Default'), ...efforts.map(item => option(item, effortLabel(item)))], `Default effort for ${agent.name}`,
-        value => set({ effort: value === 'default' ? null : value }), t, { width: 168, prefix: 'Effort' }));
+        value => set({ effort: value === 'default' ? null : value }), t, { width: 168, prefix: 'Effort', boxed: true }));
   }
 
 
@@ -305,7 +306,7 @@ export default class Devkits extends View {
       }
     };
     const title = effortLabel;
-    return [DropdownMenuLabel(t).id('manage-section-session').mt(12).child('MODELS AND EFFORT'),
+    return [DropdownMenuLabel(t).id('manage-section-session').px(0).mt(16).child('MODELS AND EFFORT'),
       ...kinds.map(kind => {
         const models = orderedOptions(kind === 'claude' ? claudeModels : this.codexModelList || [], saved[kind]?.order);
         const reorder = (key, target) => {
@@ -315,7 +316,7 @@ export default class Devkits extends View {
         const dragging = this.modelDrag?.kind === kind;
         const efforts = kind === 'claude' ? claudeEfforts : [...new Set(models.flatMap(model => model.efforts))];
         const count = models.filter(model => shown(kind, 'models', model.key)).length;
-        return v_flex().id(`session-options-${kind}`).mx(8).mb(8).flex_none().border(1).border_color(t.border)
+        return v_flex().id(`session-options-${kind}`).mb(8).flex_none().border(1).border_color(t.border)
           .child(h_flex().h(36).px(12).gap(8).items_center().border_b(1).border_color(t.border)
             .child(div().flex_1().text_size(13).font_medium().child(kind === 'claude' ? 'Claude' : 'Codex'))
             .when(models.length > 0, el => el.child(div().text_size(12).text_color(t.muted).child(`${count} of ${models.length} models`))))
@@ -723,6 +724,8 @@ export default class Devkits extends View {
   preparePermissionSelects(cx) {
     this.permissionSelects ||= new Map();
     this.sessionSelects ||= new Map();
+    this.accountMenus ||= new Map();
+    for (const agent of this.launchers) if (!this.accountMenus.has(agent.key)) this.accountMenus.set(agent.key, new DropdownMenuState(cx));
     for (const agent of this.launchers.filter(permissionModes)) {
       if (!this.permissionSelects.has(agent.key)) this.permissionSelects.set(agent.key, new SelectState(cx));
       if (!this.sessionSelects.has(agent.key)) this.sessionSelects.set(agent.key, { model: new SelectState(cx), effort: new SelectState(cx) });
@@ -733,7 +736,6 @@ export default class Devkits extends View {
     const hidden = shared('devkits.hidden-launchers') || [];
     const choices = launcherChoices(this.launchers, shared('devkits.launcher-order') || []);
     const local = !spaces().find(space => space.id === props().space)?.machine;
-    const dragGroup = choices.find(choice => choice.key === this.dragKey)?.group;
     const toggle = (key, cx) => {
       const current = shared('devkits.hidden-launchers') || [];
       setShared('devkits.hidden-launchers', current.includes(key) ? current.filter(item => item !== key) : [...current, key]);
@@ -771,54 +773,58 @@ export default class Devkits extends View {
         cx.stop_propagation(); cx.notify();
       })
       .child(DialogTitle().child('Manage session menu'))
-      .child(DialogDescription(t).child('Choose what appears in Add session and the sidebar usage area. Drag within each section to reorder, or use Alt + ↑ / ↓. Changes are saved automatically.'))
-      .child(v_flex().id('manage-launchers-list').flex_1().min_h(0).overflow_y_scroll().gap(4)
-        .children(choices.flatMap((choice, index) => [
-          ...(index === 0 || choices[index - 1].group !== choice.group
-            ? [DropdownMenuLabel(t).id(`manage-section-${choice.group}`).mt(index ? 12 : 0).child(launcherSections[choice.group].toUpperCase())] : []),
-          v_flex().id(`manage-${choice.key}`).flex_none().rounded(0)
-          .bg(this.manageIndex === index ? t.selected : t.popover)
-          .border(1).border_color(this.dragKey && dragGroup === choice.group && this.dropKey === choice.key ? t.solid : t.popover)
-          .opacity(this.dragKey === choice.key ? 0.5 : 1)
-          .on_hover((inside, cx) => { if (inside) { this.manageIndex = index; cx.notify(); } })
-          .on_mouse_move((_event, cx) => {
-            if (this.dragKey && this.dropKey !== choice.key) { this.dropKey = choice.key; cx.notify(); }
-          })
-          .on_mouse_up('left', (_event, cx) => {
-            if (!this.dragKey) return;
-            move(choices.findIndex(item => item.key === this.dragKey), index, cx);
-            cancelDrag(cx); cx.stop_propagation();
-          })
-          .child(h_flex().h(44).px(8).gap(8).items_center()
-          .when(choice.group !== 0, el => el.child(Button(`drag-${choice.key}`, t, { variant: 'ghost', size: 'icon' }).cursor_grab()
-            .accessibility_label(`Reorder ${choice.name}. Use Alt + Up or Down.`)
-            .on_mouse_down('left', (_event, cx) => {
-              cx.stop_propagation(); this.handle?.focus();
-              this.dragKey = choice.key; this.dropKey = choice.key; this.manageIndex = index; cx.notify();
-            }).child(glyph('grip-vertical'))))
-          .when(choice.group === 0, el => el.child(div().size(28).flex_none()))
-          .child(Checkbox(`show-${choice.key}`, !hidden.includes(choice.key), t).h_full().flex_1().min_w(0)
-            .accessibility_label(choice.name).on_change((_checked, cx) => toggle(choice.key, cx))
-            .child(launcherIcon(choice.agent, t).flex_none())
-            .child(div().flex_1().min_w(0).truncate().text_size(13).child(choice.name)))
-          .when(local && ['codex', 'claude'].includes(choice.agent?.key), el => el
-            .child(Button(`add-${choice.agent.key}-account`, t, { variant: 'outline' })
-              .accessibility_label(`Add a ${choice.agent.key === 'codex' ? 'Codex' : 'Claude'} account`)
-              .on_click(() => this.addAccount(choice.agent.key)).child(glyph('plus')).child('Add account')))
-          .when(local && choice.group === 2, el => el.child(Button(`rename-${choice.agent.key}`, t, { variant: 'outline' })
-            .accessibility_label(`Rename ${choice.name}`).on_click(() => this.renameAccount(choice.agent)).child('Rename')))
-          .when(local && choice.agent?.key?.startsWith('devkits-codex-'), el => el.child(Button(`sync-${choice.agent.key}`, t, { variant: 'outline' })
-            .accessibility_label(`Choose shared plugins and skills for ${choice.name}`)
-            .on_click(() => this.openCodexSharing(choice.agent)).child('Sync…')))
-          .when(local && choice.group === 2, el => el.child(Button(`remove-${choice.agent.key}`, t, { variant: 'outline' })
-            .accessibility_label(`Remove ${choice.name}`).on_click(() => this.confirmRemoveAccount(choice.agent))
-            .child(glyph('close')).child('Remove'))))
-          .when(Boolean(permissionModes(choice.agent)) && Boolean(this.permissionSelects?.get(choice.agent.key)), el => el
-            .child(this.profileSettings(choice.agent, local, t))),
-        ]))
+      .child(DialogDescription(t).child('Choose what Add session shows. Drag to reorder; changes save automatically.'))
+      .child(v_flex().id('manage-launchers-list').flex_1().min_h(0).overflow_y_scroll().gap(8)
+        // One bordered table per section; rows are separated by rules and hover with t.selected.
+        .children([0, 1, 2].filter(group => choices.some(choice => choice.group === group)).map(group => v_flex().flex_none().gap(4)
+          .when(group > 0, el => el.mt(8))
+          .child(DropdownMenuLabel(t).id(`manage-section-${group}`).px(0).child(launcherSections[group].toUpperCase()))
+          .child(v_flex().flex_none().border(1).border_color(t.border)
+            .children(choices.map((choice, index) => [choice, index]).filter(([choice]) => choice.group === group).map(([choice, index], position) =>
+              v_flex().id(`manage-${choice.key}`).flex_none()
+                .when(position > 0, el => el.border_t(1).border_color(t.border))
+                .bg(this.manageIndex === index ? t.selected : t.popover)
+                .opacity(this.dragKey === choice.key ? 0.5 : 1)
+                .on_hover((inside, cx) => { if (inside) { this.manageIndex = index; cx.notify(); } })
+                .on_mouse_move((_event, cx) => {
+                  if (this.dragKey && this.dropKey !== choice.key) { this.dropKey = choice.key; cx.notify(); }
+                })
+                .on_mouse_up('left', (_event, cx) => {
+                  if (!this.dragKey) return;
+                  move(choices.findIndex(item => item.key === this.dragKey), index, cx);
+                  cancelDrag(cx); cx.stop_propagation();
+                })
+                .child(h_flex().h(44).px(8).gap(8).items_center()
+                  .when(choice.group !== 0, el => el.child(Button(`drag-${choice.key}`, t, { variant: 'row', size: 'icon' }).cursor_grab()
+                    .accessibility_label(`Reorder ${choice.name}. Use Alt + Up or Down.`)
+                    .on_mouse_down('left', (_event, cx) => {
+                      cx.stop_propagation(); this.handle?.focus();
+                      this.dragKey = choice.key; this.dropKey = choice.key; this.manageIndex = index; cx.notify();
+                    }).child(glyph('grip-vertical'))))
+                  .when(choice.group === 0, el => el.child(div().size(28).flex_none()))
+                  .child(Checkbox(`show-${choice.key}`, !hidden.includes(choice.key), t).h_full().flex_1().min_w(0)
+                    .accessibility_label(choice.name).on_change((_checked, cx) => toggle(choice.key, cx))
+                    .child(launcherIcon(choice.agent, t).flex_none())
+                    .child(div().flex_1().min_w(0).truncate().text_size(13).child(choice.name)))
+                  .when(local && ['codex', 'claude'].includes(choice.agent?.key), el => el
+                    .child(Button(`add-${choice.agent.key}-account`, t, { variant: 'row' })
+                      .accessibility_label(`Add a ${choice.agent.key === 'codex' ? 'Codex' : 'Claude'} account`)
+                      .on_click(() => this.addAccount(choice.agent.key)).child(glyph('plus')).child('Add account')))
+                  // Account actions live in one menu so every row's controls line up.
+                  .when(local && choice.group === 2 && Boolean(this.accountMenus?.get(choice.agent.key)), el => el
+                    .child(DropdownMenu(`account-actions-${choice.agent.key}`, this.accountMenus.get(choice.agent.key),
+                      Button(`account-menu-${choice.agent.key}`, t, { variant: 'row', size: 'icon' })
+                        .accessibility_label(`Actions for ${choice.name}`).child(glyph('ellipsis')),
+                      [{ key: 'rename', label: 'Rename' },
+                        ...(choice.agent.key.startsWith('devkits-codex-') ? [{ key: 'sync', label: 'Shared plugins and skills…' }] : []),
+                        { key: 'remove', label: 'Remove', separator: true }],
+                      key => key === 'rename' ? this.renameAccount(choice.agent)
+                        : key === 'sync' ? this.openCodexSharing(choice.agent) : this.confirmRemoveAccount(choice.agent), t))))
+                .when(Boolean(permissionModes(choice.agent)) && Boolean(this.permissionSelects?.get(choice.agent.key)), el => el
+                  .child(this.profileSettings(choice.agent, local, t))))))))
         .when(local && !this.loading && !this.launchError && !choices.some(choice => choice.group === 2), el => el
-          .child(DropdownMenuLabel(t).id('manage-section-2').mt(12).child('YOUR ACCOUNTS'))
-          .child(div().px(8).text_size(12).text_color(t.muted).child('No accounts added. Use Add account on the Codex or Claude row.')))
+          .child(DropdownMenuLabel(t).id('manage-section-2').px(0).mt(16).child('YOUR ACCOUNTS'))
+          .child(div().text_size(12).text_color(t.muted).child('No accounts added. Use Add account on the Codex or Claude row.')))
         .when(local && !this.loading && !this.launchError, el => el.children(this.sessionOptions(choices, t)))
         .when(this.loading, el => el.child(div().p(8).text_size(12).text_color(t.muted).child('Loading agents…')))
         .when(this.launchError, el => el.child(Button('manage-retry-agents', t, { variant: 'outline' })
