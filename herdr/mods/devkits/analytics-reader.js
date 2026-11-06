@@ -127,10 +127,10 @@ export async function scan(sources, cachePath) {
 export function compactEvents(events) {
   const groups = new Map();
   for (const event of events) {
-    const key = JSON.stringify([event.day, event.session, event.project, event.model, event.account]);
+    const key = JSON.stringify([event.provider, event.day, event.session, event.project, event.model, event.account]);
     let row = groups.get(key);
     if (!row) {
-      row = { day: event.day, session: event.session, project: event.project, model: event.model, account: event.account,
+      row = { provider: event.provider, day: event.day, session: event.session, project: event.project, model: event.model, account: event.account,
         timestamp: event.timestamp, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0, reasoning: 0, total: 0 };
       groups.set(key, row);
     }

@@ -57,6 +57,28 @@ test('ranges use local calendar days, fill missing days and compose filters', ()
   assert.equal(summarize(events, 0, now, { project: 'p', account: 'c' }).sessions, 1);
 });
 
+test('provider filters survive compaction and apply to costs, daily totals and every table', () => {
+  const now = new Date(stamp), day = localDay(now);
+  const base = { timestamp: now.getTime(), day, project: '/shared', account: 'Shared', session: 'shared' };
+  const codex = { ...base, provider: 'codex', model: 'gpt-6.1-sol', input: 1e6, total: 1e6 };
+  const claude = { ...base, provider: 'claude', model: 'claude-sonnet-4-6', output: 1e6, total: 1e6 };
+  const compact = compactEvents([codex, claude]);
+  assert.deepEqual(compact.map(event => event.provider), ['codex', 'claude']);
+  assert.equal(summarize(compact, 1, now).totals.total, 2e6);
+  assert.equal(summarize(compact, 1, now).cost.usd, 17);
+  for (const provider of ['codex', 'claude']) {
+    const stats = summarize(compact, 1, now, { provider, project: '/shared', day });
+    assert.deepEqual(stats, summarize(compact.filter(event => event.provider === provider), 1, now));
+    assert.equal(stats.totals.total, 1e6);
+    assert.equal(stats.daily[0].total, 1e6);
+    assert.equal(stats.sessions, 1);
+    for (const key of ['model', 'project', 'account', 'session']) assert.deepEqual(stats[key][0].cost, stats.cost);
+  }
+  // Identical metadata must still retain separate provider aggregates.
+  assert.equal(compactEvents([codex, { ...codex, provider: 'claude' }]).length, 2);
+  assert.equal(summarize(compact, 1, now, { provider: 'claude', model: codex.model }).totals.total, 0);
+});
+
 test('projects group transcript subfolders by their nearest Git root, including worktrees', async () => {
   const root = await mkdtemp(join(tmpdir(), 'analytics-'));
   const project = join(root, 'project'); await mkdir(join(project, 'src'), { recursive: true });
@@ -67,7 +89,7 @@ test('projects group transcript subfolders by their nearest Git root, including 
   assert.equal(result.events[0].project.toLowerCase(), project.toLowerCase());
 });
 
-test('native statistics view renders history, changes ranges and clears grouped filters', async () => {
+test('native statistics view switches providers, changes ranges and clears grouped filters', async () => {
   const source = await readFile(new URL('../mods/devkits/analytics.js', import.meta.url), 'utf8');
   const nodes = new Map(), texts = [];
   const element = () => {
@@ -82,18 +104,35 @@ test('native statistics view renders history, changes ranges and clears grouped 
     return proxy;
   };
   let closed = false;
-  const host = { div: element, h_flex: element, v_flex: element, theme: () => ({}), summarize, costLabel, pricingDate,
+  const host = { div: element, image: element, h_flex: element, v_flex: element, theme: () => ({}), summarize, costLabel, pricingDate,
     props: () => ({ overlay: 'statistics' }), closeOverlay: () => { closed = true; },
     Button: id => element().id(id), DialogContent: id => element().id(id), DialogTitle: element,
     DialogDescription: element, DialogFooter: element };
   const Type = new Function(...Object.keys(host), source.replace(/^import .*;\n/gm, '').replace('export default class', 'return class'))(...Object.values(host));
   const view = new Type(); view.days = 30; view.tab = 'model'; view.page = 0; view.filters = {};
-  view.data = { events: [{ timestamp: Date.now(), day: localDay(new Date()), model: 'test-model', project: '/p', account: 'Test', session: 's', total: 123 }], fileCount: 1, updatedAt: Date.now() };
+  const day = localDay(new Date());
+  view.data = { events: [
+    { timestamp: Date.now(), day, provider: 'codex', model: 'test-model', project: '/p', account: 'Test', session: 's', total: 123 },
+    { timestamp: Date.now(), day, provider: 'claude', model: 'claude-sonnet-4-6', project: '/p', account: 'Claude', session: 'c', input: 1e6, total: 1e6 },
+  ], fileCount: 2, updatedAt: Date.now() };
   view.render(); assert.ok(nodes.has('token-statistics')); assert.ok(texts.includes('test-model'));
   assert.ok(texts.includes('Est. cost · USD')); assert.ok(nodes.has('analytics-total-cost'));
   const cx = { notify() {} };
+  nodes.get('analytics-provider-codex').click(null, cx); assert.deepEqual(view.filters, { provider: 'codex' });
+  texts.length = 0; view.render();
+  assert.ok(texts.includes('test-model')); assert.ok(!texts.includes('claude-sonnet-4-6'));
   nodes.get('analytics-range-7').click(null, cx); assert.equal(view.days, 7);
-  nodes.get('analytics-row-0').click(null, cx); assert.deepEqual(view.filters, { model: 'test-model' });
+  nodes.get('analytics-row-0').click(null, cx); assert.deepEqual(view.filters, { provider: 'codex', model: 'test-model' });
+  view.filters = { ...view.filters, account: 'Test', project: '/p', day }; view.page = 3;
+  nodes.get('analytics-provider-claude').click(null, cx);
+  assert.deepEqual(view.filters, { provider: 'claude', project: '/p', day });
+  assert.equal(view.page, 0); assert.equal(view.days, 7);
+  texts.length = 0; view.render();
+  assert.ok(texts.includes('claude-sonnet-4-6')); assert.ok(!texts.includes('test-model')); assert.ok(texts.includes('$3.00'));
+  nodes.get('analytics-provider-all').click(null, cx);
+  assert.deepEqual(view.filters, { project: '/p', day });
+  texts.length = 0; view.render(); assert.ok(texts.includes('test-model')); assert.ok(texts.includes('claude-sonnet-4-6'));
+  nodes.get('analytics-provider-claude').click(null, cx);
   view.render(); nodes.get('analytics-clear').click(null, cx); assert.deepEqual(view.filters, {});
   nodes.get('analytics-tab-session').click(null, cx); assert.equal(view.tab, 'session');
   nodes.get('analytics-done').click(); assert.ok(closed);

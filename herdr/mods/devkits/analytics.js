@@ -1,4 +1,4 @@
-import { div } from 'gpui-kit';
+import { div, image } from 'gpui-kit';
 import { h_flex, v_flex } from 'gpui-base';
 import { exec, appHome, knownAgents, closeOverlay, props, theme } from 'herdr';
 import { summarize } from './analytics-model.js';
@@ -49,7 +49,18 @@ export default class Analytics {
         .children([[1, 'Today'], [7, '7 days'], [30, '30 days'], [0, 'All time']].map(([days, text]) =>
           Button(`analytics-range-${days}`, t, { variant: this.days === days ? 'default' : 'ghost' }).child(text)
             .on_click((_event, cx) => { this.days = days; this.page = 0; cx.notify(); }))))
-      .child(DialogDescription(t).flex_none().child('Local Codex and Claude history · Input excludes cache reads · Reasoning is included in output'))
+      .child(h_flex().flex_none().items_center().gap(4)
+        .children([['', 'All'], ['codex', 'Codex'], ['claude', 'Claude']].map(([provider, text]) =>
+          Button(`analytics-provider-${provider || 'all'}`, t, { variant: (this.filters.provider || '') === provider ? 'default' : 'ghost' })
+            .accessibility_label(`Show ${text === 'All' ? 'all providers' : text} usage`)
+            .when(Boolean(provider), el => el.child(image(`icons/${provider}.svg`).size(14).flex_none())).child(text)
+            .on_click((_event, cx) => {
+              if ((this.filters.provider || '') === provider) return;
+              const { provider: previous, model, account, ...filters } = this.filters;
+              this.filters = provider ? { ...filters, provider } : filters;
+              this.page = 0; cx.notify();
+            })))
+        .child(DialogDescription(t).flex_1().min_w(0).ml(8).child('Local Codex and Claude history · Input excludes cache reads · Reasoning is included in output')))
       .child(h_flex().flex_none().gap(16)
         .child(v_flex().flex_1().min_w(0).gap(4)
           .child(div().text_size(11).text_color(t.muted).child('Est. cost · USD'))
