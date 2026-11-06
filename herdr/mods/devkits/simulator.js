@@ -6,6 +6,7 @@ import net from 'net';
 import { writeFile } from 'fs/promises';
 import { DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from './components/dropdown-menu.js';
 import { Button } from './components/button.js';
+import { lastUsedLabel } from './xcode-storage.js';
 
 // The live iOS Simulator panel, adapted from herdr-sim (github.com/wobsoriano/herdr-sim, MIT).
 // serve-sim streams the simulator as MJPEG and takes input over a WebSocket; it runs locally only.
@@ -55,12 +56,14 @@ export function keyUsages(event) {
   return { usage, modifiers: MODIFIERS.filter(([name]) => held[name]).map(([, code]) => code) };
 }
 
-// `xcrun simctl list devices available -j` -> iOS simulators, newest runtime first.
+// `xcrun simctl list devices available -j` -> iOS simulators, most recently used first; never-used ones
+// follow by newest runtime, then name.
 export function parseSimulators(json) {
   return Object.entries(JSON.parse(json).devices).flatMap(([key, devices]) => {
     const m = /SimRuntime\.iOS-(\d+)-(\d+)/.exec(key);
-    return m ? devices.map(d => ({ id: d.udid, name: d.name, os: `iOS ${m[1]}.${m[2]}`, booted: d.state === 'Booted' })) : [];
-  }).sort((a, b) => b.os.localeCompare(a.os, undefined, { numeric: true }) || a.name.localeCompare(b.name));
+    return m ? devices.map(d => ({ id: d.udid, name: d.name, os: `iOS ${m[1]}.${m[2]}`, booted: d.state === 'Booted',
+      lastUsed: Date.parse(d.lastUsedAt) || 0 })) : [];
+  }).sort((a, b) => b.lastUsed - a.lastUsed || b.os.localeCompare(a.os, undefined, { numeric: true }) || a.name.localeCompare(b.name));
 }
 
 // The chosen simulator, else the first booted one.
@@ -372,20 +375,21 @@ export default class SimulatorPanel {
   header(t) {
     const device = this.phase.device ?? this.target();
     const status = this.phase.kind === 'live' ? t.done : this.phase.kind === 'error' ? t.blocked : t.dim;
-    return h_flex().h(32).flex_none().pl(12).pr(4).gap(8).items_center().border_b(1).border_color(t.border)
-      .child(DropdownMenuTrigger(h_flex().id('simulator-device').h(28).min_w(0).px(8).gap(6).items_center()
+    // The picker and buttons fill the header's height from its edges, so hover backgrounds are centered and flush.
+    return h_flex().h(32).flex_none().items_center().border_b(1).border_color(t.border)
+      .child(DropdownMenuTrigger(h_flex().id('simulator-device').h_full().min_w(0).px(8).gap(6).items_center()
         .text_color(t.foreground).font_medium().hover(el => el.bg(t.hover)).cursor_pointer(), 280,
         (_cx, at) => openOverlay({ mod: 'devkits', kind: 'popup', frame: 'none', width: 280, at, props: { view: 'simulator-devices' } }))
         .child(glyph('circle-check', 12).text_color(status))
         .child(div().min_w(0).truncate().child(device ? `${device.name} · ${device.os}` : 'Choose simulator'))
         .child(glyph('chevron-down', 12).text_color(t.muted)))
       .child(div().flex_1())
-      .child(Button('simulator-window', t, { variant: 'ghost', size: 'icon' }).accessibility_label('Open in a separate window')
+      .child(Button('simulator-window', t, { variant: 'ghost', size: 'icon' }).h_full().w(32).accessibility_label('Open in a separate window')
         .tooltip('Open in a separate window for smooth interaction')
         .when(!this.session?.preview, el => el.opacity(0.5))
         .on_click((_e, cx) => { const url = this.session?.preview; if (url) cx.spawn(() => openPreviewWindow(url)); })
         .child(glyph('external-link')))
-      .child(Button('close-simulator', t, { variant: 'ghost', size: 'icon' }).accessibility_label('Hide simulator')
+      .child(Button('close-simulator', t, { variant: 'ghost', size: 'icon' }).h_full().w(32).accessibility_label('Hide simulator')
         .on_click(() => toggleSimulator()).child(glyph('close')));
   }
 
@@ -475,29 +479,44 @@ export class SimulatorMenu {
     setShared(REPAIR, device.id);
   }
 
+  storage() {
+    closeOverlay(props().overlay);
+    openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: false, width: 760, height: 0.85, props: { view: 'xcode-storage' } });
+  }
+
   render() {
     const t = theme();
     const target = this.devices && targetDevice(this.devices, shared(DEVICE));
-    const rows = (this.devices ?? []).map(d => DropdownMenuItem(`simulator-device-${d.id}`, t).h(40)
+    // Never-used simulators follow the used ones under their own label.
+    const firstUnused = (this.devices ?? []).findIndex(d => !d.lastUsed);
+    const rows = (this.devices ?? []).flatMap((d, i) => [...(i === firstUnused && i > 0 ? [DropdownMenuSeparator(t), DropdownMenuLabel(t).child('NEVER USED')] : []), DropdownMenuItem(`simulator-device-${d.id}`, t).h(40)
       .when(d.id === target?.id, el => el.bg(t.selected))
       .on_click(() => this.choose(d))
       .child(v_flex().flex_1().min_w(0)
         .child(h_flex().gap(6).items_center()
           .child(div().min_w(0).truncate().child(d.name))
           .when(d.booted, el => el.child(div().size(6).flex_none().rounded(3).bg(t.done))))
-        .child(div().text_size(11).text_color(t.muted).child(d.os)))
-      .when(d.id === target?.id, el => el.child(glyph('check'))));
-    const message = this.devices == null ? 'Loading…' : this.error || (!rows.length ? 'No simulators. Create one in Xcode.' : null);
-    return DropdownMenuContent('simulator-devices', undefined, t)
+        .child(div().text_size(11).text_color(t.muted).child(d.lastUsed ? `${d.os} · ${lastUsedLabel(d.lastUsed)}` : d.os)))
+      .when(d.id === target?.id, el => el.child(glyph('check')))]);
+    const message = this.devices == null ? 'Loading…' : this.error || (!this.devices.length ? 'No simulators. Create one in Xcode.' : null);
+    // A scrolling list needs a definite height: rows up to 360px, plus the label, message and actions below.
+    const contentHeight = (this.devices ?? []).length * 40 + (firstUnused > 0 ? 9 + 28 : 0), listHeight = Math.min(360, contentHeight);
+    const height = 10 + 28 + (message ? 30 : 0) + listHeight + 9 + (target?.booted ? 32 : 0) + 32;
+    return DropdownMenuContent('simulator-devices', height, t)
       .track_focus(this.handle)
       .on_key_down(event => { if (event.key === 'escape') closeOverlay(props().overlay); })
       .child(DropdownMenuLabel(t).child('iOS SIMULATORS'))
       .when(Boolean(message), el => el.child(div().px(8).py(6).text_size(12).text_color(t.muted).child(message)))
-      .child(v_flex().id('simulator-device-list').max_h(360).overflow_y_scrollbar().children(rows))
-      .when(Boolean(target?.booted), el => el.child(DropdownMenuSeparator(t))
+      // The scrollbar draws over the list's right edge, so an overflowing list keeps a gutter for it.
+      .child(v_flex().id('simulator-device-list').flex_1().min_h(0).overflow_y_scrollbar()
+        .when(contentHeight > listHeight, el => el.pr(12)).children(rows))
+      .child(DropdownMenuSeparator(t))
+      .when(Boolean(target?.booted), el => el
         .child(DropdownMenuItem('simulator-repair-input', t).tooltip('For taps that do nothing; restarts SpringBoard and closes apps')
           .on_click(() => this.repair(target))
           .child(div().flex_1().child('Repair input'))
-          .child(div().text_size(11).text_color(t.muted).child('restarts SpringBoard'))));
+          .child(div().text_size(11).text_color(t.muted).child('restarts SpringBoard'))))
+      .child(DropdownMenuItem('simulator-xcode-storage', t).on_click(() => this.storage())
+        .child(div().flex_1().child('Xcode storage…')));
   }
 }

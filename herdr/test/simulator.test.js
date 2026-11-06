@@ -6,7 +6,7 @@ async function load(host = {}) {
   const source = await readFile(new URL('../mods/devkits/simulator.js', import.meta.url), 'utf8');
   return new Function(...Object.keys(host), source.replace(/^import .*;\n/gm, '')
     .replace('export default class', 'class').replace(/^export /gm, '')
-    + '\nreturn { keyUsages, parseSimulators, targetDevice, jpegAspect, touchEdge, simulatorShown, listSimulators, previewUrl, openPreviewWindow, externalClient, SimulatorPanel };')(...Object.values(host));
+    + '\nreturn { keyUsages, parseSimulators, targetDevice, jpegAspect, touchEdge, simulatorShown, listSimulators, previewUrl, openPreviewWindow, externalClient, SimulatorPanel, SimulatorMenu };')(...Object.values(host));
 }
 
 test('simulator keys map to HID usages, shifting symbols and leaving Cmd chords to Herdr', async () => {
@@ -97,4 +97,24 @@ test('simulator pauses whenever a preview window is connected, checking at most 
   assert.equal(checks, 2);
   panel.session = null;
   assert.equal(panel.away(20000), false);
+});
+
+test('the device menu opens Xcode storage after closing itself', async () => {
+  const closed = [], opened = [];
+  const { SimulatorMenu } = await load({ props: () => ({ overlay: 'menu' }), closeOverlay: id => closed.push(id), openOverlay: options => opened.push(options) });
+  new SimulatorMenu().storage();
+  assert.deepEqual(closed, ['menu']);
+  assert.equal(opened[0].props.view, 'xcode-storage');
+  assert.equal(opened[0].kind, 'dialog');
+});
+
+test('the device list puts the most recently used simulators first and never-used ones last', async () => {
+  const { parseSimulators } = await load();
+  const devices = parseSimulators(JSON.stringify({ devices: {
+    'com.apple.CoreSimulator.SimRuntime.iOS-18-6': [{ udid: 'pro16', name: 'iPhone 16 Pro', state: 'Booted', lastUsedAt: '2026-11-06T13:36:10Z' }],
+    'com.apple.CoreSimulator.SimRuntime.iOS-26-5': [{ udid: 'air', name: 'iPhone Air', state: 'Shutdown' },
+      { udid: 'max', name: 'iPhone 17 Pro Max', state: 'Shutdown', lastUsedAt: '2026-11-02T15:54:36Z' },
+      { udid: 'pro17', name: 'iPhone 17 Pro', state: 'Shutdown', lastUsedAt: '2026-11-04T13:04:01Z' }, { udid: 'e', name: 'iPhone 17e', state: 'Shutdown' }],
+  } }));
+  assert.deepEqual(devices.map(d => d.id), ['pro16', 'pro17', 'max', 'e', 'air']);
 });

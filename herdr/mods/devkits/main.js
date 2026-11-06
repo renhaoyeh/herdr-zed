@@ -7,6 +7,7 @@ import FileViewer, { FileMenu } from './files.js';
 import DiffViewer from './diff.js';
 import SimulatorPanel, { SimulatorMenu, simulatorShown, toggleSimulator } from './simulator.js';
 import Analytics from './analytics.js';
+import XcodeStorage from './xcode-storage.js';
 import AsanaPanel, { AsanaProjectPicker, taskPrompt, unsaveTask } from './asana.js';
 import { DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from './components/dropdown-menu.js';
 import { Button } from './components/button.js';
@@ -62,6 +63,11 @@ export default class Devkits extends View {
     if (props()?.view === 'token-statistics') {
       this.analytics = new Analytics();
       this.analytics.init(cx);
+      return;
+    }
+    if (props()?.view === 'xcode-storage') {
+      this.xcodeStorage = new XcodeStorage();
+      this.xcodeStorage.init(cx);
       return;
     }
     // Return an already-open permissions dialog to Manage during live updates.
@@ -1130,6 +1136,7 @@ export default class Devkits extends View {
     const t = theme();
     if (props()?.view === 'codex-sharing') return this.sharingDialog(t);
     if (props()?.view === 'token-statistics') return this.analytics.render();
+    if (props()?.view === 'xcode-storage') return this.xcodeStorage.render();
     if (props()?.view === 'codex-permissions') return div();
     if (props()?.view === 'file-menu') return this.fileMenu.render();
     if (props()?.view === 'files') return this.files.render(this.projects().find(project => project.active), cx);
