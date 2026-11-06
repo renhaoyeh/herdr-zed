@@ -961,16 +961,16 @@ export default class Devkits extends View {
       .filter(choice => choice.agent && !(shared('devkits.hidden-launchers') || []).includes(choice.key));
     return v_flex().id('account-usage').w_full().flex_none().h_auto().min_h(0)
       .border_t(1).border_color(t.border)
-      .child(h_flex().h(32).flex_none().px(12).gap(8).items_center()
+      .child(h_flex().h(32).flex_none().pl(12).items_center()
         .child(div().flex_1().text_size(11).font_medium().text_color(t.muted).child('AGENT PROFILES'))
-        .child(Button('refresh-agent-profiles', t, { variant: 'ghost', size: 'icon-sm' })
+        .child(Button('refresh-agent-profiles', t, { variant: 'ghost', size: 'icon' }).h_full().w(32)
           .accessibility_label('Refresh agent profiles').disabled(Boolean(this.usageLoading))
           .on_click((_, cx) => this.refreshUsage(cx, true, true)).child(glyph('refresh-cw')))
-        .child(Button('open-token-statistics', t, { variant: 'ghost', size: 'icon-sm' })
+        .child(Button('open-token-statistics', t, { variant: 'ghost', size: 'icon' }).h_full().w(32)
           .accessibility_label('Token statistics')
           .on_click(() => openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: false, width: 1080, height: 0.85,
             props: { view: 'token-statistics' } })).child(glyph('chart-column')))
-        .child(Button('manage-agent-profiles', t, { variant: 'ghost', size: 'icon-sm' })
+        .child(Button('manage-agent-profiles', t, { variant: 'ghost', size: 'icon' }).h_full().w(32)
           .accessibility_label('Manage agent profiles')
           .on_click(() => openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: false, width: 680, height: 0.8,
             props: { view: 'manage-launchers', space: space?.id } })).child(glyph('settings'))))
@@ -1020,9 +1020,10 @@ export default class Devkits extends View {
     const root = layout(), sidebar = root?.children?.find(node => node.id === 'sidebar');
     const inset = win?.platform === 'macos' && !win.fullscreen && sidebar?.hidden
       ? (root.traffic_lights[0] + 64) / settings().zoom : 12;
-    return h_flex().size_full().pr(4).pl(inset - 8).gap(4).items_center().bg(t.background).text_size(13)
+    // Controls fill the header's height; the project switcher and window buttons sit flush with its edges.
+    return h_flex().size_full().pl(inset - 12).items_center().bg(t.background).text_size(13)
       .border_b(1).border_color(t.border)
-      .child(DropdownMenuTrigger(h_flex().id('project-switcher').h(28).px(8).gap(6).items_center().rounded(0)
+      .child(DropdownMenuTrigger(h_flex().id('project-switcher').h_full().pl(10).pr(6).gap(6).items_center().rounded(0)
         .text_color(t.foreground).font_medium().hover(el => el.bg(t.hover)).cursor_pointer(), 280,
         (_cx, at) => openOverlay({ mod: 'devkits', kind: 'popup', frame: 'none', width: 280, at,
           props: { view: 'project-picker' } }))
@@ -1030,11 +1031,11 @@ export default class Devkits extends View {
         .child(glyph('chevron-down', 12).text_color(t.muted)))
       .child(div().flex_1())
       .when(Boolean(win?.buttons), el => el
-        .child(Button('minimize', t, { variant: 'ghost', size: 'icon' }).accessibility_label('Minimize')
+        .child(Button('minimize', t, { variant: 'ghost', size: 'icon' }).h_full().w(32).accessibility_label('Minimize')
           .on_click(() => run('window.minimize')).child(glyph('minus')))
-        .child(Button('maximize', t, { variant: 'ghost', size: 'icon' }).accessibility_label('Maximize / restore')
+        .child(Button('maximize', t, { variant: 'ghost', size: 'icon' }).h_full().w(32).accessibility_label('Maximize / restore')
           .on_click(() => run('window.maximize')).child(glyph('square')))
-        .child(Button('close-window', t, { variant: 'ghost', size: 'icon' }).accessibility_label('Close window')
+        .child(Button('close-window', t, { variant: 'ghost', size: 'icon' }).h_full().w(32).accessibility_label('Close window')
           .on_click(() => run('window.close')).child(glyph('close'))));
   }
 

@@ -377,7 +377,7 @@ export default class SimulatorPanel {
     const status = this.phase.kind === 'live' ? t.done : this.phase.kind === 'error' ? t.blocked : t.dim;
     // The picker and buttons fill the header's height from its edges, so hover backgrounds are centered and flush.
     return h_flex().h(32).flex_none().items_center().border_b(1).border_color(t.border)
-      .child(DropdownMenuTrigger(h_flex().id('simulator-device').h_full().min_w(0).px(8).gap(6).items_center()
+      .child(DropdownMenuTrigger(h_flex().id('simulator-device').h_full().min_w(0).pl(10).pr(6).gap(6).items_center()
         .text_color(t.foreground).font_medium().hover(el => el.bg(t.hover)).cursor_pointer(), 280,
         (_cx, at) => openOverlay({ mod: 'devkits', kind: 'popup', frame: 'none', width: 280, at, props: { view: 'simulator-devices' } }))
         .child(glyph('circle-check', 12).text_color(status))
