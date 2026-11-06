@@ -119,7 +119,7 @@ export default class Devkits extends View {
         else return;
         cx.stop_propagation();
       })
-      .child(DropdownMenuItem('menu-close-project', t).on_click(close).child(glyph('close')).child('Close workspace'));
+      .child(DropdownMenuItem('menu-close-project', t).on_click(close).child(glyph('close')).child('Close project'));
   }
 
   projectPicker(t) {
@@ -145,7 +145,7 @@ export default class Devkits extends View {
       .child(v_flex().id('picker-projects').flex_1().min_h(0).overflow_y_scrollbar().gap(1)
         .children(projects.map((project, index) => DropdownMenuItem(`picker-project-${project.id}`, t)
           .bg(this.projectIndex === index ? t.selected : t.popover)
-          .tooltip(project.folder).on_hover((inside, cx) => { if (inside) { this.projectIndex = index; cx.notify(); } })
+          .on_hover((inside, cx) => { if (inside) { this.projectIndex = index; cx.notify(); } })
           .on_click((_event, cx) => choose(project, cx))
           .child(glyph('folder').text_color(t.muted))
           .child(div().flex_1().min_w(0).truncate().child(project.name))
@@ -176,10 +176,10 @@ export default class Devkits extends View {
       })
       .child(AlertDialogTitle().child(`Close ${target.project.name}?`))
       .child(AlertDialogDescription(t)
-        .child('This ends every session in this workspace, including running agents. Your project files stay on disk.'))
+        .child('This ends every session in this project, including running agents. Your project files stay on disk.'))
       .child(AlertDialogFooter().children([
         AlertDialogCancel('cancel-close-project', t).on_click(cancel).child('Cancel'),
-        AlertDialogAction('confirm-close-project', t).on_click(confirm).child('Close workspace'),
+        AlertDialogAction('confirm-close-project', t).on_click(confirm).child('Close project'),
       ]));
   }
 
@@ -370,7 +370,7 @@ export default class Devkits extends View {
             cancelDrag(cx); cx.stop_propagation();
           })
           .when(choice.group !== 0, el => el.child(Button(`drag-${choice.key}`, t, { variant: 'ghost', size: 'icon' }).cursor_grab()
-            .tooltip(`Drag ${choice.name} to reorder`).accessibility_label(`Reorder ${choice.name}. Use Alt + Up or Down.`)
+            .accessibility_label(`Reorder ${choice.name}. Use Alt + Up or Down.`)
             .on_mouse_down('left', (_event, cx) => {
               cx.stop_propagation(); this.handle?.focus();
               this.dragKey = choice.key; this.dropKey = choice.key; this.manageIndex = index; cx.notify();
@@ -394,7 +394,7 @@ export default class Devkits extends View {
           })
           .when(local && choice.agent?.key === 'codex', el => el
             .child(Button('add-codex-account', t, { variant: 'outline' })
-              .tooltip('Add a Codex account').accessibility_label('Add a Codex account')
+              .accessibility_label('Add a Codex account')
               .on_click(() => this.addCodexAccount()).child(glyph('plus')).child('Add account')))
           .when(local && choice.group === 2, el => el.child(Button(`remove-${choice.agent.key}`, t, { variant: 'outline' })
             .accessibility_label(`Remove ${choice.name}`).on_click(() => this.confirmRemoveAccount(choice.agent))
@@ -413,9 +413,9 @@ export default class Devkits extends View {
     const hidden = shared('devkits.hidden-launchers') || [];
     const choices = launcherChoices(this.launchers, shared('devkits.launcher-order') || []).filter(choice => !hidden.includes(choice.key));
     const launchers = choices.filter(choice => choice.agent).map(choice => choice.agent);
-    const row = (id, name, icon, action, hint) => DropdownMenuItem(id, t).on_click(action)
+    const row = (id, name, icon, action) => DropdownMenuItem(id, t).on_click(action)
       .child(div().size(16).flex_none().flex().items_center().justify_center().text_color(t.muted).child(icon))
-      .child(div().flex_1().min_w(0).truncate().child(name)).child(div().flex_none().text_size(11).text_color(t.muted).child(hint));
+      .child(div().flex_1().min_w(0).truncate().child(name));
     return DropdownMenuContent('thread-launcher', undefined, t)
       .track_focus(this.handle).on_key_down(event => {
         if (event.modifiers.control || event.modifiers.platform || event.modifiers.alt) return;
@@ -424,13 +424,13 @@ export default class Devkits extends View {
       })
       .child(v_flex().id('thread-launchers').flex_none().gap(1)
         .children(choices.flatMap((choice, i) => {
-          const agent = choice.agent, index = launchers.indexOf(agent);
+          const agent = choice.agent;
           return [
             ...(i > 0 && choices[i - 1].group !== choice.group ? [DropdownMenuSeparator(t)] : []),
             ...(choice.group !== 0 && (i === 0 || choices[i - 1].group !== choice.group)
               ? [DropdownMenuLabel(t).id(`launcher-section-${choice.group}`).child(launcherSections[choice.group])] : []),
             row(agent ? `start-${agent.key}` : 'new-terminal', choice.name, launcherIcon(agent, t),
-              () => this.startThread(agent), index >= 0 && index < 9 ? String(index + 1) : ''),
+              () => this.startThread(agent)),
           ];
         }))
         .when(this.loading, el => el.child(div().p(10).text_size(12).text_color(t.muted).child('Loading agents…')))
@@ -444,7 +444,7 @@ export default class Devkits extends View {
         closeOverlay(target.overlay);
         openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: false, width: 680, height: 0.8,
           props: { view: 'manage-launchers', space: target.space } });
-      }, ''));
+      }));
   }
 
   refreshUsage(cx, force = true) {
@@ -515,8 +515,7 @@ export default class Devkits extends View {
     return h_flex().size_full().px(16).pl(inset).gap(12).items_center().bg(t.background).text_size(13)
       .border_b(1).border_color(t.border)
       .child(DropdownMenuTrigger(h_flex().id('project-switcher').h(32).px(8).gap(6).items_center().rounded(0).border_b(1).border_color(t.input)
-        .text_color(t.foreground).font_medium().hover(el => el.bg(t.hover)).cursor_pointer()
-        .tooltip(space?.folder || 'Open a project'), 280,
+        .text_color(t.foreground).font_medium().hover(el => el.bg(t.hover)).cursor_pointer(), 280,
         (_cx, at) => openOverlay({ mod: 'devkits', kind: 'popup', frame: 'none', width: 280, at,
           props: { view: 'project-picker' } }))
         .child(div().max_w(220).truncate().child(space?.name || 'Open project'))
@@ -561,11 +560,11 @@ export default class Devkits extends View {
                   .child(Progress(`usage-meter-${choice.key}`, null, t).accessibility_label(`${choice.name}: ${status}`))));
           })))
       .when(Boolean(win?.buttons), el => el
-        .child(Button('minimize', t, { variant: 'ghost', size: 'icon' }).tooltip('Minimize').accessibility_label('Minimize')
+        .child(Button('minimize', t, { variant: 'ghost', size: 'icon' }).accessibility_label('Minimize')
           .on_click(() => run('window.minimize')).child(glyph('minus')))
-        .child(Button('maximize', t, { variant: 'ghost', size: 'icon' }).tooltip('Maximize / restore').accessibility_label('Maximize / restore')
+        .child(Button('maximize', t, { variant: 'ghost', size: 'icon' }).accessibility_label('Maximize / restore')
           .on_click(() => run('window.maximize')).child(glyph('square')))
-        .child(Button('close-window', t, { variant: 'ghost', size: 'icon' }).tooltip('Close window').accessibility_label('Close window')
+        .child(Button('close-window', t, { variant: 'ghost', size: 'icon' }).accessibility_label('Close window')
           .on_click(() => run('window.close')).child(glyph('close'))));
   }
 
@@ -585,32 +584,31 @@ export default class Devkits extends View {
     const icon = program?.icon ? (program.tint ? svg(program.icon).size(14).text_color(t.muted) : image(program.icon).size(14)) : glyph('terminal');
     return h_flex().size_full().px(12).gap(8).items_center().bg(t.chrome).border_b(1).border_color(t.border)
       .text_size(12).text_color(t.muted).on_click(() => run('pane.focus', { pane: p.pane }))
-      .child(div().flex_none().tooltip(program?.name || 'Terminal').child(icon))
+      .child(div().flex_none().child(icon))
       .child(div().flex_1().min_w(0).truncate().child(p.cwd || ''))
       .when(Boolean(p.status), el => el.child(h_flex().h(22).px(7).gap(5).items_center().rounded(0)
         .border(1).border_color(t.border).text_size(10).text_color(t.muted)
         .child(div().size(5).rounded(3).bg(stateColor(p.status, t)))
         .child(p.status === 'blocked' ? 'Needs you' : `${p.status[0].toUpperCase()}${p.status.slice(1)}`)))
-      .child(Button(`split-right-${p.pane}`, t, { variant: 'ghost', size: 'icon' }).tooltip('Split right').accessibility_label('Split right')
+      .child(Button(`split-right-${p.pane}`, t, { variant: 'ghost', size: 'icon' }).accessibility_label('Split right')
         .on_click(() => run('pane.split', { pane: p.pane, direction: 'right' })).child(glyph('split-right')))
-      .child(Button(`split-down-${p.pane}`, t, { variant: 'ghost', size: 'icon' }).tooltip('Split down').accessibility_label('Split down')
+      .child(Button(`split-down-${p.pane}`, t, { variant: 'ghost', size: 'icon' }).accessibility_label('Split down')
         .on_click(() => run('pane.split', { pane: p.pane, direction: 'down' })).child(glyph('split-down')))
-      .child(Button(`zoom-${p.pane}`, t, { variant: 'ghost', size: 'icon' }).tooltip(p.zoomed ? 'Restore pane' : 'Zoom pane')
+      .child(Button(`zoom-${p.pane}`, t, { variant: 'ghost', size: 'icon' })
         .accessibility_label(p.zoomed ? 'Restore pane' : 'Zoom pane').on_click(() => run('pane.zoom', { pane: p.pane })).child(glyph('square')))
-      .child(Button(`close-${p.pane}`, t, { variant: 'ghost', size: 'icon' }).tooltip('Close pane').accessibility_label('Close pane')
+      .child(Button(`close-${p.pane}`, t, { variant: 'ghost', size: 'icon' }).accessibility_label('Close pane')
         .on_click(() => run('pane.close', { pane: p.pane })).child(glyph('close')));
   }
 
   statusBar(t) {
     const space = this.projects().find(s => s.active);
     return h_flex().size_full().pl(16).pr(4).gap(8).items_center().bg(t.background).border_t(1).border_color(t.border)
-      .text_size(11).text_color(t.muted).child(glyph('terminal', 12)).child(space?.machine || 'Local workspace')
+      .text_size(11).text_color(t.muted).child(glyph('terminal', 12)).child(space?.machine || 'Local project')
       .when(Boolean(space?.branch), el => el.child(glyph('branch', 12)).child(space.branch))
       .child(div().flex_1())
       .when(Boolean(space), el => el.child(Button('open-files', t, { variant: 'ghost', size: 'icon' })
         .h_full().rounded(0)
         .bg(shared('devkits.files') === space.id ? t.selected : t.background)
-        .tooltip(shared('devkits.files') === space.id ? 'Hide files' : 'Show files')
         .accessibility_label(shared('devkits.files') === space.id ? 'Hide files' : 'Show files')
         .on_click(() => setShared('devkits.files', shared('devkits.files') === space.id ? null : space.id))
         .child(glyph('folder'))));
@@ -637,7 +635,7 @@ export default class Devkits extends View {
           .text_color(stateColor(thread.status, t)).accessibility_label(thread.status)))
       .child(Button(`close-thread-${thread.tab.id}`, t, { variant: 'ghost', size: 'icon-sm' })
         .opacity(isFocused || this.hovered === thread.tab.id ? 1 : 0)
-        .tooltip('Close thread').accessibility_label('Close thread')
+        .accessibility_label('Close thread')
         .on_click((_event, cx) => { cx.stop_propagation(); run('tab.close', { id: thread.tab.id }); })
         .child(glyph('close', 12)));
   }
@@ -703,7 +701,7 @@ export default class Devkits extends View {
         .children(groups.map(({ space, threads }) => v_flex().gap(1)
           .child(SidebarGroupLabel(`project-${space.id}`, space.active, t)
             .on_hover((hovered, cx) => { this.hoveredProject = hovered ? space.id : null; cx.notify(); })
-            .tooltip(space.folder).on_click((event, cx) => {
+            .on_click((event, cx) => {
               const modifier = window()?.platform === 'macos' ? event?.modifiers?.platform : event?.modifiers?.control;
               if (modifier) this.selectProject(space);
               else { this.folded.has(space.id) ? this.folded.delete(space.id) : this.folded.add(space.id); cx.notify(); }
@@ -714,18 +712,18 @@ export default class Devkits extends View {
             .when(Boolean(space.machine), el => el.child(div().text_size(9).text_color(t.muted).child(space.machine)))
             .child(div().flex_1())
             .child(DropdownMenuTrigger(Button(`new-thread-${space.id}`, t, { variant: 'ghost', size: 'icon' })
-              .tooltip(`Add session in ${space.name}`).accessibility_label(`Add session in ${space.name}`), 280,
+              .accessibility_label(`Add session in ${space.name}`), 280,
               (cx, at) => this.newThread(cx, space.id, at), 'end')
               .child(glyph('plus')).opacity(this.hoveredProject === space.id ? 1 : 0))
             .child(DropdownMenuTrigger(Button(`project-menu-${space.id}`, t, { variant: 'ghost', size: 'icon' })
-              .tooltip(`More actions for ${space.name}`).accessibility_label(`More actions for ${space.name}`), 200,
+              .accessibility_label(`More actions for ${space.name}`), 200,
               (_cx, at) => openOverlay({ mod: 'devkits', kind: 'popup', frame: 'none', width: 200, at,
                 props: { view: 'project-menu', project: space } }), 'end')
               .child(glyph('ellipsis')).opacity(this.hoveredProject === space.id ? 1 : 0)))
           .when(!this.folded.has(space.id), el => el.children(threads.map(thread => this.threadRow(thread, t)))
             .when(!threads.length, el => el.child(div().px(12).py(6).text_size(12).text_color(t.muted).child('No threads yet')))))))
       .child(SidebarFooter(t)
-        .child(Button('settings', t, { variant: 'ghost', size: 'icon' }).tooltip('Settings').accessibility_label('Settings')
+        .child(Button('settings', t, { variant: 'ghost', size: 'icon' }).accessibility_label('Settings')
           .h_full().rounded(0)
           .on_click(() => run('app.settings')).child(glyph('settings')))
         .child(div().flex_1()));
