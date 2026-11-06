@@ -1,5 +1,5 @@
 import { div, svg } from 'gpui-kit';
-import { h_flex, Select as NativeSelect, Popup as NativePopup } from 'gpui-base';
+import { h_flex, v_flex, Select as NativeSelect, Popup as NativePopup } from 'gpui-base';
 import { DropdownMenuContent, DropdownMenuItem } from './dropdown-menu.js';
 
 export class SelectState {
@@ -11,17 +11,18 @@ export class SelectState {
   }
 }
 
-export function SelectTrigger(id, color, t) {
-  return h_flex().id(id).w(144).h(32).px(12).gap(8).items_center().justify_between().flex_none()
+export function SelectTrigger(id, color, t, width = 144) {
+  return h_flex().id(id).w(width).h(32).px(12).gap(8).items_center().justify_between().flex_none()
     .rounded(0).border_b(1).border_color(color).text_size(12).text_color(color)
     .hover(el => el.bg(t.hover)).cursor_pointer();
 }
 
-export function Select(id, state, value, options, label, onChange, t) {
+// Label fields above their triggers so the setting name stays separate from the chosen value.
+export function Select(id, state, value, options, label, onChange, t, { width = 144, prefix } = {}) {
   const selected = options.find(option => option.key === value) || options[0];
   const close = cx => { state.open = false; state.trigger.focus(); cx.notify(); };
   const choose = (option, cx) => { cx.stop_propagation(); onChange(option.key, cx); close(cx); };
-  const trigger = SelectTrigger(id, selected.color, t)
+  const trigger = SelectTrigger(id, selected.color, t, width)
     .on_mouse_down('left', (_event, cx) => { cx.stop_propagation(); state.trigger.focus(); })
     .on_click((_event, cx) => {
       cx.stop_propagation();
@@ -30,8 +31,9 @@ export function Select(id, state, value, options, label, onChange, t) {
       if (state.open) state.list.focus(); else state.trigger.focus();
       cx.notify();
     })
-    .child(selected.label).child(svg('mods/devkits/assets/icons/chevron-down.svg').size(12));
-  const list = DropdownMenuContent(`${id}-options`, undefined, t).w(168).mt(4)
+    .child(div().flex_1().min_w(0).truncate().child(selected.label))
+    .child(svg('mods/devkits/assets/icons/chevron-down.svg').size(12).flex_none());
+  const list = DropdownMenuContent(`${id}-options`, undefined, t).w(Math.max(168, width)).mt(4)
     .role('list_box').track_focus(state.list).accessibility_label(label)
     .on_mouse_down_out((_event, cx) => { cx.stop_propagation(); close(cx); })
     .on_key_down((event, cx) => {
@@ -53,11 +55,14 @@ export function Select(id, state, value, options, label, onChange, t) {
       .child(div().size(14).flex_none().when(selected.key === option.key, el => el
         .child(svg('mods/devkits/assets/icons/check.svg').size(14))))
       .child(option.label)));
-  return NativeSelect.new(`${id}-select`).open(state.open).accessibility_label(`${label}: ${selected.label}`)
+  const control = NativeSelect.new(`${id}-select`).open(state.open).accessibility_label(`${label}: ${selected.label}`)
     .track_focus(state.trigger).content_focus_handle(state.list)
     .on_open_change((open, cx) => {
       state.open = open; state.index = options.indexOf(selected); cx.notify();
     })
     .child(NativePopup.new(`${id}-popup`, trigger).anchor('top_left')
       .when(state.open, el => el.content(list)));
+  return prefix ? v_flex().w(width).flex_none().gap(4)
+    .child(div().text_size(11).text_color(t.muted).child(prefix))
+    .child(control) : control;
 }
