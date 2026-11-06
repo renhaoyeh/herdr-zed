@@ -20,6 +20,9 @@ const wide = /[\u1100-\u115f\u2329\u232a\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\
 export function wrapLine(line, columns) {
   if (!line) return [];
   columns = Math.max(2, columns);
+  // Most lines already fit. Avoid walking every character (and running Unicode
+  // expressions for each) inside the native renderer's script budget.
+  if (line.text.length * 2 <= columns || (line.text.length <= columns && !wide.test(line.text))) return [line];
   const parts = [];
   let start = 0, offset = 0, used = 0, boundary = 0, hasText = false;
   for (const char of line.text) {
@@ -189,14 +192,21 @@ export function changedRanges(before, after) {
 }
 
 /** A hunk's lines as side-by-side pairs: deletions beside the additions that replace them. */
-export function pairLines(lines) {
+export function pairLines(lines, limit = Infinity) {
   const pairs = [];
-  for (let i = 0; i < lines.length;) {
+  for (let i = 0; i < lines.length && pairs.length < limit;) {
     if (lines[i].type === 'ctx') { pairs.push({ left: lines[i], right: lines[i] }); i++; continue; }
-    const dels = [], adds = [];
-    while (lines[i]?.type === 'del') dels.push(lines[i++]);
-    while (lines[i]?.type === 'add') adds.push(lines[i++]);
-    for (let n = 0; n < Math.max(dels.length, adds.length); n++) pairs.push({ left: dels[n] || null, right: adds[n] || null });
+    // Locate replacements without allocating arrays for the entire change block.
+    // Only materialize pairs that can fit in the multibuffer's remaining rows.
+    const deleted = i;
+    while (lines[i]?.type === 'del') i++;
+    const added = i, remaining = limit - pairs.length;
+    while (i - added < remaining && lines[i]?.type === 'add') i++;
+    const count = Math.min(remaining, Math.max(added - deleted, i - added));
+    for (let n = 0; n < count; n++) pairs.push({
+      left: n < added - deleted ? lines[deleted + n] : null,
+      right: n < i - added ? lines[added + n] : null,
+    });
   }
   return pairs;
 }
@@ -266,6 +276,8 @@ export default class DiffViewer {
   }
 
   close() {
+    this.rowTask?.cancel(); this.rowTask = null; this.rowJob = null;
+    this.visibleRows = null; this.pendingReveal = null;
     this.toastTimer?.cancel(); this.toastTimer = null; this.toastVisible = false;
     this.output?.release(); this.output = null;
     this.watcher?.cancel(); this.poll?.cancel(); this.queued?.cancel();
@@ -531,9 +543,10 @@ export default class DiffViewer {
   reveal(path, cx) {
     this.output?.release(); this.output = null;
     this.selected = path;
+    this.pendingReveal = path;
     if (this.collapsed.delete(path)) this.rowCache = null;
-    const index = this.rows().rows.findIndex(row => row.key === `file:${path}`);
-    if (index >= 0) this.scroll.scroll_to_item(index, 'top');
+    const index = this.rows(cx).rows.findIndex(row => row.key === `file:${path}`);
+    if (index >= 0 && !this.rowJob) { this.scroll.scroll_to_item(index, 'top'); this.pendingReveal = null; }
     cx.notify();
   }
 
@@ -607,46 +620,89 @@ export default class DiffViewer {
     cx.notify();
   }
 
-  /** Fixed-height visual rows keep native scrolling and file jumps exact after wrapping. */
-  rows() {
-    const split = this.split;
-    if (this.rowCache?.split === split && this.rowCache.width === this.width && this.rowCache.charWidth === this.charWidth) return this.rowCache;
-    const widest = Math.max(1, ...this.displayFiles.flatMap(file => file.hunks.map(hunk => hunk.lines.at(-1) ? Math.max(hunk.lines.at(-1).old || 0, hunk.lines.at(-1).new || 0) : 0)));
+  rows(cx) {
+    const options = { files: this.displayFiles, split: this.split, width: this.width, charWidth: this.charWidth,
+      collapsed: [...this.collapsed].join('\0') };
+    const matches = value => value && Object.keys(options).every(key => value[key] === options[key]);
+    if (matches(this.rowCache)) return this.rowCache;
+    if (!cx?.spawn || !options.files.length) {
+      const builder = this.buildRows(options);
+      let next;
+      do { next = builder.next(); } while (!next.done);
+      return this.rowCache = next.value;
+    }
+    if (!matches(this.rowJob)) {
+      this.rowTask?.cancel();
+      const job = this.rowJob = options;
+      const builder = this.buildRows(options);
+      this.rowTask = cx.spawn(async cx => {
+        // Leave render before doing any work, then give each small batch a fresh
+        // native script budget. Never publish rows from an obsolete build.
+        for (;;) {
+          await cx.sleep(0);
+          if (this.rowJob !== job) return;
+          const next = builder.next();
+          if (!next.done) continue;
+          this.rowCache = this.visibleRows = next.value;
+          this.rowTask = null; this.rowJob = null;
+          const index = next.value.rows.findIndex(row => row.key === `file:${this.pendingReveal}`);
+          if (index >= 0) this.scroll.scroll_to_item(index, 'top');
+          this.pendingReveal = null;
+          cx.notify();
+          return;
+        }
+      });
+    }
+    return this.visibleRows || { rows: [], sizes: [], gutter: 32, limited: false };
+  }
+
+  /** Fixed-height visual rows, built in bounded batches outside native render. */
+  *buildRows(options) {
+    const { files, split, width, charWidth } = options, collapsed = new Set(options.collapsed.split('\0'));
+    const widest = Math.max(1, ...files.flatMap(file => file.hunks.map(hunk => hunk.lines.at(-1) ? Math.max(hunk.lines.at(-1).old || 0, hunk.lines.at(-1).new || 0) : 0)));
     const gutter = String(widest).length * 8 + 24;
-    const cellWidth = split ? (this.width - 1) / 2 : this.width;
-    const columns = this.width ? Math.max(2, Math.floor((cellWidth - gutter - 24) / (this.charWidth || 13))) : Infinity;
+    const cellWidth = split ? (width - 1) / 2 : width;
+    const columns = width ? Math.max(2, Math.floor((cellWidth - gutter - 24) / (charWidth || 13))) : Infinity;
     const rows = [], sizes = [];
     const add = (row, size) => {
       if (rows.length >= MAX_ROWS) { limited = true; return false; }
       rows.push(row); sizes.push(size); return true;
     };
     let limited = false;
-    files: for (const [index, file] of this.displayFiles.entries()) {
+    files: for (const [index, file] of files.entries()) {
+      yield;
       if (rows.length >= MAX_ROWS) { limited = true; break; }
       add({ key: `file:${file.path}`, kind: 'file', file, first: index === 0 }, index === 0 ? HEADER : HEADER + GAP);
-      if (this.collapsed.has(file.path)) continue;
+      if (collapsed.has(file.path)) continue;
       if (file.binary || !file.hunks.length) add({ key: `note:${file.path}`, kind: 'note', text: file.binary ? 'Binary file' : 'No content changes' }, HEADER);
       for (const [h, hunk] of file.hunks.entries()) {
         if (h) add({ key: `gap:${file.path}:${h}`, kind: 'separator' }, SEPARATOR);
-        const pairs = pairLines(hunk.lines);
-        for (const pair of pairs) if (pair.left?.type === 'del' && pair.right?.type === 'add' && !pair.left.marks) {
-          [pair.left.marks, pair.right.marks] = changedRanges(pair.left.text, pair.right.text);
+        // One extra pair lets the row builder detect truncation in Split too.
+        const pairs = pairLines(hunk.lines, MAX_ROWS - rows.length + 1);
+        yield;
+        for (const [n, pair] of pairs.entries()) {
+          if (n % 16 === 0) yield;
+          if (pair.left?.type === 'del' && pair.right?.type === 'add' && !pair.left.marks) {
+            [pair.left.marks, pair.right.marks] = changedRanges(pair.left.text, pair.right.text);
+          }
         }
         if (split) {
           for (const [n, pair] of pairs.entries()) {
+            if (n % 4 === 0) yield;
             const left = wrapLine(pair.left, columns), right = wrapLine(pair.right, columns);
             for (let part = 0; part < Math.max(left.length, right.length); part++) {
               if (!add({ key: `pair:${file.path}:${h}:${n}:${part}`, kind: 'pair', left: left[part], right: right[part] }, LINE)) break files;
             }
           }
         } else for (const [n, line] of hunk.lines.entries()) {
+          if (n % 4 === 0) yield;
           for (const [part, wrapped] of wrapLine(line, columns).entries()) {
             if (!add({ key: `line:${file.path}:${h}:${n}:${part}`, kind: 'line', line: wrapped }, LINE)) break files;
           }
         }
       }
     }
-    return this.rowCache = { split, width: this.width, charWidth: this.charWidth, rows, sizes, limited, gutter };
+    return { ...options, rows, sizes, limited, gutter };
   }
 
   text(line, color, t) {
@@ -702,7 +758,7 @@ export default class DiffViewer {
   render(project, cx) {
     if (this.context?.id !== project?.id || this.context?.folder !== project?.folder || this.context?.machine !== project?.machine) this.refresh(project, cx);
     this.nativeBranch = project?.branch || null;
-    const t = theme(), mono = settings().font_family, { rows, sizes, limited, gutter } = this.rows(), split = this.split;
+    const t = theme(), mono = settings().font_family, { rows, sizes, limited, gutter } = this.rows(cx), split = this.split;
     const preview = this.commitPreview;
     const choice = (id, label, value) => Button(id, t, { variant: 'ghost' }).h(24).px(8)
       .when(split === (value === 'split'), el => el.bg(t.selected).text_color(t.foreground))
@@ -744,7 +800,7 @@ export default class DiffViewer {
               .on_item_click((key, cx) => { if (key.startsWith('file:')) this.toggle(key.slice(5), cx); }))
             .child(Scrollbar.vertical('diff-rows').absolute().inset_0())
           : Empty(t).flex_1().p(24).gap(4).font_family('Geist')
-            .child(EmptyDescription(t).text_size(13).child(preview ? 'No file changes in this commit' : this.error ? 'Changes unavailable' : this.loaded ? 'No uncommitted changes' : 'Loading changes…'))
+            .child(EmptyDescription(t).text_size(13).child(this.rowJob ? 'Loading changes…' : preview ? 'No file changes in this commit' : this.error ? 'Changes unavailable' : this.loaded ? 'No uncommitted changes' : 'Loading changes…'))
             .when(!preview && Boolean(this.error), el => el.child(EmptyDescription(t).child(this.error)))))
       .when(this.toastVisible, el => el.child(this.resultToast(t)));
   }

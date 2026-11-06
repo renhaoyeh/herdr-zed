@@ -457,6 +457,34 @@ test('split pairs deletions beside their replacements and marks only similar cha
   assert.deepEqual(changedRanges('alpha', 'omega zulu'), [null, null]);
 });
 
+test('large hunks bound pairing by the remaining display rows', async () => {
+  let layout;
+  const { pairLines, DiffViewer } = await load({ shared: () => layout });
+  const del = { type: 'del', old: 1, text: 'old' }, add = { type: 'add', new: 1, text: 'new' };
+  let reads = 0;
+  const lines = new Proxy(Array(1000000).fill(add), {
+    get(target, key) { if (/^\d+$/.test(String(key))) reads++; return target[key]; },
+  });
+  assert.deepEqual(pairLines(lines, 2), [{ left: null, right: add }, { left: null, right: add }]);
+  assert.ok(reads < 20, 'Pairing must not traverse a million additions to display two rows');
+  assert.deepEqual(pairLines([del, del, del, add, add, add], 2),
+    [{ left: del, right: add }, { left: del, right: add }]);
+  assert.deepEqual(pairLines([del, add], 0), []);
+
+  // A preceding file can exhaust almost all of the shared multibuffer budget.
+  const view = new DiffViewer(); view.collapsed = new Set();
+  view.files = [
+    { path: 'first', hunks: [{ lines: Array(19997).fill({ type: 'ctx', text: '' }) }] },
+    { path: 'large', hunks: [{ lines }] },
+  ];
+  for (layout of ['unified', 'split']) {
+    reads = 0; view.rowCache = null;
+    assert.equal(view.rows().rows.length, 20000);
+    assert.equal(view.rows().limited, true);
+    assert.ok(reads < 20, 'Rows must pass the remaining budget into pairing');
+  }
+});
+
 test('soft wrapping preserves source text, Unicode, whitespace, line numbers and highlight offsets', async () => {
   const { wrapLine } = await load();
   const text = '    const 中文 = "' + 'a'.repeat(80) + ' old word";  ';
@@ -471,6 +499,51 @@ test('soft wrapping preserves source text, Unicode, whitespace, line numbers and
   assert.deepEqual(wrapLine({ text: ' aaaaaaaaa中' }, 10).map(part => part.text), [' aaaaaaaaa', '中']);
   assert.deepEqual(wrapLine({ text: '' }, 10).map(part => part.text), ['']);
   assert.deepEqual(wrapLine(null, 10), []);
+});
+
+test('native row builds yield, preserve the last frame and discard obsolete work', async () => {
+  const { DiffViewer } = await load();
+  const tasks = [], waits = [], scrolled = [];
+  let notifications = 0;
+  const cx = {
+    notify() { notifications++; },
+    sleep() { return new Promise(resolve => waits.push(resolve)); },
+    spawn(fn) { tasks.push(fn(cx)); return { cancel() {} }; },
+  };
+  const view = new DiffViewer();
+  view.collapsed = new Set(); view.width = 200; view.charWidth = 8;
+  view.scroll = { scroll_to_item: (...args) => scrolled.push(args) };
+  view.files = [{ path: 'a', hunks: [{ lines: Array.from({ length: 100 }, (_, i) =>
+    ({ type: 'ctx', old: i + 1, new: i + 1, text: 'a long source line '.repeat(20) })) }] }];
+  assert.equal(view.rows(cx).rows.length, 0);
+  assert.equal(tasks.length, 1);
+  assert.equal(view.rowCache, undefined, 'Render must not synchronously build rows');
+  view.rows(cx);
+  assert.equal(tasks.length, 1, 'Renders share the pending build');
+  const drain = async () => {
+    let batches = 0;
+    while (waits.length) {
+      waits.shift()(); await Promise.resolve();
+      assert.ok(++batches < 1000);
+    }
+    await Promise.all(tasks.splice(0));
+    return batches;
+  };
+  assert.ok(await drain() > 10, 'Large builds must yield between batches');
+  const first = view.rows(cx);
+  assert.ok(first.rows.length > 100);
+  assert.equal(notifications, 1);
+  view.width = 500;
+  assert.equal(view.rows(cx), first, 'Keep the last completed frame during a resize');
+  const obsolete = view.rowJob;
+  view.width = 800;
+  view.rows(cx);
+  assert.notEqual(view.rowJob, obsolete);
+  view.pendingReveal = 'a';
+  await drain();
+  assert.equal(view.rowCache.width, 800);
+  assert.equal(notifications, 2, 'Obsolete builds must not publish a frame');
+  assert.deepEqual(scrolled, [[0, 'top']]);
 });
 
 test('wrapping follows viewport width and font metrics, aligns split rows and keeps file jumps exact', async () => {
