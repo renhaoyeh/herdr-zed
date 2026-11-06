@@ -4,6 +4,7 @@ import { agents, spaces, panes, theme, run, props, window, openOverlay, closeOve
 import { projectGroups, projectCatalog, folderKey, launcherChoices, isAccountLauncher, permissionModes, launcherArgv, quotaResetLabel, resolveThreadProfiles, threadProfile } from './model.js';
 import AccountLogin, { accountLabel, ensureClaudeStatusLine, removeAccountProfile, renameAccountProfile } from './account-login.js';
 import FileViewer from './files.js';
+import DiffViewer from './diff.js';
 import AsanaTasks, { taskPrompt } from './asana.js';
 import { DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from './components/dropdown-menu.js';
 import { Button } from './components/button.js';
@@ -15,6 +16,8 @@ import { AlertDialogContent, AlertDialogTitle, AlertDialogDescription, AlertDial
 import { Sidebar, SidebarContent, SidebarGroup, SidebarGroupLabel, SidebarMenuButton, SidebarFooter } from './components/sidebar.js';
 
 const glyph = (name, size = 14) => svg(`mods/devkits/assets/icons/${name}.svg`).size(size).flex_none();
+// Files and Changes replace the terminals for one project; selecting anything else returns to them.
+const hidePanels = () => { setShared('devkits.files', null); setShared('devkits.diff', null); };
 const stateColor = (status, t) => t[status] || t.muted;
 const launcherSections = ['Terminal', 'Agents', 'Your accounts'];
 const agentLoads = new Map();
@@ -52,6 +55,11 @@ export default class Devkits extends View {
     if (props()?.view === 'files') {
       this.files = new FileViewer();
       this.files.init(cx);
+      return;
+    }
+    if (props()?.view === 'diff') {
+      this.diff = new DiffViewer();
+      this.diff.init(cx);
       return;
     }
     if (props()?.view === 'account-login') {
@@ -99,7 +107,7 @@ export default class Devkits extends View {
         if (!saved.some(path => folderKey(path) === folderKey(folder))) setShared('devkits.projects', [...saved, folder]);
         const project = this.projects().find(p => !p.machine && folderKey(p.folder) === folderKey(folder));
         if (project.pending) {
-          setShared('devkits.files', null);
+          hidePanels();
           setShared('devkits.selected-project', null);
           run('layout.select', { stack: 'workspace-view', child: 'main' });
           run('space.new', { name: project.name, folder, machine: '', tab: '__devkits_default_terminal__' });
@@ -125,7 +133,7 @@ export default class Devkits extends View {
   }
 
   selectProject(project) {
-    setShared('devkits.files', null);
+    hidePanels();
     setShared('devkits.selected-project', project.id);
     if (!project.pending) run('space.select', { id: project.id });
     run('layout.select', { stack: 'workspace-view', child: project.pending ? 'project-empty' : 'main' });
@@ -300,7 +308,7 @@ export default class Devkits extends View {
     // Commands do not return the new tab, so the sidebar matches it once it appears.
     if (agent) setShared('devkits.pending-profiles', [...(shared('devkits.pending-profiles') || []), { key: agent.key,
       space: target.space || null, folder: target.folder, before: spaces().flatMap(space => space.tabs.map(tab => tab.id)), at: Date.now() }]);
-    setShared('devkits.files', null);
+    hidePanels();
     setShared('devkits.selected-project', null);
     run('layout.select', { stack: 'workspace-view', child: 'main' });
     if (target.space) run('tab.new', { space: target.space, folder: target.folder, ...(agent ? { name, argv } : {}) });
@@ -323,6 +331,7 @@ export default class Devkits extends View {
 
   async close() {
     this.files?.close();
+    this.diff?.close();
     await this.login?.close();
   }
 
@@ -766,12 +775,19 @@ export default class Devkits extends View {
       .text_size(11).text_color(t.muted).child(glyph('terminal', 12)).child(space?.machine || 'Local project')
       .when(Boolean(space?.branch), el => el.child(glyph('branch', 12)).child(space.branch))
       .child(div().flex_1())
-      .when(Boolean(space), el => el.child(Button('open-files', t, { variant: 'ghost', size: 'icon' })
-        .h_full().rounded(0)
-        .bg(shared('devkits.files') === space.id ? t.selected : t.background)
-        .accessibility_label(shared('devkits.files') === space.id ? 'Hide files' : 'Show files')
-        .on_click(() => setShared('devkits.files', shared('devkits.files') === space.id ? null : space.id))
-        .child(glyph('folder'))));
+      .when(Boolean(space), el => el
+        .child(Button('open-diff', t, { variant: 'ghost', size: 'icon' })
+          .h_full().rounded(0)
+          .bg(shared('devkits.diff') === space.id ? t.selected : t.background)
+          .accessibility_label(shared('devkits.diff') === space.id ? 'Hide changes' : 'Show changes')
+          .on_click(() => { const open = shared('devkits.diff') !== space.id; hidePanels(); if (open) setShared('devkits.diff', space.id); })
+          .child(glyph('git-compare')))
+        .child(Button('open-files', t, { variant: 'ghost', size: 'icon' })
+          .h_full().rounded(0)
+          .bg(shared('devkits.files') === space.id ? t.selected : t.background)
+          .accessibility_label(shared('devkits.files') === space.id ? 'Hide files' : 'Show files')
+          .on_click(() => { const open = shared('devkits.files') !== space.id; hidePanels(); if (open) setShared('devkits.files', space.id); })
+          .child(glyph('folder'))));
   }
 
   threadRow(thread, t) {
@@ -804,6 +820,7 @@ export default class Devkits extends View {
     const t = theme();
     if (props()?.view === 'codex-permissions') return div();
     if (props()?.view === 'files') return this.files.render(this.projects().find(project => project.active), cx);
+    if (props()?.view === 'diff') return this.diff.render(this.projects().find(project => project.active), cx);
     if (props()?.view === 'account-login') return this.login.render();
     if (props()?.view === 'header') return this.header(t);
     if (props()?.view === 'usage-details') return this.usageDetails(t);
@@ -828,7 +845,7 @@ export default class Devkits extends View {
     const selection = `${active?.id || ''}:${active?.tabs.find(tab => tab.active)?.id || ''}`;
     if (shared('devkits.native-selection') !== selection) {
       if (shared('devkits.native-selection') !== undefined) {
-        setShared('devkits.files', null);
+        hidePanels();
         setShared('devkits.selected-project', null);
         run('layout.select', { stack: 'workspace-view', child: 'main' });
       }
@@ -840,7 +857,7 @@ export default class Devkits extends View {
     const defaultSelected = selectedTab && (selectedTab.id === shared('devkits.default-terminals')?.[chosen.id]
       || selectedTab.name === '__devkits_default_terminal__')
       && !all.some(agent => agent.space === chosen.id && agent.tab === selectedTab.id);
-    const content = chosen && shared('devkits.files') === chosen.id ? 'files' : chosen?.pending || defaultSelected ? 'project-empty' : 'main';
+    const content = chosen && shared('devkits.files') === chosen.id ? 'files' : chosen && shared('devkits.diff') === chosen.id ? 'diff' : chosen?.pending || defaultSelected ? 'project-empty' : 'main';
     if (this.shownContent !== content) {
       this.shownContent = content;
       run('layout.select', { stack: 'workspace-view', child: content });
