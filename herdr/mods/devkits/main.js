@@ -11,7 +11,7 @@ import { Select, SelectState } from './components/select.js';
 import { Progress } from './components/progress.js';
 import { DialogContent, DialogTitle, DialogDescription, DialogFooter } from './components/dialog.js';
 import { AlertDialogContent, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from './components/alert-dialog.js';
-import { Sidebar, SidebarContent, SidebarGroupLabel, SidebarMenuButton, SidebarFooter } from './components/sidebar.js';
+import { Sidebar, SidebarContent, SidebarGroup, SidebarGroupLabel, SidebarMenuButton, SidebarFooter } from './components/sidebar.js';
 
 const glyph = (name, size = 14) => svg(`mods/devkits/assets/icons/${name}.svg`).size(size).flex_none();
 const stateColor = (status, t) => t[status] || t.muted;
@@ -581,23 +581,16 @@ export default class Devkits extends View {
     const p = panes().find(p => p.pane === props()?.pane);
     if (!p) return div();
     const program = p.program;
+    const thread = projectGroups(spaces(), agents()).flatMap(group => group.threads).find(thread => thread.tab.id === p.tab);
     const icon = program?.icon ? (program.tint ? svg(program.icon).size(14).text_color(t.muted) : image(program.icon).size(14)) : glyph('terminal');
     return h_flex().size_full().px(12).gap(8).items_center().bg(t.chrome).border_b(1).border_color(t.border)
       .text_size(12).text_color(t.muted).on_click(() => run('pane.focus', { pane: p.pane }))
       .child(div().flex_none().child(icon))
-      .child(div().flex_1().min_w(0).truncate().child(p.cwd || ''))
+      .child(div().flex_1().min_w(0).truncate().text_color(t.foreground).child(thread?.title || p.title || 'Terminal'))
       .when(Boolean(p.status), el => el.child(h_flex().h(22).px(7).gap(5).items_center().rounded(0)
         .border(1).border_color(t.border).text_size(10).text_color(t.muted)
         .child(div().size(5).rounded(3).bg(stateColor(p.status, t)))
-        .child(p.status === 'blocked' ? 'Needs you' : `${p.status[0].toUpperCase()}${p.status.slice(1)}`)))
-      .child(Button(`split-right-${p.pane}`, t, { variant: 'ghost', size: 'icon' }).accessibility_label('Split right')
-        .on_click(() => run('pane.split', { pane: p.pane, direction: 'right' })).child(glyph('split-right')))
-      .child(Button(`split-down-${p.pane}`, t, { variant: 'ghost', size: 'icon' }).accessibility_label('Split down')
-        .on_click(() => run('pane.split', { pane: p.pane, direction: 'down' })).child(glyph('split-down')))
-      .child(Button(`zoom-${p.pane}`, t, { variant: 'ghost', size: 'icon' })
-        .accessibility_label(p.zoomed ? 'Restore pane' : 'Zoom pane').on_click(() => run('pane.zoom', { pane: p.pane })).child(glyph('square')))
-      .child(Button(`close-${p.pane}`, t, { variant: 'ghost', size: 'icon' }).accessibility_label('Close pane')
-        .on_click(() => run('pane.close', { pane: p.pane })).child(glyph('close')));
+        .child(p.status === 'blocked' ? 'Needs you' : `${p.status[0].toUpperCase()}${p.status.slice(1)}`)));
   }
 
   statusBar(t) {
@@ -698,7 +691,7 @@ export default class Devkits extends View {
     setAgentOrder(visible.map(a => a.address));
     return Sidebar(t)
       .child(SidebarContent()
-        .children(groups.map(({ space, threads }) => v_flex().gap(1)
+        .children(groups.map(({ space, threads }, index) => SidebarGroup(index > 0, t)
           .child(SidebarGroupLabel(`project-${space.id}`, space.active, t)
             .on_hover((hovered, cx) => { this.hoveredProject = hovered ? space.id : null; cx.notify(); })
             .on_click((event, cx) => {
