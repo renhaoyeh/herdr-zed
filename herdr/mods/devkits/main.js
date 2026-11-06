@@ -60,6 +60,7 @@ export default class Devkits extends View {
     if (!props()?.view && cx) {
       // Shared values survive restarts; discover once for this app session.
       setShared('devkits.agent-cache', {});
+      setShared('devkits.plugin-syncs', {});
       this.refreshUsage(cx);
       const activeMachine = this.projects().find(project => project.active)?.machine || null;
       for (const machine of new Set([null, ...spaces().map(space => space.machine || null)])) {
@@ -466,6 +467,8 @@ export default class Devkits extends View {
     catch (error) { notify({ title: 'Could not start session', body: error.message, level: 'error' }); return; }
     if (isAccountLauncher(agent) && sessionKind(agent) === 'codex' && !spaces().find(space => space.id === target.space)?.machine) {
       const directory = codexHome(agent, home());
+      const syncing = shared('devkits.plugin-syncs') || {};
+      setShared('devkits.plugin-syncs', { ...syncing, [directory]: (syncing[directory] || 0) + 1 });
       try {
         if (!pluginSyncs.has(directory)) pluginSyncs.set(directory, exec('node', [
           `${appHome()}/mods/devkits/plugin-sync.js`, `${home()}/.codex`, directory,
@@ -474,7 +477,13 @@ export default class Devkits extends View {
         if (result.code !== 0) throw new Error(result.stderr?.trim() || 'Could not synchronize global plugins.');
       } catch (error) {
         notify({ title: 'Plugin sync failed', body: `${error.message}\nThe session will start with the profile's existing plugins.`, level: 'error' });
-      } finally { pluginSyncs.delete(directory); }
+      } finally {
+        pluginSyncs.delete(directory);
+        const syncing = { ...(shared('devkits.plugin-syncs') || {}) };
+        if (syncing[directory] > 1) syncing[directory]--;
+        else delete syncing[directory];
+        setShared('devkits.plugin-syncs', syncing);
+      }
     }
     if (task) argv = [...argv, taskPrompt(task)];
     const name = task?.name || agent?.name;
@@ -962,6 +971,11 @@ export default class Devkits extends View {
     return h_flex().size_full().pl(16).pr(4).gap(8).items_center().bg(t.background).border_t(1).border_color(t.border)
       .text_size(11).text_color(t.muted).child(glyph('terminal', 12)).child(space?.machine || 'Local project')
       .when(Boolean(space?.branch), el => el.child(glyph('branch', 12)).child(space.branch))
+      .when(Object.keys(shared('devkits.plugin-syncs') || {}).length > 0, el => el
+        .child(h_flex().id('plugin-sync-progress').min_w(0).gap(6).items_center().text_color(t.muted)
+          .accessibility_label('Syncing plugins')
+          .child(glyph('loader', 12).spin(900))
+          .child(div().min_w(0).truncate().child('Syncing plugins…'))))
       .child(div().flex_1())
       .when(Boolean(space), el => el
         .child(Button('open-diff', t, { variant: 'ghost', size: 'icon' })
