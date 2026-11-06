@@ -9,7 +9,8 @@ import { execFile } from 'node:child_process';
 async function load(host = {}) {
   const source = await readFile(new URL('../mods/devkits/diff.js', import.meta.url), 'utf8');
   const menu = await readFile(new URL('../mods/devkits/components/dropdown-menu.js', import.meta.url), 'utf8');
-  return new Function(...Object.keys(host), (menu + '\n' + source).replace(/^import .*;\n/gm, '')
+  const history = await readFile(new URL('../mods/devkits/git-history.js', import.meta.url), 'utf8');
+  return new Function(...Object.keys(host), (menu + '\n' + history + '\n' + source).replace(/^import .*;\n/gm, '')
     .replace('export default class', 'class').replace(/^export /gm, '') + '\nreturn { DiffViewer, DropdownMenu, DropdownMenuState, parseDiff, readDiff, readPushState, pushBranch, gitRemoteAction, affectsDiff, pairLines, changedRanges, changeSections, changeTree, wrapLine };')(...Object.values(host));
 }
 const run = promisify(execFile);
@@ -28,13 +29,14 @@ test('push reads clean, unborn and detached branches and respects Git push confi
     catch (error) { return { code: error.code, stdout: error.stdout, stderr: error.stderr }; }
   } });
   const path = repo.replaceAll('\\', '/');
-  assert.deepEqual(await readPushState(path, 'machine'), { branch: 'main', committed: false, remote: false, remotes: [], upstream: 'none', pushRemote: null, ahead: null, behind: null });
+  assert.deepEqual(await readPushState(path, 'machine'), { branch: 'main', committed: false, remote: false, remotes: [], upstream: 'none', pushRemote: null, ahead: null, behind: null, revision: null });
   await git('-C', repo, 'remote', 'add', 'origin', origin);
   await git('-C', repo, 'remote', 'add', 'target', target);
   await writeFile(join(repo, 'a.txt'), 'first\n');
   await git('-C', repo, 'add', '.');
   await git('-C', repo, 'commit', '-qm', 'initial');
-  assert.deepEqual(await readPushState(path, 'machine'), { branch: 'main', committed: true, remote: true, remotes: ['origin', 'target'], upstream: 'none', pushRemote: 'origin', ahead: null, behind: null });
+  const { stdout: initial } = await git('-C', repo, 'rev-parse', 'HEAD');
+  assert.deepEqual(await readPushState(path, 'machine'), { branch: 'main', committed: true, remote: true, remotes: ['origin', 'target'], upstream: 'none', pushRemote: 'origin', ahead: null, behind: null, revision: initial.trim() });
   await git('-C', repo, 'config', 'push.default', 'simple');
   await git('-C', repo, 'config', 'push.autoSetupRemote', 'false');
   await assert.rejects(pushBranch(path, 'machine'), /no upstream branch/);
@@ -81,7 +83,7 @@ test('push reads clean, unborn and detached branches and respects Git push confi
   const { stdout: local } = await git('-C', repo, 'rev-parse', 'HEAD');
   assert.equal(forced, local);
   await git('-C', repo, 'checkout', '-q', '--detach');
-  assert.deepEqual(await readPushState(path, 'machine'), { branch: null, committed: true, remote: true, remotes: ['origin', 'target'], upstream: 'none', pushRemote: 'target', ahead: null, behind: null });
+  assert.deepEqual(await readPushState(path, 'machine'), { branch: null, committed: true, remote: true, remotes: ['origin', 'target'], upstream: 'none', pushRemote: 'target', ahead: null, behind: null, revision: local.trim() });
   await assert.rejects(readPushState(folder.replaceAll('\\', '/'), 'machine'), /Git branch|git repository/);
 });
 
@@ -200,9 +202,12 @@ test('split button menu exposes Git operations, counts and keyboard navigation w
     VirtualListScrollHandle: { new: () => ({}) } });
   const cx = { notify() {}, stop_propagation() {}, focus_handle: () => ({ focus() {} }) };
   const view = new DiffViewer(); view.init(cx);
-  view.context = { id: 'project', folder: '/project' };
+  view.context = { id: 'project', folder: '/project', branch: 'native/main' };
   view.render(view.context, cx);
   assert.ok(painted.includes('Loading changes…'));
+  assert.ok(painted.includes('native/main'), 'Native branch is shown before the Git reads finish');
+  view.render({ ...view.context, branch: 'native/next' }, cx);
+  assert.ok(painted.includes('native/next'), 'Branch follows the same live project data as the status bar');
   assert.ok(!painted.includes('Loading branch…'));
   assert.equal(nodes.get('diff-git-footer').children.length, 1);
   view.loaded = true;
@@ -349,6 +354,24 @@ test('rows form one multibuffer in unified or split layout, collapsing per file'
   assert.ok(affectsDiff('/src/a.js'));
   assert.ok(affectsDiff('/.git/refs/heads/main') && affectsDiff('/.git/HEAD'));
   assert.ok(!affectsDiff('/.git/index') && !affectsDiff('/.git/objects/ab/cd'));
+});
+
+test('History previews reuse the diff renderer without replacing working changes', async () => {
+  const { DiffViewer, parseDiff } = await load({ shared: () => undefined,
+    VirtualListScrollHandle: { new: () => ({ scroll_to_item() {} }) } });
+  const view = new DiffViewer(); view.init();
+  const patch = name => [`diff --git a/${name} b/${name}`, `--- a/${name}`, `+++ b/${name}`, '@@ -1 +1 @@', '-old', '+new'].join('\n');
+  const working = view.files = parseDiff(patch('working.txt'));
+  assert.equal(view.rows().rows[0].file.path, 'working.txt');
+  const files = view.history.parsePreview(patch('committed.txt'));
+  view.history.preview = { commit: { sha: 'a'.repeat(40) }, files };
+  const cx = { notify() {} };
+  view.setPanelTab('history', cx);
+  assert.equal(view.rows().rows[0].file.path, 'committed.txt');
+  assert.equal(view.files, working);
+  view.setPanelTab('changes', cx);
+  assert.equal(view.rows().rows[0].file.path, 'working.txt');
+  assert.equal(view.history.preview.files, files);
 });
 
 test('split pairs deletions beside their replacements and marks only similar changed words', async () => {
