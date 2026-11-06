@@ -1,6 +1,7 @@
 import { div, svg } from 'gpui-kit';
 import { h_flex, v_flex, Editor, EditorState, TextView } from 'gpui-base';
 import { exec, readTextFile, watchFolder, settings, theme, window, props, openOverlay, closeOverlay, notify, shared, setShared } from 'herdr';
+import { execShell } from './shell.js';
 import { Button } from './components/button.js';
 import { TreeItem, TreeItemIcon, TreeItemLabel, GitStatusColor } from './components/tree.js';
 import { Empty, EmptyTitle, EmptyDescription } from './components/empty.js';
@@ -17,7 +18,7 @@ const openDocument = path => ({ path, code: null, markdown: null, error: null, l
 export async function directory(path, on) {
   // Paths are positional arguments; filenames never become shell code.
   const script = 'test -r "$1" && test -x "$1" && test -d "$1" || exit 1; n=0; for p in "$1"/* "$1"/.[!.]* "$1"/..?*; do name=${p##*/}; [ "$name" = .git ] && continue; if [ -d "$p" ]; then kind=d; elif [ -f "$p" ]; then kind=f; else continue; fi; printf "%s\\0%s\\0" "$kind" "$name"; n=$((n+1)); [ "$n" -gt 500 ] && break; done; exit 0';
-  const result = await exec('sh', ['-c', script, 'devkits-files', path], { on });
+  const result = await execShell(['-c', script, 'devkits-files', path], { on });
   if (result.code !== 0) throw new Error(result.stderr || 'Cannot read this folder.');
   const fields = result.stdout.split('\0'), entries = [];
   for (let i = 0; i + 1 < fields.length; i += 2) entries.push({ name: fields[i + 1], dir: fields[i] === 'd' });
@@ -56,7 +57,7 @@ export function parseStatus(stdout) {
 }
 
 export async function gitStatus(folder, on) {
-  const result = await exec('sh', ['-c', STATUS_SCRIPT, 'devkits-status', folder], { on });
+  const result = await execShell(['-c', STATUS_SCRIPT, 'devkits-status', folder], { on });
   return parseStatus(result.code === 0 ? result.stdout : '');
 }
 

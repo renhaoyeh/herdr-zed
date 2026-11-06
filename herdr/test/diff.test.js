@@ -12,7 +12,8 @@ async function load(host = {}) {
   const menu = await readFile(new URL('../mods/devkits/components/dropdown-menu.js', import.meta.url), 'utf8');
   const history = await readFile(new URL('../mods/devkits/git-history.js', import.meta.url), 'utf8');
   const auth = await readFile(new URL('../mods/devkits/git-auth.js', import.meta.url), 'utf8');
-  return new Function(...Object.keys(host), (menu + '\n' + history + '\n' + auth + '\n' + source).replace(/^import .*;\n/gm, '')
+  const shell = await readFile(new URL('../mods/devkits/shell.js', import.meta.url), 'utf8');
+  return new Function(...Object.keys(host), (shell + '\n' + menu + '\n' + history + '\n' + auth + '\n' + source).replace(/^import .*;\r?\n/gm, '')
     .replace('export default class', 'class').replace(/^export /gm, '') + '\nreturn { DiffViewer, DropdownMenu, DropdownMenuState, parseDiff, readDiff, readPushState, pushBranch, gitRemoteAction, affectsDiff, pairLines, changedRanges, changeSections, changeTree, wrapLine, isLockFile };')(...Object.values(host));
 }
 const run = promisify(execFile);
@@ -63,7 +64,7 @@ test('push reads clean, unborn and detached branches and respects Git push confi
   const { readPushState, pushBranch, gitRemoteAction } = await load({ exec: async (cmd, args, options) => {
     assert.equal(options.on, 'machine');
     try { const { stdout, stderr } = await run(cmd, args); return { code: 0, stdout, stderr }; }
-    catch (error) { return { code: error.code, stdout: error.stdout, stderr: error.stderr }; }
+    catch (error) { if (typeof error.code !== 'number') throw error; return { code: error.code, stdout: error.stdout, stderr: error.stderr }; }
   } });
   const path = repo.replaceAll('\\', '/');
   assert.deepEqual(await readPushState(path, 'machine'), { branch: 'main', committed: false, remote: false, remotes: [], upstream: 'none', pushRemote: null, ahead: null, behind: null, revision: null });
@@ -165,7 +166,7 @@ test('Zed remote actions publish, fetch every remote, pull before push and repub
     VirtualListScrollHandle: { new: () => ({}) }, notify() {},
     exec: async (cmd, args) => {
       try { const { stdout, stderr } = await run(cmd, args); return { code: 0, stdout, stderr }; }
-      catch (error) { return { code: error.code, stdout: error.stdout, stderr: error.stderr }; }
+      catch (error) { if (typeof error.code !== 'number') throw error; return { code: error.code, stdout: error.stdout, stderr: error.stderr }; }
     },
   });
   const tasks = [], cx = { notify() {}, timer: { after: () => ({ cancel() {} }) }, spawn(fn) { tasks.push(fn(cx)); } };
@@ -440,7 +441,7 @@ test('reads tracked, untracked, renamed and deleted changes against HEAD in one 
   const { readDiff } = await load({ exec: async (cmd, args, options) => {
     assert.equal(options.on, 'box');
     try { const { stdout, stderr } = await run(cmd, args); return { code: 0, stdout, stderr }; }
-    catch (error) { return { code: error.code, stdout: error.stdout, stderr: error.stderr }; }
+    catch (error) { if (typeof error.code !== 'number') throw error; return { code: error.code, stdout: error.stdout, stderr: error.stderr }; }
   } });
   const shellFolder = process.platform === 'win32' ? folder.replaceAll('\\', '/') : folder;
   const { files, truncated } = await readDiff(shellFolder, 'box');

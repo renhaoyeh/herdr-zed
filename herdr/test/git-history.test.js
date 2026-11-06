@@ -9,7 +9,8 @@ import { execFile } from 'node:child_process';
 const run = promisify(execFile);
 async function load(host = {}) {
   const source = await readFile(new URL('../mods/devkits/git-history.js', import.meta.url), 'utf8');
-  return new Function(...Object.keys(host), source.replace(/^import .*;\n/gm, '').replace(/^export /gm, '')
+  const shell = await readFile(new URL('../mods/devkits/shell.js', import.meta.url), 'utf8');
+  return new Function(...Object.keys(host), (shell + '\n' + source).replace(/^import .*;\r?\n/gm, '').replace(/^export /gm, '')
     + '\nreturn { CommitHistory, parseCommitHistory, readCommitHistory, readCommitPatch, commitAge };')(...Object.values(host));
 }
 const record = (sha, subject) => [sha, sha.slice(0, 7), '作者 Name', '1700000000', `${subject}\n\nBody | $(literal)\n`].join('\0') + '\0';
@@ -26,7 +27,7 @@ test('history pages are anchored to a revision and previews handle root and merg
   const { readCommitHistory, readCommitPatch } = await load({ exec: async (cmd, args, options) => {
     assert.equal(options.on, 'box');
     try { const { stdout, stderr } = await run(cmd, args, { maxBuffer: 8 * 1024 * 1024 }); return { code: 0, stdout, stderr }; }
-    catch (error) { return { code: error.code, stdout: error.stdout, stderr: error.stderr }; }
+    catch (error) { if (typeof error.code !== 'number') throw error; return { code: error.code, stdout: error.stdout, stderr: error.stderr }; }
   } });
   await git('init', '-q', '-b', 'main', repo);
   assert.deepEqual(await readCommitHistory(path, 'box'), { revision: null, entries: [], hasMore: false });

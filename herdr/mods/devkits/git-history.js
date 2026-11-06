@@ -1,6 +1,7 @@
 import { div } from 'gpui-kit';
 import { v_flex, h_flex, v_virtual_list, Scrollbar, VirtualListScrollHandle } from 'gpui-base';
 import { exec } from 'herdr';
+import { execShell } from './shell.js';
 import { Button } from './components/button.js';
 
 const PAGE = 50, LIMIT = 4000000;
@@ -22,7 +23,7 @@ export function parseCommitHistory(text) {
 export async function readCommitHistory(folder, on, revision = null, skip = 0) {
   if (revision !== null && !validSha(revision)) throw new Error('Invalid history revision.');
   if (!Number.isSafeInteger(skip) || skip < 0) throw new Error('Invalid history offset.');
-  const result = await exec('sh', ['-c', 'cd "$1" || exit 2; '
+  const result = await execShell(['-c', 'cd "$1" || exit 2; '
     + 'git rev-parse --git-dir >/dev/null 2>&1 || { echo "Not a Git repository." >&2; exit 3; }; '
     + 'revision=$(git rev-parse --verify -q "${2:-HEAD}") || exit 0; '
     + 'printf "%s\\0" "$revision"; '

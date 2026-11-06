@@ -14,7 +14,8 @@ async function load(host = {}) {
     memory[key] = JSON.parse(JSON.stringify(value));
   }, ...host };
   const source = await readFile(new URL('../mods/devkits/files.js', import.meta.url), 'utf8');
-  return new Function(...Object.keys(host), source.replace(/^import .*;\n/gm, '')
+  const shell = await readFile(new URL('../mods/devkits/shell.js', import.meta.url), 'utf8');
+  return new Function(...Object.keys(host), (shell + '\n' + source).replace(/^import .*;\r?\n/gm, '')
     .replace('export default class', 'class').replace(/^export /gm, '') + '\nreturn { FileViewer, FileMenu, fullPath, revealPath, directory, parseStatus, gitStatus };')(...Object.values(host));
 }
 const project = { id: 'project', folder: '/project', machine: 'server' };

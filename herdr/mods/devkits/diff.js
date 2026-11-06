@@ -1,6 +1,7 @@
 import { div, svg } from 'gpui-kit';
 import { h_flex, v_flex, v_virtual_list, Scrollbar, VirtualListScrollHandle, Editor, EditorState } from 'gpui-base';
-import { exec, watchFolder, settings, theme, shared, setShared, notify } from 'herdr';
+import { watchFolder, settings, theme, shared, setShared, notify } from 'herdr';
+import { execShell } from './shell.js';
 import { Button } from './components/button.js';
 import { DropdownMenu, DropdownMenuState } from './components/dropdown-menu.js';
 import { TreeItem, TreeItemIcon, TreeItemLabel, GitStatusColor } from './components/tree.js';
@@ -119,7 +120,7 @@ export function parseDiff(text) {
 }
 
 export async function readDiffText(folder, on) {
-  const result = await exec('sh', ['-c', SCRIPT, 'devkits-diff', folder], { on });
+  const result = await execShell(['-c', SCRIPT, 'devkits-diff', folder], { on });
   if (result.code !== 0) throw new Error(result.stderr.trim() || 'Cannot read changes.');
   return result.stdout;
 }
@@ -131,7 +132,7 @@ export async function readDiff(folder, on) {
 
 /** Read only refs and configuration; this must also work in a clean or unborn repository. */
 export async function readPushState(folder, on) {
-  const result = await exec('sh', ['-c', 'cd "$1" || exit 2; '
+  const result = await execShell(['-c', 'cd "$1" || exit 2; '
     + 'git rev-parse --git-dir >/dev/null 2>&1 || exit 3; '
     + 'branch=$(git symbolic-ref --quiet --short HEAD); commit=$(git rev-parse --verify -q HEAD); '
     + 'counts=$(git rev-list --left-right --count "HEAD...@{upstream}" 2>/dev/null); '
@@ -171,7 +172,7 @@ export async function gitRemoteAction(folder, on, action, remote, account) {
   const script = 'cd "$1" || exit 2; shift; '
     + (publish ? 'branch=$(git symbolic-ref --quiet --short HEAD) || exit 3; set -- "$@" "HEAD:refs/heads/$branch"; ' : '')
     + 'GIT_TERMINAL_PROMPT=0 GCM_INTERACTIVE=never git "$@"';
-  const result = await exec('sh', ['-c', script,
+  const result = await execShell(['-c', script,
     'devkits-git', folder, ...gitAuthArgs(account), ...args], { on });
   if (result.code !== 0) throw new Error(result.stderr.trim() || result.stdout.trim() || `${operation.label} failed.`);
 }
