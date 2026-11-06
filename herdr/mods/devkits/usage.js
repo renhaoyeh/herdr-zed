@@ -16,7 +16,7 @@ const usageProvider = agent => !Array.isArray(agent?.run) ? null
       ? 'claude' : null;
 const claudeDirectory = agent => agent.run.find(arg => arg.startsWith('CLAUDE_CONFIG_DIR='))?.slice(18) || `${home()}/.claude`;
 
-// The sidebar's Agent profiles quota meters and their details dialog. Mixed into the Devkits view, which provides
+// The sidebar's usage meters and their details dialog. Mixed into the Devkits view, which provides
 // projects and cachedAgents.
 export const agentUsage = {
   refreshUsage(cx, force = true, manual = false) {
@@ -117,7 +117,7 @@ export const agentUsage = {
     return v_flex().id('account-usage').w_full().flex_none().h_auto().min_h(0)
       .border_t(1).border_color(t.border)
       .child(h_flex().h(32).flex_none().pl(12).items_center()
-        .child(div().flex_1().text_size(11).font_medium().text_color(t.muted).child('AGENT PROFILES'))
+        .child(div().flex_1().text_size(11).font_medium().text_color(t.muted).child('USAGE'))
         .child(Button('refresh-agent-profiles', t, { variant: 'ghost', size: 'icon' }).h_full().w(32)
           .accessibility_label('Refresh agent profiles').disabled(Boolean(this.usageLoading))
           .on_click((_, cx) => this.refreshUsage(cx, true, true)).child(glyph('refresh-cw')))
