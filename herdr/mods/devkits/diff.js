@@ -635,6 +635,13 @@ export default class DiffViewer {
   }
 
   get split() { return shared('devkits.diff-layout') === 'split'; }
+  get wrap() { return shared('devkits.diff-wrap') !== false; }
+
+  toggleWrap(cx) {
+    setShared('devkits.diff-wrap', !this.wrap);
+    this.rowCache = null;
+    cx.notify();
+  }
 
   setLayout(layout, cx) {
     setShared('devkits.diff-layout', layout);
@@ -643,7 +650,7 @@ export default class DiffViewer {
   }
 
   rows(cx) {
-    const options = { files: this.displayFiles, split: this.split, width: this.width, charWidth: this.charWidth,
+    const options = { files: this.displayFiles, split: this.split, wrap: this.wrap, width: this.width, charWidth: this.charWidth,
       collapsed: [...this.collapsed].join('\0') };
     const matches = value => value && Object.keys(options).every(key => value[key] === options[key]);
     if (matches(this.rowCache)) return this.rowCache;
@@ -684,7 +691,8 @@ export default class DiffViewer {
     const widest = Math.max(1, ...files.flatMap(file => file.hunks.map(hunk => hunk.lines.at(-1) ? Math.max(hunk.lines.at(-1).old || 0, hunk.lines.at(-1).new || 0) : 0)));
     const gutter = String(widest).length * 8 + 24;
     const cellWidth = split ? (width - 1) / 2 : width;
-    const columns = width ? Math.max(2, Math.floor((cellWidth - gutter - 24) / (charWidth || 13))) : Infinity;
+    const columns = options.wrap !== false && width ? Math.max(2, Math.floor((cellWidth - gutter - 24) / (charWidth || 13))) : Infinity;
+    let textColumns = 0;
     const rows = [], sizes = [];
     const add = (row, size) => {
       if (rows.length >= MAX_ROWS) { limited = true; return false; }
@@ -704,6 +712,11 @@ export default class DiffViewer {
         yield;
         for (const [n, pair] of pairs.entries()) {
           if (n % 16 === 0) yield;
+          if (options.wrap === false) for (const line of [pair.left, pair.right]) {
+            let count = 0;
+            for (const char of line?.text || '') count += zeroWidth.test(char) ? 0 : wide.test(char) ? 2 : 1;
+            textColumns = Math.max(textColumns, count);
+          }
           if (pair.left?.type === 'del' && pair.right?.type === 'add' && !pair.left.marks) {
             [pair.left.marks, pair.right.marks] = changedRanges(pair.left.text, pair.right.text);
           }
@@ -724,7 +737,10 @@ export default class DiffViewer {
         }
       }
     }
-    return { ...options, rows, sizes, limited, gutter };
+    const contentWidth = options.wrap === false
+      ? Math.max(width || 0, (textColumns * (charWidth || 13) + gutter + 24) * (split ? 2 : 1) + (split ? 1 : 0))
+      : width;
+    return { ...options, rows, sizes, limited, gutter, contentWidth };
   }
 
   text(line, color, t) {
@@ -780,7 +796,7 @@ export default class DiffViewer {
   render(project, cx) {
     if (this.context?.id !== project?.id || this.context?.folder !== project?.folder || this.context?.machine !== project?.machine) this.refresh(project, cx);
     this.nativeBranch = project?.branch || null;
-    const t = theme(), mono = settings().font_family, { rows, sizes, limited, gutter } = this.rows(cx), split = this.split;
+    const t = theme(), mono = settings().font_family, { rows, sizes, limited, gutter, contentWidth, wrap } = this.rows(cx), split = this.split;
     const preview = this.commitPreview;
     const choice = (id, label, value) => Button(id, t, { variant: 'ghost' }).h(24).px(8)
       .when(split === (value === 'split'), el => el.bg(t.selected).text_color(t.foreground))
@@ -798,8 +814,9 @@ export default class DiffViewer {
           .child(DropdownMenu('diff-options', this.optionsMenu,
             Button('diff-options-trigger', t, { variant: 'ghost', size: 'icon' }).w(24).h(24)
               .accessibility_label('Diff options').child(icon('ellipsis')),
-            [{ key: 'hide-lock-files', label: 'Hide lock files', checked: this.hideLockFiles }],
-            (_key, cx) => this.toggleLockFiles(cx), t)))
+            [{ key: 'wrap', label: 'Wrap', checked: this.wrap },
+              { key: 'hide-lock-files', label: 'Hide lock files', checked: this.hideLockFiles }],
+            (key, cx) => key === 'wrap' ? this.toggleWrap(cx) : this.toggleLockFiles(cx), t)))
         .when(Boolean(preview), el => el.child(v_flex().flex_none().max_h(160).overflow_y_scrollbar().px(12).py(8).gap(4).border_b(1).border_color(t.border)
           .child(div().text_size(11).text_color(t.muted).child(`${preview.commit.author} · ${new Date(preview.commit.at * 1000).toISOString().replace('T', ' ').replace('.000Z', ' UTC')}`))
           .child(div().text_size(13).child(preview.commit.message))))
@@ -821,10 +838,12 @@ export default class DiffViewer {
                 this.charWidth = width;
                 cx.notify();
               }))
-            .child(v_virtual_list('diff-rows', rows.length, sizes, index => rows[index].key,
+            .child(v_flex().id(wrap === false ? 'diff-horizontal' : 'diff-wrapped').size_full().min_w(0)
+              .when(wrap === false, el => el.overflow_x_scrollbar())
+              .child(v_virtual_list('diff-rows', rows.length, sizes, index => rows[index].key,
               range => rows.slice(range.start, range.end).map(row => this.row(row, t, mono, gutter)))
-              .size_full().track_scroll(this.scroll)
-              .on_item_click((key, cx) => { if (key.startsWith('file:')) this.toggle(key.slice(5), cx); }))
+              .size_full().when(wrap === false, el => el.w(contentWidth).flex_none()).track_scroll(this.scroll)
+              .on_item_click((key, cx) => { if (key.startsWith('file:')) this.toggle(key.slice(5), cx); })))
             .child(Scrollbar.vertical('diff-rows').absolute().inset_0())
           : Empty(t).flex_1().p(24).gap(4).font_family('Geist')
             .child(EmptyDescription(t).text_size(13).child(this.rowJob ? 'Loading changes…' : !this.displayFiles.length && (preview?.files || this.files).length ? 'All changed files are hidden by Hide lock files' : preview ? 'No file changes in this commit' : this.error ? 'Changes unavailable' : this.loaded ? 'No uncommitted changes' : 'Loading changes…'))

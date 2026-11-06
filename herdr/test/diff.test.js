@@ -611,6 +611,42 @@ test('wrapping follows viewport width and font metrics, aligns split rows and ke
   assert.equal(view.rows().limited, true);
 });
 
+test('Wrap preference preserves full lines, highlights and horizontal extent in both diff layouts', async () => {
+  const memory = {};
+  const { DiffViewer, parseDiff } = await load({ shared: key => memory[key],
+    setShared: (key, value) => { memory[key] = value; },
+    VirtualListScrollHandle: { new: () => ({ scroll_to_item() {} }) } });
+  const view = new DiffViewer(); view.init(); view.width = 216; view.charWidth = 8;
+  const old = 'prefix ' + '中'.repeat(60) + ' old', next = 'prefix ' + '中'.repeat(60) + ' new';
+  view.files = parseDiff(['diff --git a/a b/a', '--- a/a', '+++ b/a', '@@ -1 +1 @@', '-' + old, '+' + next].join('\n'));
+  const cx = { notify() {} };
+  assert.equal(view.wrap, true);
+  assert.ok(view.rows().rows.length > 3);
+  view.toggleWrap(cx);
+  assert.equal(memory['devkits.diff-wrap'], false);
+  const unified = view.rows();
+  assert.deepEqual(unified.rows.filter(row => row.kind === 'line').map(row => row.line.text), [old, next]);
+  assert.ok(unified.contentWidth >= (7 + 120 + 4) * 8 + unified.gutter + 24, 'Wide glyphs must be reachable by horizontal scrolling');
+  assert.equal(unified.rows[2].line.new, 1);
+  assert.equal(unified.rows[2].line.text.slice(...unified.rows[2].line.marks), 'new');
+  view.setLayout('split', cx);
+  const split = view.rows();
+  assert.equal(split.rows.length, 2);
+  assert.equal(split.rows[1].left.text, old);
+  assert.equal(split.rows[1].right.text, next);
+  assert.equal(split.contentWidth, unified.contentWidth * 2 + 1);
+  view.width = 4000;
+  assert.equal(view.rows().contentWidth, 4000, 'Short lines must still fill the viewport');
+  view.width = 216;
+  view.panelTab = 'history'; view.history.preview = { files: view.files };
+  assert.equal(view.rows().rows.length, 2);
+  const reopened = new DiffViewer(); reopened.init();
+  assert.equal(reopened.wrap, false);
+  view.toggleWrap(cx);
+  assert.ok(view.rows().rows.length > 2);
+  assert.equal(view.rows().contentWidth, 216);
+});
+
 test('changed files group as Tracked then Untracked, matching the multibuffer, and jump to an expanded header', async () => {
   const scrolled = [];
   const { DiffViewer, parseDiff, changeSections, changeTree } = await load({ shared: () => undefined, setShared() {},
