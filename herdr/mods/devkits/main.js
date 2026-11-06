@@ -1,7 +1,7 @@
 import { View, div, svg, image } from 'gpui-kit';
 import { v_flex, h_flex, InputState, Input } from 'gpui-base';
 import { agents, spaces, panes, theme, run, props, window, openOverlay, closeOverlay, setAgentOrder, layout, settings, pickFolder, shared, setShared, knownAgents, notify, exec, appHome, home, readTextFile } from 'herdr';
-import { projectGroups, projectCatalog, folderKey, launcherChoices, isAccountLauncher, permissionModes, launcherArgv, sessionArgv, quotaResetLabel, quotaElapsedPercent, resolveThreadProfiles, threadProfile } from './model.js';
+import { projectGroups, projectCatalog, folderKey, launcherChoices, isAccountLauncher, permissionModes, launcherArgv, sessionArgv, sessionKind, claudeModels, claudeEfforts, codexHome, codexModels, mergeModels, orderedOptions, moveOption, quotaResetLabel, quotaElapsedPercent, resolveThreadProfiles, threadProfile } from './model.js';
 import AccountLogin, { accountLabel, ensureClaudeStatusLine, removeAccountProfile, renameAccountProfile } from './account-login.js';
 import FileViewer from './files.js';
 import DiffViewer from './diff.js';
@@ -10,6 +10,8 @@ import AsanaPanel, { AsanaProjectPicker, taskPrompt, unsaveTask } from './asana.
 import { DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from './components/dropdown-menu.js';
 import { Button } from './components/button.js';
 import { Checkbox } from './components/checkbox.js';
+import { Switch } from './components/switch.js';
+import { ToggleGroup, ToggleGroupItem } from './components/toggle-group.js';
 import { Select, SelectState } from './components/select.js';
 import { Progress } from './components/progress.js';
 import { DialogContent, DialogTitle, DialogDescription, DialogFooter } from './components/dialog.js';
@@ -112,8 +114,85 @@ export default class Devkits extends View {
       this.handle = cx.focus_handle();
       this.handle.focus();
       this.loadAgents(cx);
+      if (props().view === 'manage-launchers') this.loadCodexModels(cx);
     }
   }
+
+  // Manage lists the models every local Codex profile knows.
+  loadCodexModels(cx) {
+    this.codexModelList = [];
+    cx.spawn(async cx => {
+      try {
+        const agents = await this.cachedAgents(null);
+        const dirs = [...new Set(agents.filter(agent => sessionKind(agent) === 'codex').map(agent => codexHome(agent, home())))];
+        this.codexModelList = mergeModels(await Promise.all(dirs.map(async dir => codexModels(await readTextFile(`${dir}/models_cache.json`) || ''))));
+      } catch {}
+      cx.notify();
+    });
+  }
+
+  // Which models and efforts Asana's session composer offers, like Cursor's model list: one row and switch per model,
+  // and efforts as joined segments as in Claude Code and Codex. Turned-off ones are hidden; Default always stays.
+  sessionOptions(choices, t) {
+    const kinds = ['claude', 'codex'].filter(kind => choices.some(choice => sessionKind(choice.agent) === kind));
+    if (!kinds.length) return [];
+    const saved = shared('devkits.session-options') || {};
+    const shown = (kind, field, key) => !(saved[kind]?.[field] || []).includes(key);
+    const toggle = (kind, field, key) => {
+      const current = shared('devkits.session-options') || {};
+      const hidden = current[kind]?.[field] || [];
+      setShared('devkits.session-options', { ...current, [kind]: { ...current[kind],
+        [field]: hidden.includes(key) ? hidden.filter(item => item !== key) : [...hidden, key] } });
+    };
+    const title = effort => effort === 'xhigh' ? 'XHigh' : effort[0].toUpperCase() + effort.slice(1);
+    return [DropdownMenuLabel(t).id('manage-section-session').mt(12).child('MODELS AND EFFORT'),
+      ...kinds.map(kind => {
+        const models = orderedOptions(kind === 'claude' ? claudeModels : this.codexModelList || [], saved[kind]?.order);
+        const reorder = (key, target) => {
+          const current = shared('devkits.session-options') || {};
+          setShared('devkits.session-options', { ...current, [kind]: { ...current[kind], order: moveOption(models.map(model => model.key), key, target) } });
+        };
+        const dragging = this.modelDrag?.kind === kind;
+        const efforts = kind === 'claude' ? claudeEfforts : [...new Set(models.flatMap(model => model.efforts))];
+        const count = models.filter(model => shown(kind, 'models', model.key)).length;
+        return v_flex().id(`session-options-${kind}`).mx(8).mb(8).flex_none().border(1).border_color(t.border)
+          .child(h_flex().h(36).px(12).gap(8).items_center().border_b(1).border_color(t.border)
+            .child(div().flex_1().text_size(13).font_medium().child(kind === 'claude' ? 'Claude' : 'Codex'))
+            .when(models.length > 0, el => el.child(div().text_size(12).text_color(t.muted).child(`${count} of ${models.length} models`))))
+          .when(!models.length, el => el.child(div().h(36).px(12).flex().items_center().text_size(12).text_color(t.muted).child('Loading models…')))
+          // Drag a model by its handle to set the Model menu's order, as launchers are dragged above.
+          .children(models.map((model, index) => h_flex().id(`session-${kind}-model-${model.key}`).h(36).pl(4).pr(12).gap(8).items_center()
+            .when(index > 0, el => el.border_t(1).border_color(t.border))
+            .opacity(dragging && this.modelDrag.key === model.key ? 0.5 : 1)
+            .bg(dragging && this.modelDrop === model.key && this.modelDrag.key !== model.key ? t.selected : t.popover)
+            .on_mouse_move((_event, cx) => { if (dragging && this.modelDrop !== model.key) { this.modelDrop = model.key; cx.notify(); } })
+            .on_mouse_up('left', (_event, cx) => {
+              if (!dragging) return;
+              reorder(this.modelDrag.key, model.key);
+              this.modelDrag = null; this.modelDrop = null; cx.stop_propagation(); cx.notify();
+            })
+            .child(Button(`drag-session-${kind}-${model.key}`, t, { variant: 'ghost', size: 'icon' }).cursor_grab()
+              .accessibility_label(`Reorder ${model.label}`)
+              .on_mouse_down('left', (_event, cx) => {
+                cx.stop_propagation(); this.handle?.focus();
+                this.modelDrag = { kind, key: model.key }; this.modelDrop = model.key; cx.notify();
+              }).child(glyph('grip-vertical')))
+            .child(div().min_w(0).truncate().text_size(13).text_color(shown(kind, 'models', model.key) ? t.foreground : t.muted).child(model.label))
+            .when(model.label !== model.key, el => el.child(div().flex_none().text_size(12).text_color(t.muted).child(model.key)))
+            .child(div().flex_1())
+            .when(Boolean(model.efforts?.length), el => el.child(div().flex_none().text_size(12).text_color(t.muted)
+              .child(`${title(model.efforts[0])} – ${title(model.efforts.at(-1))}`)))
+            .child(Switch(`session-${kind}-models-${model.key}`, shown(kind, 'models', model.key), t)
+              .accessibility_label(`Show ${model.label}`).on_change((_checked, cx) => { toggle(kind, 'models', model.key); cx.notify(); }))))
+          .when(efforts.length > 0, el => el.child(h_flex().h(44).px(12).gap(12).items_center().border_t(1).border_color(t.border)
+            .child(div().flex_1().text_size(12).text_color(t.muted).child('Effort'))
+            .child(ToggleGroup(`session-${kind}-efforts`, `${kind === 'claude' ? 'Claude' : 'Codex'} efforts`, t)
+              .children(efforts.map((effort, index) => ToggleGroupItem(`session-${kind}-efforts-${effort}`, shown(kind, 'efforts', effort), index === 0, t)
+                .accessibility_label(`Show ${title(effort)} effort`).on_change((_pressed, cx) => { toggle(kind, 'efforts', effort); cx.notify(); })
+                .child(title(effort)))))));
+      })];
+  }
+
 
   openProject(cx) {
     const target = props();
@@ -491,15 +570,15 @@ export default class Devkits extends View {
       cx.notify();
     };
     const cancelDrag = cx => {
-      if (!this.dragKey) return;
-      this.dragKey = null; this.dropKey = null; cx.notify();
+      if (!this.dragKey && !this.modelDrag) return;
+      this.dragKey = null; this.dropKey = null; this.modelDrag = null; this.modelDrop = null; cx.notify();
     };
     return DialogContent('manage-launchers', t).accessibility_label('Manage session menu')
       .on_mouse_up('left', (_event, cx) => cancelDrag(cx))
       .on_hover((inside, cx) => { if (!inside) cancelDrag(cx); })
       .track_focus(this.handle).on_key_down((event, cx) => {
         if (event.key === 'escape') {
-          if (this.dragKey) cancelDrag(cx); else done();
+          if (this.dragKey || this.modelDrag) cancelDrag(cx); else done();
           cx.stop_propagation(); return;
         }
         if (event.modifiers?.alt && ['up', 'down'].includes(event.key)) {
@@ -565,6 +644,7 @@ export default class Devkits extends View {
         .when(local && !this.loading && !this.launchError && !choices.some(choice => choice.group === 2), el => el
           .child(DropdownMenuLabel(t).id('manage-section-2').mt(12).child('YOUR ACCOUNTS'))
           .child(div().px(8).text_size(12).text_color(t.muted).child('No accounts added. Use Add account on the Codex or Claude row.')))
+        .when(local && !this.loading && !this.launchError, el => el.children(this.sessionOptions(choices, t)))
         .when(this.loading, el => el.child(div().p(8).text_size(12).text_color(t.muted).child('Loading agents…')))
         .when(this.launchError, el => el.child(Button('manage-retry-agents', t, { variant: 'outline' })
           .on_click((_event, cx) => this.loadAgents(cx)).child('Could not load agents. Retry'))))

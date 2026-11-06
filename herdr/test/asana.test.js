@@ -1,13 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { claudeModels, claudeEfforts, codexHome, codexModels, isClaudeLauncher, isCodexLauncher, sessionArgv } from '../mods/devkits/model.js';
+import { claudeModels, claudeEfforts, codexHome, codexModels, isClaudeLauncher, isCodexLauncher, sessionArgv, sessionKind, shownOptions, mergeModels, orderedOptions, moveOption } from '../mods/devkits/model.js';
 
 const names = ['AsanaPanel', 'AsanaProjectPicker', 'previewWidthAt', 'avatarColor', 'statusKind', 'initials', 'dueLabel', 'savedTasks', 'unsaveTask', 'searchProjects', 'projectTasksPage', 'myProjectTasks', 'projectWorkspace', 'openSubtasks', 'taskDetails', 'taskComments', 'relativeTime', 'reconcileSaved',
   'filterTasks', 'taskPrompt', 'readAsanaToken', 'saveAsanaToken'];
 async function load(host = {}) {
   const source = await readFile(new URL('../mods/devkits/asana.js', import.meta.url), 'utf8');
-  host = { fetch: () => assert.fail('unexpected request'), Button: () => {}, claudeModels, claudeEfforts, codexHome, codexModels, isClaudeLauncher, isCodexLauncher,
+  host = { fetch: () => assert.fail('unexpected request'), Button: () => {}, claudeModels, claudeEfforts, codexHome, codexModels, isClaudeLauncher, isCodexLauncher, sessionKind, shownOptions, orderedOptions,
     home: () => '/home', Select: () => element(), SelectState: class {}, ...host };
   return new Function(...Object.keys(host), source.replace(/^import .*;\n/gm, '')
     .replace('export default class', 'class').replace(/^export /gm, '')
@@ -357,4 +357,39 @@ test('a thread’s Asana link opens its task in the preview once, for the matchi
   assert.equal(memory['devkits.asana-focus'], null);
   assert.equal(panel.selected, 'a2');
   assert.equal(panel.detail.name, 'Two');
+});
+
+test('hidden models and efforts leave the composer, while new Codex models still appear; caches merge by model', async () => {
+  assert.deepEqual(mergeModels([[{ key: 'a', label: 'A', efforts: ['low'] }], [{ key: 'a', label: 'A', efforts: ['high'] }, { key: 'b', label: 'B', efforts: [] }]]),
+    [{ key: 'a', label: 'A', efforts: ['low', 'high'] }, { key: 'b', label: 'B', efforts: [] }]);
+  assert.deepEqual(shownOptions(['low', 'high'], ['low']), ['high']);
+  const memory = { 'devkits.session-options': { claude: { models: ['haiku'], efforts: ['low', 'max'] }, codex: { models: ['old'] } },
+    'devkits.asana-session': { agent: 'claude', model: 'haiku', effort: 'max' } };
+  const { AsanaPanel } = await load({ ...ui, shared: key => memory[key], setShared: (key, value) => { memory[key] = value; },
+    readTextFile: async () => JSON.stringify({ models: [{ slug: 'old', visibility: 'list' }, { slug: 'new', visibility: 'list', supported_reasoning_levels: [{ effort: 'high' }] }] }) });
+  const panel = new AsanaPanel(); panel.init({ focus_handle: () => ({ focus() {} }) });
+  const agents = [{ key: 'claude', name: 'Claude', run: ['claude'] }, { key: 'codex', name: 'Codex', run: ['codex'] }];
+  const claude = panel.session(agents);
+  assert.deepEqual(claude.models.map(model => model.key), ['fable', 'opus', 'sonnet']);
+  assert.deepEqual(claude.efforts, ['medium', 'high', 'xhigh']);
+  assert.equal(claude.model, null);
+  assert.equal(claude.effort, null);
+  const pending = [];
+  panel.cx = { notify() {}, spawn: task => { pending.push(task(panel.cx)); } };
+  memory['devkits.asana-session'] = { agent: 'codex' };
+  panel.session(agents); await Promise.all(pending);
+  assert.deepEqual(panel.session(agents).models.map(model => model.key), ['new']);
+});
+
+test('models follow the dragged order, new ones keep theirs after it, and the composer lists them that way', async () => {
+  const items = ['a', 'b', 'c', 'd'].map(key => ({ key }));
+  assert.deepEqual(orderedOptions(items, ['c', 'a']).map(item => item.key), ['c', 'a', 'b', 'd']);
+  assert.deepEqual(orderedOptions(items).map(item => item.key), ['a', 'b', 'c', 'd']);
+  assert.deepEqual(moveOption(['a', 'b', 'c'], 'c', 'a'), ['c', 'a', 'b']);
+  assert.deepEqual(moveOption(['a', 'b', 'c'], 'a', 'c'), ['b', 'c', 'a']);
+  assert.deepEqual(moveOption(['a', 'b'], 'x', 'a'), ['a', 'b']);
+  const memory = { 'devkits.session-options': { claude: { order: ['haiku', 'opus'], models: ['sonnet'] } } };
+  const { AsanaPanel } = await load({ ...ui, shared: key => memory[key], setShared: (key, value) => { memory[key] = value; } });
+  const panel = new AsanaPanel(); panel.init({ focus_handle: () => ({ focus() {} }) });
+  assert.deepEqual(panel.session([{ key: 'claude', name: 'Claude', run: ['claude'] }]).models.map(model => model.key), ['haiku', 'opus', 'fable']);
 });
