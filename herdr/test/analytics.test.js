@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile, readFile, mkdir } from 'node:fs/promises';
+import { mkdtemp, writeFile, readFile, mkdir, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseTranscript, scan, compactEvents } from '../mods/devkits/analytics-reader.js';
@@ -80,7 +80,7 @@ test('provider filters survive compaction and apply to costs, daily totals and e
 });
 
 test('projects group transcript subfolders by their nearest Git root, including worktrees', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'analytics-'));
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'analytics-')));
   const project = join(root, 'project'); await mkdir(join(project, 'src'), { recursive: true });
   await writeFile(join(project, '.git'), 'gitdir: unused-reference');
   await mkdir(join(root, 'sessions'));
