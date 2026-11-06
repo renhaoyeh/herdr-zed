@@ -1,26 +1,23 @@
 import { View, div, svg, image } from 'gpui-kit';
-import { v_flex, h_flex, InputState, Input } from 'gpui-base';
-import { agents, spaces, panes, theme, run, props, window, openOverlay, closeOverlay, setAgentOrder, layout, settings, pickFolder, shared, setShared, knownAgents, notify, exec, appHome, home, readTextFile } from 'herdr';
-import { projectGroups, projectCatalog, folderKey, launcherChoices, isAccountLauncher, permissionModes, launcherArgv, sessionArgv, sessionKind, claudeModels, claudeEfforts, codexHome, codexModels, mergeModels, orderedOptions, moveOption, effortLabel, sessionChoices, quotaResetLabel, quotaElapsedPercent, resolveThreadProfiles, threadProfile } from './model.js';
-import AccountLogin, { accountLabel, ensureClaudeStatusLine, removeAccountProfile, renameAccountProfile } from './account-login.js';
+import { v_flex, h_flex } from 'gpui-base';
+import { agents, spaces, panes, theme, run, props, window, openOverlay, closeOverlay, setAgentOrder, layout, settings, pickFolder, shared, setShared, knownAgents, notify, appHome, readTextFile } from 'herdr';
+import { projectGroups, projectCatalog, folderKey, launcherChoices, isAccountLauncher, launcherArgv, sessionArgv, sessionKind, resolveThreadProfiles, threadProfile } from './model.js';
+import AccountLogin from './account-login.js';
 import FileViewer, { FileMenu } from './files.js';
 import DiffViewer from './diff.js';
 import SimulatorPanel, { SimulatorMenu, simulatorShown, toggleSimulator } from './simulator.js';
 import Analytics from './analytics.js';
 import XcodeStorage from './xcode-storage.js';
 import AsanaPanel, { AsanaProjectPicker, taskPrompt, unsaveTask } from './asana.js';
-import { DropdownMenu, DropdownMenuState, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from './components/dropdown-menu.js';
+import { sessionMenu } from './session-menu.js';
+import { accountActions } from './account-actions.js';
+import { agentUsage } from './usage.js';
+import { DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from './components/dropdown-menu.js';
 import { Button } from './components/button.js';
-import { Checkbox } from './components/checkbox.js';
-import { Switch } from './components/switch.js';
-import { ToggleGroup, ToggleGroupItem } from './components/toggle-group.js';
-import { Select, SelectState } from './components/select.js';
-import { Progress } from './components/progress.js';
-import { DialogContent, DialogTitle, DialogDescription, DialogFooter } from './components/dialog.js';
 import { AlertDialogContent, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from './components/alert-dialog.js';
 import { Sidebar, SidebarContent, SidebarGroup, SidebarGroupLabel, SidebarMenuButton, SidebarFooter } from './components/sidebar.js';
+import { glyph } from './components/icon.js';
 
-const glyph = (name, size = 14) => svg(`mods/devkits/assets/icons/${name}.svg`).size(size).flex_none();
 const startingThreads = new Set();
 // Files and Changes replace the terminals for one project; selecting anything else returns to them.
 const hidePanels = () => { setShared('devkits.files', null); setShared('devkits.diff', null); setShared('devkits.asana', null); };
@@ -29,34 +26,11 @@ const rememberPanel = (id, name) => { if (id) setShared('devkits.project-panels'
 const showPanel = (name, id) => { hidePanels(); setShared(`devkits.${name}`, id); rememberPanel(id, name); };
 const restorePanel = id => { const name = shared('devkits.project-panels')?.[id]; if (name) setShared(`devkits.${name}`, id); return Boolean(name); };
 const togglePanel = (name, id) => { if (shared(`devkits.${name}`) === id) { hidePanels(); rememberPanel(id, null); } else showPanel(name, id); };
-const launcherSections = ['Terminal', 'Agents', 'Your accounts'];
 const agentLoads = new Map();
-const usageCacheMs = 5 * 60000;
-const usageProvider = agent => !Array.isArray(agent?.run) ? null
-  : agent.run.some(arg => !arg.includes('=') && /(?:^|[/\\])codex(?:\.exe)?$/i.test(arg)) ? 'codex'
-    // Claude usage comes from the status line Devkits configures: its own accounts and the built-in profile.
-    : agent.key === 'claude' || (agent.key?.startsWith('devkits-claude-') && agent.run.some(arg => arg.startsWith('CLAUDE_CONFIG_DIR=')))
-      ? 'claude' : null;
-const claudeDirectory = agent => agent.run.find(arg => arg.startsWith('CLAUDE_CONFIG_DIR='))?.slice(18) || `${home()}/.claude`;
-const launcherIcon = (agent, t) => !agent ? glyph('terminal', 16) : agent.icon
-  ? (agent.tint ? svg(agent.icon).size(16).text_color(t.foreground) : image(agent.icon).size(16)) : glyph('mark', 16);
 
 export default class Devkits extends View {
   init(_props, cx) {
-    if (props()?.view === 'codex-sharing') {
-      this.handle = cx.focus_handle(); this.handle.focus();
-      this.sharingItems = []; this.sharingLoading = true;
-      cx.spawn(async cx => {
-        try {
-          const result = await exec('node', [`${appHome()}/mods/devkits/codex-sharing.js`, appHome(), props().agent.key, '--list']);
-          const data = JSON.parse(result.stdout);
-          if (result.code !== 0 || data.error) throw new Error(data.error || 'Could not read shared items.');
-          this.sharingItems = data.items;
-        } catch (error) { this.sharingError = error.message; }
-        finally { this.sharingLoading = false; cx.notify(); }
-      });
-      return;
-    }
+    if (props()?.view === 'codex-sharing') { this.initCodexSharing(cx); return; }
     if (props()?.view === 'file-menu') {
       this.fileMenu = new FileMenu(); this.fileMenu.init(cx); return;
     }
@@ -115,12 +89,7 @@ export default class Devkits extends View {
       return;
     }
     this.folded = new Set();
-    if (props()?.view === 'rename-account') {
-      this.renameInput = InputState.new({ placeholder: 'Account name' });
-      this.renameInput.set_value(accountLabel(props().account.name));
-      this.renameInput.on('submit', (_event, cx) => this.saveAccountName(cx));
-      this.renameInput.focus();
-    }
+    if (props()?.view === 'rename-account') this.initRenameAccount();
     this.hovered = null;
     this.hoveredProject = null;
     if (['close-project', 'remove-account', 'rename-account', 'project-menu', 'project-picker', 'usage-details'].includes(props()?.view)) {
@@ -140,220 +109,8 @@ export default class Devkits extends View {
       cx.spawn(async cx => { try { await this.cachedAgents(null); } catch {} cx.notify(); });
       return;
     }
-    if (['launcher', 'manage-launchers'].includes(props()?.view)) {
-      if (props().refreshAgents) setShared('devkits.agent-cache', {});
-      this.launchers = [];
-      this.permissionSelects = new Map();
-      this.manageIndex = 0;
-      this.handle = cx.focus_handle();
-      this.handle.focus();
-      this.loadAgents(cx);
-      if (props().view === 'manage-launchers') this.loadCodexModels(cx);
-    }
+    if (['launcher', 'manage-launchers'].includes(props()?.view)) this.initSessionMenu(cx);
   }
-
-  openCodexSharing(agent) {
-    const target = props(); closeOverlay(target.overlay);
-    openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: false, width: 640, height: 0.7,
-      props: { view: 'codex-sharing', agent, space: target.space } });
-  }
-
-  finishCodexSharing() {
-    const target = props(); closeOverlay(target.overlay);
-    openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: false, width: 680, height: 0.8,
-      props: { view: 'manage-launchers', space: target.space } });
-  }
-
-  sharingDialog(t) {
-    const agent = props().agent;
-    const available = this.sharingItems.filter(item => !item.unavailable);
-    const selected = available.filter(item => item.selected).length;
-    return DialogContent('codex-sharing', t).track_focus(this.handle)
-      .on_key_down((event, cx) => { if (event.key === 'escape' && !this.sharingBusy) { cx.stop_propagation(); this.finishCodexSharing(); } })
-      .child(DialogTitle().child('Shared plugins and skills'))
-      .child(DialogDescription(t).child(`Choose what ${accountLabel(agent.name)} shares from ~/.codex. Uncheck an item to stop sharing it.`))
-      .child(v_flex().id('sharing-table').flex_1().min_h(0).border(1).border_color(t.border)
-        .child(h_flex().id('sharing-table-header').h(32).px(8).gap(8).items_center().flex_none()
-          .border_b(1).border_color(t.border).text_size(11).text_color(t.muted)
-          .child(Checkbox('share-all', available.length > 0 && selected === available.length, t).w(16).flex_none()
-          .disabled(Boolean(this.sharingBusy) || this.sharingLoading || !available.length).accessibility_label('Select all plugins and skills')
-          .on_change((checked, cx) => {
-            for (const item of available) item.selected = checked;
-            cx.notify();
-          }))
-          .child(div().flex_1().min_w(0).child('NAME'))
-          .child(div().w(140).flex_none().child('SOURCE'))
-          .child(div().w(108).flex_none().child('STATUS')))
-      .child(v_flex().flex_1().min_h(0).overflow_y_scroll()
-        .when(this.sharingLoading, el => el.child(div().p(8).text_size(13).text_color(t.muted).child('Checking shared settings…')))
-        .children(['plugins', 'skills'].flatMap(kind => {
-          const items = this.sharingItems.filter(item => item.kind === kind);
-          return items.length ? [DropdownMenuLabel(t).h(28).px(8).bg(t.hover).child(kind.toUpperCase()), ...items.map((item, index) =>
-            Checkbox(`share-${kind}-${index}`, item.selected, t).h(36).px(8).flex_none().border_b(1).border_color(t.border)
-              .disabled(Boolean(this.sharingBusy) || Boolean(item.unavailable))
-              .accessibility_label(`${item.label}${item.detail ? `, ${item.detail}` : ''}`)
-              .on_change((checked, cx) => { item.selected = checked; cx.notify(); })
-              .child(div().flex_1().min_w(0).truncate().text_size(13).child(item.label))
-              .child(div().w(140).flex_none().truncate().text_size(12).text_color(t.muted).child(item.detail || '~/.codex/skills'))
-              .child(div().w(108).flex_none().text_size(12)
-                .text_color(item.status === 'synced' ? t.done : item.status === 'conflict' ? t.ansi1 : t.muted)
-                .child(({ synced: 'Synced', pending: 'Update needed', conflict: 'Conflict', 'not-shared': 'Not shared', 'source-missing': 'Source missing' })[item.status] || '—')))] : [];
-        }))
-        .when(!this.sharingLoading && !this.sharingError && !this.sharingItems.length, el => el.child(div().p(8).text_size(13).text_color(t.muted).child('No local plugins or custom skills in ~/.codex.')))))
-      .child(div().text_size(12).text_color(t.muted).child('Personal skills in ~/.agents/skills are already shared. Remote plugins are managed per account in /plugins.'))
-      .when(Boolean(this.sharingError), el => el.child(div().text_size(12).text_color(t.ansi1).child(this.sharingError)))
-      .child(DialogFooter()
-        .child(Button('sharing-cancel', t, { variant: 'secondary' }).disabled(Boolean(this.sharingBusy)).on_click(() => this.finishCodexSharing()).child('Cancel'))
-        .child(Button('sharing-apply', t).disabled(Boolean(this.sharingBusy) || this.sharingLoading || Boolean(this.sharingError && !this.sharingItems.length))
-          .on_click((_event, cx) => this.syncCodexSettings(agent, cx)).child(this.sharingBusy ? 'Syncing…' : `Sync ${selected} items`)));
-  }
-
-  // Only the selection dialog's explicit action runs synchronization.
-  syncCodexSettings(agent, cx) {
-    if (this.sharingBusy) return;
-    this.sharingBusy = agent.key;
-    this.sharingError = null;
-    const selection = { plugins: [], skills: [] };
-    for (const item of this.sharingItems) if (item.selected && !item.unavailable) selection[item.kind].push(item.key);
-    cx.notify();
-    cx.spawn(async cx => {
-      try {
-        const result = await exec('node', [`${appHome()}/mods/devkits/codex-sharing.js`, appHome(), agent.key, JSON.stringify(selection)]);
-        let data;
-        try { data = JSON.parse(result.stdout); } catch { throw new Error('Could not synchronize settings. Check that Node.js and Codex CLI are installed.'); }
-        if (result.code !== 0 || data.error) throw new Error(data.error || 'Could not synchronize settings.');
-        notify({ title: 'Shared settings updated', body: data.message });
-        this.finishCodexSharing();
-      } catch (error) { this.sharingError = error.message; }
-      finally { this.sharingBusy = null; cx.notify(); }
-    });
-  }
-
-  // Manage lists the models every local Codex profile knows.
-  loadCodexModels(cx) {
-    this.codexModelList = [];
-    this.codexModelsByHome = new Map();
-    cx.spawn(async cx => {
-      try {
-        const agents = await this.cachedAgents(null);
-        const dirs = [...new Set(agents.filter(agent => sessionKind(agent) === 'codex').map(agent => codexHome(agent, home())))];
-        const lists = await Promise.all(dirs.map(async dir => [dir, codexModels(await readTextFile(`${dir}/models_cache.json`) || '')]));
-        this.codexModelsByHome = new Map(lists);
-        this.codexModelList = mergeModels(lists.map(([, models]) => models));
-      } catch {}
-      cx.notify();
-    });
-  }
-
-  // A profile's settings line under its name: default permissions and, for local profiles, the model and effort
-  // every new session starts with. Default adds no flag and leaves the profile's own Claude Code or Codex configuration.
-  profileSettings(agent, local, t) {
-    const key = agent.key, kind = sessionKind(agent);
-    const colors = [t.muted, t.done, t.working, t.ansi1];
-    // Labels sit above bordered selects whose left edges line up with the profile name.
-    const line = h_flex().id(`profile-settings-${key}`).pl(92).pr(8).pb(12).gap(8).items_center()
-      .child(Select(`permissions-${key}`, this.permissionSelects.get(key), shared('devkits.codex-permissions')?.[key] || 'default',
-        permissionModes(agent).map((mode, index) => ({ ...mode, color: colors[index] })), `Default permissions for ${agent.name}`, mode => {
-          const saved = { ...(shared('devkits.codex-permissions') || {}) };
-          if (mode === 'default') delete saved[key]; else saved[key] = mode;
-          setShared('devkits.codex-permissions', saved);
-        }, t, { width: 168, prefix: 'Permissions', boxed: true }));
-    const selects = this.sessionSelects?.get(key);
-    if (!local || !kind || !selects) return line;
-    const settings = shared('devkits.session-options')?.[kind] || {};
-    const stored = shared('devkits.profile-sessions')?.[key] || {};
-    const saved = { model: settings.models?.includes(stored.model) ? null : stored.model,
-      effort: settings.efforts?.includes(stored.effort) ? null : stored.effort };
-    const codexList = this.codexModelsByHome?.get(codexHome(agent, home())) || this.codexModelList;
-    const { models, efforts } = sessionChoices(kind, codexList, settings, saved.model);
-    const set = change => setShared('devkits.profile-sessions', { ...(shared('devkits.profile-sessions') || {}),
-      [key]: { model: saved.model || null, effort: saved.effort || null, ...change } });
-    const option = (value, label) => ({ key: value, label, color: value === 'default' ? t.muted : t.foreground });
-    return line
-      .child(Select(`profile-model-${key}`, selects.model, models.some(item => item.key === saved.model) ? saved.model : 'default',
-        [option('default', 'Default'), ...models.map(item => option(item.key, item.label))], `Default model for ${agent.name}`,
-        value => {
-          const model = value === 'default' ? null : value;
-          const supported = sessionChoices(kind, codexList, settings, model).efforts;
-          set({ model, effort: supported.includes(saved.effort) ? saved.effort : null });
-        }, t, { width: 168, prefix: 'Model', boxed: true }))
-      .child(Select(`profile-effort-${key}`, selects.effort, efforts.includes(saved.effort) ? saved.effort : 'default',
-        [option('default', 'Default'), ...efforts.map(item => option(item, effortLabel(item)))], `Default effort for ${agent.name}`,
-        value => set({ effort: value === 'default' ? null : value }), t, { width: 168, prefix: 'Effort', boxed: true }));
-  }
-
-
-  // Which models and efforts Asana's session composer offers, like Cursor's model list: one row and switch per model,
-  // and efforts as joined segments as in Claude Code and Codex. Turned-off ones are hidden; Default always stays.
-  sessionOptions(choices, t) {
-    const kinds = ['claude', 'codex'].filter(kind => choices.some(choice => sessionKind(choice.agent) === kind));
-    if (!kinds.length) return [];
-    const saved = shared('devkits.session-options') || {};
-    const shown = (kind, field, key) => !(saved[kind]?.[field] || []).includes(key);
-    const toggle = (kind, field, key) => {
-      const current = shared('devkits.session-options') || {};
-      const hidden = current[kind]?.[field] || [];
-      setShared('devkits.session-options', { ...current, [kind]: { ...current[kind],
-        [field]: hidden.includes(key) ? hidden.filter(item => item !== key) : [...hidden, key] } });
-      if (!hidden.includes(key)) {
-        const profiles = { ...(shared('devkits.profile-sessions') || {}) };
-        for (const [profileKey, profile] of Object.entries(profiles)) {
-          if (sessionKind({ key: profileKey }) !== kind) continue;
-          const setting = field === 'models' ? 'model' : 'effort';
-          if (profile[setting] === key) profiles[profileKey] = { ...profile, [setting]: null };
-        }
-        setShared('devkits.profile-sessions', profiles);
-      }
-    };
-    const title = effortLabel;
-    return [DropdownMenuLabel(t).id('manage-section-session').px(0).mt(16).child('MODELS AND EFFORT'),
-      ...kinds.map(kind => {
-        const models = orderedOptions(kind === 'claude' ? claudeModels : this.codexModelList || [], saved[kind]?.order);
-        const reorder = (key, target) => {
-          const current = shared('devkits.session-options') || {};
-          setShared('devkits.session-options', { ...current, [kind]: { ...current[kind], order: moveOption(models.map(model => model.key), key, target) } });
-        };
-        const dragging = this.modelDrag?.kind === kind;
-        const efforts = kind === 'claude' ? claudeEfforts : [...new Set(models.flatMap(model => model.efforts))];
-        const count = models.filter(model => shown(kind, 'models', model.key)).length;
-        return v_flex().id(`session-options-${kind}`).mb(8).flex_none().border(1).border_color(t.border)
-          .child(h_flex().h(36).px(12).gap(8).items_center().border_b(1).border_color(t.border)
-            .child(div().flex_1().text_size(13).font_medium().child(kind === 'claude' ? 'Claude' : 'Codex'))
-            .when(models.length > 0, el => el.child(div().text_size(12).text_color(t.muted).child(`${count} of ${models.length} models`))))
-          .when(!models.length, el => el.child(div().h(36).px(12).flex().items_center().text_size(12).text_color(t.muted).child('Loading models…')))
-          // Drag a model by its handle to set the Model menu's order, as launchers are dragged above.
-          .children(models.map((model, index) => h_flex().id(`session-${kind}-model-${model.key}`).h(36).pl(4).pr(12).gap(8).items_center()
-            .when(index > 0, el => el.border_t(1).border_color(t.border))
-            .opacity(dragging && this.modelDrag.key === model.key ? 0.5 : 1)
-            .bg(dragging && this.modelDrop === model.key && this.modelDrag.key !== model.key ? t.selected : t.popover)
-            .on_mouse_move((_event, cx) => { if (dragging && this.modelDrop !== model.key) { this.modelDrop = model.key; cx.notify(); } })
-            .on_mouse_up('left', (_event, cx) => {
-              if (!dragging) return;
-              reorder(this.modelDrag.key, model.key);
-              this.modelDrag = null; this.modelDrop = null; cx.stop_propagation(); cx.notify();
-            })
-            .child(Button(`drag-session-${kind}-${model.key}`, t, { variant: 'ghost', size: 'icon' }).cursor_grab()
-              .accessibility_label(`Reorder ${model.label}`)
-              .on_mouse_down('left', (_event, cx) => {
-                cx.stop_propagation(); this.handle?.focus();
-                this.modelDrag = { kind, key: model.key }; this.modelDrop = model.key; cx.notify();
-              }).child(glyph('grip-vertical')))
-            .child(div().min_w(0).truncate().text_size(13).text_color(shown(kind, 'models', model.key) ? t.foreground : t.muted).child(model.label))
-            .when(model.label !== model.key, el => el.child(div().flex_none().text_size(12).text_color(t.muted).child(model.key)))
-            .child(div().flex_1())
-            .when(Boolean(model.efforts?.length), el => el.child(div().flex_none().text_size(12).text_color(t.muted)
-              .child(`${title(model.efforts[0])} – ${title(model.efforts.at(-1))}`)))
-            .child(Switch(`session-${kind}-models-${model.key}`, shown(kind, 'models', model.key), t)
-              .accessibility_label(`Show ${model.label}`).on_change((_checked, cx) => { toggle(kind, 'models', model.key); cx.notify(); }))))
-          .when(efforts.length > 0, el => el.child(h_flex().h(44).px(12).gap(12).items_center().border_t(1).border_color(t.border)
-            .child(div().flex_1().text_size(12).text_color(t.muted).child('Effort'))
-            .child(ToggleGroup(`session-${kind}-efforts`, `${kind === 'claude' ? 'Claude' : 'Codex'} efforts`, t)
-              .children(efforts.map((effort, index) => ToggleGroupItem(`session-${kind}-efforts-${effort}`, shown(kind, 'efforts', effort), index === 0, t)
-                .accessibility_label(`Show ${title(effort)} effort`).on_change((_pressed, cx) => { toggle(kind, 'efforts', effort); cx.notify(); })
-                .child(title(effort)))))));
-      })];
-  }
-
 
   openProject(cx) {
     const target = props();
@@ -537,28 +294,6 @@ export default class Devkits extends View {
     try { return await pending; } finally { agentLoads.delete(key); }
   }
 
-  loadAgents(cx) {
-    const machine = spaces().find(s => s.id === props().space)?.machine;
-    const cached = shared('devkits.agent-cache')?.[JSON.stringify(machine || null)];
-    if (cached) {
-      this.launchers = cached;
-      this.loading = false;
-      this.launchError = false;
-      if (props().view === 'manage-launchers') this.preparePermissionSelects(cx);
-      return;
-    }
-    this.loading = true;
-    this.launchError = false;
-    cx.spawn(async cx => {
-      try {
-        this.launchers = await this.cachedAgents(machine);
-        if (props().view === 'manage-launchers') this.preparePermissionSelects(cx);
-      } catch { this.launchError = true; }
-      this.loading = false;
-      cx.notify();
-    });
-  }
-
   // An Asana task becomes the thread name and the agent's opening prompt, and leaves Saved once started.
   // `options` picks this session's model and effort; Default leaves the launcher's own.
   async startThread(agent, target = props(), options = {}) {
@@ -609,415 +344,11 @@ export default class Devkits extends View {
       () => { hidePanels(); rememberPanel(project.id, null); }, cx);
   }
 
-  addAccount(provider) {
-    const target = props();
-    closeOverlay(target.overlay);
-    openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: true, width: 520, height: 380,
-      props: { view: 'account-login', provider, returnTo: { view: 'manage-launchers', space: target.space } } });
-  }
-
   async close() {
     this.files?.close();
     this.diff?.close();
     await this.simulator?.close();
     await this.login?.close();
-  }
-
-  renameAccount(account) {
-    const target = props();
-    closeOverlay(target.overlay);
-    openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: true, width: 480, height: 260,
-      props: { view: 'rename-account', account: { key: account.key, name: account.name }, space: target.space } });
-  }
-
-  finishRename() {
-    if (this.renaming) return;
-    const target = props();
-    closeOverlay(target.overlay);
-    openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: false, width: 680, height: 0.8,
-      props: { view: 'manage-launchers', space: target.space } });
-  }
-
-  saveAccountName(cx) {
-    if (this.renaming) return;
-    this.renaming = true; this.renameError = null; cx.notify();
-    const name = this.renameInput.value();
-    cx.spawn(async cx => {
-      try {
-        await renameAccountProfile(props().account.key, name);
-        setShared('devkits.agent-cache', {});
-        setShared('devkits.profile-revision', (shared('devkits.profile-revision') || 0) + 1);
-        this.renaming = false; this.finishRename();
-      } catch (error) { this.renaming = false; this.renameError = error.message; cx.notify(); }
-    });
-  }
-
-  renameAccountPrompt(t) {
-    return DialogContent('rename-account-dialog', t).accessibility_label('Rename agent profile')
-      .track_focus(this.handle).on_key_down((event, cx) => {
-        if (event.key === 'escape') { cx.stop_propagation(); this.finishRename(); }
-      })
-      .child(DialogTitle().child('Rename agent profile'))
-      .child(DialogDescription(t).child('Choose a display name for this account.'))
-      .child(Input.new(this.renameInput).id('rename-account-name').accessibility_label('Account name')
-        .h(36).px(10).rounded(0).border_b(1).border_color(t.input).text_size(13))
-      .when(Boolean(this.renameError), el => el.child(div().id('rename-account-error').text_size(12)
-        .text_color(t.destructive || t.foreground).child(this.renameError)))
-      .child(DialogFooter().children([
-        Button('cancel-rename-account', t, { variant: 'secondary' }).disabled(Boolean(this.renaming)).on_click(() => this.finishRename()).child('Cancel'),
-        Button('save-rename-account', t).disabled(Boolean(this.renaming)).on_click((_event, cx) => this.saveAccountName(cx)).child(this.renaming ? 'Saving…' : 'Save'),
-      ]));
-  }
-
-  confirmRemoveAccount(account) {
-    const target = props();
-    closeOverlay(target.overlay);
-    openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: true, width: 480, height: 300,
-      props: { view: 'remove-account', account: { key: account.key, name: account.name }, space: target.space } });
-  }
-
-  removeAccountPrompt(t) {
-    const target = props();
-    const back = () => {
-      if (this.removing) return;
-      closeOverlay(target.overlay);
-      openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: false, width: 680, height: 0.8,
-        props: { view: 'manage-launchers', space: target.space } });
-    };
-    const confirm = cx => {
-      if (this.removing) return;
-      this.removing = true; this.removeError = null; cx.notify();
-      cx.spawn(async cx => {
-        try {
-          await removeAccountProfile(target.account.key);
-          setShared('devkits.agent-cache', {});
-          const key = `agent:${target.account.key}`;
-          for (const setting of ['devkits.hidden-launchers', 'devkits.launcher-order']) {
-            setShared(setting, (shared(setting) || []).filter(item => item !== key));
-          }
-          for (const setting of ['devkits.codex-permissions', 'devkits.profile-sessions']) {
-            const saved = { ...(shared(setting) || {}) };
-            delete saved[target.account.key];
-            setShared(setting, saved);
-          }
-          this.removing = false; back();
-        } catch (error) { this.removing = false; this.removeError = error.message; cx.notify(); }
-      });
-    };
-    return AlertDialogContent('remove-account-dialog', t).accessibility_label(`Remove ${target.account.name}?`)
-      .track_focus(this.handle).on_key_down((event, cx) => {
-        if (event.key === 'escape') back();
-        else if (event.key === 'enter') confirm(cx);
-        else return;
-        cx.stop_propagation();
-      })
-      .child(AlertDialogTitle().child(`Remove ${target.account.name}?`))
-      .child(AlertDialogDescription(t).child('This signs out this saved account and removes it from the menu. History and project files are kept. Running sessions stay open but may need to sign in again.'))
-      .when(Boolean(this.removeError), el => el.child(div().id('remove-account-error').text_size(12).text_color(t.destructive || t.foreground).child(this.removeError)))
-      .child(AlertDialogFooter().children([
-        AlertDialogCancel('cancel-remove-account', t).disabled(Boolean(this.removing)).on_click(back).child('Cancel'),
-        AlertDialogAction('confirm-remove-account', t).disabled(Boolean(this.removing))
-          .on_click((_event, cx) => confirm(cx)).child(this.removing ? 'Removing…' : 'Remove'),
-      ]));
-  }
-
-  preparePermissionSelects(cx) {
-    this.permissionSelects ||= new Map();
-    this.sessionSelects ||= new Map();
-    this.accountMenus ||= new Map();
-    for (const agent of this.launchers) if (!this.accountMenus.has(agent.key)) this.accountMenus.set(agent.key, new DropdownMenuState(cx));
-    for (const agent of this.launchers.filter(permissionModes)) {
-      if (!this.permissionSelects.has(agent.key)) this.permissionSelects.set(agent.key, new SelectState(cx));
-      if (!this.sessionSelects.has(agent.key)) this.sessionSelects.set(agent.key, { model: new SelectState(cx), effort: new SelectState(cx) });
-    }
-  }
-
-  manageLaunchers(t) {
-    const hidden = shared('devkits.hidden-launchers') || [];
-    const choices = launcherChoices(this.launchers, shared('devkits.launcher-order') || []);
-    const local = !spaces().find(space => space.id === props().space)?.machine;
-    const toggle = (key, cx) => {
-      const current = shared('devkits.hidden-launchers') || [];
-      setShared('devkits.hidden-launchers', current.includes(key) ? current.filter(item => item !== key) : [...current, key]);
-      cx.notify();
-    };
-    const done = () => closeOverlay(props().overlay);
-    const move = (index, target, cx) => {
-      if (!choices[index] || !choices[target] || choices[index].group !== choices[target].group || index === target) return;
-      const order = [...new Set([...(shared('devkits.launcher-order') || []), ...choices.map(choice => choice.key)])];
-      const key = choices[index].key;
-      order.splice(order.indexOf(key), 1);
-      order.splice(order.indexOf(choices[target].key) + (index < target ? 1 : 0), 0, key);
-      setShared('devkits.launcher-order', order);
-      this.manageIndex = target;
-      cx.notify();
-    };
-    const cancelDrag = cx => {
-      if (!this.dragKey && !this.modelDrag) return;
-      this.dragKey = null; this.dropKey = null; this.modelDrag = null; this.modelDrop = null; cx.notify();
-    };
-    return DialogContent('manage-launchers', t).accessibility_label('Manage session menu')
-      .on_mouse_up('left', (_event, cx) => cancelDrag(cx))
-      .on_hover((inside, cx) => { if (!inside) cancelDrag(cx); })
-      .track_focus(this.handle).on_key_down((event, cx) => {
-        if (event.key === 'escape') {
-          if (this.dragKey || this.modelDrag) cancelDrag(cx); else done();
-          cx.stop_propagation(); return;
-        }
-        if (event.modifiers?.alt && ['up', 'down'].includes(event.key)) {
-          move(this.manageIndex, this.manageIndex + (event.key === 'up' ? -1 : 1), cx);
-        } else if (event.key === 'down') this.manageIndex = (this.manageIndex + 1) % choices.length;
-        else if (event.key === 'up') this.manageIndex = (this.manageIndex + choices.length - 1) % choices.length;
-        else if (event.key === 'enter' || event.key === 'space') toggle(choices[this.manageIndex].key, cx);
-        else return;
-        cx.stop_propagation(); cx.notify();
-      })
-      .child(DialogTitle().child('Manage session menu'))
-      .child(DialogDescription(t).child('Choose what Add session shows. Drag to reorder; changes save automatically.'))
-      .child(v_flex().id('manage-launchers-list').flex_1().min_h(0).overflow_y_scroll().gap(8)
-        // One bordered table per section; rows are separated by rules and hover with t.selected.
-        .children([0, 1, 2].filter(group => choices.some(choice => choice.group === group)).map(group => v_flex().flex_none().gap(4)
-          .when(group > 0, el => el.mt(8))
-          .child(DropdownMenuLabel(t).id(`manage-section-${group}`).px(0).child(launcherSections[group].toUpperCase()))
-          .child(v_flex().flex_none().border(1).border_color(t.border)
-            .children(choices.map((choice, index) => [choice, index]).filter(([choice]) => choice.group === group).map(([choice, index], position) =>
-              v_flex().id(`manage-${choice.key}`).flex_none()
-                .when(position > 0, el => el.border_t(1).border_color(t.border))
-                .bg(this.manageIndex === index ? t.selected : t.popover)
-                .opacity(this.dragKey === choice.key ? 0.5 : 1)
-                .on_hover((inside, cx) => { if (inside) { this.manageIndex = index; cx.notify(); } })
-                .on_mouse_move((_event, cx) => {
-                  if (this.dragKey && this.dropKey !== choice.key) { this.dropKey = choice.key; cx.notify(); }
-                })
-                .on_mouse_up('left', (_event, cx) => {
-                  if (!this.dragKey) return;
-                  move(choices.findIndex(item => item.key === this.dragKey), index, cx);
-                  cancelDrag(cx); cx.stop_propagation();
-                })
-                .child(h_flex().h(44).px(8).gap(8).items_center()
-                  .when(choice.group !== 0, el => el.child(Button(`drag-${choice.key}`, t, { variant: 'row', size: 'icon' }).cursor_grab()
-                    .accessibility_label(`Reorder ${choice.name}. Use Alt + Up or Down.`)
-                    .on_mouse_down('left', (_event, cx) => {
-                      cx.stop_propagation(); this.handle?.focus();
-                      this.dragKey = choice.key; this.dropKey = choice.key; this.manageIndex = index; cx.notify();
-                    }).child(glyph('grip-vertical'))))
-                  .when(choice.group === 0, el => el.child(div().size(28).flex_none()))
-                  .child(Checkbox(`show-${choice.key}`, !hidden.includes(choice.key), t).h_full().flex_1().min_w(0)
-                    .accessibility_label(choice.name).on_change((_checked, cx) => toggle(choice.key, cx))
-                    .child(launcherIcon(choice.agent, t).flex_none())
-                    .child(div().flex_1().min_w(0).truncate().text_size(13).child(choice.name)))
-                  .when(local && ['codex', 'claude'].includes(choice.agent?.key), el => el
-                    .child(Button(`add-${choice.agent.key}-account`, t, { variant: 'secondary' }).h(28).px(10).gap(6)
-                      .accessibility_label(`Add a ${choice.agent.key === 'codex' ? 'Codex' : 'Claude'} account`)
-                      .on_click(() => this.addAccount(choice.agent.key)).child(glyph('plus')).child('Add account')))
-                  // Account actions live in one menu so every row's controls line up.
-                  .when(local && choice.group === 2 && Boolean(this.accountMenus?.get(choice.agent.key)), el => el
-                    .child(DropdownMenu(`account-actions-${choice.agent.key}`, this.accountMenus.get(choice.agent.key),
-                      Button(`account-menu-${choice.agent.key}`, t, { variant: 'row', size: 'icon' })
-                        .accessibility_label(`Actions for ${choice.name}`).child(glyph('ellipsis')),
-                      [{ key: 'rename', label: 'Rename' },
-                        ...(choice.agent.key.startsWith('devkits-codex-') ? [{ key: 'sync', label: 'Shared plugins and skills…' }] : []),
-                        { key: 'remove', label: 'Remove', separator: true }],
-                      key => key === 'rename' ? this.renameAccount(choice.agent)
-                        : key === 'sync' ? this.openCodexSharing(choice.agent) : this.confirmRemoveAccount(choice.agent), t))))
-                .when(Boolean(permissionModes(choice.agent)) && Boolean(this.permissionSelects?.get(choice.agent.key)), el => el
-                  .child(this.profileSettings(choice.agent, local, t))))))))
-        .when(local && !this.loading && !this.launchError && !choices.some(choice => choice.group === 2), el => el
-          .child(DropdownMenuLabel(t).id('manage-section-2').px(0).mt(16).child('YOUR ACCOUNTS'))
-          .child(div().text_size(12).text_color(t.muted).child('No accounts added. Use Add account on the Codex or Claude row.')))
-        .when(local && !this.loading && !this.launchError, el => el.children(this.sessionOptions(choices, t)))
-        .when(this.loading, el => el.child(div().p(8).text_size(12).text_color(t.muted).child('Loading agents…')))
-        .when(this.launchError, el => el.child(Button('manage-retry-agents', t, { variant: 'secondary' })
-          .on_click((_event, cx) => this.loadAgents(cx)).child('Could not load agents. Retry'))))
-      .child(DialogFooter().child(Button('manage-launchers-done', t).on_click(done).child('Done')));
-  }
-
-  launcher(t) {
-    const hidden = shared('devkits.hidden-launchers') || [];
-    const choices = launcherChoices(this.launchers, shared('devkits.launcher-order') || []).filter(choice => !hidden.includes(choice.key));
-    const launchers = choices.filter(choice => choice.agent).map(choice => choice.agent);
-    const row = (id, name, icon, action) => DropdownMenuItem(id, t).on_click(action)
-      .child(div().size(16).flex_none().flex().items_center().justify_center().text_color(t.muted).child(icon))
-      .child(div().flex_1().min_w(0).truncate().child(name));
-    return DropdownMenuContent('thread-launcher', undefined, t)
-      .track_focus(this.handle).on_key_down(event => {
-        if (event.modifiers.control || event.modifiers.platform || event.modifiers.alt) return;
-        const agent = /^[1-9]$/.test(event.key) ? launchers[Number(event.key) - 1] : null;
-        if (agent?.installed) this.startThread(agent);
-      })
-      .child(v_flex().id('thread-launchers').flex_none().gap(1)
-        .children(choices.flatMap((choice, i) => {
-          const agent = choice.agent;
-          return [
-            ...(i > 0 && choices[i - 1].group !== choice.group ? [DropdownMenuSeparator(t)] : []),
-            ...(choice.group !== 0 && (i === 0 || choices[i - 1].group !== choice.group)
-              ? [DropdownMenuLabel(t).id(`launcher-section-${choice.group}`).child(launcherSections[choice.group])] : []),
-            row(agent ? `start-${agent.key}` : 'new-terminal', choice.name, launcherIcon(agent, t),
-              () => this.startThread(agent)),
-          ];
-        }))
-        .when(this.loading, el => el.child(div().p(10).text_size(12).text_color(t.muted).child('Loading agents…')))
-        .when(this.launchError, el => el.child(div().id('retry-agents').p(10).text_size(12).text_color(t.muted).cursor_pointer()
-          .on_click((_event, cx) => this.loadAgents(cx)).child('Could not load agents. Click to retry.')))
-        .when(!this.loading && !this.launchError && !choices.length, el => el.child(div().p(10).text_size(12).text_color(t.muted)
-          .child(this.launchers.length ? 'All agents are hidden. Use Manage to show them.' : 'No installed agents found.'))))
-      .child(DropdownMenuSeparator(t))
-      .child(row('manage-launchers-open', 'Manage…', glyph('settings'), () => {
-        const target = props();
-        closeOverlay(target.overlay);
-        openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: false, width: 680, height: 0.8,
-          props: { view: 'manage-launchers', space: target.space } });
-      }));
-  }
-
-  refreshUsage(cx, force = true, manual = false) {
-    const machine = this.projects().find(project => project.active)?.machine || null;
-    const hidden = shared('devkits.hidden-launchers') || [];
-    const order = shared('devkits.launcher-order') || [];
-    const scope = JSON.stringify([machine, hidden, order, shared('devkits.profile-revision') || 0]);
-    if (this.usageLoading || (!force && this.usageScope === scope)) return;
-    this.usageScope = scope;
-    this.usageLoading = true;
-    // A manual refresh rediscovers profiles and bypasses the provider cache.
-    if (manual) {
-      const { [JSON.stringify(machine)]: _, ...rest } = shared('devkits.agent-cache') || {};
-      setShared('devkits.agent-cache', rest);
-    }
-    cx.spawn(async cx => {
-      try {
-        const agents = await this.cachedAgents(machine);
-        this.usageAgents = agents;
-        if (this.usageMachine !== machine) this.usage = [];
-        this.usageMachine = machine;
-        this.usageError = null;
-        cx.notify();
-        const accounts = launcherChoices(this.usageAgents, order)
-          .filter(choice => !hidden.includes(choice.key) && !machine && usageProvider(choice.agent)).map(choice => choice.agent);
-        // Cached results survive reloads and restarts so providers are queried at most once per interval.
-        const cached = () => shared('devkits.usage-cache') || {};
-        const now = Date.now();
-        // Set up the status line once per app session; the built-in profile chains any status line it already has.
-        this.statusLines ||= new Set();
-        for (const account of accounts.filter(account => usageProvider(account) === 'claude' && !this.statusLines.has(account.key))) {
-          this.statusLines.add(account.key);
-          try { await ensureClaudeStatusLine(claudeDirectory(account), { chain: account.key === 'claude' }); } catch {}
-        }
-        // Claude usage is a local file, so only provider queries are rate-limited by the cache.
-        const stale = accounts.filter(account => manual || usageProvider(account) === 'claude'
-          || !(now - (cached()[account.key]?.checkedAt || 0) < usageCacheMs));
-        this.usage = accounts.map(account => cached()[account.key]).filter(Boolean);
-        if (stale.length) {
-          cx.notify();
-          const result = await exec('node', [`${appHome()}/mods/devkits/usage-reader.js`,
-            JSON.stringify(stale.map(account => ({ ...account, provider: usageProvider(account) })))]);
-          if (result.code !== 0) throw new Error('Could not read usage');
-          const next = { ...cached() };
-          for (const entry of JSON.parse(result.stdout)) {
-            const previous = next[entry.key];
-            // Keep the last good windows when a later request fails.
-            next[entry.key] = entry.error && previous?.windows
-              ? { ...previous, error: entry.error, checkedAt: Date.now() } : { ...entry, checkedAt: Date.now() };
-          }
-          setShared('devkits.usage-cache', next);
-          this.usage = accounts.map(account => next[account.key]).filter(Boolean);
-        }
-      } catch { this.usageError = 'Could not read usage'; }
-      finally { this.usageLoading = false; cx.notify(); }
-    });
-  }
-
-  usageDetails(t) {
-    const { account, overlay } = props();
-    const close = () => closeOverlay(overlay);
-    return DialogContent('usage-details', t).track_focus(this.handle)
-      .accessibility_label(`${account.name} usage details`).on_key_down((event, cx) => {
-        if (event.key === 'escape') { cx.stop_propagation(); close(); }
-      })
-      .child(DialogTitle().flex_none().child(account.name))
-      .child(DialogDescription(t).flex_none().child(account.supported ? 'Account quota usage' : 'Not supported'))
-      .child(v_flex().id('usage-windows').flex_1().min_h(0).overflow_y_scrollbar().gap(16)
-        .when(Boolean(account.error), el => el.child(div().text_size(12).text_color(t.muted).child(account.error)))
-        .when(account.supported && !account.error && !account.windows?.length, el => el
-          .child(div().text_size(12).text_color(t.muted).child('No quota windows available.')))
-        .children((account.windows || []).map((window, index) => {
-          const elapsed = quotaElapsedPercent(window);
-          const duration = window.minutes === null ? 'Unknown duration' : window.minutes % 1440 === 0
-            ? `${window.minutes / 1440}d` : window.minutes % 60 === 0 ? `${window.minutes / 60}h` : `${window.minutes}m`;
-          return v_flex().flex_none().gap(8)
-            .child(h_flex().justify_between().text_size(13)
-              .child(`${window.name} · ${duration}`)
-              .child(`${Math.round(window.usedPercent)}% used · ${Math.round(100 - window.usedPercent)}% remaining`))
-            .child(Progress(`usage-detail-meter-${index}`, window.usedPercent, t, elapsed, window.minutes === 300 ? 5 : window.minutes === 10080 ? 7 : 0)
-              .accessibility_label(`${window.name} ${duration} used`))
-            .when(elapsed !== null, el => el.child(div().text_size(12).text_color(t.muted)
-              .child(`Top: ${Math.round(elapsed)}% of window elapsed · Bottom: quota used`)))
-            .child(div().text_size(12).text_color(t.muted)
-              .child(quotaResetLabel(window)));
-        })))
-      .when(Boolean(account.fetchedAt), el => el.child(DialogDescription(t).flex_none()
-        .child(`Updated ${new Date(account.fetchedAt).toLocaleString()}`)))
-      .child(DialogFooter().flex_none().child(Button('usage-details-done', t).on_click(close).child('Done')));
-  }
-
-  accountUsage(t) {
-    const space = this.projects().find(s => s.active);
-    const choices = launcherChoices(this.usageMachine === (space?.machine || null) ? this.usageAgents || [] : [],
-      shared('devkits.launcher-order') || [])
-      // The plain terminal launcher is not an agent profile and never has usage.
-      .filter(choice => choice.agent && !(shared('devkits.hidden-launchers') || []).includes(choice.key));
-    return v_flex().id('account-usage').w_full().flex_none().h_auto().min_h(0)
-      .border_t(1).border_color(t.border)
-      .child(h_flex().h(32).flex_none().pl(12).items_center()
-        .child(div().flex_1().text_size(11).font_medium().text_color(t.muted).child('AGENT PROFILES'))
-        .child(Button('refresh-agent-profiles', t, { variant: 'ghost', size: 'icon' }).h_full().w(32)
-          .accessibility_label('Refresh agent profiles').disabled(Boolean(this.usageLoading))
-          .on_click((_, cx) => this.refreshUsage(cx, true, true)).child(glyph('refresh-cw')))
-        .child(Button('open-token-statistics', t, { variant: 'ghost', size: 'icon' }).h_full().w(32)
-          .accessibility_label('Token statistics')
-          .on_click(() => openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: false, width: 1080, height: 0.85,
-            props: { view: 'token-statistics' } })).child(glyph('chart-column')))
-        .child(Button('manage-agent-profiles', t, { variant: 'ghost', size: 'icon' }).h_full().w(32)
-          .accessibility_label('Manage agent profiles')
-          .on_click(() => openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: false, width: 680, height: 0.8,
-            props: { view: 'manage-launchers', space: space?.id } })).child(glyph('settings'))))
-      .child(v_flex().id('account-usage-list').w_full().h_auto().flex_none()
-        .children(choices.map(choice => {
-            const data = (this.usage || []).find(account => account.key === choice.agent?.key);
-            const provider = space?.machine ? null : usageProvider(choice.agent);
-            const supported = Boolean(provider);
-            const windows = supported ? [300, 10080].flatMap(minutes =>
-              data?.windows?.find(window => window.bucket === provider && window.minutes === minutes) || []) : [];
-            const status = !supported ? 'Not supported' : data?.error || this.usageError ? 'Unavailable'
-              : windows.length ? windows.map(window => `${window.minutes === 300 ? '5h' : 'Week'} ${Math.round(window.usedPercent)}% used · ${quotaResetLabel(window)}`).join(' · ')
-                : this.usageLoading ? 'Loading…' : 'No quota';
-            const account = { ...data, name: choice.name, supported,
-              error: data?.error || (supported ? this.usageError || (this.usageLoading ? 'Reading account usage…' : null) : null) };
-            return Button(`usage-${choice.key}`, t, { variant: 'ghost' }).w_full().flex_none().h_auto().px(12).gap(8).items_start().justify_start().py(6)
-              .accessibility_label(`${choice.name}: ${status}. Open usage details`)
-              .on_click(() => openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: false, width: 480, height: 480,
-                props: { view: 'usage-details', account } }))
-              .child(launcherIcon(choice.agent, t).self_center())
-              .child(v_flex().flex_1().min_w(0).gap(3).line_height('12px')
-                .child(div().truncate().text_size(12).font_semibold().text_color(t.foreground).child(accountLabel(choice.name)))
-                .children(windows.map(window => {
-                  const elapsed = quotaElapsedPercent(window);
-                  const label = window.minutes === 300 ? '5h' : 'Week';
-                  const reset = quotaResetLabel(window);
-                  const time = reset === 'Reset time unavailable' ? '—' : reset.startsWith('Reset due')
-                    ? 'Reset due' : reset.replace(/^Resets (?:in )?/, '');
-                  const displayTime = time.replace(/\b(\d)([dhm])\b/g, '0$1$2');
-                  return h_flex().w_full().gap(4).items_center().text_size(10).whitespace_nowrap()
-                    .child(div().w(30).flex_none().child(label))
-                    .child(Progress(`usage-meter-${choice.key}-${window.minutes}`, window.usedPercent, t, elapsed, window.minutes === 300 ? 5 : 7)
-                      .flex_1().w_auto().min_w(0).accessibility_label(`${choice.name} ${label} used${elapsed === null ? '' : `; ${Math.round(elapsed)}% of window elapsed`}`))
-                    .child(div().w(24).flex_none().font_family('Geist Mono').text_right().child(`${Math.round(window.usedPercent)}%`))
-                    .child(div().id(`usage-reset-${choice.key}-${window.minutes}`).w(54).flex_none().font_family('Geist Mono').text_right()
-                      .accessibility_label(reset).child(displayTime));
-                }))
-                .when(!windows.length, el => el
-                  .child(div().text_size(10).child(status))
-                  .child(Progress(`usage-meter-${choice.key}`, null, t).accessibility_label(`${choice.name}: ${status}`))));
-          })));
   }
 
   header(t) {
@@ -1251,3 +582,6 @@ export default class Devkits extends View {
         .child(div().flex_1()));
   }
 }
+
+// Feature views share this view's state and its project, agent and session helpers.
+Object.assign(Devkits.prototype, sessionMenu, accountActions, agentUsage);
