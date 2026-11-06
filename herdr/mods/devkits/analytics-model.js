@@ -1,5 +1,11 @@
 export const localDay = date => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+import { estimateCost } from './analytics-pricing.js';
 const fields = ['input', 'output', 'cacheRead', 'cacheWrite', 'reasoning', 'total'];
+const emptyCost = () => ({ usd: 0, pricedTokens: 0, unpricedTokens: 0 });
+function addCost(cost, event, usd) {
+  cost.usd += usd || 0;
+  cost[usd == null ? 'unpricedTokens' : 'pricedTokens'] += event.total || 0;
+}
 
 export function summarize(events, days = 30, now = new Date(), filters = {}) {
   const start = new Date(now); start.setHours(0, 0, 0, 0); start.setDate(start.getDate() - days + 1);
@@ -7,13 +13,17 @@ export function summarize(events, days = 30, now = new Date(), filters = {}) {
   const rows = events.filter(e => (!days || e.timestamp >= start.getTime()) && e.timestamp <= end.getTime()
     && Object.entries(filters).every(([key, value]) => !value || e[key] === value));
   const totals = Object.fromEntries(fields.map(key => [key, 0]));
+  const cost = emptyCost();
   const groups = Object.fromEntries(['day', 'model', 'project', 'account', 'session'].map(key => [key, new Map()]));
   for (const event of rows) {
+    const usd = estimateCost(event);
+    addCost(cost, event, usd);
     for (const key of fields) totals[key] += event[key] || 0;
     for (const [key, map] of Object.entries(groups)) {
-      const id = event[key], row = map.get(id) || { label: id, ...Object.fromEntries(fields.map(key => [key, 0])),
+      const id = event[key], row = map.get(id) || { label: id, cost: emptyCost(), ...Object.fromEntries(fields.map(key => [key, 0])),
         timestamp: 0, model: event.model, project: event.project, account: event.account };
       for (const field of fields) row[field] += event[field] || 0;
+      addCost(row.cost, event, usd);
       row.timestamp = Math.max(row.timestamp, event.timestamp); map.set(id, row);
     }
   }
@@ -22,7 +32,7 @@ export function summarize(events, days = 30, now = new Date(), filters = {}) {
     const date = new Date(start); date.setDate(date.getDate() + i); const label = localDay(date);
     daily.push(groups.day.get(label) || { label, total: 0 });
   }
-  return { totals, sessions: groups.session.size, daily: days ? daily : [...groups.day.values()].sort((a, b) => a.label.localeCompare(b.label)),
+  return { totals, cost, sessions: groups.session.size, daily: days ? daily : [...groups.day.values()].sort((a, b) => a.label.localeCompare(b.label)),
     ...Object.fromEntries(['model', 'project', 'account', 'session'].map(key => [key, [...groups[key].values()].sort((a, b) => b.total - a.total)])) };
 }
 

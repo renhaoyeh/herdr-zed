@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseTranscript, scan, compactEvents } from '../mods/devkits/analytics-reader.js';
 import { summarize, localDay } from '../mods/devkits/analytics-model.js';
+import { estimateCost, costLabel, pricingDate } from '../mods/devkits/analytics-pricing.js';
 
 const stamp = new Date(2026, 10, 6, 12).toISOString();
 const meta = { type: 'session_meta', payload: { id: 'one', cwd: '/project' } };
@@ -81,7 +82,7 @@ test('native statistics view renders history, changes ranges and clears grouped 
     return proxy;
   };
   let closed = false;
-  const host = { div: element, h_flex: element, v_flex: element, theme: () => ({}), summarize,
+  const host = { div: element, h_flex: element, v_flex: element, theme: () => ({}), summarize, costLabel, pricingDate,
     props: () => ({ overlay: 'statistics' }), closeOverlay: () => { closed = true; },
     Button: id => element().id(id), DialogContent: id => element().id(id), DialogTitle: element,
     DialogDescription: element, DialogFooter: element };
@@ -89,10 +90,54 @@ test('native statistics view renders history, changes ranges and clears grouped 
   const view = new Type(); view.days = 30; view.tab = 'model'; view.page = 0; view.filters = {};
   view.data = { events: [{ timestamp: Date.now(), day: localDay(new Date()), model: 'test-model', project: '/p', account: 'Test', session: 's', total: 123 }], fileCount: 1, updatedAt: Date.now() };
   view.render(); assert.ok(nodes.has('token-statistics')); assert.ok(texts.includes('test-model'));
+  assert.ok(texts.includes('Est. cost · USD')); assert.ok(nodes.has('analytics-total-cost'));
   const cx = { notify() {} };
   nodes.get('analytics-range-7').click(null, cx); assert.equal(view.days, 7);
   nodes.get('analytics-row-0').click(null, cx); assert.deepEqual(view.filters, { model: 'test-model' });
   view.render(); nodes.get('analytics-clear').click(null, cx); assert.deepEqual(view.filters, {});
   nodes.get('analytics-tab-session').click(null, cx); assert.equal(view.tab, 'session');
   nodes.get('analytics-done').click(); assert.ok(closed);
+});
+
+test('estimates separate token categories, dated models and cache TTL without double counting reasoning', () => {
+  const usage = { input: 1e6, output: 1e6, cacheRead: 1e6, cacheWrite: 0, reasoning: 1e6 };
+  assert.equal(estimateCost({ ...usage, model: 'gpt-5.2-codex' }), 15.925);
+  assert.equal(estimateCost({ ...usage, model: 'gpt-6.1-sol' }), 12.1);
+  assert.equal(estimateCost({ ...usage, model: 'claude-opus-4-5-20251101', cacheWrite: 2e6, cacheWrite1h: 1e6 }), 46.75);
+  for (const model of ['Unknown model', 'opus', 'gpt-6.1-sol-preview', 'claude-opus-99', '__proto__']) {
+    assert.equal(estimateCost({ ...usage, model }), null);
+  }
+  assert.equal(estimateCost({ ...usage, model: 'gpt-5.2-codex', cacheWrite: 100 }), null);
+  assert.equal(costLabel({ usd: 0.001, pricedTokens: 10, unpricedTokens: 0 }), '<$0.01');
+  assert.equal(costLabel({ usd: 0, pricedTokens: 0, unpricedTokens: 10 }), '');
+  assert.equal(costLabel({ usd: 0, pricedTokens: 0, unpricedTokens: 0 }), '$0.00');
+});
+
+test('mixed-model costs survive compaction and aggregate through every grouping and filter', () => {
+  const timestamp = Date.parse(stamp), day = localDay(new Date(stamp));
+  const base = { timestamp, day, project: '/p', account: 'A', session: 's' };
+  const events = [
+    { ...base, model: 'claude-sonnet-4-6', input: 1e6, cacheWrite: 2e6, cacheWrite1h: 1e6, total: 3e6 },
+    { ...base, model: 'gpt-6.1-sol', output: 1e6, total: 1e6 },
+    { ...base, model: 'unknown', total: 100 },
+  ];
+  const stats = summarize(events, 1, new Date(stamp));
+  assert.deepEqual(stats.cost, { usd: 22.75, pricedTokens: 4e6, unpricedTokens: 100 });
+  assert.equal(costLabel(stats.cost), '$22.75');
+  for (const key of ['project', 'account', 'session']) assert.deepEqual(stats[key][0].cost, stats.cost);
+  assert.deepEqual(stats.daily[0].cost, stats.cost);
+  assert.deepEqual(summarize(compactEvents(events), 1, new Date(stamp)).cost, stats.cost);
+  assert.equal(summarize(events, 1, new Date(stamp), { model: 'gpt-6.1-sol' }).cost.usd, 10);
+  assert.equal(summarize(events, 1, new Date(stamp), { model: 'unknown' }).cost.pricedTokens, 0);
+});
+
+test('Claude preserves one-hour cache creation through transcript parsing and compaction', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'analytics-')), path = join(root, 'one.jsonl');
+  await write(path, [{ type: 'assistant', timestamp: stamp, sessionId: 's', message: { id: 'm', model: 'claude-sonnet-4-6',
+    usage: { cache_creation_input_tokens: 200, cache_creation: { ephemeral_5m_input_tokens: 50, ephemeral_1h_input_tokens: 150 } } } }]);
+  const events = await parseTranscript(path, 'claude');
+  assert.equal(events[0].cacheWrite1h, 150);
+  assert.equal(events[0].total, 200);
+  assert.equal(compactEvents(events)[0].cacheWrite1h, 150);
+  assert.equal(estimateCost(events[0]), (50 * 3.75 + 150 * 6) / 1e6);
 });

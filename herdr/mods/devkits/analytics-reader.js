@@ -36,6 +36,7 @@ export async function parseTranscript(path, provider) {
       session = o.sessionId || session; project = o.cwd || project; model = o.message.model || model;
       usage = { input: amount(u.input_tokens), output: amount(u.output_tokens), cacheRead: amount(u.cache_read_input_tokens),
         cacheWrite: amount(u.cache_creation_input_tokens), reasoning: amount(u.output_tokens_details?.thinking_tokens) };
+      usage.cacheWrite1h = amount(u.cache_creation?.ephemeral_1h_input_tokens);
       // A streamed message can appear repeatedly with revised usage; retain its latest values.
       key = o.message.id || o.uuid || `${session}:${o.timestamp}`;
     } else continue;
@@ -83,7 +84,7 @@ export async function discoverSources(appHome, accounts = [], userHome = homedir
 export async function scan(sources, cachePath) {
   let saved;
   try { saved = JSON.parse(await readFile(cachePath, 'utf8')); } catch {}
-  const prior = saved?.version === 1 && saved.timezone === Intl.DateTimeFormat().resolvedOptions().timeZone ? saved.files : {};
+  const prior = saved?.version === 2 && saved.timezone === Intl.DateTimeFormat().resolvedOptions().timeZone ? saved.files : {};
   const files = {}, unique = new Map(), errors = [];
   for (const source of sources) {
     for (const folder of source.provider === 'codex' ? ['sessions', 'archived_sessions'] : ['projects']) {
@@ -101,7 +102,7 @@ export async function scan(sources, cachePath) {
     try {
       await mkdir(resolve(cachePath, '..'), { recursive: true });
       const temporary = `${cachePath}.${process.pid}.tmp`;
-      await writeFile(temporary, JSON.stringify({ version: 1, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, files }));
+      await writeFile(temporary, JSON.stringify({ version: 2, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, files }));
       await rename(temporary, cachePath);
     } catch { errors.push('Could not save the statistics cache.'); }
   }
@@ -130,11 +131,11 @@ export function compactEvents(events) {
     let row = groups.get(key);
     if (!row) {
       row = { day: event.day, session: event.session, project: event.project, model: event.model, account: event.account,
-        timestamp: event.timestamp, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0, total: 0 };
+        timestamp: event.timestamp, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0, reasoning: 0, total: 0 };
       groups.set(key, row);
     }
     row.timestamp = Math.max(row.timestamp, event.timestamp);
-    for (const field of ['input', 'output', 'cacheRead', 'cacheWrite', 'reasoning', 'total']) row[field] += event[field] || 0;
+    for (const field of ['input', 'output', 'cacheRead', 'cacheWrite', 'cacheWrite1h', 'reasoning', 'total']) row[field] += event[field] || 0;
   }
   return [...groups.values()];
 }

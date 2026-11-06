@@ -2,6 +2,7 @@ import { div } from 'gpui-kit';
 import { h_flex, v_flex } from 'gpui-base';
 import { exec, appHome, knownAgents, closeOverlay, props, theme } from 'herdr';
 import { summarize } from './analytics-model.js';
+import { costLabel, pricingDate } from './analytics-pricing.js';
 import { Button } from './components/button.js';
 import { DialogContent, DialogTitle, DialogDescription, DialogFooter } from './components/dialog.js';
 
@@ -49,18 +50,23 @@ export default class Analytics {
           Button(`analytics-range-${days}`, t, { variant: this.days === days ? 'default' : 'ghost' }).child(text)
             .on_click((_event, cx) => { this.days = days; this.page = 0; cx.notify(); }))))
       .child(DialogDescription(t).flex_none().child('Local Codex and Claude history · Input excludes cache reads · Reasoning is included in output'))
+      .child(h_flex().flex_none().gap(16)
+        .child(v_flex().flex_1().min_w(0).gap(4)
+          .child(div().text_size(11).text_color(t.muted).child('Est. cost · USD'))
+          .child(div().id('analytics-total-cost').text_size(20).font_medium().child(this.data ? costLabel(stats.cost) : '')))
+        .children([
+          ['Total tokens', stats.totals.total], ['Input', stats.totals.input], ['Output', stats.totals.output],
+          ['Cache read', stats.totals.cacheRead], ['Cache write', stats.totals.cacheWrite], ['Sessions', stats.sessions],
+        ].map(([title, value]) => v_flex().flex_1().min_w(0).gap(4)
+          .child(div().text_size(11).text_color(t.muted).child(title))
+          .child(div().text_size(20).font_medium().child(short(value))).accessibility_label(`${title}: ${number(value)}`))))
+      .child(DialogDescription(t).flex_none().child(`Standard API token equivalent · Not subscription charges · Rates checked ${pricingDate}`))
       .child(v_flex().flex_1().min_h(0).overflow_y_scroll().gap(16)
         .when(Boolean(this.error), el => el.child(DialogDescription(t).child(this.error)))
         .when(!this.data, el => el.child(DialogDescription(t).child(this.loading ? 'Reading local history…' : 'No statistics available.')))
         .when(Boolean(Object.keys(this.filters).length), el => el.child(h_flex().gap(12).items_center()
           .child(DialogDescription(t).flex_1().child(Object.entries(this.filters).map(([key, value]) => `${key}: ${value}`).join(' · ')))
           .child(Button('analytics-clear', t, { variant: 'outline' }).child('Clear filters').on_click((_e, cx) => { this.filters = {}; this.page = 0; cx.notify(); }))))
-        .child(h_flex().flex_none().gap(16).children([
-          ['Total tokens', stats.totals.total], ['Input', stats.totals.input], ['Output', stats.totals.output],
-          ['Cache read', stats.totals.cacheRead], ['Cache write', stats.totals.cacheWrite], ['Sessions', stats.sessions],
-        ].map(([title, value]) => v_flex().flex_1().min_w(0).gap(4)
-          .child(div().text_size(11).text_color(t.muted).child(title))
-          .child(div().text_size(20).font_medium().child(short(value))).accessibility_label(`${title}: ${number(value)}`))))
         .child(v_flex().flex_none().gap(8)
           .child(div().text_size(11).text_color(t.muted).child('DAILY TOKENS'))
           .child(h_flex().h(100).flex_none().items_end().gap(2).children(stats.daily.map(row => div().flex_1().min_w(0)
@@ -74,14 +80,17 @@ export default class Analytics {
             .on_click((_event, cx) => { this.tab = key; this.page = 0; cx.notify(); }))))
         .child(h_flex().flex_none().gap(8).text_size(11).text_color(t.muted)
           .child(div().flex_1().child(this.tab === 'session' ? 'SESSION · PROJECT / LAST ACTIVITY' : 'NAME · CLICK TO FILTER'))
-          .children(['INPUT', 'OUTPUT', 'CACHE READ', 'CACHE WRITE', 'TOTAL'].map(text => div().w(92).text_right().child(text))))
+          .children(['INPUT', 'OUTPUT', 'CACHE READ', 'CACHE WRITE', 'TOTAL'].map(text => div().w(80).flex_none().text_right().child(text)))
+          .child(div().w(112).flex_none().text_right().child('EST. USD')))
         .child(v_flex().flex_none().children(rows.slice(this.page * 15, this.page * 15 + 15).map((row, index) =>
           h_flex().id(`analytics-row-${index}`).flex_none().h(36).gap(8).items_center().border_b(1).border_color(t.border).text_size(12)
             .when(this.tab !== 'session', el => el.cursor_pointer().hover(el => el.bg(t.hover))
               .on_click((_event, cx) => { this.filters = { ...this.filters, [this.tab]: row.label }; this.page = 0; cx.notify(); }))
             .child(div().flex_1().min_w(0).truncate().accessibility_label(label(row)).child(label(row)))
-            .children(['input', 'output', 'cacheRead', 'cacheWrite', 'total'].map(key => div().w(92).flex_none().text_right()
-              .accessibility_label(`${key}: ${number(row[key])} tokens`).child(short(row[key])))))))
+            .children(['input', 'output', 'cacheRead', 'cacheWrite', 'total'].map(key => div().w(80).flex_none().text_right()
+              .accessibility_label(`${key}: ${number(row[key])} tokens`).child(short(row[key]))))
+            .child(div().w(112).flex_none().text_right().child(costLabel(row.cost))
+              .accessibility_label(`Estimated USD: ${costLabel(row.cost)}; ${number(row.cost.unpricedTokens)} unpriced tokens`)))))
         .when(!rows.length && Boolean(this.data), el => el.child(DialogDescription(t).child('No recorded usage in this range.')))
         .when(pages > 1, el => el.child(h_flex().flex_none().justify_end().items_center().gap(12)
           .child(Button('analytics-prev', t, { variant: 'ghost' }).disabled(!this.page).child('Previous').on_click((_e, cx) => { this.page--; cx.notify(); }))
