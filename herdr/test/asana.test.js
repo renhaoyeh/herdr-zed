@@ -106,6 +106,8 @@ const element = () => new Proxy(() => {}, { get: (_target, key) => key === 'when
 const ui = { div: element, svg: element, v_flex: element, h_flex: element, Input: { new: element },
   TextView: { markdown: element }, theme: () => ({}), openOverlay() {}, DropdownMenuContent: element, DropdownMenuItem: element, DropdownMenuLabel: element,
   InputState: { new: () => ({ on() {}, value: () => '', set_value() {}, set_masked() {}, focus() {} }) },
+  Textarea: { new: element }, TextareaState: { new: () => { let value = '', change; return { on: (name, handler) => { if (name === 'change') change = handler; },
+    value: () => value, set_value: next => { value = next; }, type: next => { value = next; change?.(); }, set_auto_grow() {} }; } },
   Button: element, DialogTitle: element, DialogDescription: element, DropdownMenuTrigger: element,
   };
 
@@ -272,4 +274,23 @@ line two ${'x'.repeat(600)}` : `c${index}`, at: '2026-11-0' + (index + 1) + 'T00
   assert.ok(!prompt.includes('- P1 ') && prompt.includes('- P2 (2026-11-03): c2'));
   assert.ok(prompt.includes('line one line two') && prompt.includes('x…'));
   assert.ok(!taskPrompt({ name: 'Fix', url: '', notes: '', parent: null, comments: [] }).includes('comments'));
+  assert.ok(taskPrompt({ name: 'Fix', url: '', notes: 'Desc', parent: null, comments: many, note: '  Only touch the API  ' })
+    .endsWith('My instructions:\nOnly touch the API'));
+  assert.ok(!taskPrompt({ name: 'Fix', url: '', notes: '', parent: null, note: '   ' }).includes('instructions'));
+});
+
+test('each task keeps its own instructions draft, and Start session carries it', async () => {
+  const memory = { 'devkits.asana-projects': { '["","/a"]': { gid: 'pa', name: 'A', workspace: 'w' } } }, started = [];
+  const { AsanaPanel } = await load({ ...ui, shared: key => memory[key], setShared: (key, value) => { memory[key] = value; },
+    folderKey: path => path, appHome: () => '/herdr', readTextFile: async () => '{"token":"secret"}',
+    fetch: asana([{ gid: 'a1', name: 'One', me: true, projects: ['pa'] }, { gid: 'a2', name: 'Two', me: true, projects: ['pa'] }]) });
+  const { cx, settle } = harness();
+  const panel = new AsanaPanel(); panel.init(cx);
+  panel.show({ gid: 'a1' }, cx); panel.note.type('Use the new API');
+  panel.show({ gid: 'a2' }, cx);
+  assert.equal(panel.note.value(), '');
+  panel.show({ gid: 'a1' }, cx);
+  assert.equal(panel.note.value(), 'Use the new API');
+  assert.equal(panel.notes.get('a1'), 'Use the new API');
+  void settle; void started;
 });
