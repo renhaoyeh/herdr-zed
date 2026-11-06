@@ -110,3 +110,25 @@ test('changed files group as Tracked then Untracked, matching the multibuffer, a
   view.reveal('a.md', { notify() {} });
   assert.ok(!view.collapsed.has('a.md'));
 });
+
+test('reloads keep the shown diff and skip repainting until git diff output changes', async () => {
+  let text = ['diff --git a/a b/a', '--- a/a', '+++ b/a', '@@ -1 +1 @@', '-x', '+y'].join(String.fromCharCode(10));
+  const { DiffViewer } = await load({ shared: () => undefined, setShared() {},
+    VirtualListScrollHandle: { new: () => ({ scroll_to_item() {} }) },
+    exec: async () => ({ code: 0, stdout: text, stderr: '' }) });
+  const tasks = [];
+  let notified = 0;
+  const cx = { notify() { notified++; }, spawn(fn) { tasks.push(fn(cx)); } };
+  const drain = async () => { while (tasks.length) await Promise.all(tasks.splice(0)); };
+  const view = new DiffViewer(); view.init(); view.context = { folder: '/p' };
+  view.reload(cx); await drain();
+  const files = view.files;
+  assert.equal(notified, 1);
+  view.reload(cx); await drain();
+  assert.equal(view.files, files);
+  assert.equal(notified, 1);
+  text += String.fromCharCode(10) + '+z';
+  view.reload(cx); await drain();
+  assert.notEqual(view.files, files);
+  assert.equal(notified, 2);
+});

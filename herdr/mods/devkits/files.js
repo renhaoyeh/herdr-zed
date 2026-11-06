@@ -61,6 +61,7 @@ export default class FileViewer {
     this.dirty = new Set();
     this.errors = new Map();
     this.status = new Map();
+    this.limited = new Set();
     this.request = 0;
     this.markdown = null;
   }
@@ -80,7 +81,7 @@ export default class FileViewer {
     this.close();
     this.context = project ? { ...project } : null;
     this.entries.clear(); this.expanded.clear(); this.pending.clear(); this.dirty.clear(); this.errors.clear(); this.status = new Map();
-    this.cursor = null; this.file = null; this.fileError = null; this.limited = false;
+    this.cursor = null; this.file = null; this.fileError = null; this.limited = new Set();
     if (project?.folder) { this.observe(cx); this.loadFolder('', cx); this.loadStatus(cx); }
     if (file) this.show(file, cx);
   }
@@ -99,7 +100,7 @@ export default class FileViewer {
             if (rests.some(rest => /(^|\/)\.git\/(HEAD|index|packed-refs|refs\/)/.test(rest))) this.loadStatus(cx);
             continue;
           }
-          if (!this.queued) this.queued = cx.timer.after(100, cx => {
+          if (!this.queued) this.queued = cx.timer.after(300, cx => {
             this.queued = null;
             if (this.context === context) this.reload(cx);
           });
@@ -114,7 +115,6 @@ export default class FileViewer {
 
   reload(cx) {
     if (!this.context?.folder) return;
-    this.limited = false;
     for (const path of new Set(['', ...this.expanded])) this.loadFolder(path, cx);
     if (this.file) this.show(this.file, cx, true);
     this.loadStatus(cx);
@@ -124,14 +124,17 @@ export default class FileViewer {
     if (this.statusLoading) { this.statusDirty = true; return; }
     const context = this.context;
     this.statusLoading = true;
+    let changed = false;
     cx.spawn(async cx => {
       try {
         const status = await gitStatus(context.folder, context.machine);
-        if (this.context === context) this.status = status;
+        // Repaint only when a color actually changes.
+        const same = status.size === this.status.size && [...status].every(([path, kind]) => this.status.get(path) === kind);
+        if (this.context === context && !same) { this.status = status; changed = true; }
       } catch {} finally {
         this.statusLoading = false;
         if (this.context === context && this.statusDirty) { this.statusDirty = false; this.loadStatus(cx); }
-        cx.notify();
+        if (changed) cx.notify();
       }
     });
   }
@@ -147,7 +150,8 @@ export default class FileViewer {
         const used = [...this.entries].filter(([key]) => key !== path).reduce((n, [, rows]) => n + rows.length, 0);
         const count = Math.max(0, Math.min(PER_FOLDER, TOTAL - used));
         this.entries.set(path, entries.slice(0, count));
-        if (entries.length > count) this.limited = true;
+        // Tracked per folder, so a refresh never hides the notice while other folders reload.
+        entries.length > count ? this.limited.add(path) : this.limited.delete(path);
       } catch (error) { if (this.context === context) this.errors.set(path, String(error.message || error)); }
       finally {
         if (this.context === context) {
@@ -245,11 +249,12 @@ export default class FileViewer {
               .child(TreeItemIcon(icon(row.dir ? (this.expanded.has(row.path) ? 'folder-open' : 'folder') : 'file').text_color(t.muted)))
               .child(TreeItemLabel(t).when(this.status.has(row.path), el => el.text_color(GitStatusColor[this.status.get(row.path)]))
                 .child(row.name)))
-            .when(row.dir && this.expanded.has(row.path) && (this.pending.has(row.path) || this.errors.has(row.path)), el => el
+            // Only a folder's first read shows Loading; refreshes keep the current rows until the new ones arrive.
+            .when(row.dir && this.expanded.has(row.path) && ((this.pending.has(row.path) && !this.entries.has(row.path)) || this.errors.has(row.path)), el => el
               .child(div().px(12).py(4).text_size(11).text_color(t.muted).child(this.errors.get(row.path) || 'Loading…')))))
           .when(!this.entries.get('')?.length, el => el.child(div().p(12).text_size(12).text_color(t.muted)
             .child(this.errors.get('') || (this.pending.has('') ? 'Loading files…' : 'No files'))))
-          .when(this.limited, el => el.child(div().p(12).text_size(11).text_color(t.muted).child('List limited to 500 entries per folder and 5,000 total.')))))
+          .when(this.limited.size > 0, el => el.child(div().p(12).text_size(11).text_color(t.muted).child('List limited to 500 entries per folder and 5,000 total.')))))
       .child(v_flex().flex_1().min_w(0).min_h(0).h_full()
         .when(this.file, el => el.child(this.markdown !== null ? v_flex().id(`markdown-preview-${this.file}`).flex_1().min_h(0).overflow_y_scrollbar().p(24)
           .child(TextView.markdown(`markdown-${this.file}`, this.markdown).selectable(true).scrollable(false).w_full())

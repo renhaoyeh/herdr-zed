@@ -73,10 +73,15 @@ export function parseDiff(text) {
   return files.filter(entry => entry.path).sort((a, b) => Number(a.untracked) - Number(b.untracked) || a.path.localeCompare(b.path));
 }
 
-export async function readDiff(folder, on) {
+export async function readDiffText(folder, on) {
   const result = await exec('sh', ['-c', SCRIPT, 'devkits-diff', folder], { on });
   if (result.code !== 0) throw new Error(result.stderr.trim() || 'Cannot read changes.');
-  return { files: parseDiff(result.stdout), truncated: result.stdout.length >= MAX_BYTES };
+  return result.stdout;
+}
+
+export async function readDiff(folder, on) {
+  const text = await readDiffText(folder, on);
+  return { files: parseDiff(text), truncated: text.length >= MAX_BYTES };
 }
 
 /** Only commits move HEAD; other .git activity cannot change a working-tree diff against it. */
@@ -175,7 +180,7 @@ export default class DiffViewer {
     this.close();
     this.context = project ? { ...project } : null;
     this.files = []; this.collapsed.clear(); this.folders.clear(); this.rowCache = null; this.selected = null;
-    this.error = null; this.loaded = false; this.truncated = false;
+    this.error = null; this.loaded = false; this.truncated = false; this.text = null;
     if (project?.folder) { this.observe(cx); this.reload(cx); }
   }
 
@@ -188,7 +193,7 @@ export default class DiffViewer {
           const paths = await watchFolder(context.folder);
           if (this.context !== context) return;
           if (!paths.some(path => affectsDiff(path.slice(context.folder.length)))) continue;
-          if (!this.queued) this.queued = cx.timer.after(200, cx => {
+          if (!this.queued) this.queued = cx.timer.after(500, cx => {
             this.queued = null;
             if (this.context === context) this.reload(cx);
           });
@@ -204,19 +209,26 @@ export default class DiffViewer {
     if (this.loading) { this.dirty = true; return; }
     const context = this.context, request = ++this.request;
     this.loading = true;
+    let changed = !this.loaded;
     cx.spawn(async cx => {
       try {
-        const { files, truncated } = await readDiff(context.folder, context.machine);
+        const text = await readDiffText(context.folder, context.machine);
         if (request !== this.request || this.context !== context) return;
-        this.files = files; this.truncated = truncated; this.error = null; this.rowCache = null;
+        // Like Zed, keep what is shown until the result actually differs; most events change nothing.
+        if (text !== this.text || this.error) {
+          this.text = text; this.files = parseDiff(text); this.truncated = text.length >= MAX_BYTES;
+          this.error = null; this.rowCache = null; changed = true;
+        }
       } catch (error) {
-        if (request === this.request && this.context === context) { this.files = []; this.rowCache = null; this.error = String(error.message || error); }
+        if (request === this.request && this.context === context) {
+          this.text = null; this.files = []; this.rowCache = null; this.error = String(error.message || error); changed = true;
+        }
       } finally {
         if (this.context === context) {
           this.loading = false; this.loaded = true;
           if (this.dirty) { this.dirty = false; this.reload(cx); }
         }
-        cx.notify();
+        if (changed) cx.notify();
       }
     });
   }

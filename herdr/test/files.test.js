@@ -112,7 +112,7 @@ test('directory failures and entry caps are visible without retaining stale refr
   view.refresh(project, cx); view.refresh(project, cx);
   replies[1]({ code: 0, stdout: Array.from({ length: 501 }, (_, i) => `f\0file-${i}\0`).join('') });
   replies[0]({ code: 1, stderr: 'stale failure' }); await Promise.all(tasks.splice(0));
-  assert.equal(view.entries.get('').length, 500); assert.equal(view.limited, true); assert.equal(view.errors.size, 0);
+  assert.equal(view.entries.get('').length, 500); assert.equal(view.limited.size > 0, true); assert.equal(view.errors.size, 0);
   view.refresh(project, cx); replies[2]({ code: 1, stderr: 'Permission denied' }); await Promise.all(tasks);
   assert.equal(view.errors.get(''), 'Permission denied');
 });
@@ -182,7 +182,7 @@ test('native watch coalesces events, ignores .git, and stops on project switch o
   waits[1].resolve(['/local/a.ts']); await tick();
   waits[2].resolve(['/local/new.ts']); await tick();
   const queued = cx.timer.scheduled.filter(timer => timer.kind === 'after');
-  assert.equal(queued.length, 1); assert.equal(queued[0].ms, 100);
+  assert.equal(queued.length, 1); assert.equal(queued[0].ms, 300);
   queued[0].callback(cx); await tick();
   assert.deepEqual(loads, ['/local', '/local']);
   const oldWatcher = view.watcher, oldPoll = view.poll;
