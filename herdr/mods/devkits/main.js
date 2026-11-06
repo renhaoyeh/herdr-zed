@@ -837,11 +837,11 @@ export default class Devkits extends View {
   }
 
   threadRow(thread, t) {
-    const agent = thread.agent;
     const working = thread.status === 'working' || thread.agents.some(agent => agent.status === 'working');
     const isFocused = thread.active;
-    const p = agent?.program;
-    const icon = p?.icon ? (p.tint ? svg(p.icon).size(14).text_color(t.muted) : image(p.icon).size(14)) : glyph('terminal', 14).text_color(t.muted);
+    const p = thread.agent?.program;
+    const icon = working ? glyph('loader', 14).text_color(t.working).spin(900).accessibility_label('Working')
+      : p?.icon ? (p.tint ? svg(p.icon).size(14).text_color(t.muted) : image(p.icon).size(14)) : glyph('terminal', 14).text_color(t.muted);
     return SidebarMenuButton(`thread-${thread.tab.id}`, isFocused, t)
       .on_hover((hovered, cx) => { this.hovered = hovered ? thread.tab.id : null; cx.notify(); })
       .on_click(() => {
@@ -852,10 +852,6 @@ export default class Devkits extends View {
       .child(div().size(16).flex_none().flex().items_center().justify_center().child(icon))
       .child(div().flex_1().min_w(0).truncate().text_size(13).text_color(t.foreground)
         .when(isFocused, el => el.font_medium()).child(thread.title))
-      .child(div().size(16).flex_none().flex().items_center().justify_center().child(working
-        ? glyph('loader', 14).text_color(t.working).spin(900).accessibility_label('Working')
-        : glyph(thread.status === 'done' ? 'check' : thread.status === 'blocked' ? 'circle-alert' : 'circle', 14)
-          .text_color(stateColor(thread.status, t)).accessibility_label(thread.status)))
       .child(Button(`close-thread-${thread.tab.id}`, t, { variant: 'ghost', size: 'icon-sm' })
         .opacity(isFocused || this.hovered === thread.tab.id ? 1 : 0)
         .accessibility_label('Close thread')
