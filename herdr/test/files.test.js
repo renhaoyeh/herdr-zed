@@ -7,6 +7,12 @@ import { promisify } from 'node:util';
 import { execFile } from 'node:child_process';
 
 async function load(host = {}) {
+  const memory = {};
+  host = { DropdownMenuState: class { constructor() { this.open = false; } }, shared: key => memory[key], setShared: (key, value) => {
+    // Herdr's shared store cuts keys at NUL; round-trip like the persisted file.
+    assert.ok(!JSON.stringify(value).includes('\\u0000'), 'persisted keys contain NUL');
+    memory[key] = JSON.parse(JSON.stringify(value));
+  }, ...host };
   const source = await readFile(new URL('../mods/devkits/files.js', import.meta.url), 'utf8');
   return new Function(...Object.keys(host), source.replace(/^import .*;\n/gm, '')
     .replace('export default class', 'class').replace(/^export /gm, '') + '\nreturn { FileViewer, FileMenu, fullPath, revealPath, directory, parseStatus, gitStatus };')(...Object.values(host));
@@ -89,6 +95,59 @@ test('slow reads cannot replace a later file, survive project changes, or create
   assert.equal(previous.released, true);
   view.show('d.ts', cx); view.close(); replies[3]('closed'); await drain();
   assert.equal(editors.length, 1);
+});
+
+test('tabs reuse one italic preview, pin on double-click, close to a neighbour and return per project', async () => {
+  const reads = [];
+  const { view, cx, editors, drain } = await scenario(async path => { reads.push(path); return `text of ${path}`; });
+  const tabs = () => view.tabs.map(doc => doc.path);
+  view.show('a.ts', cx); await drain(); view.show('b.ts', cx); await drain();
+  assert.deepEqual(tabs(), ['b.ts']);
+  assert.equal(view.preview, 'b.ts');
+  assert.equal(editors[0].released, true);
+  view.show('b.ts', cx, true); view.show('c.ts', cx); view.show('d.ts', cx); await drain();
+  assert.deepEqual(tabs(), ['b.ts', 'd.ts']);
+  view.pin('d.ts', cx); view.activate('b.ts', cx); view.show('e.ts', cx); await drain();
+  // A new tab opens at the end, not beside the shown one.
+  assert.deepEqual(tabs(), ['b.ts', 'd.ts', 'e.ts']);
+  assert.equal(view.code.options.value, 'text of /project/e.ts');
+  const closed = view.code;
+  view.closeTab('e.ts', cx);
+  assert.equal(closed.released, true);
+  assert.equal(view.file, 'd.ts');
+  assert.equal(view.preview, null);
+  view.activate('b.ts', cx); view.closeTab('b.ts', cx);
+  assert.equal(view.file, 'd.ts');
+  view.show('b.ts', cx, true); view.closeTab('d.ts', cx);
+  assert.equal(view.file, 'b.ts');
+
+  // Background tabs reread only when shown again after a change.
+  view.show('f.ts', cx, true); await drain();
+  reads.length = 0; view.reload(cx); await drain();
+  assert.deepEqual(reads, ['/project/f.ts']);
+  view.activate('b.ts', cx); await drain();
+  assert.deepEqual(reads, ['/project/f.ts', '/project/b.ts']);
+
+  view.refresh({ ...project, id: 'other', folder: '/other' }, cx); await drain();
+  assert.deepEqual(tabs(), []);
+  assert.equal(view.file, null);
+  view.refresh(project, cx); await drain();
+  assert.deepEqual(tabs(), ['b.ts', 'f.ts']);
+  assert.equal(view.file, 'b.ts');
+  assert.equal(view.code.options.value, 'text of /project/b.ts');
+  assert.equal(view.tabs[1].loaded, false);
+
+  // Tabs survive a mod reload or restart: a new view restores them from shared state.
+  view.closeTab('f.ts', cx); view.show('g.ts', cx); await drain();
+  const reloaded = new view.constructor(); reloaded.init(cx); reloaded.refresh(project, cx); await drain();
+  assert.deepEqual(reloaded.tabs.map(doc => doc.path), ['b.ts', 'g.ts']);
+  assert.equal(reloaded.file, 'g.ts');
+  assert.equal(reloaded.preview, 'g.ts');
+  assert.equal(reloaded.code.options.value, 'text of /project/g.ts');
+  // Closing every tab forgets the project.
+  reloaded.closeTab('b.ts', cx); reloaded.closeTab('g.ts', cx);
+  const empty = new view.constructor(); empty.init(cx); empty.refresh(project, cx);
+  assert.deepEqual(empty.tabs, []);
 });
 
 test('binary, absent and unreadable files show an error; long previews are bounded and refresh rereads', async () => {

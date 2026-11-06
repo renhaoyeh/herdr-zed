@@ -1,13 +1,18 @@
 import { div, svg } from 'gpui-kit';
 import { h_flex, v_flex, Editor, EditorState, TextView } from 'gpui-base';
-import { exec, readTextFile, watchFolder, settings, theme, window, props, openOverlay, closeOverlay, notify } from 'herdr';
+import { exec, readTextFile, watchFolder, settings, theme, window, props, openOverlay, closeOverlay, notify, shared, setShared } from 'herdr';
+import { Button } from './components/button.js';
 import { TreeItem, TreeItemIcon, TreeItemLabel, GitStatusColor } from './components/tree.js';
 import { Empty, EmptyTitle, EmptyDescription } from './components/empty.js';
-import { DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from './components/dropdown-menu.js';
+import { DropdownMenu, DropdownMenuState, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from './components/dropdown-menu.js';
 
 const icon = name => svg(`mods/devkits/assets/icons/${name}.svg`).size(14).flex_none();
 const LANG = { ts: 'js', tsx: 'js', jsx: 'js', mjs: 'js', cjs: 'js', mts: 'js', cts: 'js', jsonc: 'json', toml: 'yaml', vue: 'html', svelte: 'html' };
 const PER_FOLDER = 500, TOTAL = 5000;
+// Open tabs are remembered per project folder across reloads and restarts.
+// Persisted keys must not contain NUL: Herdr's shared store cuts a key there.
+const projectKey = project => JSON.stringify([project.machine || null, project.folder]);
+const openDocument = path => ({ path, code: null, markdown: null, error: null, loaded: false, stale: false, request: 0 });
 
 export async function directory(path, on) {
   // Paths are positional arguments; filenames never become shell code.
@@ -125,28 +130,47 @@ export default class FileViewer {
     this.errors = new Map();
     this.status = new Map();
     this.limited = new Set();
-    this.request = 0;
-    this.markdown = null;
+    this.tabs = []; this.file = null; this.preview = null;
+    this.optionsMenu = new DropdownMenuState(cx);
   }
+
+  get doc() { return this.tabs.find(doc => doc.path === this.file) || null; }
+  get code() { return this.doc?.code || null; }
+  get markdown() { return this.doc ? this.doc.markdown : null; }
+  get fileError() { return this.doc?.error || null; }
+  get wrapTabs() { return shared('devkits.files-wrap-tabs') === true; }
 
   close() {
     this.watcher?.cancel(); this.poll?.cancel(); this.queued?.cancel();
     this.queued = null;
     this.context = null;
-    this.request++;
-    this.code?.release();
-    this.code = null;
-    this.markdown = null;
+    for (const doc of this.tabs) doc.code?.release();
+    this.tabs = []; this.file = null; this.preview = null;
+  }
+
+  /** Saves this project's tabs, writing only when they changed. */
+  remember() {
+    if (!this.context?.folder) return;
+    const key = projectKey(this.context), all = shared('devkits.files-tabs') || {};
+    const session = this.tabs.length ? { paths: this.tabs.map(doc => doc.path), file: this.file, preview: this.preview } : undefined;
+    if (JSON.stringify(all[key]) === JSON.stringify(session)) return;
+    const next = { ...all };
+    session ? next[key] = session : delete next[key];
+    setShared('devkits.files-tabs', next);
   }
 
   refresh(project, cx) {
-    const file = this.context?.folder === project?.folder && this.context?.machine === project?.machine ? this.file : null;
     this.close();
     this.context = project ? { ...project } : null;
     this.entries.clear(); this.expanded.clear(); this.pending.clear(); this.dirty.clear(); this.errors.clear(); this.status = new Map();
-    this.cursor = null; this.file = null; this.fileError = null; this.limited = new Set();
-    if (project?.folder) { this.observe(cx); this.loadFolder('', cx); this.loadStatus(cx); }
-    if (file) this.show(file, cx);
+    this.cursor = null; this.limited = new Set();
+    if (!project?.folder) return;
+    this.observe(cx); this.loadFolder('', cx); this.loadStatus(cx);
+    const session = shared('devkits.files-tabs')?.[projectKey(project)];
+    if (session?.paths?.length) {
+      this.tabs = session.paths.map(openDocument); this.preview = session.preview;
+      this.activate(session.file, cx);
+    }
   }
 
   observe(cx) {
@@ -179,7 +203,9 @@ export default class FileViewer {
   reload(cx) {
     if (!this.context?.folder) return;
     for (const path of new Set(['', ...this.expanded])) this.loadFolder(path, cx);
-    if (this.file) this.show(this.file, cx, true);
+    // Background tabs reread when they are next shown.
+    for (const doc of this.tabs) doc.stale = true;
+    if (this.doc) this.load(this.doc, cx);
     this.loadStatus(cx);
   }
 
@@ -235,37 +261,87 @@ export default class FileViewer {
     cx.notify();
   }
 
-  show(path, cx, updating = false) {
-    const request = ++this.request, context = this.context;
-    if (!updating) { this.code?.release(); this.code = null; this.markdown = null; }
-    this.file = path; this.fileError = null;
+  /** Opens a file as Zed does: a single click reuses the italic preview tab; pinning keeps it. */
+  show(path, cx, pin = false) {
+    let doc = this.tabs.find(doc => doc.path === path);
+    if (!doc) {
+      doc = openDocument(path);
+      const previewIndex = this.tabs.findIndex(other => other.path === this.preview);
+      if (!pin && previewIndex >= 0) { this.tabs[previewIndex].code?.release(); this.tabs[previewIndex] = doc; }
+      else this.tabs.push(doc);
+      if (!pin) this.preview = path;
+    } else if (pin && this.preview === path) this.preview = null;
+    this.file = path;
+    this.load(doc, cx);
+    this.remember();
+    cx.notify();
+  }
+
+  activate(path, cx) {
+    this.file = this.tabs.some(doc => doc.path === path) ? path : this.tabs[0]?.path || null;
+    const doc = this.doc;
+    if (doc && (!doc.loaded || doc.stale)) this.load(doc, cx);
+    this.remember();
+    cx.notify();
+  }
+
+  pin(path, cx) {
+    if (this.preview === path) this.preview = null;
+    this.activate(path, cx);
+  }
+
+  closeTab(path, cx) {
+    const index = this.tabs.findIndex(doc => doc.path === path);
+    if (index < 0) return;
+    this.tabs.splice(index, 1)[0].code?.release();
+    if (this.preview === path) this.preview = null;
+    if (this.hoveredTab === path) this.hoveredTab = null;
+    // Closing the shown tab shows its right neighbour, or the left one at the end.
+    if (this.file === path) this.activate((this.tabs[index] || this.tabs[index - 1])?.path, cx);
+    this.remember();
+    cx.notify();
+  }
+
+  toggleWrapTabs(cx) {
+    setShared('devkits.files-wrap-tabs', !this.wrapTabs);
+    cx.notify();
+  }
+
+  load(doc, cx) {
+    const request = ++doc.request, context = this.context;
+    doc.stale = false;
+    const current = () => request === doc.request && this.context === context && this.tabs.includes(doc);
     cx.spawn(async cx => {
       try {
-        const text = await readTextFile(`${context.folder}/${path}`, { on: context.machine });
-        if (request !== this.request || this.context !== context) return;
+        const text = await readTextFile(`${context.folder}/${doc.path}`, { on: context.machine });
+        if (!current()) return;
         if (text === null) throw new Error('This file is no longer available.');
         if (text.includes('\0')) throw new Error('Binary file — no text preview.');
         // shortcut: cap preview rendering at 400k characters; add paging if larger files are needed.
         const value = text.length > 400000 ? text.slice(0, 400000) + '\n… (preview truncated)' : text;
-        if (/\.(md|markdown)$/i.test(path)) { this.markdown = value; return; }
-        if (this.code) {
-          if (this.code.value() !== value) this.code.set_value(value);
+        doc.error = null;
+        if (/\.(md|markdown)$/i.test(doc.path)) { doc.markdown = value; return; }
+        // Updating the existing editor keeps its scroll position.
+        if (doc.code) {
+          if (doc.code.value() !== value) doc.code.set_value(value);
           return;
         }
-        const ext = path.split('.').pop().toLowerCase(), t = theme();
-        this.code = EditorState.new({ readonly: true, soft_wrap: true, language: LANG[ext] || ext,
+        const ext = doc.path.split('.').pop().toLowerCase(), t = theme();
+        doc.code = EditorState.new({ readonly: true, soft_wrap: true, language: LANG[ext] || ext,
           value,
           font_family: settings().font_family, font_size: 13,
           syntax: { keyword: t.ansi5, string: t.ansi2, comment: t.dim, function: t.ansi4, type: t.ansi3, number: t.ansi1, constant: t.ansi6 } });
       } catch (error) {
-        if (request === this.request && this.context === context) {
-          this.code?.release(); this.code = null;
-          this.markdown = null;
-          this.fileError = String(error.message || 'Cannot preview this file (unreadable, non-UTF-8, or larger than 1 MiB).');
+        if (current()) {
+          doc.code?.release(); doc.code = null;
+          doc.markdown = null;
+          doc.error = String(error.message || 'Cannot preview this file (unreadable, non-UTF-8, or larger than 1 MiB).');
         }
-      } finally { cx.notify(); }
+      } finally {
+        if (current()) doc.loaded = true;
+        cx.notify();
+      }
     });
-    cx.notify();
   }
 
   rows(prefix = '', depth = 0, out = [], parentIgnored = false) {
@@ -316,9 +392,10 @@ export default class FileViewer {
               .on_mouse_down('right', (event, cx) => {
                 cx.stop_propagation(); this.openMenu(row.path, event.position, cx);
               })
-              .on_click((_event, cx) => {
+              .on_click((event, cx) => {
                 this.handle.focus(); this.cursor = row.path;
-                row.dir ? this.toggle(row.path, cx) : this.show(row.path, cx);
+                // The first click of a double-click already previewed the file; the second keeps it open.
+                row.dir ? event.click_count < 2 && this.toggle(row.path, cx) : this.show(row.path, cx, event.click_count >= 2);
               })
               .child(TreeItemIcon(icon(row.dir ? (this.expanded.has(row.path) ? 'folder-open' : 'folder') : 'file').text_color(row.ignored ? t.dim : t.muted)))
               .child(TreeItemLabel(t).text_color(row.ignored ? t.dim : GitStatusColor[this.status.get(row.path)] || t.foreground)
@@ -330,10 +407,49 @@ export default class FileViewer {
             .child(this.errors.get('') || (this.pending.has('') ? 'Loading files…' : 'No files'))))
           .when(this.limited.size > 0, el => el.child(div().p(12).text_size(11).text_color(t.muted).child('List limited to 500 entries per folder and 5,000 total.')))))
       .child(v_flex().flex_1().min_w(0).min_h(0).h_full()
-        .when(this.file, el => el.child(this.markdown !== null ? v_flex().id(`markdown-preview-${this.file}`).flex_1().min_h(0).overflow_y_scrollbar().p(24)
+        .when(this.tabs.length > 0, el => el.child(this.tabBar(t)))
+        .when(Boolean(this.doc), el => el.child(this.markdown !== null ? v_flex().id(`markdown-preview-${this.file}`).flex_1().min_h(0).overflow_y_scrollbar().p(24)
           .child(TextView.markdown(`markdown-${this.file}`, this.markdown).selectable(true).scrollable(false).w_full())
           : this.code ? Editor.new(this.code).flex_1().min_h(0) : Empty(t).flex_1()
           .child(EmptyTitle().child(this.fileError ? 'Preview unavailable' : 'Loading file…'))
           .child(EmptyDescription(t).child(this.fileError || '')))));
+  }
+
+  tabBar(t) {
+    const wrap = this.wrapTabs, name = path => path.slice(path.lastIndexOf('/') + 1);
+    const counts = new Map();
+    for (const doc of this.tabs) counts.set(name(doc.path), (counts.get(name(doc.path)) || 0) + 1);
+    const list = wrap ? h_flex().flex_wrap() : h_flex().id('file-tab-list').overflow_x_scroll();
+    return h_flex().id('file-tabs').flex_none().items_start().bg(t.chrome).border_b(1).border_color(t.border)
+      .child(list.flex_1().min_w(0).role('tab_list').accessibility_label('Open files')
+        .children(this.tabs.map((doc, index) => {
+          const active = doc.path === this.file, preview = doc.path === this.preview, base = name(doc.path);
+          const folder = doc.path.includes('/') ? doc.path.slice(0, doc.path.lastIndexOf('/')) : '';
+          return Button(`file-tab-${doc.path}`, t, { variant: 'ghost' }).h(32).max_w(240).pl(12).pr(6).gap(6).justify_start()
+            .border_r(1).border_color(t.border).bg(active ? t.background : t.chrome).text_color(active ? t.foreground : t.muted)
+            .role('tab').selected(active).set_position(index + 1, this.tabs.length)
+            .accessibility_label(`${doc.path}${preview ? ', preview' : ''}`)
+            .on_hover((inside, cx) => {
+              if (!inside && this.hoveredTab !== doc.path) return;
+              this.hoveredTab = inside ? doc.path : null; cx.notify();
+            })
+            .on_click((event, cx) => event.click_count >= 2 ? this.pin(doc.path, cx) : this.activate(doc.path, cx))
+            .on_mouse_down('middle', (_event, cx) => { cx.stop_propagation(); this.closeTab(doc.path, cx); })
+            .child(icon('file').text_color(t.muted))
+            // Italic alone vanishes in UI fonts without an italic face, so a preview tab is also one step dimmer.
+            .child(div().min_w(0).truncate().text_size(12).when(preview, el => el.italic().text_color(active ? t.muted : t.dim)).child(base))
+            // Same-named files show their folder, as Zed does.
+            .when(counts.get(base) > 1 && Boolean(folder), el => el.child(div().min_w(0).truncate().text_size(11).text_color(t.dim).child(folder)))
+            .child(Button(`close-file-tab-${doc.path}`, t, { variant: 'row', size: 'icon-sm' })
+              .opacity(active || this.hoveredTab === doc.path ? 1 : 0)
+              .accessibility_label(`Close ${base}`)
+              .on_click((_event, cx) => { cx.stop_propagation(); this.closeTab(doc.path, cx); })
+              .child(icon('close').size(12)));
+        })))
+      .child(DropdownMenu('file-tab-options', this.optionsMenu,
+        Button('file-tab-options-trigger', t, { variant: 'ghost', size: 'icon' }).h(32).w(32)
+          .accessibility_label('Tab options').child(icon('ellipsis')),
+        [{ key: 'wrap-tabs', label: 'Wrap tabs', checked: wrap }],
+        (_key, cx) => this.toggleWrapTabs(cx), t));
   }
 }
