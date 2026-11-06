@@ -152,7 +152,7 @@ export class CommitHistory {
         this.keyboard = true; this.scroll.scroll_to_item(this.index, 'top'); cx.stop_propagation(); cx.notify();
       })
       .when(Boolean(this.error), el => el.child(v_flex().flex_none().p(12).gap(8).text_size(12).text_color(t.muted)
-        .child(this.error).child(Button('history-retry', t, { variant: 'outline' })
+        .child(this.error).child(Button('history-retry', t, { variant: 'secondary' })
           .on_click((_event, cx) => this.load(cx, this.retryMore)).child('Retry'))))
       .child(count ? v_virtual_list('git-history-rows', count, 56,
         index => this.entries[index]?.sha || 'more',

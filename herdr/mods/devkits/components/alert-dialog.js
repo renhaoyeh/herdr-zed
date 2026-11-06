@@ -19,7 +19,7 @@ export function AlertDialogFooter() {
 }
 
 export function AlertDialogCancel(id, t) {
-  return Button(id, t, { variant: 'outline' });
+  return Button(id, t, { variant: 'secondary' });
 }
 
 export function AlertDialogAction(id, t) {

@@ -484,7 +484,7 @@ export default class DiffViewer {
       .child(icon(this.pushResult.failed ? 'circle-alert' : 'circle-check')
         .text_color(this.pushResult.failed ? t.destructive || t.foreground : t.muted))
       .child(div().min_w(0).text_size(12).child(this.resultTitle))
-      .when(this.pushResult.failed, el => el.child(Button('git-view-log', t, { variant: 'ghost' }).h(26).px(8)
+      .when(this.pushResult.failed, el => el.child(Button('git-view-log', t, { variant: 'secondary' }).h(26).px(8)
         .child('View Log').on_click((_event, cx) => this.openLog(cx))))
       .child(Button('git-toast-close', t, { variant: 'ghost', size: 'icon-sm' })
         .accessibility_label('Dismiss Git notification').child(icon('close'))
