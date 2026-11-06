@@ -1,8 +1,8 @@
 import { View, div, svg, image } from 'gpui-kit';
-import { v_flex, h_flex } from 'gpui-base';
-import { agents, spaces, panes, theme, run, props, window, openOverlay, closeOverlay, setAgentOrder, layout, settings, pickFolder, shared, setShared, knownAgents, notify, exec, appHome } from 'herdr';
+import { v_flex, h_flex, InputState, Input } from 'gpui-base';
+import { agents, spaces, panes, theme, run, props, window, openOverlay, closeOverlay, setAgentOrder, layout, settings, pickFolder, shared, setShared, knownAgents, notify, exec, appHome, readTextFile } from 'herdr';
 import { projectGroups, projectCatalog, folderKey, launcherChoices, codexPermissionModes, isCodexLauncher, launcherArgv, quotaResetLabel } from './model.js';
-import CodexLogin, { removeCodexAccount } from './codex-login.js';
+import CodexLogin, { removeCodexAccount, renameCodexAccount } from './codex-login.js';
 import FileViewer from './files.js';
 import { DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from './components/dropdown-menu.js';
 import { Button } from './components/button.js';
@@ -52,11 +52,17 @@ export default class Devkits extends View {
       return;
     }
     this.folded = new Set();
+    if (props()?.view === 'rename-account') {
+      this.renameInput = InputState.new({ placeholder: 'Account name' });
+      this.renameInput.set_value(props().account.name.replace(/^Codex · /, ''));
+      this.renameInput.on('submit', (_event, cx) => this.saveAccountName(cx));
+      this.renameInput.focus();
+    }
     this.hovered = null;
     this.hoveredProject = null;
-    if (['close-project', 'remove-account', 'project-menu', 'project-picker', 'usage-details'].includes(props()?.view)) {
+    if (['close-project', 'remove-account', 'rename-account', 'project-menu', 'project-picker', 'usage-details'].includes(props()?.view)) {
       this.handle = cx.focus_handle();
-      this.handle.focus();
+      if (props().view !== 'rename-account') this.handle.focus();
       if (props().view === 'project-picker') this.projectIndex = -1;
     }
     if (['launcher', 'manage-launchers'].includes(props()?.view)) {
@@ -196,8 +202,15 @@ export default class Devkits extends View {
     if (cached) return cached;
     if (agentLoads.has(key)) return agentLoads.get(key);
     const pending = (async () => {
-      const agents = (await knownAgents({ on: machine }))
+      let agents = (await knownAgents({ on: machine }))
         .filter(agent => agent.installed && (!machine || !agent.key.startsWith('devkits-codex-')));
+      // The native program table may still contain old labels just after a write.
+      if (!machine) {
+        const source = await readTextFile(`${appHome()}/programs.json`);
+        const programs = source === null ? {} : JSON.parse(source).programs || {};
+        agents = agents.map(agent => typeof programs[agent.key]?.name === 'string'
+          ? { ...agent, name: programs[agent.key].name } : agent);
+      }
       setShared('devkits.agent-cache', { ...(shared('devkits.agent-cache') || {}), [key]: agents });
       return agents;
     })();
@@ -250,6 +263,52 @@ export default class Devkits extends View {
   async close() {
     this.files?.close();
     await this.login?.close();
+  }
+
+  renameAccount(account) {
+    const target = props();
+    closeOverlay(target.overlay);
+    openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: true, width: 480, height: 260,
+      props: { view: 'rename-account', account: { key: account.key, name: account.name }, space: target.space } });
+  }
+
+  finishRename() {
+    if (this.renaming) return;
+    const target = props();
+    closeOverlay(target.overlay);
+    openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: false, width: 680, height: 0.8,
+      props: { view: 'manage-launchers', space: target.space } });
+  }
+
+  saveAccountName(cx) {
+    if (this.renaming) return;
+    this.renaming = true; this.renameError = null; cx.notify();
+    const name = this.renameInput.value();
+    cx.spawn(async cx => {
+      try {
+        await renameCodexAccount(props().account.key, name);
+        setShared('devkits.agent-cache', {});
+        setShared('devkits.profile-revision', (shared('devkits.profile-revision') || 0) + 1);
+        this.renaming = false; this.finishRename();
+      } catch (error) { this.renaming = false; this.renameError = error.message; cx.notify(); }
+    });
+  }
+
+  renameAccountPrompt(t) {
+    return DialogContent('rename-account-dialog', t).accessibility_label('Rename agent profile')
+      .track_focus(this.handle).on_key_down((event, cx) => {
+        if (event.key === 'escape') { cx.stop_propagation(); this.finishRename(); }
+      })
+      .child(DialogTitle().child('Rename agent profile'))
+      .child(DialogDescription(t).child('Choose a display name for this account.'))
+      .child(Input.new(this.renameInput).id('rename-account-name').accessibility_label('Account name')
+        .h(36).px(10).rounded(0).border_b(1).border_color(t.input).text_size(13))
+      .when(Boolean(this.renameError), el => el.child(div().id('rename-account-error').text_size(12)
+        .text_color(t.destructive || t.foreground).child(this.renameError)))
+      .child(DialogFooter().children([
+        Button('cancel-rename-account', t, { variant: 'outline' }).disabled(Boolean(this.renaming)).on_click(() => this.finishRename()).child('Cancel'),
+        Button('save-rename-account', t).disabled(Boolean(this.renaming)).on_click((_event, cx) => this.saveAccountName(cx)).child(this.renaming ? 'Saving…' : 'Save'),
+      ]));
   }
 
   confirmRemoveAccount(account) {
@@ -396,6 +455,8 @@ export default class Devkits extends View {
             .child(Button('add-codex-account', t, { variant: 'outline' })
               .accessibility_label('Add a Codex account')
               .on_click(() => this.addCodexAccount()).child(glyph('plus')).child('Add account')))
+          .when(local && choice.group === 2, el => el.child(Button(`rename-${choice.agent.key}`, t, { variant: 'outline' })
+            .accessibility_label(`Rename ${choice.name}`).on_click(() => this.renameAccount(choice.agent)).child('Rename')))
           .when(local && choice.group === 2, el => el.child(Button(`remove-${choice.agent.key}`, t, { variant: 'outline' })
             .accessibility_label(`Remove ${choice.name}`).on_click(() => this.confirmRemoveAccount(choice.agent))
             .child(glyph('close')).child('Remove')))
@@ -451,7 +512,7 @@ export default class Devkits extends View {
     const machine = this.projects().find(project => project.active)?.machine || null;
     const hidden = shared('devkits.hidden-launchers') || [];
     const order = shared('devkits.launcher-order') || [];
-    const scope = JSON.stringify([machine, hidden, order]);
+    const scope = JSON.stringify([machine, hidden, order, shared('devkits.profile-revision') || 0]);
     if (this.usageLoading || (!force && this.usageScope === scope)) return;
     this.usageScope = scope;
     this.usageLoading = true;
@@ -562,9 +623,9 @@ export default class Devkits extends View {
     const root = layout(), sidebar = root?.children?.find(node => node.id === 'sidebar');
     const inset = win?.platform === 'macos' && !win.fullscreen && sidebar?.hidden
       ? (root.traffic_lights[0] + 64) / settings().zoom : 12;
-    return h_flex().size_full().px(16).pl(inset).gap(12).items_center().bg(t.background).text_size(13)
+    return h_flex().size_full().pr(4).pl(inset).gap(4).items_center().bg(t.background).text_size(13)
       .border_b(1).border_color(t.border)
-      .child(DropdownMenuTrigger(h_flex().id('project-switcher').h(32).px(8).gap(6).items_center().rounded(0).border_b(1).border_color(t.input)
+      .child(DropdownMenuTrigger(h_flex().id('project-switcher').h(28).px(8).gap(6).items_center().rounded(0)
         .text_color(t.foreground).font_medium().hover(el => el.bg(t.hover)).cursor_pointer(), 280,
         (_cx, at) => openOverlay({ mod: 'devkits', kind: 'popup', frame: 'none', width: 280, at,
           props: { view: 'project-picker' } }))
@@ -581,12 +642,7 @@ export default class Devkits extends View {
   }
 
   brand(t) {
-    const mac = window()?.platform === 'macos' && !window()?.fullscreen;
-    return h_flex().size_full().pl(mac ? 80 : 16).pr(12).gap(10).items_center().bg(t.chrome)
-      .border_b(1).border_color(t.border)
-      .child(div().size(28).flex_none().flex().items_center().justify_center().rounded(0)
-        .bg(t.solid).text_color(t.solid_foreground).child(glyph('mark', 17)))
-      .child(div().flex_1().font_family('Georgia').text_size(20).font_normal().text_color(t.foreground).child('Devkits'));
+    return div().size_full().bg(t.chrome).border_b(1).border_color(t.border);
   }
 
   paneHeader(t) {
@@ -658,6 +714,7 @@ export default class Devkits extends View {
     if (props()?.view === 'launcher') return this.launcher(t);
     if (props()?.view === 'manage-launchers') return this.manageLaunchers(t);
     if (props()?.view === 'remove-account') return this.removeAccountPrompt(t);
+    if (props()?.view === 'rename-account') return this.renameAccountPrompt(t);
     if (props()?.view === 'project-empty') return div().size_full().bg(t.background);
     if (props()?.view === 'close-project') return this.closePrompt(t);
     if (props()?.view === 'project-menu') return this.projectMenu(t);
