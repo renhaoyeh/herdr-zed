@@ -5,7 +5,7 @@ import { projectGroups, projectCatalog, folderKey, launcherChoices, isAccountLau
 import AccountLogin, { accountLabel, ensureClaudeStatusLine, removeAccountProfile, renameAccountProfile } from './account-login.js';
 import FileViewer from './files.js';
 import DiffViewer from './diff.js';
-import AsanaTasks, { taskPrompt } from './asana.js';
+import AsanaPanel, { AsanaProjectPicker, taskPrompt, unsaveTask } from './asana.js';
 import { DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from './components/dropdown-menu.js';
 import { Button } from './components/button.js';
 import { Checkbox } from './components/checkbox.js';
@@ -17,7 +17,12 @@ import { Sidebar, SidebarContent, SidebarGroup, SidebarGroupLabel, SidebarMenuBu
 
 const glyph = (name, size = 14) => svg(`mods/devkits/assets/icons/${name}.svg`).size(size).flex_none();
 // Files and Changes replace the terminals for one project; selecting anything else returns to them.
-const hidePanels = () => { setShared('devkits.files', null); setShared('devkits.diff', null); };
+const hidePanels = () => { setShared('devkits.files', null); setShared('devkits.diff', null); setShared('devkits.asana', null); };
+// Each project remembers its open panel and gets it back when selected again; choosing a thread forgets it.
+const rememberPanel = (id, name) => { if (id) setShared('devkits.project-panels', { ...(shared('devkits.project-panels') || {}), [id]: name || null }); };
+const showPanel = (name, id) => { hidePanels(); setShared(`devkits.${name}`, id); rememberPanel(id, name); };
+const restorePanel = id => { const name = shared('devkits.project-panels')?.[id]; if (name) setShared(`devkits.${name}`, id); return Boolean(name); };
+const togglePanel = (name, id) => { if (shared(`devkits.${name}`) === id) { hidePanels(); rememberPanel(id, null); } else showPanel(name, id); };
 const stateColor = (status, t) => t[status] || t.muted;
 const launcherSections = ['Terminal', 'Agents', 'Your accounts'];
 const agentLoads = new Map();
@@ -81,11 +86,17 @@ export default class Devkits extends View {
       if (props().view !== 'rename-account') this.handle.focus();
       if (props().view === 'project-picker') this.projectIndex = -1;
     }
-    if (props()?.view === 'asana-tasks') {
-      this.asana = new AsanaTasks();
-      this.asana.init(cx);
+    if (props()?.view === 'asana-projects') {
+      this.asanaProjects = new AsanaProjectPicker();
+      this.asanaProjects.init(props(), cx);
+      return;
     }
-    if (['launcher', 'manage-launchers', 'asana-tasks'].includes(props()?.view)) {
+    if (props()?.view === 'asana') {
+      this.asana = new AsanaPanel();
+      this.asana.init(cx);
+      return;
+    }
+    if (['launcher', 'manage-launchers'].includes(props()?.view)) {
       if (props().refreshAgents) setShared('devkits.agent-cache', {});
       this.launchers = [];
       this.permissionSelects = new Map();
@@ -137,6 +148,7 @@ export default class Devkits extends View {
     setShared('devkits.selected-project', project.id);
     if (!project.pending) run('space.select', { id: project.id });
     run('layout.select', { stack: 'workspace-view', child: project.pending ? 'project-empty' : 'main' });
+    restorePanel(project.id);
   }
 
   closeProject(project) {
@@ -150,10 +162,12 @@ export default class Devkits extends View {
     const projects = this.projects();
     const index = projects.findIndex(project => project.id === target.project.id);
     const close = () => { closeOverlay(target.overlay); this.closeProject(target.project); };
+    const asana = () => { this.selectProject(target.project); showPanel('asana', target.project.id); };
     const actions = [
+      ...(target.project.machine ? [] : [{ id: 'menu-asana-tasks', label: 'Asana tasks', icon: 'list-todo', enabled: true, action: asana, divider: true }]),
       { id: 'menu-project-up', label: 'Move up', enabled: index > 0, action: () => this.moveProject(target.project.id, -1) },
       { id: 'menu-project-down', label: 'Move down', enabled: index >= 0 && index < projects.length - 1, action: () => this.moveProject(target.project.id, 1) },
-      { id: 'menu-close-project', label: 'Close project', enabled: true, action: close },
+      { id: 'menu-close-project', label: 'Close project', icon: 'close', enabled: true, action: close, separated: true },
     ];
     const activate = action => {
       if (!action.enabled) return;
@@ -175,12 +189,13 @@ export default class Devkits extends View {
         cx.stop_propagation();
       })
       .children(actions.flatMap((action, i) => [
-        ...(i === 2 ? [DropdownMenuSeparator(t)] : []),
+        ...(action.separated ? [DropdownMenuSeparator(t)] : []),
         DropdownMenuItem(action.id, t).opacity(action.enabled ? 1 : 0.4)
           .bg(this.projectMenuIndex === i && action.enabled ? t.hover : t.popover)
           .on_hover((inside, cx) => { if (inside && action.enabled) { this.projectMenuIndex = i; cx.notify(); } })
           .on_click(() => activate(action))
-          .when(i === 2, el => el.child(glyph('close'))).child(action.label),
+          .when(Boolean(action.icon), el => el.child(glyph(action.icon))).child(action.label),
+        ...(action.divider ? [DropdownMenuSeparator(t)] : []),
       ]));
   }
 
@@ -296,30 +311,33 @@ export default class Devkits extends View {
     });
   }
 
-  // An Asana task becomes the thread name and the agent's opening prompt.
-  startThread(agent, task) {
-    const target = props();
+  // An Asana task becomes the thread name and the agent's opening prompt, and leaves Saved once started.
+  startThread(agent) {
+    const target = props(), task = target.task;
     let argv;
     try { argv = launcherArgv(agent, shared('devkits.codex-permissions')?.[agent?.key]); }
     catch (error) { notify({ title: 'Could not start session', body: error.message, level: 'error' }); return; }
     if (task) argv = [...argv, taskPrompt(task)];
     const name = task?.name || agent?.name;
     closeOverlay(target.overlay);
+    if (task) unsaveTask(target.folder, task.gid);
     // Commands do not return the new tab, so the sidebar matches it once it appears.
     if (agent) setShared('devkits.pending-profiles', [...(shared('devkits.pending-profiles') || []), { key: agent.key,
       space: target.space || null, folder: target.folder, before: spaces().flatMap(space => space.tabs.map(tab => tab.id)), at: Date.now() }]);
     hidePanels();
+    rememberPanel(target.space, null);
     setShared('devkits.selected-project', null);
     run('layout.select', { stack: 'workspace-view', child: 'main' });
     if (target.space) run('tab.new', { space: target.space, folder: target.folder, ...(agent ? { name, argv } : {}) });
     else run('space.new', { name: target.projectName, folder: target.folder, machine: '', ...(agent ? { tab: name, argv } : {}) });
   }
 
-  asanaTasks(t) {
-    const hidden = shared('devkits.hidden-launchers') || [];
-    const agents = launcherChoices(this.launchers, shared('devkits.launcher-order') || [])
-      .filter(choice => choice.agent && !hidden.includes(choice.key)).map(choice => choice.agent);
-    return this.asana.render(t, agents, (agent, task) => this.startThread(agent, task), () => closeOverlay(props().overlay), this.handle);
+  // Start session in the Asana preview reuses Add session's agent menu, carrying the previewed task.
+  asanaPanel(cx) {
+    const project = this.projects().find(project => project.active);
+    return this.asana.render(project, (task, at) => openOverlay({ mod: 'devkits', kind: 'popup', frame: 'none', width: 280, at,
+      props: { view: 'launcher', space: project.pending ? null : project.id, folder: project.folder, projectName: project.name, task } }),
+      () => { hidePanels(); rememberPanel(project.id, null); }, cx);
   }
 
   addAccount(provider) {
@@ -542,7 +560,9 @@ export default class Devkits extends View {
 
   launcher(t) {
     const hidden = shared('devkits.hidden-launchers') || [];
-    const choices = launcherChoices(this.launchers, shared('devkits.launcher-order') || []).filter(choice => !hidden.includes(choice.key));
+    const task = props().task;
+    const choices = launcherChoices(this.launchers, shared('devkits.launcher-order') || [])
+      .filter(choice => !hidden.includes(choice.key) && (!task || choice.agent));
     const launchers = choices.filter(choice => choice.agent).map(choice => choice.agent);
     const row = (id, name, icon, action) => DropdownMenuItem(id, t).on_click(action)
       .child(div().size(16).flex_none().flex().items_center().justify_center().text_color(t.muted).child(icon))
@@ -569,20 +589,13 @@ export default class Devkits extends View {
           .on_click((_event, cx) => this.loadAgents(cx)).child('Could not load agents. Click to retry.')))
         .when(!this.loading && !this.launchError && !choices.length, el => el.child(div().p(10).text_size(12).text_color(t.muted)
           .child(this.launchers.length ? 'All agents are hidden. Use Manage to show them.' : 'No installed agents found.'))))
-      .child(DropdownMenuSeparator(t))
-      .when(!spaces().find(space => space.id === props().space)?.machine, el => el
-        .child(row('start-from-asana', 'Asana task…', glyph('list-todo'), () => {
+      .when(!task, el => el.child(DropdownMenuSeparator(t))
+        .child(row('manage-launchers-open', 'Manage…', glyph('settings'), () => {
           const target = props();
           closeOverlay(target.overlay);
-          openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: true, width: 560, height: 0.7,
-            props: { view: 'asana-tasks', space: target.space, folder: target.folder, projectName: target.projectName } });
-        })))
-      .child(row('manage-launchers-open', 'Manage…', glyph('settings'), () => {
-        const target = props();
-        closeOverlay(target.overlay);
-        openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: false, width: 680, height: 0.8,
-          props: { view: 'manage-launchers', space: target.space } });
-      }));
+          openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: false, width: 680, height: 0.8,
+            props: { view: 'manage-launchers', space: target.space } });
+        })));
   }
 
   refreshUsage(cx, force = true) {
@@ -784,13 +797,13 @@ export default class Devkits extends View {
           .h_full().rounded(0)
           .bg(shared('devkits.diff') === space.id ? t.selected : t.background)
           .accessibility_label(shared('devkits.diff') === space.id ? 'Hide changes' : 'Show changes')
-          .on_click(() => { const open = shared('devkits.diff') !== space.id; hidePanels(); if (open) setShared('devkits.diff', space.id); })
+          .on_click(() => togglePanel('diff', space.id))
           .child(glyph('git-compare')))
         .child(Button('open-files', t, { variant: 'ghost', size: 'icon' })
           .h_full().rounded(0)
           .bg(shared('devkits.files') === space.id ? t.selected : t.background)
           .accessibility_label(shared('devkits.files') === space.id ? 'Hide files' : 'Show files')
-          .on_click(() => { const open = shared('devkits.files') !== space.id; hidePanels(); if (open) setShared('devkits.files', space.id); })
+          .on_click(() => togglePanel('files', space.id))
           .child(glyph('folder'))));
   }
 
@@ -803,6 +816,7 @@ export default class Devkits extends View {
     return SidebarMenuButton(`thread-${thread.tab.id}`, isFocused, t)
       .on_hover((hovered, cx) => { this.hovered = hovered ? thread.tab.id : null; cx.notify(); })
       .on_click(() => {
+        rememberPanel(thread.space, null);
         this.selectProject(this.projects().find(project => project.id === thread.space));
         run('tab.select', { id: thread.tab.id });
       })
@@ -832,7 +846,8 @@ export default class Devkits extends View {
     if (props()?.view === 'pane') return this.paneHeader(t);
     if (props()?.view === 'status') return this.statusBar(t);
     if (props()?.view === 'launcher') return this.launcher(t);
-    if (props()?.view === 'asana-tasks') return this.asanaTasks(t);
+    if (props()?.view === 'asana') return this.asanaPanel(cx);
+    if (props()?.view === 'asana-projects') return this.asanaProjects.render();
     if (props()?.view === 'manage-launchers') return this.manageLaunchers(t);
     if (props()?.view === 'remove-account') return this.removeAccountPrompt(t);
     if (props()?.view === 'rename-account') return this.renameAccountPrompt(t);
@@ -848,10 +863,15 @@ export default class Devkits extends View {
     const active = native.find(s => s.active);
     const selection = `${active?.id || ''}:${active?.tabs.find(tab => tab.active)?.id || ''}`;
     if (shared('devkits.native-selection') !== selection) {
-      if (shared('devkits.native-selection') !== undefined) {
+      const previous = shared('devkits.native-selection');
+      if (previous !== undefined) {
         hidePanels();
-        setShared('devkits.selected-project', null);
-        run('layout.select', { stack: 'workspace-view', child: 'main' });
+        // Switching projects brings back that project's panel; another tab in the same project is a thread choice.
+        if (previous.split(':')[0] === (active?.id || '')) rememberPanel(active?.id, null);
+        if (!restorePanel(active?.id)) {
+          setShared('devkits.selected-project', null);
+          run('layout.select', { stack: 'workspace-view', child: 'main' });
+        }
       }
       setShared('devkits.native-selection', selection);
     }
@@ -861,7 +881,7 @@ export default class Devkits extends View {
     const defaultSelected = selectedTab && (selectedTab.id === shared('devkits.default-terminals')?.[chosen.id]
       || selectedTab.name === '__devkits_default_terminal__')
       && !all.some(agent => agent.space === chosen.id && agent.tab === selectedTab.id);
-    const content = chosen && shared('devkits.files') === chosen.id ? 'files' : chosen && shared('devkits.diff') === chosen.id ? 'diff' : chosen?.pending || defaultSelected ? 'project-empty' : 'main';
+    const content = chosen && shared('devkits.files') === chosen.id ? 'files' : chosen && shared('devkits.diff') === chosen.id ? 'diff' : chosen && shared('devkits.asana') === chosen.id ? 'asana' : chosen?.pending || defaultSelected ? 'project-empty' : 'main';
     if (this.shownContent !== content) {
       this.shownContent = content;
       run('layout.select', { stack: 'workspace-view', child: content });
