@@ -79,7 +79,13 @@ export default class Devkits extends View {
         if (!folder) return;
         const saved = shared('devkits.projects') || [];
         if (!saved.some(path => folderKey(path) === folderKey(folder))) setShared('devkits.projects', [...saved, folder]);
-        this.selectProject(this.projects().find(p => !p.machine && folderKey(p.folder) === folderKey(folder)));
+        const project = this.projects().find(p => !p.machine && folderKey(p.folder) === folderKey(folder));
+        if (project.pending) {
+          setShared('devkits.files', null);
+          setShared('devkits.selected-project', null);
+          run('layout.select', { stack: 'workspace-view', child: 'main' });
+          run('space.new', { name: project.name, folder, machine: '', tab: '__devkits_default_terminal__' });
+        } else this.selectProject(project);
         cx.notify();
       } catch (error) { notify({ title: 'Could not open project', body: error.message, level: 'error' }); }
       finally { if (overlay) closeOverlay(overlay); }
@@ -672,12 +678,24 @@ export default class Devkits extends View {
     }
     const workspaces = this.projects();
     const chosen = workspaces.find(p => p.active);
-    const content = chosen && shared('devkits.files') === chosen.id ? 'files' : chosen?.pending ? 'project-empty' : 'main';
+    const selectedTab = chosen?.tabs.find(tab => tab.active);
+    const defaultSelected = selectedTab && (selectedTab.id === shared('devkits.default-terminals')?.[chosen.id]
+      || selectedTab.name === '__devkits_default_terminal__')
+      && !all.some(agent => agent.space === chosen.id && agent.tab === selectedTab.id);
+    const content = chosen && shared('devkits.files') === chosen.id ? 'files' : chosen?.pending || defaultSelected ? 'project-empty' : 'main';
     if (this.shownContent !== content) {
       this.shownContent = content;
       run('layout.select', { stack: 'workspace-view', child: content });
     }
-    const groups = projectGroups(workspaces, all);
+    const defaults = { ...(shared('devkits.default-terminals') || {}) };
+    let defaultsChanged = false;
+    for (const space of native) {
+      if (defaults[space.id]) continue;
+      const tab = space.tabs.find(tab => tab.name === '__devkits_default_terminal__');
+      if (tab) { defaults[space.id] = tab.id; defaultsChanged = true; }
+    }
+    if (defaultsChanged) setShared('devkits.default-terminals', defaults);
+    const groups = projectGroups(workspaces, all, defaults);
     const visible = groups.filter(g => !this.folded.has(g.space.id)).flatMap(g => g.threads.flatMap(thread => thread.agents));
     setAgentOrder(visible.map(a => a.address));
     return Sidebar(t)
