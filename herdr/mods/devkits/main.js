@@ -812,7 +812,7 @@ export default class Devkits extends View {
             .child(h_flex().justify_between().text_size(13)
               .child(`${window.name} · ${duration}`)
               .child(`${Math.round(window.usedPercent)}% used · ${Math.round(100 - window.usedPercent)}% remaining`))
-            .child(Progress(`usage-detail-meter-${index}`, window.usedPercent, t, elapsed)
+            .child(Progress(`usage-detail-meter-${index}`, window.usedPercent, t, elapsed, window.minutes === 300 ? 5 : window.minutes === 10080 ? 7 : 0)
               .accessibility_label(`${window.name} ${duration} used`))
             .when(elapsed !== null, el => el.child(div().text_size(12).text_color(t.muted)
               .child(`Top: ${Math.round(elapsed)}% of window elapsed · Bottom: quota used`)))
@@ -870,7 +870,7 @@ export default class Devkits extends View {
                   const displayTime = time.replace(/\b(\d)([dhm])\b/g, '0$1$2');
                   return h_flex().w_full().gap(4).items_center().text_size(10).whitespace_nowrap()
                     .child(div().w(30).flex_none().child(label))
-                    .child(Progress(`usage-meter-${choice.key}-${window.minutes}`, window.usedPercent, t, elapsed)
+                    .child(Progress(`usage-meter-${choice.key}-${window.minutes}`, window.usedPercent, t, elapsed, window.minutes === 300 ? 5 : 7)
                       .flex_1().w_auto().min_w(0).accessibility_label(`${choice.name} ${label} used${elapsed === null ? '' : `; ${Math.round(elapsed)}% of window elapsed`}`))
                     .child(div().w(24).flex_none().font_family('Geist Mono').text_right().child(`${Math.round(window.usedPercent)}%`))
                     .child(div().id(`usage-reset-${choice.key}-${window.minutes}`).w(54).flex_none().font_family('Geist Mono').text_right()
