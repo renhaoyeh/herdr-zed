@@ -3,11 +3,11 @@ import { h_flex, v_flex } from 'gpui-base';
 import { Button } from './button.js';
 
 export function AlertDialogContent(id, t) {
-  return v_flex().id(id).size_full().p(20).gap(16).bg(t.popover).text_color(t.foreground).role('alert_dialog');
+  return v_flex().id(id).size_full().p(24).gap(20).border(1).border_color(t.border).bg(t.popover).text_color(t.foreground).role('alert_dialog');
 }
 
 export function AlertDialogTitle() {
-  return div().text_size(16).font_semibold();
+  return div().font_family('Georgia').text_size(22).font_normal();
 }
 
 export function AlertDialogDescription(t) {

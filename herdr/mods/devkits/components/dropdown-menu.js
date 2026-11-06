@@ -21,17 +21,17 @@ export function DropdownMenuTrigger(trigger, width, open, align = 'start') {
 
 export function DropdownMenuContent(id, height, t) {
   return v_flex().id(id).w_full().h_auto().when(height !== undefined, el => el.h(height))
-    .p(4).rounded(8).border(1).border_color(t.border).shadow_md()
+    .p(4).rounded(0).border(1).border_color(t.border)
     .bg(t.popover).text_color(t.foreground).text_size(13);
 }
 
 export function DropdownMenuItem(id, t) {
-  return h_flex().id(id).h(32).flex_none().px(8).gap(8).items_center().rounded(4)
+  return h_flex().id(id).h(32).flex_none().px(8).gap(8).items_center().rounded(0)
     .hover(el => el.bg(t.hover)).cursor_pointer();
 }
 
 export function DropdownMenuLabel(t) {
-  return div().h(28).flex_none().px(8).flex().items_center().font_medium().text_size(12).text_color(t.muted);
+  return div().h(28).flex_none().px(8).flex().items_center().font_medium().text_size(10).text_color(t.muted);
 }
 
 export function DropdownMenuSeparator(t) {

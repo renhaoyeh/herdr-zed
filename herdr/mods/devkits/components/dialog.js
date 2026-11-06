@@ -2,11 +2,11 @@ import { div } from 'gpui-kit';
 import { h_flex, v_flex } from 'gpui-base';
 
 export function DialogContent(id, t) {
-  return v_flex().id(id).size_full().p(20).gap(16).bg(t.popover).text_color(t.foreground).role('dialog');
+  return v_flex().id(id).size_full().p(24).gap(20).border(1).border_color(t.border).bg(t.popover).text_color(t.foreground).role('dialog');
 }
 
 export function DialogTitle() {
-  return div().text_size(16).font_semibold();
+  return div().font_family('Georgia').text_size(22).font_normal();
 }
 
 export function DialogDescription(t) {

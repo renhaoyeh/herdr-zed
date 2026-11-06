@@ -13,7 +13,7 @@ export class SelectState {
 
 export function SelectTrigger(id, color, t) {
   return h_flex().id(id).w(144).h(32).px(12).gap(8).items_center().justify_between().flex_none()
-    .rounded(6).border(1).border_color(color).text_size(12).text_color(color)
+    .rounded(0).border_b(1).border_color(color).text_size(12).text_color(color)
     .hover(el => el.bg(t.hover)).cursor_pointer();
 }
 

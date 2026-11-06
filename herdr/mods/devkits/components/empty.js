@@ -6,11 +6,11 @@ export function Empty(t) {
 }
 
 export function EmptyMedia(t) {
-  return div().size(48).flex().items_center().justify_center().rounded(10).border(1).border_color(t.border).text_color(t.muted);
+  return div().size(48).flex().items_center().justify_center().rounded(0).border(1).border_color(t.border).text_color(t.muted);
 }
 
 export function EmptyTitle() {
-  return div().text_size(18).font_semibold();
+  return div().font_family('Georgia').text_size(22).font_normal();
 }
 
 export function EmptyDescription(t) {

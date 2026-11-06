@@ -14,7 +14,7 @@ export function SidebarGroupLabel(id, active, t) {
 }
 
 export function SidebarMenuButton(id, active, t) {
-  return h_flex().id(id).h(32).flex_none().mx(6).px(8).gap(8).items_center().rounded(4)
+  return h_flex().id(id).h(32).flex_none().mx(6).px(8).gap(8).items_center().rounded(0)
     .bg(active ? t.selected : t.chrome).hover(el => el.bg(t.hover)).cursor_pointer();
 }
 
