@@ -410,6 +410,16 @@ export default class DiffViewer {
       let message = `${operation.label} completed.`, failed = false;
       try { await gitRemoteAction(context.folder, context.machine, action, remote, gitAccount(context)); }
       catch (error) { message = String(error.message || error); failed = true; }
+      // Read the new ahead/behind counts before re-enabling the button, so it never shows the pre-push counts.
+      if (this.context === context) {
+        try {
+          const state = await readPushState(context.folder, context.machine);
+          if (this.context === context) {
+            if (state.revision !== this.pushState?.revision && this.panelTab === 'history') this.history.load(cx);
+            this.pushState = state; this.pushStateError = null;
+          }
+        } catch {}
+      }
       this.pushing = null;
       if (this.context === context) {
         this.pushResult = { message, failed };

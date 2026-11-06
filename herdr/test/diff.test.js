@@ -368,11 +368,15 @@ test('push prevents duplicate actions, retains errors for retry and isolates pro
   let complete;
   const { DiffViewer } = await load({ VirtualListScrollHandle: { new: () => ({}) },
     notify: notice => notices.push(notice),
-    exec: (cmd, args, options) => { calls.push({ cmd, args, options }); return new Promise(resolve => { complete = resolve; }); } });
+    exec: (cmd, args, options) => {
+      if (args.includes('devkits-push-state')) return Promise.resolve({ code: 0, stderr: '',
+        stdout: `main\n${'a'.repeat(40)}\n0\t0\nrefs/remotes/origin/main\norigin\norigin\n` });
+      calls.push({ cmd, args, options }); return new Promise(resolve => { complete = resolve; });
+    } });
   const cx = { notify() {}, spawn(fn) { tasks.push(fn(cx)); } };
   const view = new DiffViewer(); view.init();
   view.context = { folder: '/project', machine: 'remote' };
-  view.pushState = { branch: 'main', committed: true, remote: false };
+  view.pushState = { branch: 'main', committed: true, remote: false, upstream: 'tracked', ahead: 3, behind: 0 };
   view.push(cx);
   assert.equal(calls.length, 0);
   view.pushState.remote = true;
@@ -385,6 +389,7 @@ test('push prevents duplicate actions, retains errors for retry and isolates pro
   complete({ code: 1, stderr: 'authentication failed', stdout: '' });
   await Promise.all(tasks.splice(0));
   assert.equal(view.pushing, null);
+  assert.equal(view.pushState.ahead, 0, 'Counts are refreshed before the button is re-enabled');
   assert.deepEqual(view.pushResult, { message: 'authentication failed', failed: true });
   assert.equal(view.toastVisible, true);
   assert.equal(view.resultTitle, 'Push failed');
