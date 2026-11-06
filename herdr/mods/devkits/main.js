@@ -30,7 +30,7 @@ export default class Devkits extends View {
       return;
     }
     if (props()?.view === 'usage-details') cx.timer.every(60000, cx => cx.notify());
-    if (props()?.view === 'header') {
+    if (!props()?.view && cx) {
       // Shared values survive restarts; discover once for this app session.
       setShared('devkits.agent-cache', {});
       this.refreshUsage(cx);
@@ -351,7 +351,7 @@ export default class Devkits extends View {
         cx.stop_propagation(); cx.notify();
       })
       .child(DialogTitle().child('Manage session menu'))
-      .child(DialogDescription(t).child('Choose what appears in Add session and the top usage bar. Drag within each section to reorder, or use Alt + ↑ / ↓. Changes are saved automatically.'))
+      .child(DialogDescription(t).child('Choose what appears in Add session and the sidebar usage area. Drag within each section to reorder, or use Alt + ↑ / ↓. Changes are saved automatically.'))
       .child(v_flex().id('manage-launchers-list').flex_1().min_h(0).overflow_y_scroll().gap(4)
         .children(choices.flatMap((choice, index) => [
           ...(index === 0 || choices[index - 1].group !== choice.group
@@ -506,25 +506,20 @@ export default class Devkits extends View {
       .child(DialogFooter().child(Button('usage-details-done', t).on_click(close).child('Done')));
   }
 
-  header(t) {
+  accountUsage(t) {
     const space = this.projects().find(s => s.active);
-    const win = window();
-    const root = layout(), sidebar = root?.children?.find(node => node.id === 'sidebar');
-    const inset = win?.platform === 'macos' && !win.fullscreen && sidebar?.hidden
-      ? (root.traffic_lights[0] + 64) / settings().zoom : 12;
-    return h_flex().size_full().px(16).pl(inset).gap(12).items_center().bg(t.background).text_size(13)
-      .border_b(1).border_color(t.border)
-      .child(DropdownMenuTrigger(h_flex().id('project-switcher').h(32).px(8).gap(6).items_center().rounded(0).border_b(1).border_color(t.input)
-        .text_color(t.foreground).font_medium().hover(el => el.bg(t.hover)).cursor_pointer(), 280,
-        (_cx, at) => openOverlay({ mod: 'devkits', kind: 'popup', frame: 'none', width: 280, at,
-          props: { view: 'project-picker' } }))
-        .child(div().max_w(220).truncate().child(space?.name || 'Open project'))
-        .child(glyph('chevron-down', 12).text_color(t.muted)))
-      .child(div().flex_1())
-      .child(h_flex().id('account-usage').max_w(760).min_w(0).gap(4).items_center().overflow_x_scroll()
-        .children(launcherChoices(this.usageMachine === (space?.machine || null) ? this.usageAgents || [] : [],
-          shared('devkits.launcher-order') || []).filter(choice => !(shared('devkits.hidden-launchers') || []).includes(choice.key))
-          .map(choice => {
+    const choices = launcherChoices(this.usageMachine === (space?.machine || null) ? this.usageAgents || [] : [],
+      shared('devkits.launcher-order') || []).filter(choice => !(shared('devkits.hidden-launchers') || []).includes(choice.key));
+    return v_flex().id('account-usage').w_full().flex_none().h_auto().min_h(0)
+      .border_t(1).border_color(t.border)
+      .child(h_flex().h(32).flex_none().px(12).gap(8).items_center()
+        .child(div().flex_1().text_size(11).font_medium().text_color(t.muted).child('AGENT PROFILES'))
+        .child(Button('manage-agent-profiles', t, { variant: 'ghost', size: 'sm' }).h(24).px(4)
+          .accessibility_label('Manage agent profiles')
+          .on_click(() => openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: false, width: 680, height: 0.8,
+            props: { view: 'manage-launchers', space: space?.id } })).child('Manage')))
+      .child(v_flex().id('account-usage-list').w_full().h_auto().flex_none()
+        .children(choices.map(choice => {
             const data = (this.usage || []).find(account => account.key === choice.agent?.key);
             const supported = !space?.machine && Boolean(choice.agent?.run.some(arg => /(^|\/)codex$/.test(arg)));
             const windows = supported ? [300, 10080].flatMap(minutes =>
@@ -534,12 +529,12 @@ export default class Devkits extends View {
                 : this.usageLoading ? 'Loading…' : 'No quota';
             const account = { ...data, name: choice.name, supported,
               error: data?.error || (supported ? this.usageError || (this.usageLoading ? 'Reading account usage…' : null) : null) };
-            return Button(`usage-${choice.key}`, t, { variant: 'ghost' }).h(48).px(8).items_start().py(3)
+            return Button(`usage-${choice.key}`, t, { variant: 'ghost' }).w_full().flex_none().h_auto().px(12).gap(8).items_start().justify_start().py(6)
               .accessibility_label(`${choice.name}: ${status}. Open usage details`)
               .on_click(() => openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: false, width: 480, height: 400,
                 props: { view: 'usage-details', account } }))
-              .child(launcherIcon(choice.agent, t).self_center())
-              .child(v_flex().w(200).gap(3).line_height('12px')
+              .child(launcherIcon(choice.agent, t).mt(1))
+              .child(v_flex().flex_1().min_w(0).gap(3).line_height('12px')
                 .child(div().truncate().text_size(12).font_semibold().text_color(t.foreground).child(choice.name.replace(/^Codex · /, '')))
                 .children(windows.map(window => {
                   const label = window.minutes === 300 ? '5h' : 'Week';
@@ -558,7 +553,24 @@ export default class Devkits extends View {
                 .when(!windows.length, el => el
                   .child(div().text_size(10).child(status))
                   .child(Progress(`usage-meter-${choice.key}`, null, t).accessibility_label(`${choice.name}: ${status}`))));
-          })))
+          })));
+  }
+
+  header(t) {
+    const space = this.projects().find(s => s.active);
+    const win = window();
+    const root = layout(), sidebar = root?.children?.find(node => node.id === 'sidebar');
+    const inset = win?.platform === 'macos' && !win.fullscreen && sidebar?.hidden
+      ? (root.traffic_lights[0] + 64) / settings().zoom : 12;
+    return h_flex().size_full().px(16).pl(inset).gap(12).items_center().bg(t.background).text_size(13)
+      .border_b(1).border_color(t.border)
+      .child(DropdownMenuTrigger(h_flex().id('project-switcher').h(32).px(8).gap(6).items_center().rounded(0).border_b(1).border_color(t.input)
+        .text_color(t.foreground).font_medium().hover(el => el.bg(t.hover)).cursor_pointer(), 280,
+        (_cx, at) => openOverlay({ mod: 'devkits', kind: 'popup', frame: 'none', width: 280, at,
+          props: { view: 'project-picker' } }))
+        .child(div().max_w(220).truncate().child(space?.name || 'Open project'))
+        .child(glyph('chevron-down', 12).text_color(t.muted)))
+      .child(div().flex_1())
       .when(Boolean(win?.buttons), el => el
         .child(Button('minimize', t, { variant: 'ghost', size: 'icon' }).accessibility_label('Minimize')
           .on_click(() => run('window.minimize')).child(glyph('minus')))
@@ -638,10 +650,7 @@ export default class Devkits extends View {
     if (props()?.view === 'codex-permissions') return div();
     if (props()?.view === 'files') return this.files.render(this.projects().find(project => project.active), cx);
     if (props()?.view === 'codex-login') return this.login.render();
-    if (props()?.view === 'header') {
-      if (cx) this.refreshUsage(cx, false);
-      return this.header(t);
-    }
+    if (props()?.view === 'header') return this.header(t);
     if (props()?.view === 'usage-details') return this.usageDetails(t);
     if (props()?.view === 'brand') return this.brand(t);
     if (props()?.view === 'pane') return this.paneHeader(t);
@@ -653,6 +662,7 @@ export default class Devkits extends View {
     if (props()?.view === 'close-project') return this.closePrompt(t);
     if (props()?.view === 'project-menu') return this.projectMenu(t);
     if (props()?.view === 'project-picker') return this.projectPicker(t);
+    if (cx) this.refreshUsage(cx, false);
     const all = agents(), native = spaces();
     const roots = shared('devkits.project-roots') || {};
     const missing = native.filter(s => roots[s.id] === undefined && s.folder);
@@ -715,6 +725,7 @@ export default class Devkits extends View {
               .child(glyph('ellipsis')).opacity(this.hoveredProject === space.id ? 1 : 0)))
           .when(!this.folded.has(space.id), el => el.children(threads.map(thread => this.threadRow(thread, t)))
             .when(!threads.length, el => el.child(div().px(12).py(6).text_size(12).text_color(t.muted).child('No threads yet')))))))
+      .child(this.accountUsage(t))
       .child(SidebarFooter(t)
         .child(Button('settings', t, { variant: 'ghost', size: 'icon' }).accessibility_label('Settings')
           .h_full().rounded(0)
