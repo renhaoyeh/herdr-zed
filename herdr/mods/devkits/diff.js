@@ -8,6 +8,45 @@ import { Empty, EmptyDescription } from './components/empty.js';
 const icon = name => svg(`mods/devkits/assets/icons/${name}.svg`).size(12).flex_none();
 const MAX_BYTES = 4000000, MAX_ROWS = 20000, MAX_LINE = 2000;
 const LINE = 20, HEADER = 32, GAP = 8, SEPARATOR = 12;
+// Code uses a monospace font. Reserve two columns for wide/fallback glyphs;
+// combining marks stay attached to their preceding character without using a column.
+const zeroWidth = /[\p{Mark}\u200d\ufe0e\ufe0f]/u;
+const wide = /[\u1100-\u115f\u2329\u232a\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe10-\ufe19\ufe30-\ufe6f\uff01-\uff60\uffe0-\uffe6\u{1f000}-\u{1ffff}\u{20000}-\u{3ffff}]/u;
+
+/** Soft-wrap a source line into visual rows, preserving text and UTF-16 highlight offsets. */
+export function wrapLine(line, columns) {
+  if (!line) return [];
+  columns = Math.max(2, columns);
+  const parts = [];
+  let start = 0, offset = 0, used = 0, boundary = 0, hasText = false;
+  for (const char of line.text) {
+    const width = zeroWidth.test(char) ? 0 : wide.test(char) ? 2 : 1;
+    if (used + width > columns && offset > start) {
+      const end = boundary > start ? boundary : offset;
+      parts.push([start, end]);
+      start = end;
+      // A word moved to the next row; include the characters already scanned in it.
+      used = 0;
+      for (const kept of line.text.slice(start, offset)) used += zeroWidth.test(kept) ? 0 : wide.test(kept) ? 2 : 1;
+      hasText = used > 0;
+      boundary = start;
+      if (used + width > columns && offset > start) {
+        parts.push([start, offset]);
+        start = offset; used = 0; hasText = false;
+      }
+    }
+    used += width;
+    offset += char.length;
+    if (/\s/u.test(char)) { if (hasText) boundary = offset; }
+    else hasText = true;
+  }
+  parts.push([start, line.text.length]);
+  return parts.map(([start, end], index) => {
+    const marks = line.marks && [Math.max(start, line.marks[0]), Math.min(end, line.marks[1])];
+    return { ...line, text: line.text.slice(start, end), old: index ? undefined : line.old, new: index ? undefined : line.new,
+      marks: marks && marks[0] < marks[1] ? [marks[0] - start, marks[1] - start] : null };
+  });
+}
 // Changed lines get a light wash of Zed's version-control colors and changed words a stronger one.
 // Working tree (including untracked files) against HEAD, or the empty tree before the first commit.
 // A marker line separates tracked changes from untracked files, as Zed's Git panel groups them.
@@ -303,30 +342,46 @@ export default class DiffViewer {
     cx.notify();
   }
 
-  /** Fixed-height rows of one multibuffer: file headers, excerpt separators and lines. */
+  /** Fixed-height visual rows keep native scrolling and file jumps exact after wrapping. */
   rows() {
     const split = this.split;
-    if (this.rowCache?.split === split) return this.rowCache;
+    if (this.rowCache?.split === split && this.rowCache.width === this.width && this.rowCache.charWidth === this.charWidth) return this.rowCache;
+    const widest = Math.max(1, ...this.files.flatMap(file => file.hunks.map(hunk => hunk.lines.at(-1) ? Math.max(hunk.lines.at(-1).old || 0, hunk.lines.at(-1).new || 0) : 0)));
+    const gutter = String(widest).length * 8 + 24;
+    const cellWidth = split ? (this.width - 1) / 2 : this.width;
+    const columns = this.width ? Math.max(2, Math.floor((cellWidth - gutter - 24) / (this.charWidth || 13))) : Infinity;
     const rows = [], sizes = [];
-    const add = (row, size) => { rows.push(row); sizes.push(size); };
+    const add = (row, size) => {
+      if (rows.length >= MAX_ROWS) { limited = true; return false; }
+      rows.push(row); sizes.push(size); return true;
+    };
     let limited = false;
-    for (const [index, file] of this.files.entries()) {
+    files: for (const [index, file] of this.files.entries()) {
       if (rows.length >= MAX_ROWS) { limited = true; break; }
       add({ key: `file:${file.path}`, kind: 'file', file, first: index === 0 }, index === 0 ? HEADER : HEADER + GAP);
       if (this.collapsed.has(file.path)) continue;
       if (file.binary || !file.hunks.length) add({ key: `note:${file.path}`, kind: 'note', text: file.binary ? 'Binary file' : 'No content changes' }, HEADER);
-      file.hunks.forEach((hunk, h) => {
+      for (const [h, hunk] of file.hunks.entries()) {
         if (h) add({ key: `gap:${file.path}:${h}`, kind: 'separator' }, SEPARATOR);
         const pairs = pairLines(hunk.lines);
         for (const pair of pairs) if (pair.left?.type === 'del' && pair.right?.type === 'add' && !pair.left.marks) {
           [pair.left.marks, pair.right.marks] = changedRanges(pair.left.text, pair.right.text);
         }
-        if (split) pairs.forEach((pair, n) => add({ key: `pair:${file.path}:${h}:${n}`, kind: 'pair', ...pair }, LINE));
-        else hunk.lines.forEach((line, n) => add({ key: `line:${file.path}:${h}:${n}`, kind: 'line', line }, LINE));
-      });
+        if (split) {
+          for (const [n, pair] of pairs.entries()) {
+            const left = wrapLine(pair.left, columns), right = wrapLine(pair.right, columns);
+            for (let part = 0; part < Math.max(left.length, right.length); part++) {
+              if (!add({ key: `pair:${file.path}:${h}:${n}:${part}`, kind: 'pair', left: left[part], right: right[part] }, LINE)) break files;
+            }
+          }
+        } else for (const [n, line] of hunk.lines.entries()) {
+          for (const [part, wrapped] of wrapLine(line, columns).entries()) {
+            if (!add({ key: `line:${file.path}:${h}:${n}:${part}`, kind: 'line', line: wrapped }, LINE)) break files;
+          }
+        }
+      }
     }
-    const widest = Math.max(1, ...this.files.flatMap(file => file.hunks.map(hunk => hunk.lines.at(-1) ? Math.max(hunk.lines.at(-1).old || 0, hunk.lines.at(-1).new || 0) : 0)));
-    return this.rowCache = { split, rows, sizes, limited, gutter: String(widest).length * 8 + 24 };
+    return this.rowCache = { split, width: this.width, charWidth: this.charWidth, rows, sizes, limited, gutter };
   }
 
   text(line, color, t) {
@@ -398,7 +453,19 @@ export default class DiffViewer {
         .when(this.truncated || limited, el => el.child(div().flex_none().px(12).py(6).text_size(11).text_color(t.muted).border_b(1).border_color(t.border)
           .child('Diff limited to 4 MB and 20,000 rows.')))
         .child(rows.length
-          ? v_flex().relative().flex_1().min_h(0)
+          ? v_flex().id('diff-viewport').relative().flex_1().min_h(0)
+            .on_size_change((size, cx) => {
+              if (this.width === size.width) return;
+              this.width = size.width;
+              cx.notify();
+            })
+            .child(div().id('diff-character-width').absolute().invisible().flex_none().font_family(mono).text_size(13).whitespace_nowrap()
+              .child('0000000000').on_size_change((size, cx) => {
+                const width = size.width / 10;
+                if (width <= 0 || this.charWidth === width) return;
+                this.charWidth = width;
+                cx.notify();
+              }))
             .child(v_virtual_list('diff-rows', rows.length, sizes, index => rows[index].key,
               range => rows.slice(range.start, range.end).map(row => this.row(row, t, mono, gutter)))
               .size_full().track_scroll(this.scroll)

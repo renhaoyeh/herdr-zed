@@ -9,7 +9,7 @@ import { execFile } from 'node:child_process';
 async function load(host = {}) {
   const source = await readFile(new URL('../mods/devkits/diff.js', import.meta.url), 'utf8');
   return new Function(...Object.keys(host), source.replace(/^import .*;\n/gm, '')
-    .replace('export default class', 'class').replace(/^export /gm, '') + '\nreturn { DiffViewer, parseDiff, readDiff, affectsDiff, pairLines, changedRanges, changeSections, changeTree };')(...Object.values(host));
+    .replace('export default class', 'class').replace(/^export /gm, '') + '\nreturn { DiffViewer, parseDiff, readDiff, affectsDiff, pairLines, changedRanges, changeSections, changeTree, wrapLine };')(...Object.values(host));
 }
 const run = promisify(execFile);
 
@@ -58,7 +58,7 @@ test('reads tracked, untracked, renamed and deleted changes against HEAD in one 
   await assert.rejects(readDiff(tmpdir().replaceAll('\\', '/'), 'box'), /Not a Git repository/);
 });
 
-test('rows form one fixed-height multibuffer in unified or split layout, collapsing per file', async () => {
+test('rows form one multibuffer in unified or split layout, collapsing per file', async () => {
   const memory = {};
   const { DiffViewer, parseDiff, affectsDiff } = await load({ shared: key => memory[key], setShared: (key, value) => { memory[key] = value; },
     VirtualListScrollHandle: { new: () => ({ scroll_to_item() {} }) } });
@@ -67,7 +67,7 @@ test('rows form one fixed-height multibuffer in unified or split layout, collaps
     'diff --git a/b b/b', '--- a/b', '+++ b/b', '@@ -1 +1 @@', '-x', '+y'].join('\n'));
   const kinds = () => view.rows().rows.map(row => row.kind);
   assert.deepEqual(kinds(), ['file', 'line', 'line', 'line', 'separator', 'line', 'line', 'file', 'line', 'line']);
-  assert.deepEqual(view.rows().sizes, [32, 20, 20, 20, 12, 20, 20, 40, 20, 20]);
+  assert.deepEqual(view.rows().rows.filter(row => row.kind === 'file').map(row => row.first), [true, false]);
   view.setLayout('split', { notify() {} });
   assert.deepEqual(kinds(), ['file', 'pair', 'pair', 'separator', 'pair', 'file', 'pair']);
   view.toggle('a', { notify() {} });
@@ -85,6 +85,52 @@ test('split pairs deletions beside their replacements and marks only similar cha
     [['c', 'c'], ['a', 'A'], ['b', null], ['c', 'c'], [null, 'n']]);
   assert.deepEqual(changedRanges('const value = 1;', 'const value = 22;'), [[14, 15], [14, 16]]);
   assert.deepEqual(changedRanges('alpha', 'omega zulu'), [null, null]);
+});
+
+test('soft wrapping preserves source text, Unicode, whitespace, line numbers and highlight offsets', async () => {
+  const { wrapLine } = await load();
+  const text = '    const 中文 = "' + 'a'.repeat(80) + ' old word";  ';
+  const start = text.indexOf('old'), marks = [start, start + 'old word'.length];
+  const parts = wrapLine({ type: 'add', new: 12, text, marks }, 12);
+  assert.equal(parts.map(part => part.text).join(''), text);
+  assert.equal(parts.filter(part => part.new !== undefined).length, 1);
+  assert.equal(parts[0].new, 12);
+  assert.equal(parts.filter(part => part.marks).map(part => part.text.slice(...part.marks)).join(''), 'old word');
+  assert.ok(parts.every(part => Array.from(part.text).length <= 12));
+  assert.deepEqual(wrapLine({ text: '中文🙂e\u0301' }, 2).map(part => part.text), ['中', '文', '🙂', 'e\u0301']);
+  assert.deepEqual(wrapLine({ text: ' aaaaaaaaa中' }, 10).map(part => part.text), [' aaaaaaaaa', '中']);
+  assert.deepEqual(wrapLine({ text: '' }, 10).map(part => part.text), ['']);
+  assert.deepEqual(wrapLine(null, 10), []);
+});
+
+test('wrapping follows viewport width and font metrics, aligns split rows and keeps file jumps exact', async () => {
+  const memory = {}, scrolled = [];
+  const { DiffViewer, parseDiff } = await load({ shared: key => memory[key], setShared: (key, value) => { memory[key] = value; },
+    VirtualListScrollHandle: { new: () => ({ scroll_to_item: (...args) => scrolled.push(args) }) } });
+  const view = new DiffViewer(); view.init(); view.width = 216; view.charWidth = 8;
+  view.files = parseDiff(['diff --git a/a b/a', '--- a/a', '+++ b/a', '@@ -1,2 +1,2 @@', '-short', '+' + 'x'.repeat(60), ' next',
+    'diff --git a/b b/b', '--- a/b', '+++ b/b', '@@ -1 +1 @@', '-old', '+new'].join('\n'));
+  const original = view.rows();
+  assert.equal(original.rows.filter(row => row.line?.type === 'add' && row.line?.text.startsWith('x')).length, 3);
+  view.width = 536;
+  assert.equal(view.rows().rows.filter(row => row.line?.text.startsWith('x')).length, 1);
+  view.charWidth = 16;
+  assert.equal(view.rows().rows.filter(row => row.line?.text.startsWith('x')).length, 2);
+  view.width = 216; view.charWidth = 8; view.setLayout('split', { notify() {} });
+  const { rows, sizes } = view.rows(), pairs = rows.filter(row => row.kind === 'pair');
+  assert.equal(pairs.filter(row => row.right?.text.startsWith('x')).length, 10);
+  assert.equal(pairs[0].left.text, 'short');
+  assert.equal(pairs[1].left, undefined);
+  assert.equal(pairs[1].right.new, undefined);
+  assert.equal(pairs[10].left.text, 'next');
+  assert.equal(pairs[10].right.new, 2);
+  assert.ok(sizes.every(size => [20, 32, 40].includes(size)));
+  view.reveal('b', { notify() {} });
+  assert.deepEqual(scrolled, [[rows.findIndex(row => row.key === 'file:b'), 'top']]);
+  view.files = [{ path: 'huge', hunks: [{ lines: Array.from({ length: 25 }, () => ({ type: 'ctx', text: 'x'.repeat(2000) })) }] }];
+  view.width = 72; view.rowCache = null;
+  assert.equal(view.rows().rows.length, 20000);
+  assert.equal(view.rows().limited, true);
 });
 
 test('changed files group as Tracked then Untracked, matching the multibuffer, and jump to an expanded header', async () => {
