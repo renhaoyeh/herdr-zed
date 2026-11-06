@@ -1,7 +1,7 @@
 import { View, div, svg, image } from 'gpui-kit';
 import { v_flex, h_flex, InputState, Input } from 'gpui-base';
 import { agents, spaces, panes, theme, run, props, window, openOverlay, closeOverlay, setAgentOrder, layout, settings, pickFolder, shared, setShared, knownAgents, notify, exec, appHome, home, readTextFile } from 'herdr';
-import { projectGroups, projectCatalog, folderKey, launcherChoices, isAccountLauncher, permissionModes, launcherArgv, quotaResetLabel, resolveThreadProfiles, threadProfile } from './model.js';
+import { projectGroups, projectCatalog, folderKey, launcherChoices, isAccountLauncher, permissionModes, launcherArgv, quotaResetLabel, quotaElapsedPercent, resolveThreadProfiles, threadProfile } from './model.js';
 import AccountLogin, { accountLabel, ensureClaudeStatusLine, removeAccountProfile, renameAccountProfile } from './account-login.js';
 import FileViewer from './files.js';
 import DiffViewer from './diff.js';
@@ -643,27 +643,30 @@ export default class Devkits extends View {
       .accessibility_label(`${account.name} usage details`).on_key_down((event, cx) => {
         if (event.key === 'escape') { cx.stop_propagation(); close(); }
       })
-      .child(DialogTitle().child(account.name))
-      .child(DialogDescription(t).child(account.supported ? 'Account quota usage' : 'Not supported'))
+      .child(DialogTitle().flex_none().child(account.name))
+      .child(DialogDescription(t).flex_none().child(account.supported ? 'Account quota usage' : 'Not supported'))
       .child(v_flex().id('usage-windows').flex_1().min_h(0).overflow_y_scrollbar().gap(16)
         .when(Boolean(account.error), el => el.child(div().text_size(12).text_color(t.muted).child(account.error)))
         .when(account.supported && !account.error && !account.windows?.length, el => el
           .child(div().text_size(12).text_color(t.muted).child('No quota windows available.')))
         .children((account.windows || []).map((window, index) => {
+          const elapsed = quotaElapsedPercent(window);
           const duration = window.minutes === null ? 'Unknown duration' : window.minutes % 1440 === 0
             ? `${window.minutes / 1440}d` : window.minutes % 60 === 0 ? `${window.minutes / 60}h` : `${window.minutes}m`;
-          return v_flex().gap(8)
+          return v_flex().flex_none().gap(8)
             .child(h_flex().justify_between().text_size(13)
               .child(`${window.name} · ${duration}`)
               .child(`${Math.round(window.usedPercent)}% used · ${Math.round(100 - window.usedPercent)}% remaining`))
-            .child(Progress(`usage-detail-meter-${index}`, window.usedPercent, t).h(6)
+            .child(Progress(`usage-detail-meter-${index}`, window.usedPercent, t, elapsed)
               .accessibility_label(`${window.name} ${duration} used`))
+            .when(elapsed !== null, el => el.child(div().text_size(12).text_color(t.muted)
+              .child(`Top: ${Math.round(elapsed)}% of window elapsed · Bottom: quota used`)))
             .child(div().text_size(12).text_color(t.muted)
               .child(quotaResetLabel(window)));
         })))
-      .when(Boolean(account.fetchedAt), el => el.child(DialogDescription(t)
+      .when(Boolean(account.fetchedAt), el => el.child(DialogDescription(t).flex_none()
         .child(`Updated ${new Date(account.fetchedAt).toLocaleString()}`)))
-      .child(DialogFooter().child(Button('usage-details-done', t).on_click(close).child('Done')));
+      .child(DialogFooter().flex_none().child(Button('usage-details-done', t).on_click(close).child('Done')));
   }
 
   accountUsage(t) {
@@ -694,12 +697,13 @@ export default class Devkits extends View {
               error: data?.error || (supported ? this.usageError || (this.usageLoading ? 'Reading account usage…' : null) : null) };
             return Button(`usage-${choice.key}`, t, { variant: 'ghost' }).w_full().flex_none().h_auto().px(12).gap(8).items_start().justify_start().py(6)
               .accessibility_label(`${choice.name}: ${status}. Open usage details`)
-              .on_click(() => openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: false, width: 480, height: 400,
+              .on_click(() => openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: false, width: 480, height: 480,
                 props: { view: 'usage-details', account } }))
               .child(launcherIcon(choice.agent, t).self_center())
               .child(v_flex().flex_1().min_w(0).gap(3).line_height('12px')
                 .child(div().truncate().text_size(12).font_semibold().text_color(t.foreground).child(accountLabel(choice.name)))
                 .children(windows.map(window => {
+                  const elapsed = quotaElapsedPercent(window);
                   const label = window.minutes === 300 ? '5h' : 'Week';
                   const reset = quotaResetLabel(window);
                   const time = reset === 'Reset time unavailable' ? '—' : reset.startsWith('Reset due')
@@ -707,8 +711,8 @@ export default class Devkits extends View {
                   const displayTime = time.replace(/\b(\d)([dhm])\b/g, '0$1$2');
                   return h_flex().w_full().gap(4).items_center().text_size(10).whitespace_nowrap()
                     .child(div().w(30).flex_none().child(label))
-                    .child(Progress(`usage-meter-${choice.key}-${window.minutes}`, window.usedPercent, t)
-                      .flex_1().w_auto().min_w(0).accessibility_label(`${choice.name} ${label} used`))
+                    .child(Progress(`usage-meter-${choice.key}-${window.minutes}`, window.usedPercent, t, elapsed)
+                      .flex_1().w_auto().min_w(0).accessibility_label(`${choice.name} ${label} used${elapsed === null ? '' : `; ${Math.round(elapsed)}% of window elapsed`}`))
                     .child(div().w(24).flex_none().font_family('Geist Mono').text_right().child(`${Math.round(window.usedPercent)}%`))
                     .child(div().id(`usage-reset-${choice.key}-${window.minutes}`).w(54).flex_none().font_family('Geist Mono').text_right()
                       .accessibility_label(reset).child(displayTime));
