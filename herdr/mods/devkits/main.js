@@ -752,7 +752,7 @@ export default class Devkits extends View {
       }));
   }
 
-  refreshUsage(cx, force = true) {
+  refreshUsage(cx, force = true, manual = false) {
     const machine = this.projects().find(project => project.active)?.machine || null;
     const hidden = shared('devkits.hidden-launchers') || [];
     const order = shared('devkits.launcher-order') || [];
@@ -760,6 +760,11 @@ export default class Devkits extends View {
     if (this.usageLoading || (!force && this.usageScope === scope)) return;
     this.usageScope = scope;
     this.usageLoading = true;
+    // A manual refresh rediscovers profiles and bypasses the provider cache.
+    if (manual) {
+      const { [JSON.stringify(machine)]: _, ...rest } = shared('devkits.agent-cache') || {};
+      setShared('devkits.agent-cache', rest);
+    }
     cx.spawn(async cx => {
       try {
         const agents = await this.cachedAgents(machine);
@@ -780,7 +785,7 @@ export default class Devkits extends View {
           try { await ensureClaudeStatusLine(claudeDirectory(account), { chain: account.key === 'claude' }); } catch {}
         }
         // Claude usage is a local file, so only provider queries are rate-limited by the cache.
-        const stale = accounts.filter(account => usageProvider(account) === 'claude'
+        const stale = accounts.filter(account => manual || usageProvider(account) === 'claude'
           || !(now - (cached()[account.key]?.checkedAt || 0) < usageCacheMs));
         this.usage = accounts.map(account => cached()[account.key]).filter(Boolean);
         if (stale.length) {
@@ -846,6 +851,9 @@ export default class Devkits extends View {
       .border_t(1).border_color(t.border)
       .child(h_flex().h(32).flex_none().px(12).gap(8).items_center()
         .child(div().flex_1().text_size(11).font_medium().text_color(t.muted).child('AGENT PROFILES'))
+        .child(Button('refresh-agent-profiles', t, { variant: 'ghost', size: 'icon-sm' })
+          .accessibility_label('Refresh agent profiles').disabled(Boolean(this.usageLoading))
+          .on_click((_, cx) => this.refreshUsage(cx, true, true)).child(glyph('refresh-cw')))
         .child(Button('open-token-statistics', t, { variant: 'ghost', size: 'icon-sm' })
           .accessibility_label('Token statistics')
           .on_click(() => openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: false, width: 1080, height: 0.85,
