@@ -3,7 +3,7 @@ import { v_flex, h_flex, InputState, Input } from 'gpui-base';
 import { agents, spaces, panes, theme, run, props, window, openOverlay, closeOverlay, setAgentOrder, layout, settings, pickFolder, shared, setShared, knownAgents, notify, exec, appHome, home, readTextFile } from 'herdr';
 import { projectGroups, projectCatalog, folderKey, launcherChoices, isAccountLauncher, permissionModes, launcherArgv, sessionArgv, sessionKind, claudeModels, claudeEfforts, codexHome, codexModels, mergeModels, orderedOptions, moveOption, effortLabel, sessionChoices, quotaResetLabel, quotaElapsedPercent, resolveThreadProfiles, threadProfile } from './model.js';
 import AccountLogin, { accountLabel, ensureClaudeStatusLine, removeAccountProfile, renameAccountProfile } from './account-login.js';
-import FileViewer from './files.js';
+import FileViewer, { FileMenu } from './files.js';
 import DiffViewer from './diff.js';
 import Analytics from './analytics.js';
 import AsanaPanel, { AsanaProjectPicker, taskPrompt, unsaveTask } from './asana.js';
@@ -40,6 +40,9 @@ const launcherIcon = (agent, t) => !agent ? glyph('terminal', 16) : agent.icon
 
 export default class Devkits extends View {
   init(_props, cx) {
+    if (props()?.view === 'file-menu') {
+      this.fileMenu = new FileMenu(); this.fileMenu.init(cx); return;
+    }
     if (props()?.view === 'token-statistics') {
       this.analytics = new Analytics();
       this.analytics.init(cx);
@@ -996,6 +999,7 @@ export default class Devkits extends View {
     const t = theme();
     if (props()?.view === 'token-statistics') return this.analytics.render();
     if (props()?.view === 'codex-permissions') return div();
+    if (props()?.view === 'file-menu') return this.fileMenu.render();
     if (props()?.view === 'files') return this.files.render(this.projects().find(project => project.active), cx);
     if (props()?.view === 'diff') return this.diff.render(this.projects().find(project => project.active), cx);
     if (props()?.view === 'account-login') return this.login.render();
