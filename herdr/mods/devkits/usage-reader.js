@@ -1,8 +1,35 @@
-// Runs outside GPUI so Codex owns authentication and credential refresh.
+// Runs outside GPUI so each CLI owns authentication and credential refresh.
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
+import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+export const claudeUsageFile = 'devkits-usage.json';
+const claudeLimits = [['five_hour', '5-hour', 300], ['seven_day', 'Weekly', 10080]];
+
+// Maps the rate_limits object Claude Code passes to its status line.
+export function claudeUsageWindows(limits = {}) {
+  return claudeLimits.flatMap(([slot, name, minutes]) => {
+    const window = limits?.[slot];
+    if (!window || !Number.isFinite(window.used_percentage)) return [];
+    return [{ bucket: 'claude', name, slot, minutes, usedPercent: Math.max(0, Math.min(100, window.used_percentage)),
+      resetsAt: Number.isFinite(window.resets_at) && window.resets_at > 0 ? window.resets_at : null }];
+  });
+}
+
+export const claudeConfigDir = run => Array.isArray(run)
+  ? run.find(arg => arg.startsWith('CLAUDE_CONFIG_DIR='))?.slice('CLAUDE_CONFIG_DIR='.length) || null : null;
+
+// Reads only what this profile's status line recorded; it never touches credentials or the network.
+export async function readClaudeUsage(run) {
+  const directory = claudeConfigDir(run);
+  if (!directory) throw new Error('Usage is available only for Devkits Claude accounts');
+  let saved;
+  try { saved = JSON.parse(await readFile(`${directory}/${claudeUsageFile}`, 'utf8')); } catch {}
+  if (!saved?.rate_limits) throw new Error('No usage yet. Start a session with this account to update it.');
+  return { windows: claudeUsageWindows(saved.rate_limits), fetchedAt: Number.isFinite(saved.capturedAt) ? saved.capturedAt : null };
+}
 
 export function usageWindows(result = {}) {
   const buckets = result.rateLimitsByLimitId;
@@ -58,7 +85,10 @@ export function readUsage(argv, timeout = 18000) {
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const accounts = JSON.parse(process.argv[2]);
   console.log(JSON.stringify(await Promise.all(accounts.map(async account => {
-    try { return { key: account.key, name: account.name, windows: await readUsage(account.run), fetchedAt: Date.now() }; }
+    try {
+      if (claudeConfigDir(account.run)) return { key: account.key, name: account.name, ...await readClaudeUsage(account.run) };
+      return { key: account.key, name: account.name, windows: await readUsage(account.run), fetchedAt: Date.now() };
+    }
     catch (error) { return { key: account.key, name: account.name, error: error.message }; }
   }))));
 }

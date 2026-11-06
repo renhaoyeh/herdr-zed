@@ -80,6 +80,21 @@ export async function registerAccount(profile) {
   await writeTextFile(path, `${JSON.stringify(data, null, 2)}\n`, text);
 }
 
+// Usage comes from Claude Code's own status line data; an existing status line is never replaced.
+export async function ensureClaudeStatusLine(directory) {
+  const path = `${directory}/settings.json`;
+  const source = await readTextFile(path);
+  const data = source === null ? {} : JSON.parse(source);
+  const statusLine = { type: 'command', command: `node "${appHome().replace(/\\/g, '/')}/mods/devkits/claude-statusline.js"`, padding: 0 };
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return false;
+  // Replace only a status line Devkits wrote (for example, after the app folder moved).
+  if (data.statusLine && (!String(data.statusLine.command || '').endsWith('/devkits/claude-statusline.js"')
+    || JSON.stringify(data.statusLine) === JSON.stringify(statusLine))) return false;
+  data.statusLine = statusLine;
+  await writeTextFile(path, `${JSON.stringify(data, null, 2)}\n`, source);
+  return true;
+}
+
 export async function renameAccountProfile(key, name) {
   name = accountName(name);
   const match = keyPattern.exec(key || '');
@@ -235,6 +250,9 @@ export default class AccountLogin {
         this.phase = 'saving';
         this.armTimeout(cx, 20000);
         cx.notify();
+        if (this.provider === 'claude') {
+          try { await ensureClaudeStatusLine(profile.directory); } catch {} // Usage stays unavailable; sign-in still succeeds.
+        }
         await registerAccount(profile);
         this.phase = 'success';
         this.email = email || profile.name;

@@ -2,7 +2,7 @@ import { View, div, svg, image } from 'gpui-kit';
 import { v_flex, h_flex, InputState, Input } from 'gpui-base';
 import { agents, spaces, panes, theme, run, props, window, openOverlay, closeOverlay, setAgentOrder, layout, settings, pickFolder, shared, setShared, knownAgents, notify, exec, appHome, readTextFile } from 'herdr';
 import { projectGroups, projectCatalog, folderKey, launcherChoices, codexPermissionModes, isAccountLauncher, isCodexLauncher, launcherArgv, quotaResetLabel } from './model.js';
-import AccountLogin, { accountLabel, removeAccountProfile, renameAccountProfile } from './account-login.js';
+import AccountLogin, { accountLabel, ensureClaudeStatusLine, removeAccountProfile, renameAccountProfile } from './account-login.js';
 import FileViewer from './files.js';
 import { DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from './components/dropdown-menu.js';
 import { Button } from './components/button.js';
@@ -17,6 +17,11 @@ const glyph = (name, size = 14) => svg(`mods/devkits/assets/icons/${name}.svg`).
 const stateColor = (status, t) => t[status] || t.muted;
 const launcherSections = ['Terminal', 'Agents', 'Your accounts'];
 const agentLoads = new Map();
+const usageCacheMs = 5 * 60000;
+const usageProvider = agent => !Array.isArray(agent?.run) ? null
+  : agent.run.some(arg => !arg.includes('=') && /(?:^|[/\\])codex(?:\.exe)?$/i.test(arg)) ? 'codex'
+    // Claude usage comes from the status line Devkits configures, so only its own accounts are supported.
+    : agent.key?.startsWith('devkits-claude-') && agent.run.some(arg => arg.startsWith('CLAUDE_CONFIG_DIR=')) ? 'claude' : null;
 const launcherIcon = (agent, t) => !agent ? glyph('terminal', 16) : agent.icon
   ? (agent.tint ? svg(agent.icon).size(16).text_color(t.foreground) : image(agent.icon).size(16)) : glyph('mark', 16);
 
@@ -561,14 +566,35 @@ export default class Devkits extends View {
         this.usageError = null;
         cx.notify();
         const accounts = launcherChoices(this.usageAgents, order)
-          .filter(choice => !hidden.includes(choice.key) && !machine &&
-            choice.agent?.run.some(arg => /(^|\/)codex$/.test(arg))).map(choice => choice.agent);
-        if (accounts.length) {
-          const result = await exec('node', [`${appHome()}/mods/devkits/usage-reader.js`, JSON.stringify(accounts)]);
-          if (result.code !== 0) throw new Error('Could not read usage');
-          this.usage = JSON.parse(result.stdout);
+          .filter(choice => !hidden.includes(choice.key) && !machine && usageProvider(choice.agent)).map(choice => choice.agent);
+        // Cached results survive reloads and restarts so providers are queried at most once per interval.
+        const cached = () => shared('devkits.usage-cache') || {};
+        const now = Date.now();
+        // Accounts added before status-line usage existed are set up once per app session.
+        this.statusLines ||= new Set();
+        for (const account of accounts.filter(account => usageProvider(account) === 'claude' && !this.statusLines.has(account.key))) {
+          this.statusLines.add(account.key);
+          try { await ensureClaudeStatusLine(account.run.find(arg => arg.startsWith('CLAUDE_CONFIG_DIR=')).slice(18)); } catch {}
         }
-      } catch { this.usage = []; this.usageError = 'Could not read usage'; }
+        // Claude usage is a local file, so only provider queries are rate-limited by the cache.
+        const stale = accounts.filter(account => usageProvider(account) === 'claude'
+          || !(now - (cached()[account.key]?.checkedAt || 0) < usageCacheMs));
+        this.usage = accounts.map(account => cached()[account.key]).filter(Boolean);
+        if (stale.length) {
+          cx.notify();
+          const result = await exec('node', [`${appHome()}/mods/devkits/usage-reader.js`, JSON.stringify(stale)]);
+          if (result.code !== 0) throw new Error('Could not read usage');
+          const next = { ...cached() };
+          for (const entry of JSON.parse(result.stdout)) {
+            const previous = next[entry.key];
+            // Keep the last good windows when a later request fails.
+            next[entry.key] = entry.error && previous?.windows
+              ? { ...previous, error: entry.error, checkedAt: Date.now() } : { ...entry, checkedAt: Date.now() };
+          }
+          setShared('devkits.usage-cache', next);
+          this.usage = accounts.map(account => next[account.key]).filter(Boolean);
+        }
+      } catch { this.usageError = 'Could not read usage'; }
       finally { this.usageLoading = false; cx.notify(); }
     });
   }
@@ -618,9 +644,10 @@ export default class Devkits extends View {
       .child(v_flex().id('account-usage-list').w_full().h_auto().flex_none()
         .children(choices.map(choice => {
             const data = (this.usage || []).find(account => account.key === choice.agent?.key);
-            const supported = !space?.machine && Boolean(choice.agent?.run.some(arg => /(^|\/)codex$/.test(arg)));
+            const provider = space?.machine ? null : usageProvider(choice.agent);
+            const supported = Boolean(provider);
             const windows = supported ? [300, 10080].flatMap(minutes =>
-              data?.windows?.find(window => window.bucket === 'codex' && window.minutes === minutes) || []) : [];
+              data?.windows?.find(window => window.bucket === provider && window.minutes === minutes) || []) : [];
             const status = !supported ? 'Not supported' : data?.error || this.usageError ? 'Unavailable'
               : windows.length ? windows.map(window => `${window.minutes === 300 ? '5h' : 'Week'} ${Math.round(window.usedPercent)}% used · ${quotaResetLabel(window)}`).join(' · ')
                 : this.usageLoading ? 'Loading…' : 'No quota';

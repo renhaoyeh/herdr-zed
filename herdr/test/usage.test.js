@@ -64,3 +64,30 @@ test('usage reader handles missing binary, protocol errors, and timeout', async 
   `, '--']), /initialization failed/);
   await assert.rejects(readUsage([process.execPath, '-e', 'process.stdin.resume()', '--'], 30), /timed out/);
 });
+
+test('Claude usage comes only from the status line recording in the account directory', async () => {
+  const { claudeUsageWindows, readClaudeUsage, claudeConfigDir } = await import('../mods/devkits/usage-reader.js');
+  const { record, statusText } = await import('../mods/devkits/claude-statusline.js');
+  const { mkdtemp, readFile } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  assert.deepEqual(claudeUsageWindows({ five_hour: { used_percentage: 13.4, resets_at: 1793939999 },
+    seven_day: { used_percentage: 120, resets_at: 0 }, spend_limit: { used_percentage: 5 } }), [
+    { bucket: 'claude', name: '5-hour', slot: 'five_hour', minutes: 300, usedPercent: 13.4, resetsAt: 1793939999 },
+    { bucket: 'claude', name: 'Weekly', slot: 'seven_day', minutes: 10080, usedPercent: 100, resetsAt: null }]);
+  assert.equal(claudeConfigDir(['claude']), null);
+  const directory = await mkdtemp(`${tmpdir()}/claude-usage-`);
+  const run = ['env', `CLAUDE_CONFIG_DIR=${directory}`, 'claude'];
+  await assert.rejects(readClaudeUsage(['claude']), /only for Devkits Claude accounts/);
+  await assert.rejects(readClaudeUsage(run), /No usage yet/);
+  // Before the first response Claude Code omits rate_limits; nothing is recorded.
+  assert.equal(record(JSON.stringify({ model: {} }), directory, 1), '');
+  assert.equal(record('not json', directory, 1), '');
+  await assert.rejects(readClaudeUsage(run), /No usage yet/);
+  const limits = { five_hour: { used_percentage: 13, resets_at: 1793939999 }, seven_day: { used_percentage: 32.4, resets_at: 1794311999 } };
+  assert.equal(record(JSON.stringify({ rate_limits: limits }), directory, 5000), '5h 13% · Week 32%');
+  assert.deepEqual(JSON.parse(await readFile(`${directory}/devkits-usage.json`, 'utf8')), { capturedAt: 5000, rate_limits: limits });
+  assert.deepEqual(await readClaudeUsage(run), { fetchedAt: 5000, windows: claudeUsageWindows(limits) });
+  assert.equal(record(JSON.stringify({}), directory, 9000), '');
+  assert.equal((await readClaudeUsage(run)).fetchedAt, 5000);
+  assert.equal(statusText({ seven_day: { used_percentage: 7 } }), 'Week 7%');
+});

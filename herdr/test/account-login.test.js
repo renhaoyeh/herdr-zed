@@ -5,7 +5,7 @@ import { readFile } from 'node:fs/promises';
 async function load(host = {}) {
   const source = await readFile(new URL('../mods/devkits/account-login.js', import.meta.url), 'utf8');
   const factory = new Function('View', ...Object.keys(host), source.replace(/^import .*;\n/gm, '')
-    .replace('export default class', 'class').replace(/^export /gm, '') + '\nreturn { AccountLogin, accountProfile, registerAccount, removeAccountProfile, renameAccountProfile };');
+    .replace('export default class', 'class').replace(/^export /gm, '') + '\nreturn { AccountLogin, accountProfile, registerAccount, removeAccountProfile, renameAccountProfile, ensureClaudeStatusLine };');
   return factory(class {}, ...Object.values(host));
 }
 
@@ -302,7 +302,7 @@ test('a timeout during directory creation does not launch Codex afterward', asyn
 });
 
 async function claudeScenario({ reads, loggedInAfter = Infinity, existing = false, root = '/root', allocated } = {}) {
-  const commands = [], writes = [];
+  const commands = [], writes = [], settings = {};
   let source = JSON.stringify({ programs: { keep: { name: 'Keep me' } } });
   let statusCalls = 0, readCalls = 0, task;
   const cx = { notify() {}, focus_handle: () => ({}), sleep: async () => {}, open_url: url => commands.push(['open', [url]]),
@@ -328,12 +328,15 @@ async function claudeScenario({ reads, loggedInAfter = Infinity, existing = fals
       }
       return { code: 0, stdout: '' };
     },
-    readTextFile: async () => source,
-    writeTextFile: async (path, next) => { writes.push([path, next]); source = next; },
+    readTextFile: async path => path.endsWith('/settings.json') ? settings[path] ?? null : source,
+    writeTextFile: async (path, next) => {
+      if (path.endsWith('/settings.json')) { settings[path] = next; return; }
+      writes.push([path, next]); source = next;
+    },
   });
   const view = new api.AccountLogin(); view.init({ overlay: 'login', provider: 'claude' }, cx);
   view.start(cx); await task;
-  return { view, commands, writes, get statusCalls() { return statusCalls; }, get source() { return JSON.parse(source); } };
+  return { view, commands, writes, settings, get statusCalls() { return statusCalls; }, get source() { return JSON.parse(source); } };
 }
 
 const prompt = 'Opening browser to sign in…\nIf the browser didn\'t open, visit: https://claude.com/cai/oauth/authorize?code=true&state=a\nbc\nPaste code here if prompted >';
@@ -362,6 +365,28 @@ test('Claude sign-in waits for the CLI login, confirms the subscription account,
   assert.deepEqual(result.source.programs.keep, { name: 'Keep me' });
   assert.ok(result.commands.some(([command, args]) => command === 'hc' && args[0] === 'kill' && args[1] === 't-claude'));
   assert.ok(!result.commands.some(([command]) => command === 'open'));
+  assert.deepEqual(JSON.parse(result.settings[`/root/data/devkits/claude/${profileId}/settings.json`]).statusLine,
+    { type: 'command', command: 'node "/root/mods/devkits/claude-statusline.js"', padding: 0 });
+});
+
+test('the usage status line is added to Devkits Claude profiles without replacing existing settings', async () => {
+  const files = {};
+  const { ensureClaudeStatusLine } = await load({ appHome: () => '/app',
+    readTextFile: async path => files[path] ?? null,
+    writeTextFile: async (path, next, expected) => { assert.equal(expected, files[path] ?? null); files[path] = next; } });
+  assert.equal(await ensureClaudeStatusLine('/profile'), true);
+  assert.equal(JSON.parse(files['/profile/settings.json']).statusLine.command, 'node "/app/mods/devkits/claude-statusline.js"');
+  files['/other/settings.json'] = JSON.stringify({ theme: 'dark', statusLine: { type: 'command', command: 'mine' } });
+  assert.equal(await ensureClaudeStatusLine('/other'), false);
+  assert.equal(JSON.parse(files['/other/settings.json']).statusLine.command, 'mine');
+  files['/kept/settings.json'] = JSON.stringify({ theme: 'dark' });
+  await ensureClaudeStatusLine('/kept');
+  assert.equal(JSON.parse(files['/kept/settings.json']).theme, 'dark');
+  assert.equal(await ensureClaudeStatusLine('/profile'), false);
+  const windows = await load({ appHome: () => 'C:\\App', readTextFile: async path => files[path] ?? null,
+    writeTextFile: async (path, next) => { files[path] = next; } });
+  assert.equal(await windows.ensureClaudeStatusLine('/profile'), true);
+  assert.equal(JSON.parse(files['/profile/settings.json']).statusLine.command, 'node "C:/App/mods/devkits/claude-statusline.js"');
 });
 
 test('Claude sign-in that exits without credentials never registers; existing credentials skip the browser', async () => {
