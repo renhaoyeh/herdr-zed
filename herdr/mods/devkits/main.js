@@ -503,20 +503,21 @@ export default class Devkits extends View {
               .on_click(() => openOverlay({ mod: 'devkits', kind: 'dialog', modal: false, width: 480, height: 400,
                 props: { view: 'usage-details', account } }))
               .child(launcherIcon(choice.agent, t).self_center())
-              .child(v_flex().w(200).gap(3)
+              .child(v_flex().w(200).gap(3).line_height('12px')
                 .child(div().truncate().text_size(12).font_semibold().text_color(t.foreground).child(choice.name.replace(/^Codex · /, '')))
                 .children(windows.map(window => {
                   const label = window.minutes === 300 ? '5h' : 'Week';
                   const reset = quotaResetLabel(window);
                   const time = reset === 'Reset time unavailable' ? '—' : reset.startsWith('Reset due')
                     ? 'Reset due' : reset.replace(/^Resets (?:in )?/, '');
-                  return h_flex().w_full().gap(4).items_center().text_size(10)
-                    .child(div().w(26).flex_none().child(label))
+                  const displayTime = time.replace(/\b(\d)([dhm])\b/g, '0$1$2');
+                  return h_flex().w_full().gap(4).items_center().text_size(10).whitespace_nowrap()
+                    .child(div().w(30).flex_none().child(label))
                     .child(Progress(`usage-meter-${choice.key}-${window.minutes}`, window.usedPercent, t)
                       .flex_1().w_auto().min_w(0).accessibility_label(`${choice.name} ${label} used`))
-                    .child(div().w(28).flex_none().text_right().child(`${Math.round(window.usedPercent)}%`))
-                    .child(div().id(`usage-reset-${choice.key}-${window.minutes}`).w(64).flex_none().text_right()
-                      .accessibility_label(reset).child(time));
+                    .child(div().w(24).flex_none().font_family('Geist Mono').text_right().child(`${Math.round(window.usedPercent)}%`))
+                    .child(div().id(`usage-reset-${choice.key}-${window.minutes}`).w(54).flex_none().font_family('Geist Mono').text_right()
+                      .accessibility_label(reset).child(displayTime));
                 }))
                 .when(!windows.length, el => el
                   .child(div().text_size(10).child(status))
