@@ -275,6 +275,7 @@ export default class DiffViewer {
     this.scroll = VirtualListScrollHandle.new();
     this.gitMenu = new DropdownMenuState(cx);
     this.optionsMenu = new DropdownMenuState(cx);
+    this.fileViewMenu = new DropdownMenuState(cx);
     this.panelTab = 'changes';
     this.history = new CommitHistory(cx, text => {
       this.rowCache = null; this.collapsed.clear(); this.selected = null;
@@ -307,6 +308,7 @@ export default class DiffViewer {
     this.accounts = null; this.accountsError = null; this.accountsLoading = false;
     this.gitMenu.open = false; this.gitMenu.page = null;
     this.optionsMenu.open = false;
+    this.fileViewMenu.open = false;
     if (project?.folder) {
       const context = this.context;
       // refresh is called by render. Starting watchers/Git reads here shares
@@ -588,6 +590,12 @@ export default class DiffViewer {
 
   get commitPreview() { return this.panelTab === 'history' ? this.history.preview : null; }
   get hideLockFiles() { return shared('devkits.diff-hide-lock-files') !== false; }
+  get fileView() { return shared('devkits.diff-file-view') === 'list' ? 'list' : 'tree'; }
+
+  setFileView(view, cx) {
+    setShared('devkits.diff-file-view', view);
+    cx.notify();
+  }
 
   visibleFiles(files) {
     if (!this.hideLockFiles) return files;
@@ -614,7 +622,7 @@ export default class DiffViewer {
     cx.notify();
   }
 
-  /** Zed's Git panel: collapsible Tracked/Untracked sections holding a tree with indent guides. */
+  /** Zed's Git panel: collapsible Tracked/Untracked sections in list or tree form. */
   panel(t) {
     const files = this.visibleFiles(this.files);
     const status = file => file.untracked || file.status === 'added' ? ['square-plus', GitStatusColor.added]
@@ -627,10 +635,23 @@ export default class DiffViewer {
     // A full-height dock with its own header, as Zed's Git panel sits beside the editor.
     return v_flex().w(280).flex_none().min_h(0).h_full().bg(t.chrome).border_l(1).border_color(t.border)
       .child(h_flex().h(32).flex_none().items_center().border_b(1).border_color(t.border).text_size(12)
-        .child(tab('changes', `Changes (${files.length})`).when(files.length > 0, el => el
-          .child(div().text_color(GitStatusColor.added).child(`+${added}`))
-          .child(div().text_color(GitStatusColor.deleted).child(`−${removed}`))))
+        .child(tab('changes', `Changes (${files.length})`))
         .child(tab('history', 'History')))
+      .when(this.panelTab !== 'history', el => el.child(h_flex().id('diff-files-toolbar').h(32).flex_none().px(8).gap(4)
+        .items_center().border_b(1).border_color(t.border)
+        .child(h_flex().id('diff-view').h(24).gap(4).items_center().text_size(12).text_color(t.muted)
+          .accessibility_label('Uncommitted diff')
+          .child(icon('git-compare')).child('View Diff')
+          .when(files.length > 0, el => el
+            .child(div().text_size(11).text_color(GitStatusColor.added).child(`+${added}`))
+            .child(div().text_size(11).text_color(GitStatusColor.deleted).child(`−${removed}`))))
+        .child(div().flex_1())
+        .child(DropdownMenu('diff-file-view', this.fileViewMenu,
+          Button('diff-file-view-trigger', t, { variant: 'ghost', size: 'icon' }).size(24)
+            .accessibility_label('Change file view').child(icon('settings')),
+          [{ key: 'list', label: 'List', checked: this.fileView === 'list' },
+            { key: 'tree', label: 'Tree', checked: this.fileView === 'tree' }],
+          (key, cx) => this.setFileView(key, cx), t))))
       .child(this.panelTab === 'history' ? this.history.render(t) : v_flex().id('diff-files').flex_1().min_h(0).overflow_y_scrollbar().py(4)
         .children(changeSections(files).map(section => {
           const key = `section:${section.label}`, open = !this.folders.has(key);
@@ -641,7 +662,9 @@ export default class DiffViewer {
               .child(TreeItemIcon(icon(open ? 'chevron-down' : 'chevron-right')))
               .child(TreeItemLabel(t).text_size(12).text_color(t.muted).child(section.label))
               .child(div().flex_none().px(5).border(1).border_color(t.border).text_size(11).child(String(section.files.length))))
-            .when(open, el => el.children(changeTree(section.files, this.folders, `${section.label}:`).map(row => {
+            .when(open, el => el.children((this.fileView === 'list'
+              ? section.files.map(file => ({ kind: 'file', name: file.path, depth: 0, path: file.path, file }))
+              : changeTree(section.files, this.folders, `${section.label}:`)).map(row => {
               const button = TreeItem(`diff-tree-${row.path}`, row.depth + 1, row.kind === 'file' && this.selected === row.path, t);
               if (row.kind === 'dir') return button.accessibility_label(`Folder ${row.name}`)
                 .on_click((_event, cx) => this.toggleFolder(row.path, cx))

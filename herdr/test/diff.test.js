@@ -680,6 +680,72 @@ test('changed files group as Tracked then Untracked, matching the multibuffer, a
   assert.ok(!view.collapsed.has('a.md'));
 });
 
+test('List and Tree menu choices persist and preserve selection, collapsed folders and the diff cache', async () => {
+  const memory = {}, nodes = new Map(), treeRows = [], scrolled = [];
+  const element = () => {
+    const data = {};
+    const el = new Proxy(data, { get(target, key) {
+      if (key in target) return target[key];
+      if (key === 'when') return (condition, render) => { if (condition) render(el); return el; };
+      return (...args) => {
+        if (key === 'id') nodes.set(args[0], data);
+        if (key === 'on_click') data.click = args[0];
+        return el;
+      };
+    } });
+    return el;
+  };
+  const { DiffViewer, parseDiff } = await load({ div: element, svg: element, h_flex: element, v_flex: element,
+    Button: id => element().id(id), Popup: { new: id => element().id(id) },
+    TreeItem: (id, depth, selected) => { treeRows.push({ id, depth, selected }); return element().id(id); },
+    TreeItemIcon: element, TreeItemLabel: element, GitStatusColor: {},
+    v_virtual_list: element, Scrollbar: { vertical: element }, theme: () => ({}), settings: () => ({}),
+    VirtualListScrollHandle: { new: () => ({ scroll_to_item: (...args) => scrolled.push(args) }) },
+    shared: key => memory[key], setShared: (key, value) => { memory[key] = value; } });
+  const cx = { notify() {}, stop_propagation() {}, focus_handle: () => ({ focus() {} }) };
+  const view = new DiffViewer(); view.init(cx); view.loaded = true;
+  view.context = { id: 'project', folder: '/project' };
+  const patch = name => `diff --git a/${name} b/${name}\n--- a/${name}\n+++ b/${name}\n`;
+  view.files = parseDiff(patch('src/deep/a.js') + patch('Cargo.lock') + 'devkits-untracked-files\n' + patch('new/b.js'));
+  view.selected = 'src/deep/a.js'; view.folders.add('Tracked:src/deep');
+  const cache = view.rows();
+  assert.equal(view.fileView, 'tree');
+  view.render(view.context, cx);
+  assert.ok(treeRows.some(row => row.id === 'diff-tree-Tracked:src/deep'));
+  assert.ok(!treeRows.some(row => row.id === 'diff-tree-src/deep/a.js'));
+  assert.ok(nodes.has('diff-files-toolbar'));
+  assert.ok(nodes.has('diff-view'));
+  assert.equal(nodes.get('diff-view').click, undefined, 'View Diff is a static title');
+  assert.ok(!nodes.has('diff-options-list'));
+  nodes.get('diff-file-view-trigger').click({}, cx);
+  assert.equal(view.fileViewMenu.open, true);
+  nodes.get('diff-file-view-list').click({}, cx);
+  assert.equal(view.fileViewMenu.open, false);
+  assert.equal(memory['devkits.diff-file-view'], 'list');
+  assert.equal(view.selected, 'src/deep/a.js');
+  assert.equal(view.rows(), cache);
+  assert.deepEqual(scrolled, []);
+  treeRows.length = 0; view.render(view.context, cx);
+  assert.deepEqual(treeRows.filter(row => row.id.startsWith('diff-tree-')), [
+    { id: 'diff-tree-src/deep/a.js', depth: 1, selected: true },
+    { id: 'diff-tree-new/b.js', depth: 1, selected: false },
+  ]);
+  nodes.get('diff-tree-new/b.js').click({}, cx);
+  assert.equal(view.selected, 'new/b.js');
+  assert.ok(scrolled.length > 0);
+  const reopened = new DiffViewer(); reopened.init(cx);
+  assert.equal(reopened.fileView, 'list');
+  nodes.get('diff-file-view-tree').click({}, cx);
+  assert.equal(view.fileView, 'tree');
+  assert.ok(view.folders.has('Tracked:src/deep'));
+  assert.equal(view.selected, 'new/b.js');
+  assert.equal(view.rows(), cache);
+  nodes.clear(); view.panelTab = 'history'; view.history.render = element;
+  view.render(view.context, cx);
+  assert.ok(!nodes.has('diff-files-toolbar'));
+  assert.ok(!nodes.has('diff-file-view-trigger'));
+});
+
 test('reloads keep the shown diff and skip repainting until git diff output changes', async () => {
   let text = ['diff --git a/a b/a', '--- a/a', '+++ b/a', '@@ -1 +1 @@', '-x', '+y'].join(String.fromCharCode(10));
   const { DiffViewer } = await load({ shared: () => undefined, setShared() {},
