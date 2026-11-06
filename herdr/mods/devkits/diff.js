@@ -1,5 +1,5 @@
 import { div, svg } from 'gpui-kit';
-import { h_flex, v_flex, v_virtual_list, Scrollbar, VirtualListScrollHandle } from 'gpui-base';
+import { h_flex, v_flex, v_virtual_list, Scrollbar, VirtualListScrollHandle, Editor, EditorState } from 'gpui-base';
 import { exec, watchFolder, settings, theme, shared, setShared, notify } from 'herdr';
 import { Button } from './components/button.js';
 import { DropdownMenu, DropdownMenuState } from './components/dropdown-menu.js';
@@ -265,6 +265,8 @@ export default class DiffViewer {
   }
 
   close() {
+    this.toastTimer?.cancel(); this.toastTimer = null; this.toastVisible = false;
+    this.output?.release(); this.output = null;
     this.watcher?.cancel(); this.poll?.cancel(); this.queued?.cancel();
     this.queued = null;
     this.context = null;
@@ -370,6 +372,7 @@ export default class DiffViewer {
     const operation = gitActions.find(item => item.key === action);
     if (!operation) return;
     const context = this.context;
+    this.toastTimer?.cancel(); this.toastTimer = null; this.toastVisible = false;
     this.pushing = context; this.operation = operation; this.pushResult = null;
     this.gitMenu.open = false; this.gitMenu.page = null;
     cx.notify();
@@ -378,11 +381,15 @@ export default class DiffViewer {
       try { await gitRemoteAction(context.folder, context.machine, action, remote); }
       catch (error) { message = String(error.message || error); failed = true; }
       this.pushing = null;
-      notify({ title: `${operation.label} ${failed ? 'failed' : 'completed'}`, body: `${context.name || context.folder}\n${message}`, level: failed ? 'error' : 'success' });
       if (this.context === context) {
         this.pushResult = { message, failed };
+        this.resultTitle = `${operation.label} ${failed ? 'failed' : 'completed'}`;
+        this.toastVisible = true;
+        if (!failed) this.toastTimer = cx.timer.after(5000, cx => {
+          this.toastVisible = false; this.toastTimer = null; cx.notify();
+        });
         this.reload(cx);
-      }
+      } else notify({ title: `${operation.label} ${failed ? 'failed' : 'completed'}`, body: context.name || context.folder, level: failed ? 'error' : 'success' });
       cx.notify();
     });
   }
@@ -395,12 +402,44 @@ export default class DiffViewer {
     return null;
   }
 
+  openLog(cx) {
+    if (!this.pushResult) return;
+    this.output?.release();
+    this.outputTitle = this.resultTitle;
+    this.output = EditorState.new({ readonly: true, soft_wrap: true,
+      value: this.pushResult.message, font_family: settings().font_family, font_size: 13 });
+    this.toastVisible = false;
+    cx.notify();
+  }
+
+  outputView(t) {
+    return v_flex().id('git-output').flex_1().min_w(0).min_h(0).h_full()
+      .child(h_flex().h(32).flex_none().pl(12).pr(4).gap(8).items_center().bg(t.chrome).border_b(1).border_color(t.border)
+        .child(div().flex_1().min_w(0).truncate().text_size(12).child(`Git output: ${this.outputTitle}`))
+        .child(Button('git-output-close', t, { variant: 'ghost', size: 'icon' })
+          .accessibility_label('Close Git output').child(icon('close'))
+          .on_click((_event, cx) => { this.output.release(); this.output = null; cx.notify(); })))
+      .child(Editor.new(this.output).flex_1().min_h(0));
+  }
+
+  resultToast(t) {
+    return h_flex().id('git-result-toast').absolute().bottom(48).right(12).max_w(480)
+      .px(12).py(8).gap(8).items_center().bg(t.chrome).border(1).border_color(t.border)
+      .child(icon(this.pushResult.failed ? 'circle-alert' : 'circle-check')
+        .text_color(this.pushResult.failed ? t.destructive || t.foreground : t.muted))
+      .child(div().min_w(0).text_size(12).child(this.resultTitle))
+      .when(this.pushResult.failed, el => el.child(Button('git-view-log', t, { variant: 'ghost' }).h(26).px(8)
+        .child('View Log').on_click((_event, cx) => this.openLog(cx))))
+      .child(Button('git-toast-close', t, { variant: 'ghost', size: 'icon-sm' })
+        .accessibility_label('Dismiss Git notification').child(icon('close'))
+        .on_click((_event, cx) => { this.toastVisible = false; cx.notify(); }));
+  }
+
   pushFooter(t) {
     const branch = this.nativeBranch || this.pushState?.branch;
     const action = this.primaryRemoteAction();
     const operation = gitActions.find(item => item.key === action);
     const unavailable = this.pushUnavailable(action);
-    const message = this.pushResult?.message || (this.loaded ? unavailable : null);
     const { ahead, behind } = this.pushState || {};
     const counts = `${behind > 0 ? `↓${behind} ` : ''}${ahead > 0 ? `↑${ahead} ` : ''}`;
     const pushUnavailable = Boolean(this.pushUnavailable('push'));
@@ -438,9 +477,7 @@ export default class DiffViewer {
           .child(DropdownMenu('diff-git-actions', this.gitMenu,
             Button('diff-git-menu', t, { size: 'icon' }).w(24).h(26).border_l(1).border_color(t.chrome)
               .disabled(Boolean(this.pushing)).accessibility_label('More Git operations')
-              .child(icon('chevron-down')), items, choose, t, { side: 'top' }))))
-      .when(Boolean(message), el => el.child(div().max_h(120).overflow_y_scrollbar().px(8).pb(8).text_size(12)
-        .text_color(this.pushResult?.failed ? t.destructive || t.foreground : t.muted).child(message)));
+              .child(icon('chevron-down')), items, choose, t, { side: 'top' }))));
   }
 
   toggle(path, cx) {
@@ -451,6 +488,7 @@ export default class DiffViewer {
 
   /** Jumps the multibuffer to a file's header, expanding the file if it was collapsed. */
   reveal(path, cx) {
+    this.output?.release(); this.output = null;
     this.selected = path;
     if (this.collapsed.delete(path)) this.rowCache = null;
     const index = this.rows().rows.findIndex(row => row.key === `file:${path}`);
@@ -467,7 +505,8 @@ export default class DiffViewer {
   get displayFiles() { return this.commitPreview?.files || this.files; }
 
   setPanelTab(tab, cx) {
-    if (this.panelTab === tab) return;
+    this.output?.release(); this.output = null;
+    if (this.panelTab === tab) { cx.notify(); return; }
     this.panelTab = tab; this.rowCache = null; this.collapsed.clear(); this.selected = null;
     this.scroll.scroll_to_item(0, 'top');
     if (tab === 'history') { this.history.load(cx); this.history.focus?.focus(); }
@@ -629,9 +668,9 @@ export default class DiffViewer {
       .accessibility_label(`${label} diff${split === (value === 'split') ? ', selected' : ''}`)
       .on_click((_event, cx) => this.setLayout(value, cx)).child(label);
     // The editor and the Git panel are side by side, each with its own 32px header, like Files.
-    return h_flex().id('diff-viewer').flex_row_reverse().size_full().min_h(0).bg(t.background).text_color(t.foreground)
+    return h_flex().id('diff-viewer').relative().flex_row_reverse().size_full().min_h(0).bg(t.background).text_color(t.foreground)
       .child(this.panel(t))
-      .child(v_flex().flex_1().min_w(0).min_h(0).h_full()
+      .child(this.output ? this.outputView(t) : v_flex().flex_1().min_w(0).min_h(0).h_full()
         .child(h_flex().h(32).flex_none().pl(12).pr(4).gap(8).items_center().bg(t.chrome).border_b(1).border_color(t.border).text_size(12)
           .child(div().flex_1().min_w(0).truncate().font_medium().child(preview ? `Commit ${preview.commit.shortSha}` : 'Uncommitted changes'))
           .when(rows.length > 0, el => el
@@ -665,6 +704,7 @@ export default class DiffViewer {
             .child(Scrollbar.vertical('diff-rows').absolute().inset_0())
           : Empty(t).flex_1().p(24).gap(4).font_family('Geist')
             .child(EmptyDescription(t).text_size(13).child(preview ? 'No file changes in this commit' : this.error ? 'Changes unavailable' : this.loaded ? 'No uncommitted changes' : 'Loading changes…'))
-            .when(!preview && Boolean(this.error), el => el.child(EmptyDescription(t).child(this.error)))));
+            .when(!preview && Boolean(this.error), el => el.child(EmptyDescription(t).child(this.error)))))
+      .when(this.toastVisible, el => el.child(this.resultToast(t)));
   }
 }

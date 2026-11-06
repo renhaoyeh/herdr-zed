@@ -128,7 +128,7 @@ test('Zed remote actions publish, fetch every remote, pull before push and repub
       catch (error) { return { code: error.code, stdout: error.stdout, stderr: error.stderr }; }
     },
   });
-  const tasks = [], cx = { notify() {}, spawn(fn) { tasks.push(fn(cx)); } };
+  const tasks = [], cx = { notify() {}, timer: { after: () => ({ cancel() {} }) }, spawn(fn) { tasks.push(fn(cx)); } };
   const path = repo.replaceAll('\\', '/');
   const view = new DiffViewer(); view.init(); view.context = { folder: path };
   view.reload = () => {};
@@ -180,6 +180,7 @@ test('Zed remote actions publish, fetch every remote, pull before push and repub
 
 test('split button menu exposes Git operations, counts and keyboard navigation while loading stays centered', async () => {
   const nodes = new Map(), actions = [], painted = [];
+  const editors = [];
   const element = () => {
     const data = { children: [] };
     const el = new Proxy(data, { get(target, key) {
@@ -199,7 +200,8 @@ test('split button menu exposes Git operations, counts and keyboard navigation w
   const { DiffViewer } = await load({ div: element, svg: element, v_flex: element, h_flex: element,
     Button: id => element().id(id), Popup: { new: id => element().id(id) },
     Empty: element, EmptyDescription: element, theme: () => ({}), settings: () => ({}), shared: () => undefined,
-    VirtualListScrollHandle: { new: () => ({}) } });
+    VirtualListScrollHandle: { new: () => ({}) }, Editor: { new: element },
+    EditorState: { new: options => { const state = { ...options, release() { this.released = true; } }; editors.push(state); return state; } } });
   const cx = { notify() {}, stop_propagation() {}, focus_handle: () => ({ focus() {} }) };
   const view = new DiffViewer(); view.init(cx);
   view.context = { id: 'project', folder: '/project', branch: 'native/main' };
@@ -255,6 +257,26 @@ test('split button menu exposes Git operations, counts and keyboard navigation w
   assert.equal(actions.length, 2);
   nodes.get('diff-git-actions-fetch').click({}, cx);
   assert.equal(actions.length, 3);
+  view.pushResult = { message: 'fatal: authentication failed\nremote: details', failed: true };
+  view.resultTitle = 'Push failed'; view.toastVisible = true;
+  painted.length = 0;
+  view.render(view.context, cx);
+  assert.equal(nodes.get('diff-git-footer').children.length, 1, 'Failures never expand the footer');
+  assert.ok(painted.includes('Push failed'));
+  assert.ok(!painted.includes(view.pushResult.message), 'Raw Git output stays out of the notification');
+  nodes.get('git-view-log').click({}, cx);
+  assert.equal(view.toastVisible, false);
+  assert.equal(editors[0].readonly, true);
+  assert.equal(editors[0].value, view.pushResult.message);
+  view.render(view.context, cx);
+  assert.ok(nodes.has('git-output'));
+  nodes.get('git-output-close').click({}, cx);
+  assert.equal(editors[0].released, true);
+  assert.equal(view.output, null);
+  view.toastVisible = true; view.resultToast({});
+  nodes.get('git-toast-close').click({}, cx);
+  assert.equal(view.toastVisible, false);
+  assert.equal(view.pushResult.failed, true, 'Dismissal retains the result');
 });
 
 test('push prevents duplicate actions, retains errors for retry and isolates project changes', async () => {
@@ -280,7 +302,9 @@ test('push prevents duplicate actions, retains errors for retry and isolates pro
   await Promise.all(tasks.splice(0));
   assert.equal(view.pushing, null);
   assert.deepEqual(view.pushResult, { message: 'authentication failed', failed: true });
-  assert.equal(notices[0].level, 'error');
+  assert.equal(view.toastVisible, true);
+  assert.equal(view.resultTitle, 'Push failed');
+  assert.equal(notices.length, 0, 'The local toast does not duplicate a native notification');
   assert.equal(reloads, 1);
   view.push(cx);
   assert.equal(calls.length, 2);
@@ -289,7 +313,7 @@ test('push prevents duplicate actions, retains errors for retry and isolates pro
   await Promise.all(tasks);
   assert.equal(view.pushResult, null);
   assert.equal(reloads, 1);
-  assert.equal(notices[1].level, 'success');
+  assert.equal(notices[0].level, 'success');
 });
 
 test('parser numbers old and new lines and classifies added, deleted, renamed and binary files', async () => {
