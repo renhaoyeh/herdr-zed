@@ -303,8 +303,19 @@ export default class DiffViewer {
     this.accounts = null; this.accountsError = null; this.accountsLoading = false;
     this.gitMenu.open = false; this.gitMenu.page = null;
     this.optionsMenu.open = false;
-    if (project?.folder) { this.observe(cx); this.reload(cx); }
-    if (project?.folder && this.panelTab === 'history') this.history.load(cx);
+    if (project?.folder) {
+      const context = this.context;
+      // refresh is called by render. Starting watchers/Git reads here shares
+      // that first frame's script budget; History.load also notifies its view.
+      // Resume with a task context after render, and ignore a project left meanwhile.
+      cx.spawn(async cx => {
+        await cx.sleep(0);
+        if (this.context !== context) return;
+        this.observe(cx);
+        this.reload(cx);
+        if (this.panelTab === 'history') this.history.load(cx);
+      });
+    }
   }
 
   observe(cx) {

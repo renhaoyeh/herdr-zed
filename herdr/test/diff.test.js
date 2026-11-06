@@ -693,6 +693,35 @@ test('reloads keep the shown diff and skip repainting until git diff output chan
   assert.equal(notified, 2);
 });
 
+test('project initialization yields before watchers, Git reads and History notifications', async () => {
+  const { DiffViewer } = await load({ VirtualListScrollHandle: { new: () => ({}) } });
+  const tasks = [], waits = [], started = [];
+  let rendering = true;
+  const cx = {
+    spawn(fn) { tasks.push(fn(cx)); },
+    sleep() { return new Promise(resolve => waits.push(resolve)); },
+    notify() { assert.equal(rendering, false, 'Cannot notify while rendering'); },
+  };
+  const view = new DiffViewer(); view.init(); view.panelTab = 'history';
+  view.observe = () => started.push(['watch', view.context.folder]);
+  view.reload = () => started.push(['diff', view.context.folder]);
+  view.history.load = cx => { cx.notify(); started.push(['history', view.context.folder]); };
+  // Includes a folder without Git: initialization must not depend on a successful read.
+  view.refresh({ id: 'plain', folder: '/plain-folder' }, cx);
+  assert.deepEqual(started, [], 'First render must only schedule initialization');
+  view.refresh({ id: 'repo', folder: '/repo' }, cx);
+  rendering = false;
+  waits.splice(0).forEach(resolve => resolve());
+  await Promise.all(tasks.splice(0));
+  assert.deepEqual(started, [['watch', '/repo'], ['diff', '/repo'], ['history', '/repo']]);
+  rendering = true;
+  view.refresh({ id: 'plain', folder: '/plain-folder' }, cx);
+  view.close(); rendering = false;
+  waits.splice(0).forEach(resolve => resolve());
+  await Promise.all(tasks);
+  assert.equal(started.length, 3, 'Closing before the task resumes must discard initialization');
+});
+
 test('loaded diff text preserves row rendering in unified and split views', async () => {
   const memory = {}, painted = [];
   const element = () => {
@@ -708,10 +737,10 @@ test('loaded diff text preserves row rendering in unified and split views', asyn
     GitStatusColor: { added: '#27a657', deleted: '#e06c76' },
     shared: key => memory[key], setShared: (key, value) => { memory[key] = value; },
     VirtualListScrollHandle: { new: () => ({}) }, exec: async () => ({ code: 0, stdout: text }) });
-  const tasks = [], cx = { notify() {}, spawn(fn) { tasks.push(fn(cx)); } };
+  const tasks = [], cx = { notify() {}, sleep: async () => {}, spawn(fn) { tasks.push(fn(cx)); } };
   const view = new DiffViewer(); view.init(); view.observe = () => {};
   view.refresh({ id: 'project', folder: '/project' }, cx);
-  await Promise.all(tasks);
+  while (tasks.length) await Promise.all(tasks.splice(0));
   for (const layout of ['unified', 'split']) {
     painted.length = 0;
     view.setLayout(layout, cx);
