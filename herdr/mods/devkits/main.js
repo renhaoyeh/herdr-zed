@@ -16,6 +16,7 @@ import { Sidebar, SidebarContent, SidebarGroupLabel, SidebarMenuButton, SidebarF
 const glyph = (name, size = 14) => svg(`mods/devkits/assets/icons/${name}.svg`).size(size).flex_none();
 const stateColor = (status, t) => t[status] || t.muted;
 const launcherSections = ['Terminal', 'Agents', 'Your accounts'];
+const agentLoads = new Map();
 const launcherIcon = (agent, t) => !agent ? glyph('terminal', 16) : agent.icon
   ? (agent.tint ? svg(agent.icon).size(16).text_color(t.foreground) : image(agent.icon).size(16)) : glyph('mark', 16);
 
@@ -24,13 +25,20 @@ export default class Devkits extends View {
     // Return an already-open permissions dialog to Manage during live updates.
     if (props()?.view === 'codex-permissions') {
       const target = props(); closeOverlay(target.overlay);
-      openOverlay({ mod: 'devkits', kind: 'dialog', modal: false, width: 680, height: 0.8,
+      openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: false, width: 680, height: 0.8,
         props: { view: 'manage-launchers', space: target.space } });
       return;
     }
     if (props()?.view === 'usage-details') cx.timer.every(60000, cx => cx.notify());
     if (props()?.view === 'header') {
+      // Shared values survive restarts; discover once for this app session.
+      setShared('devkits.agent-cache', {});
       this.refreshUsage(cx);
+      const activeMachine = this.projects().find(project => project.active)?.machine || null;
+      for (const machine of new Set([null, ...spaces().map(space => space.machine || null)])) {
+        if (machine === activeMachine) continue;
+        cx.spawn(async () => { try { await this.cachedAgents(machine); } catch {} });
+      }
       cx.timer.every(60000, cx => this.refreshUsage(cx));
     }
     if (props()?.view === 'files') {
@@ -52,6 +60,7 @@ export default class Devkits extends View {
       if (props().view === 'project-picker') this.projectIndex = -1;
     }
     if (['launcher', 'manage-launchers'].includes(props()?.view)) {
+      if (props().refreshAgents) setShared('devkits.agent-cache', {});
       this.launchers = [];
       this.permissionSelects = new Map();
       this.manageIndex = 0;
@@ -90,7 +99,7 @@ export default class Devkits extends View {
 
   closeProject(project) {
     if (project.pending) { this.finishCloseProject(project); return; }
-    openOverlay({ mod: 'devkits', kind: 'dialog', width: 440, height: 220,
+    openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', width: 440, height: 220,
       props: { view: 'close-project', project } });
   }
 
@@ -126,7 +135,7 @@ export default class Devkits extends View {
         else return;
         cx.stop_propagation(); cx.notify();
       })
-      .child(DropdownMenuLabel(t).child('Projects'))
+      .child(DropdownMenuLabel(t).child('PROJECTS'))
       .child(v_flex().id('picker-projects').flex_1().min_h(0).overflow_y_scrollbar().gap(1)
         .children(projects.map((project, index) => DropdownMenuItem(`picker-project-${project.id}`, t)
           .bg(this.projectIndex === index ? t.selected : t.popover)
@@ -175,14 +184,36 @@ export default class Devkits extends View {
       props: { view: 'launcher', space: project.pending ? null : project.id, folder: project.folder, projectName: project.name } });
   }
 
+  async cachedAgents(machine) {
+    const key = JSON.stringify(machine || null);
+    const cached = shared('devkits.agent-cache')?.[key];
+    if (cached) return cached;
+    if (agentLoads.has(key)) return agentLoads.get(key);
+    const pending = (async () => {
+      const agents = (await knownAgents({ on: machine }))
+        .filter(agent => agent.installed && (!machine || !agent.key.startsWith('devkits-codex-')));
+      setShared('devkits.agent-cache', { ...(shared('devkits.agent-cache') || {}), [key]: agents });
+      return agents;
+    })();
+    agentLoads.set(key, pending);
+    try { return await pending; } finally { agentLoads.delete(key); }
+  }
+
   loadAgents(cx) {
+    const machine = spaces().find(s => s.id === props().space)?.machine;
+    const cached = shared('devkits.agent-cache')?.[JSON.stringify(machine || null)];
+    if (cached) {
+      this.launchers = cached;
+      this.loading = false;
+      this.launchError = false;
+      if (props().view === 'manage-launchers') this.preparePermissionSelects(cx);
+      return;
+    }
     this.loading = true;
     this.launchError = false;
     cx.spawn(async cx => {
       try {
-        const project = spaces().find(s => s.id === props().space);
-        this.launchers = (await knownAgents({ on: project?.machine }))
-          .filter(agent => agent.installed && (!project?.machine || !agent.key.startsWith('devkits-codex-')));
+        this.launchers = await this.cachedAgents(machine);
         if (props().view === 'manage-launchers') this.preparePermissionSelects(cx);
       } catch { this.launchError = true; }
       this.loading = false;
@@ -206,7 +237,7 @@ export default class Devkits extends View {
   addCodexAccount() {
     const target = props();
     closeOverlay(target.overlay);
-    openOverlay({ mod: 'devkits', kind: 'dialog', modal: true, width: 520, height: 380,
+    openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: true, width: 520, height: 380,
       props: { view: 'codex-login', returnTo: { view: 'manage-launchers', space: target.space } } });
   }
 
@@ -218,7 +249,7 @@ export default class Devkits extends View {
   confirmRemoveAccount(account) {
     const target = props();
     closeOverlay(target.overlay);
-    openOverlay({ mod: 'devkits', kind: 'dialog', modal: true, width: 480, height: 300,
+    openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: true, width: 480, height: 300,
       props: { view: 'remove-account', account: { key: account.key, name: account.name }, space: target.space } });
   }
 
@@ -227,7 +258,7 @@ export default class Devkits extends View {
     const back = () => {
       if (this.removing) return;
       closeOverlay(target.overlay);
-      openOverlay({ mod: 'devkits', kind: 'dialog', modal: false, width: 680, height: 0.8,
+      openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: false, width: 680, height: 0.8,
         props: { view: 'manage-launchers', space: target.space } });
     };
     const confirm = cx => {
@@ -236,6 +267,7 @@ export default class Devkits extends View {
       cx.spawn(async cx => {
         try {
           await removeCodexAccount(target.account.key);
+          setShared('devkits.agent-cache', {});
           const key = `agent:${target.account.key}`;
           for (const setting of ['devkits.hidden-launchers', 'devkits.launcher-order']) {
             setShared(setting, (shared(setting) || []).filter(item => item !== key));
@@ -317,8 +349,8 @@ export default class Devkits extends View {
       .child(v_flex().id('manage-launchers-list').flex_1().min_h(0).overflow_y_scroll().gap(4)
         .children(choices.flatMap((choice, index) => [
           ...(index === 0 || choices[index - 1].group !== choice.group
-            ? [DropdownMenuLabel(t).id(`manage-section-${choice.group}`).mt(index ? 12 : 0).child(launcherSections[choice.group])] : []),
-          h_flex().id(`manage-${choice.key}`).h(44).flex_none().px(8).gap(8).items_center().rounded(6)
+            ? [DropdownMenuLabel(t).id(`manage-section-${choice.group}`).mt(index ? 12 : 0).child(launcherSections[choice.group].toUpperCase())] : []),
+          h_flex().id(`manage-${choice.key}`).h(44).flex_none().px(8).gap(8).items_center().rounded(0)
           .bg(this.manageIndex === index ? t.selected : t.popover)
           .border(1).border_color(this.dragKey && dragGroup === choice.group && this.dropKey === choice.key ? t.solid : t.popover)
           .opacity(this.dragKey === choice.key ? 0.5 : 1)
@@ -363,7 +395,7 @@ export default class Devkits extends View {
             .child(glyph('close')).child('Remove')))
         ]))
         .when(local && !this.loading && !this.launchError && !choices.some(choice => choice.group === 2), el => el
-          .child(DropdownMenuLabel(t).id('manage-section-2').mt(12).child('Your accounts'))
+          .child(DropdownMenuLabel(t).id('manage-section-2').mt(12).child('YOUR ACCOUNTS'))
           .child(div().px(8).text_size(12).text_color(t.muted).child('No accounts added. Use Add account on the Codex row.')))
         .when(this.loading, el => el.child(div().p(8).text_size(12).text_color(t.muted).child('Loading agents…')))
         .when(this.launchError, el => el.child(Button('manage-retry-agents', t, { variant: 'outline' })
@@ -404,7 +436,7 @@ export default class Devkits extends View {
       .child(row('manage-launchers-open', 'Manage…', glyph('settings'), () => {
         const target = props();
         closeOverlay(target.overlay);
-        openOverlay({ mod: 'devkits', kind: 'dialog', modal: false, width: 680, height: 0.8,
+        openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: false, width: 680, height: 0.8,
           props: { view: 'manage-launchers', space: target.space } });
       }, ''));
   }
@@ -419,8 +451,7 @@ export default class Devkits extends View {
     this.usageLoading = true;
     cx.spawn(async cx => {
       try {
-        const agents = (await knownAgents({ on: machine }))
-          .filter(agent => agent.installed && (!machine || !agent.key.startsWith('devkits-codex-')));
+        const agents = await this.cachedAgents(machine);
         this.usageAgents = agents;
         if (this.usageMachine !== machine) this.usage = [];
         this.usageMachine = machine;
@@ -477,7 +508,7 @@ export default class Devkits extends View {
       ? (root.traffic_lights[0] + 64) / settings().zoom : 12;
     return h_flex().size_full().px(16).pl(inset).gap(12).items_center().bg(t.background).text_size(13)
       .border_b(1).border_color(t.border)
-      .child(DropdownMenuTrigger(h_flex().id('project-switcher').h(32).px(8).gap(6).items_center().rounded(6)
+      .child(DropdownMenuTrigger(h_flex().id('project-switcher').h(32).px(8).gap(6).items_center().rounded(0).border_b(1).border_color(t.input)
         .text_color(t.foreground).font_medium().hover(el => el.bg(t.hover)).cursor_pointer()
         .tooltip(space?.folder || 'Open a project'), 280,
         (_cx, at) => openOverlay({ mod: 'devkits', kind: 'popup', frame: 'none', width: 280, at,
@@ -500,7 +531,7 @@ export default class Devkits extends View {
               error: data?.error || (supported ? this.usageError || (this.usageLoading ? 'Reading account usage…' : null) : null) };
             return Button(`usage-${choice.key}`, t, { variant: 'ghost' }).h(48).px(8).items_start().py(3)
               .accessibility_label(`${choice.name}: ${status}. Open usage details`)
-              .on_click(() => openOverlay({ mod: 'devkits', kind: 'dialog', modal: false, width: 480, height: 400,
+              .on_click(() => openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: false, width: 480, height: 400,
                 props: { view: 'usage-details', account } }))
               .child(launcherIcon(choice.agent, t).self_center())
               .child(v_flex().w(200).gap(3).line_height('12px')
@@ -536,9 +567,9 @@ export default class Devkits extends View {
     const mac = window()?.platform === 'macos' && !window()?.fullscreen;
     return h_flex().size_full().pl(mac ? 80 : 16).pr(12).gap(10).items_center().bg(t.chrome)
       .border_b(1).border_color(t.border)
-      .child(div().size(28).flex_none().flex().items_center().justify_center().rounded(7)
+      .child(div().size(28).flex_none().flex().items_center().justify_center().rounded(0)
         .bg(t.solid).text_color(t.solid_foreground).child(glyph('mark', 17)))
-      .child(div().flex_1().text_size(14).font_semibold().text_color(t.foreground).child('Devkits'));
+      .child(div().flex_1().font_family('Georgia').text_size(20).font_normal().text_color(t.foreground).child('Devkits'));
   }
 
   paneHeader(t) {
@@ -550,7 +581,7 @@ export default class Devkits extends View {
       .text_size(12).text_color(t.muted).on_click(() => run('pane.focus', { pane: p.pane }))
       .child(div().flex_none().tooltip(program?.name || 'Terminal').child(icon))
       .child(div().flex_1().min_w(0).truncate().child(p.cwd || ''))
-      .when(Boolean(p.status), el => el.child(h_flex().h(22).px(7).gap(5).items_center().rounded(5)
+      .when(Boolean(p.status), el => el.child(h_flex().h(22).px(7).gap(5).items_center().rounded(0)
         .border(1).border_color(t.border).text_size(10).text_color(t.muted)
         .child(div().size(5).rounded(3).bg(stateColor(p.status, t)))
         .child(p.status === 'blocked' ? 'Needs you' : `${p.status[0].toUpperCase()}${p.status.slice(1)}`)))
@@ -581,6 +612,7 @@ export default class Devkits extends View {
 
   threadRow(thread, t) {
     const agent = thread.agent;
+    const working = thread.status === 'working' || thread.agents.some(agent => agent.status === 'working');
     const isFocused = thread.active;
     const p = agent?.program;
     const icon = p?.icon ? (p.tint ? svg(p.icon).size(14).text_color(t.muted) : image(p.icon).size(14)) : glyph('terminal', 14).text_color(t.muted);
@@ -594,7 +626,9 @@ export default class Devkits extends View {
       .child(div().size(16).flex_none().flex().items_center().justify_center().child(icon))
       .child(div().flex_1().min_w(0).truncate().text_size(13).text_color(t.foreground)
         .when(isFocused, el => el.font_medium()).child(thread.title))
-      .child(div().size(5).flex_none().rounded(3).bg(stateColor(thread.status, t)))
+      .child(working
+        ? glyph('loader', 14).text_color(t.working).spin(900).accessibility_label('Working')
+        : div().size(5).flex_none().rounded(3).bg(stateColor(thread.status, t)))
       .child(Button(`close-thread-${thread.tab.id}`, t, { variant: 'ghost', size: 'icon-sm' })
         .opacity(isFocused || this.hovered === thread.tab.id ? 1 : 0)
         .tooltip('Close thread').accessibility_label('Close thread')
