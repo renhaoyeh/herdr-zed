@@ -798,10 +798,10 @@ export default class DiffViewer {
     this.nativeBranch = project?.branch || null;
     const t = theme(), mono = settings().font_family, { rows, sizes, limited, gutter, contentWidth, wrap } = this.rows(cx), split = this.split;
     const preview = this.commitPreview;
-    const choice = (id, label, value) => Button(id, t, { variant: 'ghost' }).h(24).px(8)
+    const choice = (id, label, value) => Button(id, t, { variant: 'ghost', size: 'icon' }).size(24)
       .when(split === (value === 'split'), el => el.bg(t.selected).text_color(t.foreground))
       .accessibility_label(`${label} diff${split === (value === 'split') ? ', selected' : ''}`)
-      .on_click((_event, cx) => this.setLayout(value, cx)).child(label);
+      .on_click((_event, cx) => this.setLayout(value, cx)).child(icon(`diff-${value}`).size(16));
     // The editor and the Git panel are side by side, each with its own 32px header, like Files.
     return h_flex().id('diff-viewer').relative().flex_row_reverse().size_full().min_h(0).bg(t.background).text_color(t.foreground)
       .child(this.panel(t))
