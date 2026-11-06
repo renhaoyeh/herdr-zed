@@ -1,6 +1,9 @@
-// Claude Code status line for Devkits Claude accounts: records the plan usage Claude Code provides
-// on stdin into the account's own config directory, so the sidebar never needs credentials or network access.
+// Claude Code status line used by Devkits: records the plan usage Claude Code provides on stdin into
+// the profile's config directory, so the sidebar never needs credentials or network access. When
+// Devkits took over another tool's status line, that command still runs with the same input.
+import { spawnSync } from 'node:child_process';
 import { readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -23,8 +26,19 @@ export function record(input, directory, now = Date.now()) {
   return statusText(limits);
 }
 
+export function chained(input, directory, run = spawnSync) {
+  let saved;
+  try { saved = JSON.parse(readFileSync(`${directory}/devkits-statusline-chain.json`, 'utf8')); } catch { return null; }
+  if (saved?.type !== 'command' || typeof saved.command !== 'string' || !saved.command) return null;
+  const result = run(saved.command, { input, shell: true, encoding: 'utf8', timeout: 10000, windowsHide: true });
+  return typeof result.stdout === 'string' ? result.stdout.replace(/\s+$/, '') : '';
+}
+
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  let text = '';
-  try { text = record(readFileSync(0, 'utf8'), process.env.CLAUDE_CONFIG_DIR); } catch {}
-  process.stdout.write(text);
+  const directory = process.env.CLAUDE_CONFIG_DIR || `${homedir()}/.claude`;
+  let input = '', text = '', other = null;
+  try { input = readFileSync(0, 'utf8'); } catch {}
+  try { text = record(input, directory); } catch {}
+  try { other = chained(input, directory); } catch {}
+  process.stdout.write(other || text);
 }

@@ -80,17 +80,25 @@ export async function registerAccount(profile) {
   await writeTextFile(path, `${JSON.stringify(data, null, 2)}\n`, text);
 }
 
-// Usage comes from Claude Code's own status line data; an existing status line is never replaced.
-export async function ensureClaudeStatusLine(directory) {
+// Usage comes from Claude Code's own status line data. Another tool's status line is kept: without
+// `chain` it is left alone; with `chain` it is saved and run after recording, with the same input.
+export async function ensureClaudeStatusLine(directory, { chain = false } = {}) {
   const path = `${directory}/settings.json`;
   const source = await readTextFile(path);
   const data = source === null ? {} : JSON.parse(source);
-  const statusLine = { type: 'command', command: `node "${appHome().replace(/\\/g, '/')}/mods/devkits/claude-statusline.js"`, padding: 0 };
   if (!data || typeof data !== 'object' || Array.isArray(data)) return false;
-  // Replace only a status line Devkits wrote (for example, after the app folder moved).
-  if (data.statusLine && (!String(data.statusLine.command || '').endsWith('/devkits/claude-statusline.js"')
-    || JSON.stringify(data.statusLine) === JSON.stringify(statusLine))) return false;
-  data.statusLine = statusLine;
+  const command = `node "${appHome().replace(/\\/g, '/')}/mods/devkits/claude-statusline.js"`;
+  const current = data.statusLine;
+  const ours = String(current?.command || '').endsWith('/devkits/claude-statusline.js"');
+  if (ours && current.command === command) return false;
+  if (current && !ours) {
+    if (!chain || current.type !== 'command' || typeof current.command !== 'string') return false;
+    const chainPath = `${directory}/devkits-statusline-chain.json`;
+    await writeTextFile(chainPath, `${JSON.stringify(current, null, 2)}\n`, await readTextFile(chainPath));
+    const backup = `${path}.devkits-backup`;
+    if (await readTextFile(backup) === null) await writeTextFile(backup, source, null);
+  }
+  data.statusLine = { ...(current && !ours ? current : { padding: 0 }), type: 'command', command };
   await writeTextFile(path, `${JSON.stringify(data, null, 2)}\n`, source);
   return true;
 }

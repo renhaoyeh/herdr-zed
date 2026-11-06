@@ -2,6 +2,7 @@
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { readFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -22,9 +23,8 @@ export const claudeConfigDir = run => Array.isArray(run)
   ? run.find(arg => arg.startsWith('CLAUDE_CONFIG_DIR='))?.slice('CLAUDE_CONFIG_DIR='.length) || null : null;
 
 // Reads only what this profile's status line recorded; it never touches credentials or the network.
-export async function readClaudeUsage(run) {
-  const directory = claudeConfigDir(run);
-  if (!directory) throw new Error('Usage is available only for Devkits Claude accounts');
+export async function readClaudeUsage(run, home = homedir()) {
+  const directory = claudeConfigDir(run) || `${home}/.claude`;
   let saved;
   try { saved = JSON.parse(await readFile(`${directory}/${claudeUsageFile}`, 'utf8')); } catch {}
   if (!saved?.rate_limits) throw new Error('No usage yet. Start a session with this account to update it.');
@@ -86,7 +86,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const accounts = JSON.parse(process.argv[2]);
   console.log(JSON.stringify(await Promise.all(accounts.map(async account => {
     try {
-      if (claudeConfigDir(account.run)) return { key: account.key, name: account.name, ...await readClaudeUsage(account.run) };
+      if (account.provider === 'claude') return { key: account.key, name: account.name, ...await readClaudeUsage(account.run) };
       return { key: account.key, name: account.name, windows: await readUsage(account.run), fetchedAt: Date.now() };
     }
     catch (error) { return { key: account.key, name: account.name, error: error.message }; }

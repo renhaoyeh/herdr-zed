@@ -77,7 +77,8 @@ test('Claude usage comes only from the status line recording in the account dire
   assert.equal(claudeConfigDir(['claude']), null);
   const directory = await mkdtemp(`${tmpdir()}/claude-usage-`);
   const run = ['env', `CLAUDE_CONFIG_DIR=${directory}`, 'claude'];
-  await assert.rejects(readClaudeUsage(['claude']), /only for Devkits Claude accounts/);
+  // The built-in profile reads ~/.claude.
+  await assert.rejects(readClaudeUsage(['claude'], directory), /No usage yet/);
   await assert.rejects(readClaudeUsage(run), /No usage yet/);
   // Before the first response Claude Code omits rate_limits; nothing is recorded.
   assert.equal(record(JSON.stringify({ model: {} }), directory, 1), '');
@@ -90,4 +91,22 @@ test('Claude usage comes only from the status line recording in the account dire
   assert.equal(record(JSON.stringify({}), directory, 9000), '');
   assert.equal((await readClaudeUsage(run)).fetchedAt, 5000);
   assert.equal(statusText({ seven_day: { used_percentage: 7 } }), 'Week 7%');
+});
+
+test('a chained status line receives the same input and its output replaces the usage text', async () => {
+  const { chained } = await import('../mods/devkits/claude-statusline.js');
+  const { mkdtemp, writeFile } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const directory = await mkdtemp(`${tmpdir()}/claude-chain-`);
+  const calls = [];
+  const run = (command, options) => { calls.push([command, options.input, options.shell]); return { stdout: 'orca line  \n' }; };
+  assert.equal(chained('{"a":1}', directory, run), null);
+  await writeFile(`${directory}/devkits-statusline-chain.json`, JSON.stringify({ type: 'command', command: 'orca.cmd' }));
+  assert.equal(chained('{"a":1}', directory, run), 'orca line');
+  assert.deepEqual(calls, [['orca.cmd', '{"a":1}', true]]);
+  assert.equal(chained('{}', directory, () => ({ stdout: null })), '');
+  // Real process: the chained command reads stdin and its output is returned.
+  const echo = `${JSON.stringify(process.execPath)} -e "process.stdin.pipe(process.stdout)"`;
+  await writeFile(`${directory}/devkits-statusline-chain.json`, JSON.stringify({ type: 'command', command: echo }));
+  assert.equal(chained('hello', directory), 'hello');
 });

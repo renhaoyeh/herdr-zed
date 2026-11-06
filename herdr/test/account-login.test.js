@@ -445,3 +445,28 @@ test('allocated directories match across Windows path spellings but never outsid
     assert.equal(writes.length, 0);
   }
 });
+
+test('the built-in profile chains its existing status line, with a backup, and re-chains after it is replaced', async () => {
+  const files = {};
+  const other = { type: 'command', command: 'C:/Users/me/.orca/agent-hooks/claude-statusline.cmd', padding: 2 };
+  const original = JSON.stringify({ model: 'opus', statusLine: other });
+  files['/home/.claude/settings.json'] = original;
+  const { ensureClaudeStatusLine } = await load({ appHome: () => '/app',
+    readTextFile: async path => files[path] ?? null,
+    writeTextFile: async (path, next, expected) => { assert.equal(expected, files[path] ?? null); files[path] = next; } });
+  assert.equal(await ensureClaudeStatusLine('/home/.claude', { chain: true }), true);
+  const settings = JSON.parse(files['/home/.claude/settings.json']);
+  assert.equal(settings.model, 'opus');
+  assert.deepEqual(settings.statusLine, { type: 'command', command: 'node "/app/mods/devkits/claude-statusline.js"', padding: 2 });
+  assert.deepEqual(JSON.parse(files['/home/.claude/devkits-statusline-chain.json']), other);
+  assert.equal(files['/home/.claude/settings.json.devkits-backup'], original);
+  assert.equal(await ensureClaudeStatusLine('/home/.claude', { chain: true }), false);
+  // Another tool reinstalling its status line is chained again; the first backup is kept.
+  const updated = { type: 'command', command: 'orca-v2' };
+  files['/home/.claude/settings.json'] = JSON.stringify({ model: 'opus', statusLine: updated });
+  assert.equal(await ensureClaudeStatusLine('/home/.claude', { chain: true }), true);
+  assert.deepEqual(JSON.parse(files['/home/.claude/devkits-statusline-chain.json']), updated);
+  assert.equal(files['/home/.claude/settings.json.devkits-backup'], original);
+  files['/home/.claude/settings.json'] = JSON.stringify({ statusLine: { type: 'static', text: 'x' } });
+  assert.equal(await ensureClaudeStatusLine('/home/.claude', { chain: true }), false);
+});

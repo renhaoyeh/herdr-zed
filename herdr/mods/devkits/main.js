@@ -1,6 +1,6 @@
 import { View, div, svg, image } from 'gpui-kit';
 import { v_flex, h_flex, InputState, Input } from 'gpui-base';
-import { agents, spaces, panes, theme, run, props, window, openOverlay, closeOverlay, setAgentOrder, layout, settings, pickFolder, shared, setShared, knownAgents, notify, exec, appHome, readTextFile } from 'herdr';
+import { agents, spaces, panes, theme, run, props, window, openOverlay, closeOverlay, setAgentOrder, layout, settings, pickFolder, shared, setShared, knownAgents, notify, exec, appHome, home, readTextFile } from 'herdr';
 import { projectGroups, projectCatalog, folderKey, launcherChoices, codexPermissionModes, isAccountLauncher, isCodexLauncher, launcherArgv, quotaResetLabel } from './model.js';
 import AccountLogin, { accountLabel, ensureClaudeStatusLine, removeAccountProfile, renameAccountProfile } from './account-login.js';
 import FileViewer from './files.js';
@@ -20,8 +20,10 @@ const agentLoads = new Map();
 const usageCacheMs = 5 * 60000;
 const usageProvider = agent => !Array.isArray(agent?.run) ? null
   : agent.run.some(arg => !arg.includes('=') && /(?:^|[/\\])codex(?:\.exe)?$/i.test(arg)) ? 'codex'
-    // Claude usage comes from the status line Devkits configures, so only its own accounts are supported.
-    : agent.key?.startsWith('devkits-claude-') && agent.run.some(arg => arg.startsWith('CLAUDE_CONFIG_DIR=')) ? 'claude' : null;
+    // Claude usage comes from the status line Devkits configures: its own accounts and the built-in profile.
+    : agent.key === 'claude' || (agent.key?.startsWith('devkits-claude-') && agent.run.some(arg => arg.startsWith('CLAUDE_CONFIG_DIR=')))
+      ? 'claude' : null;
+const claudeDirectory = agent => agent.run.find(arg => arg.startsWith('CLAUDE_CONFIG_DIR='))?.slice(18) || `${home()}/.claude`;
 const launcherIcon = (agent, t) => !agent ? glyph('terminal', 16) : agent.icon
   ? (agent.tint ? svg(agent.icon).size(16).text_color(t.foreground) : image(agent.icon).size(16)) : glyph('mark', 16);
 
@@ -570,11 +572,11 @@ export default class Devkits extends View {
         // Cached results survive reloads and restarts so providers are queried at most once per interval.
         const cached = () => shared('devkits.usage-cache') || {};
         const now = Date.now();
-        // Accounts added before status-line usage existed are set up once per app session.
+        // Set up the status line once per app session; the built-in profile chains any status line it already has.
         this.statusLines ||= new Set();
         for (const account of accounts.filter(account => usageProvider(account) === 'claude' && !this.statusLines.has(account.key))) {
           this.statusLines.add(account.key);
-          try { await ensureClaudeStatusLine(account.run.find(arg => arg.startsWith('CLAUDE_CONFIG_DIR=')).slice(18)); } catch {}
+          try { await ensureClaudeStatusLine(claudeDirectory(account), { chain: account.key === 'claude' }); } catch {}
         }
         // Claude usage is a local file, so only provider queries are rate-limited by the cache.
         const stale = accounts.filter(account => usageProvider(account) === 'claude'
@@ -582,7 +584,8 @@ export default class Devkits extends View {
         this.usage = accounts.map(account => cached()[account.key]).filter(Boolean);
         if (stale.length) {
           cx.notify();
-          const result = await exec('node', [`${appHome()}/mods/devkits/usage-reader.js`, JSON.stringify(stale)]);
+          const result = await exec('node', [`${appHome()}/mods/devkits/usage-reader.js`,
+            JSON.stringify(stale.map(account => ({ ...account, provider: usageProvider(account) })))]);
           if (result.code !== 0) throw new Error('Could not read usage');
           const next = { ...cached() };
           for (const entry of JSON.parse(result.stdout)) {
