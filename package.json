@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "install:herdr": "node herdr/install.js",
+    "sync:shared": "node herdr/sync-shared.js",
     "test": "node --test"
   },
   "engines": { "node": ">=22" }

@@ -1,0 +1,5 @@
+# Shared components: mods/devkits/components/<file> is the source, copied by sync-shared.js into
+# mods/<mod>/components/<file> for each mod listed. A mod can only import files in its own folder,
+# so each needs its own copy.
+button.js: devkits-simulator
+dropdown-menu.js: devkits-simulator

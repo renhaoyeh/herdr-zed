@@ -1,3 +1,5 @@
+// Shared: the source is mods/devkits/components/dropdown-menu.js; herdr/sync-shared.js copies it into each mod in herdr/COPIES.
+// Edit this source, never a mod's copy, then run npm run sync:shared.
 import { div, svg } from 'gpui-kit';
 import { h_flex, v_flex, Popup } from 'gpui-base';
 import { settings } from 'herdr';

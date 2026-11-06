@@ -1,3 +1,5 @@
+// Shared: the source is mods/devkits/components/button.js; herdr/sync-shared.js copies it into each mod in herdr/COPIES.
+// Edit this source, never a mod's copy, then run npm run sync:shared.
 import { Button as NativeButton } from 'gpui-base';
 
 export function Button(id, t, { variant = 'default', size = 'sm' } = {}) {
