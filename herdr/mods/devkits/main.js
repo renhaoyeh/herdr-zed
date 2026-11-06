@@ -635,7 +635,9 @@ export default class Devkits extends View {
   accountUsage(t) {
     const space = this.projects().find(s => s.active);
     const choices = launcherChoices(this.usageMachine === (space?.machine || null) ? this.usageAgents || [] : [],
-      shared('devkits.launcher-order') || []).filter(choice => !(shared('devkits.hidden-launchers') || []).includes(choice.key));
+      shared('devkits.launcher-order') || [])
+      // The plain terminal launcher is not an agent profile and never has usage.
+      .filter(choice => choice.agent && !(shared('devkits.hidden-launchers') || []).includes(choice.key));
     return v_flex().id('account-usage').w_full().flex_none().h_auto().min_h(0)
       .border_t(1).border_color(t.border)
       .child(h_flex().h(32).flex_none().px(12).gap(8).items_center()
