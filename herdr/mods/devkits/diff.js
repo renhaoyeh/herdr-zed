@@ -470,9 +470,9 @@ export default class DiffViewer {
 
   outputView(t) {
     return v_flex().id('git-output').flex_1().min_w(0).min_h(0).h_full()
-      .child(h_flex().h(32).flex_none().pl(12).pr(4).gap(8).items_center().bg(t.chrome).border_b(1).border_color(t.border)
+      .child(h_flex().h(32).flex_none().pl(12).gap(8).items_center().bg(t.chrome).border_b(1).border_color(t.border)
         .child(div().flex_1().min_w(0).truncate().text_size(12).child(`Git output: ${this.outputTitle}`))
-        .child(Button('git-output-close', t, { variant: 'ghost', size: 'icon' })
+        .child(Button('git-output-close', t, { variant: 'ghost', size: 'icon' }).h_full().w(32)
           .accessibility_label('Close Git output').child(icon('close'))
           .on_click((_event, cx) => { this.output.release(); this.output = null; cx.notify(); })))
       .child(Editor.new(this.output).flex_1().min_h(0));
@@ -827,13 +827,13 @@ export default class DiffViewer {
     return h_flex().id('diff-viewer').relative().flex_row_reverse().size_full().min_h(0).bg(t.background).text_color(t.foreground)
       .child(this.panel(t))
       .child(this.output ? this.outputView(t) : v_flex().flex_1().min_w(0).min_h(0).h_full()
-        .child(h_flex().h(32).flex_none().pl(12).pr(4).gap(8).items_center().bg(t.chrome).border_b(1).border_color(t.border).text_size(12)
+        .child(h_flex().h(32).flex_none().pl(12).gap(8).items_center().bg(t.chrome).border_b(1).border_color(t.border).text_size(12)
           .child(div().flex_1().min_w(0).truncate().font_medium().child(preview ? `Commit ${preview.commit.shortSha}` : 'Uncommitted changes'))
           .when(rows.length > 0, el => el
             .child(choice('diff-unified', 'Unified', 'unified'))
             .child(choice('diff-split', 'Split', 'split')))
           .child(DropdownMenu('diff-options', this.optionsMenu,
-            Button('diff-options-trigger', t, { variant: 'ghost', size: 'icon' }).w(24).h(24)
+            Button('diff-options-trigger', t, { variant: 'ghost', size: 'icon' }).h_full().w(32)
               .accessibility_label('Diff options').child(icon('ellipsis')),
             [{ key: 'wrap', label: 'Wrap', checked: this.wrap },
               { key: 'hide-lock-files', label: 'Hide lock files', checked: this.hideLockFiles }],
