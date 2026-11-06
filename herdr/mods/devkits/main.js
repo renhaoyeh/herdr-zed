@@ -26,7 +26,6 @@ const rememberPanel = (id, name) => { if (id) setShared('devkits.project-panels'
 const showPanel = (name, id) => { hidePanels(); setShared(`devkits.${name}`, id); rememberPanel(id, name); };
 const restorePanel = id => { const name = shared('devkits.project-panels')?.[id]; if (name) setShared(`devkits.${name}`, id); return Boolean(name); };
 const togglePanel = (name, id) => { if (shared(`devkits.${name}`) === id) { hidePanels(); rememberPanel(id, null); } else showPanel(name, id); };
-const stateColor = (status, t) => t[status] || t.muted;
 const launcherSections = ['Terminal', 'Agents', 'Your accounts'];
 const agentLoads = new Map();
 const usageCacheMs = 5 * 60000;
@@ -930,11 +929,7 @@ export default class Devkits extends View {
       .when(Boolean(link), el => el.child(Button(`asana-link-${p.tab}`, t, { variant: 'ghost' }).h(22).px(6).gap(5).text_size(10)
         .border(1).border_color(t.border).accessibility_label(`Show Asana task ${link.name}`)
         .on_click((_event, cx) => { cx.stop_propagation(); this.openTask(thread.space, link); })
-        .child(glyph('list-todo', 12)).child('Asana')))
-      .when(Boolean(p.status), el => el.child(h_flex().h(22).px(7).gap(5).items_center().rounded(0)
-        .border(1).border_color(t.border).text_size(10).text_color(t.muted)
-        .child(div().size(5).rounded(3).bg(stateColor(p.status, t)))
-        .child(p.status === 'blocked' ? 'Needs you' : `${p.status[0].toUpperCase()}${p.status.slice(1)}`)));
+        .child(glyph('list-todo', 12)).child('Asana')));
   }
 
   // Opens the thread's project on its Asana panel with the linked task in the preview.
