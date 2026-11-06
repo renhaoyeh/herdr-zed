@@ -406,7 +406,8 @@ export default class Devkits extends View {
   statusBar(t) {
     const space = this.projects().find(s => s.active);
     // The Simulator panel is the devkits-simulator mod; a layout without its block has no simulator button.
-    const simulator = window()?.platform === 'macos' ? layoutNode(layout(), 'simulator') : null;
+    // Other platforms keep the button; the panel says it is unsupported there.
+    const simulator = layoutNode(layout(), 'simulator');
     return h_flex().size_full().pl(16).pr(4).gap(8).items_center().bg(t.background).border_t(1).border_color(t.border)
       .text_size(11).text_color(t.muted).child(glyph('terminal', 12)).child(space?.machine || 'Local project')
       .when(Boolean(space?.branch), el => el.child(glyph('branch', 12)).child(space.branch))

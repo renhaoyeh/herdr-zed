@@ -1,6 +1,6 @@
 import { div, svg, image } from 'gpui-kit';
 import { h_flex, v_flex } from 'gpui-base';
-import { exec, run, theme, appHome, shared, setShared, layout, props, openOverlay, closeOverlay } from 'herdr';
+import { exec, run, theme, appHome, shared, setShared, layout, props, openOverlay, closeOverlay, window } from 'herdr';
 import { WebSocket } from 'websocket';
 import net from 'net';
 import { writeFile } from 'fs/promises';
@@ -195,8 +195,10 @@ export const simulatorShown = root => { const node = findNode(root, 'simulator')
 
 export default class SimulatorPanel {
   init(cx) {
-    // phase: starting | no-device | shutdown | booting | repairing | live | error
-    this.phase = { kind: 'starting', device: null };
+    // phase: starting | no-device | shutdown | booting | repairing | live | error | unsupported
+    // iOS simulators run only on macOS; elsewhere the panel shows and says so instead of streaming.
+    const supported = window()?.platform === 'macos';
+    this.phase = supported ? { kind: 'starting', device: null } : { kind: 'unsupported', device: null };
     this.touch = null;
     this.keys = new Map();
     this.devices = [];
@@ -209,7 +211,7 @@ export default class SimulatorPanel {
     this.session = null;
     this.socket = null;
     this.closed = false;
-    cx.spawn(cx => this.run(cx));
+    if (supported) cx.spawn(cx => this.run(cx));
   }
 
   async close() {
@@ -375,6 +377,7 @@ export default class SimulatorPanel {
       case 'no-device': return 'Choose a simulator above';
       case 'error': return p.message;
       case 'elsewhere': return ['Showing in the preview window', 'Close it to show the simulator here.'];
+      case 'unsupported': return ['iOS Simulator is not supported here', 'It needs macOS with Xcode.'];
     }
   }
 
@@ -382,19 +385,21 @@ export default class SimulatorPanel {
     const device = this.phase.device ?? this.target();
     const status = this.phase.kind === 'live' ? t.done : this.phase.kind === 'error' ? t.blocked : t.dim;
     // The picker and buttons fill the header's height from its edges, so hover backgrounds are centered and flush.
+    const unsupported = this.phase.kind === 'unsupported';
     return h_flex().h(32).flex_none().items_center().border_b(1).border_color(t.border)
-      .child(DropdownMenuTrigger(h_flex().id('simulator-device').h_full().min_w(0).pl(10).pr(6).gap(6).items_center()
+      .when(unsupported, el => el.child(div().pl(10).text_color(t.muted).font_medium().child('iOS Simulator')))
+      .when(!unsupported, el => el.child(DropdownMenuTrigger(h_flex().id('simulator-device').h_full().min_w(0).pl(10).pr(6).gap(6).items_center()
         .text_color(t.foreground).font_medium().hover(el => el.bg(t.hover)).cursor_pointer(), 280,
         (_cx, at) => openOverlay({ mod: 'devkits-simulator', kind: 'popup', frame: 'none', width: 280, at, props: { view: 'simulator-devices' } }))
         .child(glyph('circle-check', 12).text_color(status))
         .child(div().min_w(0).truncate().child(device ? `${device.name} · ${device.os}` : 'Choose simulator'))
-        .child(glyph('chevron-down', 12).text_color(t.muted)))
+        .child(glyph('chevron-down', 12).text_color(t.muted))))
       .child(div().flex_1())
-      .child(Button('simulator-window', t, { variant: 'ghost', size: 'icon' }).h_full().w(32).accessibility_label('Open in a separate window')
+      .when(!unsupported, el => el.child(Button('simulator-window', t, { variant: 'ghost', size: 'icon' }).h_full().w(32).accessibility_label('Open in a separate window')
         .tooltip('Open in a separate window for smooth interaction')
         .when(!this.session?.preview, el => el.opacity(0.5))
         .on_click((_e, cx) => { const url = this.session?.preview; if (url) cx.spawn(() => openPreviewWindow(url)); })
-        .child(glyph('external-link')))
+        .child(glyph('external-link'))))
       .child(Button('close-simulator', t, { variant: 'ghost', size: 'icon' }).h_full().w(32).accessibility_label('Hide simulator')
         .on_click(() => toggleSimulator()).child(glyph('close')));
   }
