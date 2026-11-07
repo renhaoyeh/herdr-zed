@@ -390,7 +390,7 @@ export default class SimulatorPanel {
       .when(unsupported, el => el.child(div().pl(10).text_color(t.muted).font_medium().child('iOS Simulator')))
       .when(!unsupported, el => el.child(DropdownMenuTrigger(h_flex().id('simulator-device').h_full().min_w(0).pl(10).pr(6).gap(6).items_center()
         .text_color(t.foreground).font_medium().hover(el => el.bg(t.hover)).cursor_pointer(), 280,
-        (_cx, at) => openOverlay({ mod: 'devkits-simulator', kind: 'popup', frame: 'none', width: 280, at, props: { view: 'simulator-devices' } }))
+        (_cx, at) => openOverlay({ mod: 'devkits-simulator', kind: 'popup', frame: 'none', width: 280, at, props: { view: 'simulator-devices' } }), 'start', { x: 8, y: 9 })
         .child(glyph('circle-check', 12).text_color(status))
         .child(div().min_w(0).truncate().child(device ? `${device.name} · ${device.os}` : 'Choose simulator'))
         .child(glyph('chevron-down', 12).text_color(t.muted))))

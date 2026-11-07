@@ -4,18 +4,26 @@ import { div, svg } from 'gpui-kit';
 import { h_flex, v_flex, Popup } from 'gpui-base';
 import { settings } from 'herdr';
 
-export function DropdownMenuTrigger(trigger, width, open, align = 'start') {
-  let at;
+// The press's position outlives render: a re-render between mouse down and click
+// rebuilds the trigger's handlers, and a closure variable would reset to the pointer.
+let pressed;
+
+// A menu opens 8px clear of the nearest line: below its trigger by default. A trigger inside a bar or
+// row passes `y` reaching 8px past the bar's 1px bottom border, and `x` only when a vertical divider
+// meets the menu's aligned edge, so the menu's border never runs beside another line.
+const OFFSET = { x: 0, y: 8 };
+
+export function DropdownMenuTrigger(trigger, width, open, align = 'start', offset = OFFSET) {
   return trigger.on_mouse_down('left', (event, cx) => {
     cx.stop_propagation();
     const bounds = event.bounds;
     const zoom = settings().zoom;
-    at = bounds ? { x: bounds.x + (align === 'end' ? bounds.width - width * zoom : 0),
-      y: bounds.y + bounds.height + 4 * zoom } : undefined;
+    pressed = bounds ? { x: bounds.x + (align === 'end' ? bounds.width - (width + offset.x) * zoom : offset.x * zoom),
+      y: bounds.y + bounds.height + offset.y * zoom } : undefined;
   }).on_click((_event, cx) => {
     cx.stop_propagation();
-    const position = at;
-    at = undefined;
+    const position = pressed;
+    pressed = undefined;
     // shortcut: keyboard activation has no bounds in Herdr; use its pointer fallback until exposed.
     open(cx, position);
   });
@@ -50,7 +58,7 @@ export class DropdownMenuState {
 }
 
 /** An anchored action menu with native dismissal and focus, and keyboard navigation. */
-export function DropdownMenu(id, state, trigger, items, onSelect, t, { side = 'bottom', align = 'end' } = {}) {
+export function DropdownMenu(id, state, trigger, items, onSelect, t, { side = 'bottom', align = 'end', offset = OFFSET } = {}) {
   const close = cx => { state.open = false; state.page = null; state.trigger?.focus(); cx.notify(); };
   const choose = (item, cx) => {
     cx.stop_propagation();
@@ -62,7 +70,7 @@ export function DropdownMenu(id, state, trigger, items, onSelect, t, { side = 'b
   };
   const enabled = items.map((item, index) => item.disabled ? -1 : index).filter(index => index >= 0);
   const content = DropdownMenuContent(`${id}-content`, undefined, t).w(224)
-    .when(side === 'top', el => el.mb(4)).when(side !== 'top', el => el.mt(4)).role('menu')
+    .role('menu')
     .track_focus(state.focus).accessibility_label('Actions')
     .on_mouse_down_out((_event, cx) => { cx.stop_propagation(); close(cx); })
     .on_key_down((event, cx) => {
@@ -103,5 +111,10 @@ export function DropdownMenu(id, state, trigger, items, onSelect, t, { side = 'b
   // it measures the trigger, rather than an enclosing workspace's bounds.
   // Native Popup then fits the content to the window edges.
   const anchor = `${side === 'top' ? 'bottom' : 'top'}_${align === 'start' ? 'left' : 'right'}`;
-  return Popup.new(id, trigger).relative().flex_none().anchor(anchor).when(state.open, el => el.content(content));
+  // Native Popup ignores a margin on the side it grows from, so a transparent wrapper's padding holds the gap.
+  const spaced = div().flex_none()
+    .when(side === 'top', el => el.pb(offset.y)).when(side !== 'top', el => el.pt(offset.y))
+    .when(align === 'start', el => el.pl(offset.x)).when(align !== 'start', el => el.pr(offset.x))
+    .child(content);
+  return Popup.new(id, trigger).relative().flex_none().anchor(anchor).when(state.open, el => el.content(spaced));
 }

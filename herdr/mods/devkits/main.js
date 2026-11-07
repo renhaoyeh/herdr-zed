@@ -16,6 +16,9 @@ import { DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMen
 import { Button } from './components/button.js';
 import { AlertDialogContent, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from './components/alert-dialog.js';
 import { Sidebar, SidebarContent, SidebarGroup, SidebarGroupLabel, SidebarMenuButton, SidebarFooter } from './components/sidebar.js';
+
+// A 28px icon button centred in a 32px project row: 8px below the row.
+const SIDEBAR_MENU = { x: 0, y: 10 };
 import { glyph } from './components/icon.js';
 
 const startingThreads = new Set();
@@ -354,7 +357,7 @@ export default class Devkits extends View {
       .child(DropdownMenuTrigger(h_flex().id('project-switcher').h_full().pl(10).pr(6).gap(6).items_center().rounded(0)
         .text_color(t.foreground).font_medium().hover(el => el.bg(t.hover)).cursor_pointer(), 280,
         (_cx, at) => openOverlay({ mod: 'devkits', kind: 'popup', frame: 'none', width: 280, at,
-          props: { view: 'project-picker' } }))
+          props: { view: 'project-picker' } }), 'start', { x: 8, y: 9 }) // Clear of the header's 1px bottom border
         .child(div().max_w(220).truncate().child(space?.name || 'Open project'))
         .child(glyph('chevron-down', 12).text_color(t.muted)))
       .child(div().flex_1())
@@ -557,12 +560,12 @@ export default class Devkits extends View {
             .child(div().flex_1())
             .child(DropdownMenuTrigger(Button(`new-thread-${space.id}`, t, { variant: 'row', size: 'icon' })
               .accessibility_label(`Add session in ${space.name}`), 280,
-              (cx, at) => this.newThread(cx, space.id, at), 'end')
+              (cx, at) => this.newThread(cx, space.id, at), 'end', SIDEBAR_MENU)
               .child(glyph('plus')).opacity(this.hoveredProject === space.id ? 1 : 0))
             .child(DropdownMenuTrigger(Button(`project-menu-${space.id}`, t, { variant: 'row', size: 'icon' })
               .accessibility_label(`More actions for ${space.name}`), 200,
               (_cx, at) => openOverlay({ mod: 'devkits', kind: 'popup', frame: 'none', width: 200, at,
-                props: { view: 'project-menu', project: space } }), 'end')
+                props: { view: 'project-menu', project: space } }), 'end', SIDEBAR_MENU)
               .child(glyph('ellipsis')).opacity(this.hoveredProject === space.id ? 1 : 0)))
           .when(!this.folded.has(space.id), el => el.children(threads.map(thread => this.threadRow(thread, t)))
             .when(!threads.length, el => el.child(div().px(12).py(6).text_size(12).text_color(t.muted).child('No threads yet')))))))
