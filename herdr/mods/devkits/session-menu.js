@@ -1,6 +1,6 @@
 import { div } from 'gpui-kit';
 import { v_flex, h_flex } from 'gpui-base';
-import { shared, setShared, props, spaces, openOverlay, closeOverlay, home, readTextFile } from 'herdr';
+import { shared, setShared, props, spaces, openOverlay, closeOverlay, home, readTextFile, keys, window } from 'herdr';
 import { launcherChoices, permissionModes, sessionKind, claudeModels, claudeEfforts, codexHome, codexModels, mergeModels, orderedOptions, moveOption, effortLabel, sessionChoices } from './model.js';
 import { DropdownMenu, DropdownMenuState, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from './components/dropdown-menu.js';
 import { Button } from './components/button.js';
@@ -325,6 +325,17 @@ export const sessionMenu = {
     const hidden = shared('devkits.hidden-launchers') || [];
     const choices = launcherChoices(this.launchers, shared('devkits.launcher-order') || []).filter(choice => !hidden.includes(choice.key));
     const launchers = choices.filter(choice => choice.agent).map(choice => choice.agent);
+    const target = props(), machine = spaces().find(space => space.id === target.space)?.machine || '';
+    const last = this.defaultThreadAgent({ id: target.space, folder: target.folder, machine }, this.launchers)?.key;
+    // Show the binding only beside the agent that New thread will actually launch.
+    const bindings = new Map();
+    for (const section of ['global', 'layout:devkits', 'mod:devkits']) {
+      for (const binding of keys().filter(binding => binding.section === section)) bindings.set(binding.keys, binding.action);
+    }
+    const shortcut = [...bindings].find(([, action]) => action === 'devkits.new-thread')?.[0];
+    const mac = window()?.platform === 'macos';
+    const shortcutLabel = shortcut?.split('-').map(part => ({ cmd: mac ? '⌘' : 'Super', ctrl: mac ? '⌃' : 'Ctrl',
+      alt: mac ? '⌥' : 'Alt', shift: mac ? '⇧' : 'Shift' })[part] || part.toUpperCase()).join(mac ? '' : '+');
     const row = (id, name, icon, action) => DropdownMenuItem(id, t).on_click(action)
       .child(div().size(16).flex_none().flex().items_center().justify_center().text_color(t.muted).child(icon))
       .child(div().flex_1().min_w(0).truncate().child(name));
@@ -342,7 +353,9 @@ export const sessionMenu = {
             ...(choice.group !== 0 && (i === 0 || choices[i - 1].group !== choice.group)
               ? [DropdownMenuLabel(t).id(`launcher-section-${choice.group}`).child(launcherSections[choice.group])] : []),
             row(agent ? `start-${agent.key}` : 'new-terminal', choice.name, AgentIcon(agent, t),
-              () => this.startThread(agent)),
+              () => this.startThread(agent))
+              .when(Boolean(agent && agent.key === last && shortcutLabel), el => el
+                .child(div().text_size(11).text_color(t.muted).child(shortcutLabel))),
           ];
         }))
         .when(this.loading, el => el.child(div().p(10).text_size(12).text_color(t.muted).child('Loading agents…')))

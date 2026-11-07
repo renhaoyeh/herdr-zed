@@ -94,11 +94,20 @@ export default class Devkits extends View {
       this.runMenu.init(cx);
       return;
     }
-    // keys.json binds F5 to "devkits.run" in the Devkits layout; only the header's copy runs it.
-    if (props()?.view === 'header') cx.spawn(async () => { for (;;) if (await nextCommand() === 'run') await runApp(); });
+    // Only the always-visible header consumes layout shortcuts.
+    if (props()?.view === 'header') cx.spawn(async cx => {
+      for (;;) {
+        const command = await nextCommand();
+        if (command === 'run') await runApp();
+        if (command === 'new-thread') await this.repeatThread(cx);
+      }
+    });
     if (props()?.view === 'files') {
       this.files = new FileViewer();
       this.files.init(cx);
+      cx.spawn(async cx => {
+        for (;;) if (await nextCommand() === 'close-file') this.closeFileTab(cx);
+      });
       return;
     }
     if (props()?.view === 'diff') {
@@ -295,6 +304,35 @@ export default class Devkits extends View {
       props: { view: 'launcher', space: project.pending ? null : project.id, folder: project.folder, projectName: project.name } });
   }
 
+  closeFileTab(cx) {
+    const editor = layoutNode(layout(), 'editor');
+    if (editor && !editor.hidden && editor.active === 'files' && this.files?.file)
+      this.files.closeTab(this.files.file, cx);
+  }
+
+  defaultThreadAgent(project, agents) {
+    const key = JSON.stringify([project.machine || '', folderKey(project.folder) || project.id]);
+    const hidden = shared('devkits.hidden-launchers') || [];
+    const available = launcherChoices(agents, shared('devkits.launcher-order') || [])
+      .filter(choice => choice.agent && choice.agent.installed !== false && !hidden.includes(choice.key))
+      .map(choice => choice.agent);
+    return available.find(agent => agent.key === shared('devkits.last-thread-agents')?.[key])
+      || available.find(agent => agent.key === shared('devkits.last-thread-agent')) || available[0];
+  }
+
+  async repeatThread(cx, projectId) {
+    const project = this.projects().find(project => projectId ? project.id === projectId : project.active);
+    if (!project) return this.newThread(cx);
+    const target = { space: project.pending ? null : project.id, folder: project.folder, projectName: project.name };
+    try {
+      const agent = this.defaultThreadAgent(project, await this.cachedAgents(project.machine));
+      if (!agent) return this.newThread(cx, project.id);
+      await this.startThread(agent, target);
+    } catch (error) {
+      notify({ title: 'Could not start session', body: error.message, level: 'error' });
+    }
+  }
+
   async cachedAgents(machine) {
     const key = JSON.stringify(machine || null);
     const cached = shared('devkits.agent-cache')?.[key];
@@ -349,6 +387,12 @@ export default class Devkits extends View {
     if (target.overlay) closeOverlay(target.overlay);
     if (task) unsaveTask(target.folder, task.gid);
     this.openThread(target, task?.name || agent?.name, argv, agent?.key, task ? { gid: task.gid, name: task.name, folder: target.folder } : null);
+    if (agent?.key) {
+      const project = spaces().find(space => space.id === target.space);
+      const key = JSON.stringify([project?.machine || '', folderKey(target.folder) || target.space]);
+      setShared('devkits.last-thread-agent', agent.key);
+      setShared('devkits.last-thread-agents', { ...(shared('devkits.last-thread-agents') || {}), [key]: agent.key });
+    }
   }
 
   // Opens a thread (or a plain terminal, without argv) in the target project and shows it.
@@ -439,7 +483,10 @@ export default class Devkits extends View {
       .when(Boolean(link), el => el.child(Button(`asana-link-${p.tab}`, t, { variant: 'ghost' }).h(22).px(6).gap(5).text_size(10)
         .border(1).border_color(t.border).accessibility_label(`Show Asana task ${link.name}`)
         .on_click((_event, cx) => { cx.stop_propagation(); this.openTask(thread.space, link); })
-        .child(glyph('list-todo', 12)).child('Asana')));
+        .child(glyph('list-todo', 12)).child('Asana')))
+      .child(DropdownMenuTrigger(Button(`new-thread-${p.pane}`, t, { variant: 'ghost', size: 'icon' })
+        .accessibility_label('New thread…').child(glyph('plus')), 280,
+        (cx, at) => this.newThread(cx, thread?.space, at), 'end'));
   }
 
   // Opens the thread's project on its Asana panel with the linked task in the preview.
@@ -649,9 +696,14 @@ export default class Devkits extends View {
               .child(glyph(this.folded.has(space.id) ? 'chevron-right' : 'chevron-down', 12)))
             .when(Boolean(space.machine), el => el.child(div().text_size(9).text_color(t.muted).child(space.machine)))
             .child(div().flex_1())
-            .child(DropdownMenuTrigger(Button(`new-thread-${space.id}`, t, { variant: 'row', size: 'icon' })
-              .accessibility_label(`Add session in ${space.name}`), 280,
-              (cx, at) => this.newThread(cx, space.id, at), 'end', SIDEBAR_MENU)
+            .child(Button(`new-thread-${space.id}`, t, { variant: 'row', size: 'icon' })
+              .accessibility_label(`New thread in ${space.name}`)
+              .on_click((_event, cx) => {
+                cx.stop_propagation();
+                this.folded.delete(space.id);
+                cx.spawn(async cx => { await this.repeatThread(cx, space.id); });
+                cx.notify();
+              })
               .child(glyph('plus')).opacity(this.hoveredProject === space.id ? 1 : 0))
             .child(DropdownMenuTrigger(Button(`project-menu-${space.id}`, t, { variant: 'row', size: 'icon' })
               .accessibility_label(`More actions for ${space.name}`), 200,
