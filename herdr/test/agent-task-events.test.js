@@ -1,0 +1,63 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtemp, writeFile, appendFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createRequire } from 'node:module';
+import { taskStatus, taskActions } from '../mods/devkits/agent-board-model.js';
+const { consumeTaskEvent, readTaskEvents } = createRequire(import.meta.url)('../mods/devkits/agent-task-events.cjs');
+const user = { type: 'event_msg', payload: { type: 'item_completed', item: { type: 'UserMessage', content: 'private task text' } } };
+const question = id => ({ type: 'response_item', payload: { type: 'function_call', name: 'request_user_input_async', call_id: id } });
+const accepted = id => ({ type: 'response_item', payload: { type: 'function_call_output', call_id: id, output: '{"accepted":true}' } });
+
+test('Action Required stays pending after async acceptance, overriding working and manual Done', () => {
+  const state = { hasInput: false, pending: {} };
+  consumeTaskEvent(state, user); consumeTaskEvent(state, question('q1')); consumeTaskEvent(state, accepted('q1'));
+  assert.equal(Object.keys(state.pending).length, 1);
+  const agents = [{ status: 'working', inputTracked: true, hasInput: true, needsInput: true }];
+  assert.equal(taskStatus({ source: 'thread', status: 'done', manual: true }, agents), 'waiting');
+  assert.equal(taskActions({ status: 'waiting', agents }).canArchive, false);
+  consumeTaskEvent(state, user);
+  assert.deepEqual(state.pending, {});
+  assert.equal(taskStatus({ source: 'thread' }, [{ ...agents[0], needsInput: false }]), 'doing');
+});
+test('blocking replies and rejected requests resolve; startup is not a submitted task', () => {
+  const state = { hasInput: false, pending: {} };
+  consumeTaskEvent(state, { type: 'event_msg', payload: { type: 'task_started' } });
+  consumeTaskEvent(state, { type: 'event_msg', payload: { type: 'task_complete' } });
+  assert.equal(state.hasInput, false);
+  consumeTaskEvent(state, { type: 'response_item', payload: { type: 'function_call', name: 'request_user_input', call_id: 'sync' } });
+  consumeTaskEvent(state, { type: 'response_item', payload: { type: 'function_call_output', call_id: 'sync', output: '{"answers":{}}' } });
+  consumeTaskEvent(state, question('rejected'));
+  consumeTaskEvent(state, { type: 'response_item', payload: { type: 'function_call_output', call_id: 'rejected', output: '{"accepted":false}' } });
+  assert.deepEqual(state.pending, {});
+  assert.equal(taskStatus({ source: 'thread' }, [{ status: 'blocked', inputTracked: true, hasInput: false }]), 'waiting');
+});
+test('Claude metadata is not input, AskUserQuestion waits for the real result', () => {
+  const state = { hasInput: false, pending: {} };
+  consumeTaskEvent(state, { type: 'user', isMeta: true, message: { content: 'environment' } }, 'claude');
+  assert.equal(state.hasInput, false);
+  consumeTaskEvent(state, { type: 'user', message: { content: 'Fix the form' } }, 'claude');
+  consumeTaskEvent(state, { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'AskUserQuestion', id: 'q' }] } }, 'claude');
+  assert.ok(state.pending.q);
+  consumeTaskEvent(state, { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'q', content: 'answer' }] } }, 'claude');
+  assert.deepEqual(state.pending, {}); assert.equal(state.hasInput, true);
+});
+test('incremental event reads retain partial records, survive restart and never return task text', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'task-events-')); t.after(() => rm(dir, { recursive: true, force: true }));
+  const file = join(dir, 'rollout.jsonl');
+  await writeFile(file, [user, question('q1'), accepted('q1')].map(e => JSON.stringify(e)).join('\n') + '\n');
+  const first = await readTaskEvents(file, 'codex'); assert.equal(first.hasInput, true); assert.equal(first.needsInput, true);
+  const restored = await readTaskEvents(file, 'codex', JSON.parse(JSON.stringify(first.cursor)));
+  assert.equal(restored.needsInput, true);
+  const reply = JSON.stringify(user); await appendFile(file, reply.slice(0, 30));
+  const partial = await readTaskEvents(file, 'codex', restored.cursor);
+  assert.equal(partial.needsInput, true); assert.equal(partial.cursor.offset, restored.cursor.offset);
+  await appendFile(file, reply.slice(30) + '\n');
+  const answered = await readTaskEvents(file, 'codex', partial.cursor);
+  assert.equal(answered.needsInput, false); assert.equal(answered.hasInput, true);
+  assert.ok(!JSON.stringify(answered).includes('private task text'));
+  await writeFile(file, JSON.stringify({ type: 'session_meta' }) + '\n');
+  const empty = await readTaskEvents(file, 'codex', answered.cursor);
+  assert.equal(empty.hasInput, false); assert.equal(empty.needsInput, false);
+});

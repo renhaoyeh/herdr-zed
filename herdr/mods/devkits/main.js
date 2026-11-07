@@ -3,19 +3,24 @@ import { v_flex, h_flex } from 'gpui-base';
 import { agents, spaces, panes, theme, run, props, window, openOverlay, closeOverlay, setAgentOrder, layout, settings, pickFolder, shared, setShared, knownAgents, notify, appHome, readTextFile, nextCommand, terminals } from 'herdr';
 import { projectGroups, projectCatalog, threadTitle, folderKey, launcherChoices, isAccountLauncher, launcherArgv, sessionArgv, sessionKind, resolveThreadProfiles, threadProfile, threadProgram, archivable, rulesArgv, childTerminals, terminalLabel, settingsKey, rootSettings } from './model.js';
 import { terminalArgv } from './shell-command.js';
-import AccountLogin from './account-login.js';
+import AccountLogin, { accountLabel } from './account-login.js';
 import FileViewer, { FileMenu } from './files.js';
 import DiffViewer from './diff.js';
 import WorkspaceEditor from './workspace-editor.js';
 import Analytics from './analytics.js';
 import XcodeStorage from './xcode-storage.js';
+import AgentBoard from './agent-board.js';
+import { observeTaskInput } from './agent-task-evidence.js';
+import TaskComposer, { openTaskComposer } from './task-composer.js';
+import { rememberBoardTask, threadBoardStatus, projectBoardTasks, setTaskArchived, threadTaskArchived, threadVisibleInSidebar, threadBoardTask } from './agent-board-state.js';
+import { boardStatuses, canStartTask, taskActions } from './agent-board-model.js';
 import AsanaPanel, { AsanaProjectPicker, taskPrompt, unsaveTask } from './asana.js';
 import { sessionMenu } from './session-menu.js';
 import { accountActions } from './account-actions.js';
 import { agentUsage } from './usage.js';
 import { RunControls, RunMenu, runApp } from './run-app.js';
 import { BranchMenu } from './branch-menu.js';
-import { ProjectLayout, layoutNode, conversationMaximized, maximizeConversation } from './project-layout.js';
+import { ProjectLayout, layoutNode, conversationMaximized, maximizeConversation, openTaskBoard, closeTaskBoard, enforceTaskBoard, taskMode } from './project-layout.js';
 import { threadArchive } from './thread-archive.js';
 import { sessionRules, ensureRules } from './global-rules.js';
 import { DropdownMenu, DropdownMenuState, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from './components/dropdown-menu.js';
@@ -52,6 +57,11 @@ const agentLoads = new Map();
 
 export default class Devkits extends View {
   init(_props, cx) {
+    if (props()?.view === 'task-composer') {
+      this.taskComposer = new TaskComposer(); this.taskComposer.init(props(), cx);
+      cx.spawn(async cx => { try { await this.cachedAgents(props().project?.machine || null); } catch {} cx.notify(); });
+      return;
+    }
     if (props()?.view === 'pane') { this.threadMenu = new DropdownMenuState(cx); return; }
     if (props()?.view === 'codex-sharing') { this.initCodexSharing(cx); return; }
     if (props()?.view === 'file-menu') {
@@ -76,6 +86,7 @@ export default class Devkits extends View {
     }
     if (props()?.view === 'usage-details') cx.timer.every(60000, cx => cx.notify());
     if (!props()?.view && cx) {
+      cx.timer.every(1500, cx => observeTaskInput(agents(), terminals(), cx));
       // Shared values survive restarts; discover once for this app session.
       setShared('devkits.agent-cache', {});
       this.refreshUsage(cx);
@@ -108,16 +119,28 @@ export default class Devkits extends View {
     if (props()?.view === 'header') cx.spawn(async cx => {
       for (;;) {
         const command = await nextCommand();
+        if (command === 'new-task') { const project = this.projects().find(project => project.active); if (project) openTaskComposer(project); }
         if (command === 'run') await runApp();
         if (command === 'new-thread') await this.repeatThread(cx);
         if (command === 'reveal-conversation') this.showConversation(true);
+        if (command === 'close-board') this.closeBoard();
+        if (command === 'agent-board') {
+          const project = this.projects().find(project => project.active);
+          if (project && !project.machine) {
+            this.openBoard(project);
+          }
+        }
       }
     });
     if (props()?.view === 'editor') {
       this.editor = new WorkspaceEditor(); this.editor.init(cx); this.files = this.editor.files;
+      this.agentBoard = new AgentBoard(); this.agentBoard.init(cx);
+      cx.spawn(async cx => { try { await this.cachedAgents(null); } catch {} cx.notify(); });
       cx.spawn(async cx => {
         for (;;) {
           const command = await nextCommand();
+          if (command === 'agent-board') { const project = this.projects().find(project => project.active); if (project && !project.machine) this.openBoard(project); }
+          if (command === 'close-board') this.closeBoard();
           if (command === 'close-file') this.closeFileTab(cx);
           if (command === 'focus' || command === 'focus-editor') this.editor.focus();
         }
@@ -179,7 +202,7 @@ export default class Devkits extends View {
         if (project.pending) {
           hidePanels();
           setShared('devkits.selected-project', null);
-          run('layout.select', { stack: 'workspace-view', child: 'main' });
+          if (!taskMode()) run('layout.select', { stack: 'workspace-view', child: 'main' });
           run('space.new', { name: project.name, folder, machine: '', tab: '__devkits_default_terminal__' });
         } else this.selectProject(project);
         cx.notify();
@@ -206,7 +229,7 @@ export default class Devkits extends View {
     hidePanels();
     setShared('devkits.selected-project', project.id);
     if (!project.pending) run('space.select', { id: project.id });
-    run('layout.select', { stack: 'workspace-view', child: project.pending ? 'project-empty' : 'main' });
+    if (!taskMode()) run('layout.select', { stack: 'workspace-view', child: project.pending ? 'project-empty' : 'main' });
     restorePanel(project.id);
   }
 
@@ -223,7 +246,9 @@ export default class Devkits extends View {
     const close = () => { closeOverlay(target.overlay); this.closeProject(target.project); };
     const asana = () => openAsana(target.project);
     const actions = [
-      ...(target.project.machine ? [] : [{ id: 'menu-asana-tasks', label: 'Asana tasks', icon: 'list-todo', enabled: true, action: asana, divider: true }]),
+      ...(target.project.machine ? [] : [
+        { id: 'menu-asana-tasks', label: 'Asana tasks', icon: 'list-todo', enabled: true, action: asana, divider: true },
+      ]),
       { id: 'menu-project-up', label: 'Move up', enabled: index > 0, action: () => this.moveProject(target.project.id, -1) },
       { id: 'menu-project-down', label: 'Move down', enabled: index >= 0 && index < projects.length - 1, action: () => this.moveProject(target.project.id, 1) },
       { id: 'menu-close-project', label: 'Close project', icon: 'close', enabled: true, action: close, separated: true },
@@ -328,6 +353,7 @@ export default class Devkits extends View {
 
   showConversation(visible = true, project = this.projects().find(project => project.active)) {
     if (!project) return;
+    if (visible && taskMode()) this.closeBoard();
     if (!visible) maximizeConversation(null, false);
     setShared('devkits.conversation-visible', { ...(shared('devkits.conversation-visible') || {}), [conversationKey(project)]: visible });
     run(visible ? 'layout.show' : 'layout.hide', { id: 'workspace-view' });
@@ -402,6 +428,14 @@ export default class Devkits extends View {
 
   async launchThread(agent, target, options) {
     const task = target.task;
+    if (task) {
+      const project = this.projects().find(item => item.id === target.space || (!item.machine && folderKey(item.folder) === folderKey(target.folder))) || { folder: target.folder, tabs: [] };
+      const current = projectBoardTasks(project, agents()).find(item => item.gid === task.gid);
+      if (current && !taskActions(current).canStart) {
+        notify({ title: 'Task is not ready to start', body: 'Move this task to Todo before starting a new session.' });
+        return;
+      }
+    }
     let argv;
     // A choice made for this session wins; otherwise the profile's own default model and effort apply.
     const profile = shared('devkits.profile-sessions')?.[settingsKey(agent)] || {};
@@ -416,11 +450,20 @@ export default class Devkits extends View {
     if (argv && !spaces().find(space => space.id === target.space)?.machine) {
       try { argv = rulesArgv(agent, argv, await sessionRules()); } catch {}
     }
+    // A local task may be deleted while its launch rules are being read.
+    if (task?.source === 'local') {
+      const project = this.projects().find(item => item.id === target.space || (!item.machine && folderKey(item.folder) === folderKey(target.folder)));
+      if (!project || !canStartTask(projectBoardTasks(project, agents()).find(item => item.gid === task.gid))) return;
+    }
     if (task) argv = [...argv, taskPrompt(task)];
     // Closing the launcher destroys its async context; finish reading rules first.
     if (target.overlay) closeOverlay(target.overlay);
-    if (task) unsaveTask(target.folder, task.gid);
-    this.openThread(target, task?.name || agent?.name, argv, agent?.key, task ? { gid: task.gid, name: task.name, folder: target.folder } : null);
+    if (task) {
+      rememberBoardTask({ folder: target.folder }, task, { status: 'todo', manual: false, seenWorking: false, agentKey: agent.key, agentName: agent.name });
+      unsaveTask(target.folder, task.gid);
+    }
+    this.closeBoard();
+    this.openThread(target, task?.name || agent?.name, argv, agent?.key, task ? { gid: task.gid, name: task.name, folder: target.folder, ...(task.source ? { source: task.source } : {}) } : null);
     if (agent?.key) {
       const project = spaces().find(space => space.id === target.space);
       const key = JSON.stringify([project?.machine || '', folderKey(target.folder) || target.space]);
@@ -456,9 +499,77 @@ export default class Devkits extends View {
       () => closeOverlay(props().overlay), cx);
   }
 
+  openBoard(project) {
+    maximizeConversation(null, false);
+    if (!project.active) this.selectProject(project);
+    openTaskBoard(project);
+  }
+
+  closeBoard() { closeTaskBoard(); }
+
+  taskAssignees(project) {
+    const hidden = shared('devkits.hidden-launchers') || [];
+    return launcherChoices(shared('devkits.agent-cache')?.[JSON.stringify(project?.machine || null)] || [], shared('devkits.launcher-order') || [])
+      .filter(choice => choice.agent && choice.agent.installed !== false && !hidden.includes(choice.key))
+      .map(choice => ({ ...choice.agent, name: isAccountLauncher(choice.agent) ? accountLabel(choice.name) : choice.name }));
+  }
+
+  boardPanel(project, cx) {
+    const launchers = this.taskAssignees(project);
+    return this.agentBoard.render(project, agents(), launchers, {
+      asana: () => openAsana(project),
+      archive: (task, eventCx) => {
+        const currentProject = this.projects().find(item => item.id === project.id) || project;
+        const current = projectBoardTasks(currentProject, agents()).find(item => item.gid === task.gid);
+        if (!taskActions(current).canArchive) return;
+        task = current;
+        if (!task.tabs.length) { setTaskArchived(project, task, true); return; }
+        const thread = projectGroups([project], agents()).flatMap(group => group.threads).find(thread => task.tabs.some(tab => tab.id === thread.tab.id));
+        if (thread) eventCx.spawn(async cx => { await this.archiveThread(thread); cx.notify(); });
+      },
+      restore: task => {
+        const entry = (shared('devkits.archived-threads') || []).find(entry => entry.id === task.archiveId);
+        if (entry) this.restoreThread(entry);
+        else setTaskArchived(project, task, false);
+      },
+      close: () => this.closeBoard(),
+      thread: id => {
+        this.selectProject(project);
+        run('tab.select', { id });
+        this.showConversation(true, { ...project, tabs: [{ id, active: true }] });
+      },
+      start: (agent, task, options, eventCx) => eventCx.spawn(async cx => {
+        const currentProject = this.projects().find(item => item.id === project.id) || project;
+        if (!canStartTask(projectBoardTasks(currentProject, agents()).find(item => item.gid === task.gid))) return;
+        try { await this.startThread(agent, { space: project.pending ? null : project.id, folder: project.folder, projectName: project.name, task }, options); }
+        catch (error) { notify({ title: 'Could not start session', body: error.message, level: 'error' }); }
+        cx.notify();
+      }),
+    }, cx);
+  }
+
+  groupedThreads(space, threads, t, live) {
+    threads = threads.filter(thread => threadVisibleInSidebar(space, thread));
+    const tasks = space.machine ? [] : projectBoardTasks(space, agents()).filter(task => !task.tabs.length && !task.archived && task.source !== 'thread');
+    const sessions = threads.filter(thread => threadBoardStatus(space, thread) === null);
+    return [...sessions.map(thread => this.renderThreadGroup(thread, t, live)), ...boardStatuses.flatMap(status => {
+      const cards = tasks.filter(task => task.status === status.key);
+      const rows = threads.filter(thread => threadBoardStatus(space, thread) === status.key);
+      if (!rows.length && !cards.length) return [];
+      return [h_flex().h(26).flex_none().px(12).gap(6).items_center().text_size(10).text_color(t.muted)
+        .child(glyph(status.icon, 12).text_color(status.color)).child(status.label).child(String(rows.length + cards.length)),
+        ...cards.map(task => SidebarMenuButton(`board-task-${space.id}-${task.gid}`, false, t)
+          .on_click(() => { this.openBoard(space); setShared('devkits.board-focus', task.gid); })
+          .child(glyph(status.icon, 14).text_color(status.color))
+          .child(div().min_w(0).truncate().text_size(13).child(task.name))),
+        ...rows.map(thread => this.renderThreadGroup(thread, t, live))];
+    })];
+  }
+
   async close() {
     this.closeSkillWatch();
     this.sharingPoll?.cancel();
+    this.taskComposer?.saveDraft();
     if (this.editor) this.editor.close();
     else this.files?.close();
     this.diff?.close();
@@ -529,9 +640,9 @@ export default class Devkits extends View {
       .when(Boolean(profile) && profile !== title, el => el.child(div().flex_none().child(profile)))
       .child(div().flex_1())
       .when(Boolean(link), el => el.child(Button(`asana-link-${p.tab}`, t, { variant: 'ghost' }).h(22).px(6).gap(5).text_size(10)
-        .border(1).border_color(t.border).accessibility_label(`Show Asana task ${link.name}`)
+        .border(1).border_color(t.border).accessibility_label(`Show task ${link.name}`)
         .on_click((_event, cx) => { cx.stop_propagation(); this.openTask(thread.space, link); })
-        .child(glyph('list-todo', 12)).child('Asana')))
+        .child(glyph('list-todo', 12)).child(link.source === 'local' ? 'Task' : 'Asana')))
       .child(h_flex().h_full().flex_none().items_center()
         .when(Boolean(project && layoutNode(layout(), 'workspace-view')), el => el.child(
           Button(`maximize-thread-${p.pane}`, t, { variant: 'ghost', size: 'icon' }).h_full().w(32)
@@ -554,6 +665,7 @@ export default class Devkits extends View {
   openTask(spaceId, task) {
     const project = this.projects().find(project => project.id === spaceId);
     if (!project) return;
+    if (task.source === 'local') { this.openBoard(project); setShared('devkits.board-focus', task.gid); return; }
     setShared('devkits.asana-focus', { folder: task.folder, gid: task.gid });
     openAsana(project);
   }
@@ -571,7 +683,7 @@ export default class Devkits extends View {
       .when(Boolean(space?.machine), el => el.child(h_flex().pl(16).gap(8).items_center().child(glyph('terminal', 12)).child(space.machine)))
 
       .when(Boolean(space && conversation), el => el
-        .child(Button('open-conversation', t, { variant: 'ghost', size: 'icon' }).h_full().rounded(0)
+        .child(Button('open-conversation', t, { variant: 'ghost', size: 'icon' }).disabled(taskMode()).h_full().rounded(0)
           .bg(conversationVisible(space) ? t.selected : t.background)
           .accessibility_label(conversationVisible(space) ? 'Hide conversation' : 'Show conversation')
           .on_click(() => {
@@ -583,7 +695,7 @@ export default class Devkits extends View {
         .accessibility_label('Herdr settings')
         .on_click(() => run('app.settings')).child(glyph('gear')))
       .when(Boolean(simulator), el => el
-        .child(Button('open-simulator', t, { variant: 'ghost', size: 'icon' })
+        .child(Button('open-simulator', t, { variant: 'ghost', size: 'icon' }).disabled(taskMode())
           .h_full().rounded(0)
           .bg(simulator.hidden ? t.background : t.selected)
           .accessibility_label(simulator.hidden ? 'Show simulator' : 'Hide simulator')
@@ -594,18 +706,23 @@ export default class Devkits extends View {
           })
           .child(glyph('smartphone'))))
       .when(Boolean(space), el => el
-        .child(Button('open-diff', t, { variant: 'ghost', size: 'icon' })
+        .child(Button('open-diff', t, { variant: 'ghost', size: 'icon' }).disabled(taskMode())
           .h_full().rounded(0)
           .bg(showing('diff') ? t.selected : t.background)
           .accessibility_label(showing('diff') ? 'Hide changes' : 'Show changes')
           .on_click(() => toggleEditor(editor, 'diff'))
           .child(glyph('git-compare')))
-        .child(Button('open-files', t, { variant: 'ghost', size: 'icon' })
+        .child(Button('open-files', t, { variant: 'ghost', size: 'icon' }).disabled(taskMode())
           .h_full().rounded(0)
           .bg(showing('files') ? t.selected : t.background)
           .accessibility_label(showing('files') ? 'Hide files' : 'Show files')
           .on_click(() => toggleEditor(editor, 'files'))
-          .child(glyph('folder'))));
+          .child(glyph('folder'))))
+      .when(Boolean(space), el => el.child(Button('open-tasks', t, { variant: 'ghost' }).h_full().rounded(0).px(10).gap(6)
+        .bg(taskMode() ? t.selected : t.background)
+        .accessibility_label('Tasks')
+        .on_click(() => { if (taskMode()) this.closeBoard(); else this.openBoard(space); })
+        .child(glyph('columns-3', 14)).child('Tasks')));
   }
 
   threadRow(thread, t, trunk = null) {
@@ -615,11 +732,13 @@ export default class Devkits extends View {
     if (primaryAgent && primaryAgent !== thread.agent)
       thread = { ...thread, agent: primaryAgent, title: threadTitle(thread.tab, primaryAgent, null) };
     const working = thread.status === 'working' || thread.agents.some(agent => agent.status === 'working');
-    const isFocused = thread.active && (!members.some(pane => pane.focused) || Boolean(primary?.focused));
+    const isFocused = shared('devkits.board-project') !== thread.space && thread.active && (!members.some(pane => pane.focused) || Boolean(primary?.focused));
     const p = threadProgram(thread, terminals(), primary?.program);
     const canArchive = archivable(thread, terminals());
     const stopping = canArchive && this.threadBusy(thread);
     const archive = canArchive && !stopping && !this.closeOnlyThreads?.has(thread.tab.id);
+    const project = this.projects().find(project => project.id === thread.space);
+    const archiveDisabled = Boolean(archive && project && !taskActions({ ...threadBoardTask(project, thread), agents: thread.agents }).canArchive);
     const icon = working ? glyph('loader', 14).text_color(t.working).spin(900).accessibility_label('Working')
       : p?.icon ? (p.tint ? svg(p.icon).size(14).text_color(t.muted) : image(p.icon).size(14)) : glyph('terminal', 14).text_color(t.muted);
     return SidebarTreeMenuButton(`thread-${thread.tab.id}`, isFocused, t, 0, trunk)
@@ -642,11 +761,12 @@ export default class Devkits extends View {
         .when(isFocused, el => el.font_medium()).child(thread.title))
       // Only a Claude or Codex conversation can be archived; terminals simply close.
       .child(Button(`${stopping ? 'stop' : archive ? 'archive' : 'close'}-thread-${thread.tab.id}`, t, { variant: 'row', size: 'icon-sm' })
-        .ml(8).opacity(this.hovered === thread.tab.id ? 1 : 0)
+        .ml(8).opacity(this.hovered === thread.tab.id && !archiveDisabled ? 1 : 0)
         .accessibility_label(stopping ? 'Stop generation' : archive ? 'Archive thread' : 'Close thread')
-        .disabled(this.stoppingThreads?.has(thread.tab.id) || false)
+        .disabled(archiveDisabled || this.stoppingThreads?.has(thread.tab.id) || false)
         .on_click((_event, cx) => {
           cx.stop_propagation();
+          if (archiveDisabled) return;
           if (stopping) cx.spawn(async cx => { await this.stopThread(thread); cx.notify(); });
           else if (archive) cx.spawn(async cx => { await this.archiveThread(thread); cx.notify(); });
           else run('tab.close', { id: thread.tab.id });
@@ -745,7 +865,12 @@ export default class Devkits extends View {
     if (props()?.view === 'xcode-storage') return this.xcodeStorage.render();
     if (props()?.view === 'codex-permissions') return div();
     if (props()?.view === 'file-menu') return this.fileMenu.render();
-    if (props()?.view === 'editor') return this.editor.render(this.projects().find(project => project.active), cx);
+    if (props()?.view === 'task-composer') return this.taskComposer.render(this.taskAssignees(props().project));
+    if (props()?.view === 'editor') {
+      const project = this.projects().find(project => project.active);
+      return project && taskMode()
+        ? this.boardPanel(project, cx) : this.editor.render(project, cx);
+    }
     if (props()?.view === 'files') return this.files.render(this.projects().find(project => project.active), cx);
     if (props()?.view === 'diff') return this.diff.render(this.projects().find(project => project.active), cx);
     if (props()?.view === 'account-login') return this.login.render();
@@ -781,7 +906,7 @@ export default class Devkits extends View {
         if (previous.split(':')[0] === (active?.id || '')) rememberPanel(active?.id, null);
         if (!restorePanel(active?.id)) {
           setShared('devkits.selected-project', null);
-          run('layout.select', { stack: 'workspace-view', child: 'main' });
+          if (!taskMode()) run('layout.select', { stack: 'workspace-view', child: 'main' });
         }
       }
       setShared('devkits.native-selection', selection);
@@ -796,12 +921,12 @@ export default class Devkits extends View {
       && !all.some(agent => agent.space === chosen.id && agent.tab === selectedTab.id)
       && modelPanes.filter(pane => pane.tab === selectedTab.id).length < 2;
     const content = chosen && shared('devkits.asana') === chosen.id ? 'asana' : chosen?.pending || defaultSelected ? 'project-empty' : 'main';
-    if (this.shownContent !== content) {
+    if (!taskMode() && this.shownContent !== content) {
       this.shownContent = content;
       run('layout.select', { stack: 'workspace-view', child: content });
     }
     const conversation = layoutNode(layout(), 'workspace-view');
-    const showConversation = content === 'asana' || conversationVisible(chosen);
+    const showConversation = !taskMode() && (content === 'asana' || conversationVisible(chosen));
     if (conversation && conversation.hidden === showConversation)
       run(showConversation ? 'layout.show' : 'layout.hide', { id: 'workspace-view' });
     const defaults = { ...(shared('devkits.default-terminals') || {}) };
@@ -828,7 +953,10 @@ export default class Devkits extends View {
     for (const group of groups) for (const thread of group.threads)
       if (thread.tab.id === defaults[group.space.id] && !thread.agent) thread.title = 'Terminal';
     const live = terminals();
-    const visible = groups.filter(g => !this.folded.has(g.space.id)).flatMap(g => g.threads.flatMap(thread => thread.agents));
+    observeTaskInput(all, live, cx);
+    // Observe progress even while a project's rows are collapsed or the board is closed.
+    for (const { space } of groups) projectBoardTasks(space, all);
+    const visible = groups.filter(g => !this.folded.has(g.space.id)).flatMap(g => g.threads.filter(thread => threadVisibleInSidebar(g.space, thread)).flatMap(thread => thread.agents));
     setAgentOrder(visible.map(a => a.address));
     return Sidebar(t)
       .child(this.archiveOpen ? this.archiveList(t) : SidebarContent()
@@ -859,8 +987,9 @@ export default class Devkits extends View {
               (_cx, at) => openOverlay({ mod: 'devkits', kind: 'popup', frame: 'none', width: 200, at,
                 props: { view: 'project-menu', project: space } }), 'end', SIDEBAR_MENU)
               .child(glyph('ellipsis')).opacity(this.hoveredProject === space.id ? 1 : 0)))
-          .when(!this.folded.has(space.id), el => el.children(threads.map(thread => this.renderThreadGroup(thread, t, live)))
-            .when(!threads.length, el => el.child(h_flex().h(32).flex_none().px(12).items_center().text_size(12).text_color(t.muted).child('No threads yet')))))))
+          .when(!this.folded.has(space.id), el => el
+            .children(this.groupedThreads(space, threads, t, live))
+            .when(!threads.some(thread => threadVisibleInSidebar(space, thread)) && (space.machine || !projectBoardTasks(space).some(task => !task.archived && (task.source !== 'thread' || task.tabs.length > 0))), el => el.child(h_flex().h(32).flex_none().px(12).items_center().text_size(12).text_color(t.muted).child(threads.length ? 'No active threads' : 'No threads yet')))))))
       .child(this.accountUsage(t))
       .child(SidebarFooter(t)
         .child(Button('archived-threads', t, { variant: 'ghost', size: 'icon' })

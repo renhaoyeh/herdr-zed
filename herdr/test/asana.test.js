@@ -340,10 +340,12 @@ test('Asana names and applies profile defaults, narrows efforts to the effective
     Select: (id, state, value, options) => { picks.set(id, { value, options }); return element(); }, Button: () => button });
   const panel = new AsanaPanel(); panel.init({ focus_handle: () => ({ focus() {} }) });
   panel.codexModels.set('/home/.codex', [{ key: 'a', label: 'A', efforts: ['low', 'high'] }, { key: 'b', label: 'B', efforts: ['low'] }]);
-  const agents = [{ key: 'codex', name: 'Codex', run: ['codex'] }];
+  const agents = [{ key: 'codex', name: 'Codex', run: ['codex'], icon: 'icons/codex.svg', tint: false }];
   const render = () => panel.launchRow({ gid: 'task' }, agents, (_agent, _task, options) => { started = options; }, {});
   render();
   assert.deepEqual(panel.session(agents).efforts, ['low', 'high']);
+  assert.equal(picks.get('asana-agent').options[0].icon, 'icons/codex.svg');
+  assert.equal(picks.get('asana-agent').options[0].iconTint, false);
   assert.equal(picks.get('asana-model').options[0].label, 'Default (A)');
   assert.equal(picks.get('asana-effort').options[0].label, 'Default (High)');
   click(); assert.deepEqual(started, { model: 'a', effort: 'high' });
@@ -531,4 +533,10 @@ test('Copy copies the current token value while empty fields leave the clipboard
   value = '';
   panel.copyToken(cx);
   assert.equal(copied.length, 1);
+});
+
+test('local task prompts carry instructions without claiming an Asana source', async () => {
+  const { taskPrompt } = await load();
+  assert.equal(taskPrompt({ name: 'Fix login', notes: 'Add validation', source: 'local', comments: [] }),
+    'Work on this task: Fix login\n\nDescription:\nAdd validation');
 });
