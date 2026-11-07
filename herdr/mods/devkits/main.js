@@ -1,7 +1,7 @@
 import { View, div, svg, image } from 'gpui-kit';
 import { v_flex, h_flex } from 'gpui-base';
 import { agents, spaces, panes, theme, run, props, window, openOverlay, closeOverlay, setAgentOrder, layout, settings, pickFolder, shared, setShared, knownAgents, notify, appHome, readTextFile, nextCommand, terminals } from 'herdr';
-import { projectGroups, projectCatalog, threadTitle, folderKey, launcherChoices, isAccountLauncher, launcherArgv, sessionArgv, sessionKind, resolveThreadProfiles, threadProfile, threadProgram, archivable, rulesArgv, childTerminals, terminalLabel, settingsKey, rootSettings } from './model.js';
+import { projectGroups, projectCatalog, threadTitle, folderKey, launcherChoices, isAccountLauncher, launcherArgv, sessionArgv, sessionKind, resolveThreadProfiles, threadProfile, threadProgram, archivable, rulesArgv, childTerminals, terminalLabel, terminalWorking, settingsKey, rootSettings } from './model.js';
 import { terminalArgv } from './shell-command.js';
 import AccountLogin, { accountLabel } from './account-login.js';
 import FileViewer, { FileMenu } from './files.js';
@@ -621,7 +621,10 @@ export default class Devkits extends View {
     this.threadMenu ??= new DropdownMenuState();
     const actions = [{ key: 'close', label: secondary ? 'Close terminal' : 'Close thread' }];
     const choose = () => secondary ? run('pane.close', { pane: p.pane }) : run('tab.close', { id: p.tab });
-    const icon = program?.icon ? (program.tint ? svg(program.icon).size(14).text_color(p.focused ? t.foreground : t.muted) : image(program.icon).size(14)) : glyph('terminal').text_color(p.focused ? t.foreground : t.muted);
+    const terminal = terminals().find(terminal => terminal.address === p.terminal);
+    const working = terminalWorking({ ...terminal, status: p.status || terminal?.status });
+    const icon = working ? glyph('loader', 14).text_color(t.working).spin(900).accessibility_label('Working')
+      : program?.icon ? (program.tint ? svg(program.icon).size(14).text_color(p.focused ? t.foreground : t.muted) : image(program.icon).size(14)) : glyph('terminal').text_color(p.focused ? t.foreground : t.muted);
     return h_flex().id(`pane-header-${p.pane}`).size_full().pl(12).gap(8).items_center()
       .bg(p.focused ? t.selected : t.chrome).border_b(1).border_color(p.focused ? t.accent : t.border)
       .text_size(12).text_color(t.muted).on_click(() => run('pane.focus', { pane: p.pane }))
@@ -720,7 +723,8 @@ export default class Devkits extends View {
     const primaryAgent = thread.agents.find(agent => agent.address === primary?.terminal) || thread.agent;
     if (primaryAgent && primaryAgent !== thread.agent)
       thread = { ...thread, agent: primaryAgent, title: threadTitle(thread.tab, primaryAgent, null) };
-    const working = thread.status === 'working' || thread.agents.some(agent => agent.status === 'working');
+    const working = thread.status === 'working' || thread.agents.some(agent => agent.status === 'working')
+      || terminalWorking(terminals().find(terminal => terminal.address === primary?.terminal));
     const isFocused = shared('devkits.board-project') !== thread.space && thread.active && (!members.some(pane => pane.focused) || Boolean(primary?.focused));
     const p = threadProgram(thread, terminals(), primary?.program);
     const canArchive = archivable(thread, terminals());
@@ -815,7 +819,7 @@ export default class Devkits extends View {
   childRow(thread, { terminal, depth, label, pane, trunk }, t) {
     const key = pane ? `pane:${pane.pane}` : `child:${terminal.address}`;
     const p = terminal.program;
-    const icon = terminal.status === 'working' ? glyph('loader', 14).text_color(t.working).spin(900).accessibility_label('Working')
+    const icon = terminalWorking(terminal) ? glyph('loader', 14).text_color(t.working).spin(900).accessibility_label('Working')
       : p?.icon && !p.shell ? (p.tint ? svg(p.icon).size(14).text_color(t.muted) : image(p.icon).size(14)) : glyph('terminal', 14).text_color(t.muted);
     return SidebarTreeMenuButton(pane ? `thread-pane-${pane.pane}` : `child-${terminal.address}`, Boolean(pane?.focused), t, depth, trunk)
       .accessibility_label(`${depth ? 'Child task' : 'Parallel pane'}: ${label}`)
