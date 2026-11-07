@@ -1,7 +1,7 @@
 import { View, div, svg, image } from 'gpui-kit';
 import { v_flex, h_flex } from 'gpui-base';
 import { agents, spaces, panes, theme, run, props, window, openOverlay, closeOverlay, setAgentOrder, layout, settings, pickFolder, shared, setShared, knownAgents, notify, appHome, readTextFile, nextCommand, terminals } from 'herdr';
-import { projectGroups, projectCatalog, folderKey, launcherChoices, isAccountLauncher, launcherArgv, sessionArgv, sessionKind, resolveThreadProfiles, threadProfile, archivable, rulesArgv, childTerminals, settingsKey, rootSettings } from './model.js';
+import { projectGroups, projectCatalog, folderKey, launcherChoices, isAccountLauncher, launcherArgv, sessionArgv, sessionKind, resolveThreadProfiles, threadProfile, threadProgram, archivable, rulesArgv, childTerminals, settingsKey, rootSettings } from './model.js';
 import { commandArgv } from './shell-command.js';
 import AccountLogin from './account-login.js';
 import FileViewer, { FileMenu } from './files.js';
@@ -422,8 +422,8 @@ export default class Devkits extends View {
   paneHeader(t) {
     const p = panes().find(p => p.pane === props()?.pane);
     if (!p) return div();
-    const program = p.program;
     const thread = projectGroups(spaces(), agents()).flatMap(group => group.threads).find(thread => thread.tab.id === p.tab);
+    const program = threadProgram(thread, terminals(), p.program);
     const machine = spaces().find(space => space.id === thread?.space)?.machine || null;
     const profile = thread?.agent ? threadProfile(thread.tab, shared('devkits.agent-cache')?.[JSON.stringify(machine)],
       shared('devkits.thread-profiles') || {}) : null;
@@ -488,7 +488,7 @@ export default class Devkits extends View {
   threadRow(thread, t) {
     const working = thread.status === 'working' || thread.agents.some(agent => agent.status === 'working');
     const isFocused = thread.active;
-    const p = thread.agent?.program;
+    const p = threadProgram(thread, terminals());
     const archive = archivable(thread, terminals()) && !this.closeOnlyThreads?.has(thread.tab.id);
     const icon = working ? glyph('loader', 14).text_color(t.working).spin(900).accessibility_label('Working')
       : p?.icon ? (p.tint ? svg(p.icon).size(14).text_color(t.muted) : image(p.icon).size(14)) : glyph('terminal', 14).text_color(t.muted);
