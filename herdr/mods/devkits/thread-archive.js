@@ -1,0 +1,114 @@
+import { div, svg, image } from 'gpui-kit';
+import { h_flex } from 'gpui-base';
+import { shared, setShared, run, notify, hc, exec, readTextFile, home } from 'herdr';
+import { archivable, agentCommand, commandKind, resumeArgv, codexSessionId, archivedAge, folderKey } from './model.js';
+import { Button } from './components/button.js';
+import { SidebarContent, SidebarGroup, SidebarMenuButton } from './components/sidebar.js';
+import { glyph } from './components/icon.js';
+
+const archiving = new Set();
+const archived = () => shared('devkits.archived-threads') || [];
+
+// The conversation a running Claude or Codex terminal shows, or null before it has one.
+async function sessionId(kind, command, pid) {
+  if (kind === 'claude') {
+    const dir = command.find(arg => arg.startsWith('CLAUDE_CONFIG_DIR='))?.slice(18) || `${home()}/.claude`;
+    const id = JSON.parse(await readTextFile(`${dir}/sessions/${pid}.json`) || '{}').sessionId;
+    // A session with no messages yet has no transcript to resume.
+    const saved = id && (await exec('sh', ['-c', 'ls "$1"/projects/*/"$2".jsonl', 'sh', dir, id])).code === 0;
+    return saved ? id : null;
+  }
+  // Codex keeps its rollout file open, in its own process or a child of a wrapper.
+  const result = await exec('sh', ['-c', 'pids=$(pgrep -P "$1" | tr "\\n" ,)$1; lsof -Fn -p "$pids"', 'sh', String(pid)]);
+  return codexSessionId(result.stdout);
+}
+
+// Archiving ends the thread like Zed: Claude and Codex conversations are kept to resume from the
+// archive; terminals and threads without a conversation simply close. Mixed into the Devkits view.
+export const threadArchive = {
+  async archiveThread(thread) {
+    const tab = thread.tab.id;
+    if (archiving.has(tab)) return;
+    archiving.add(tab);
+    try {
+      if (archivable(thread)) {
+        // The thread's own agent, not a terminal one of its agents started (those have a parent).
+        let terminal = null, command = null;
+        for (const agent of thread.agents) {
+          const result = await hc(['get', agent.address, '--json']);
+          if (result.code) throw new Error(result.stderr.trim() || 'Herdr could not describe this terminal.');
+          const info = JSON.parse(result.stdout);
+          const found = !info.parent && agentCommand(info.argv);
+          if (found && commandKind(found)) { terminal = info; command = found; break; }
+        }
+        if (!command || !terminal.foreground?.pid) throw new Error('Could not find the Claude or Codex session this thread started.');
+        const kind = commandKind(command);
+        const id = await sessionId(kind, command, terminal.foreground.pid);
+        if (id) {
+          const project = this.projects().find(project => project.id === thread.space);
+          const task = shared('devkits.thread-tasks')?.[tab] || null;
+          const entry = { id: `${kind}:${id}`, title: thread.title, folder: project?.folder || terminal.cwd,
+            projectName: project?.name || terminal.cwd, profile: shared('devkits.thread-profiles')?.[tab] || null,
+            argv: resumeArgv(command, id, Boolean(task)), task, at: Date.now(),
+            icon: thread.agent?.program?.icon || null, tint: Boolean(thread.agent?.program?.tint) };
+          setShared('devkits.archived-threads', [entry, ...archived().filter(item => item.id !== entry.id)].slice(0, 200));
+        }
+      }
+      run('tab.close', { id: tab });
+    } catch (error) {
+      notify({ title: 'Could not archive thread', body: error.message, level: 'error' });
+    } finally { archiving.delete(tab); }
+  },
+
+  // Reopens the conversation in its project, under its archived title, and leaves the archive.
+  restoreThread(entry) {
+    const project = this.projects().find(project => !project.machine && folderKey(project.folder) === folderKey(entry.folder));
+    if (!project) {
+      const saved = shared('devkits.projects') || [];
+      if (!saved.some(folder => folderKey(folder) === folderKey(entry.folder))) setShared('devkits.projects', [...saved, entry.folder]);
+    }
+    setShared('devkits.archived-threads', archived().filter(item => item.id !== entry.id));
+    this.archiveOpen = false;
+    this.openThread({ space: project && !project.pending ? project.id : null, folder: entry.folder,
+      projectName: project?.name || entry.projectName }, entry.title, entry.argv, entry.profile, entry.task);
+  },
+
+  removeArchived(entry) {
+    setShared('devkits.archived-threads', archived().filter(item => item.id !== entry.id));
+  },
+
+  archiveList(t) {
+    const entries = archived();
+    const projects = [...new Set(entries.map(entry => folderKey(entry.folder)))];
+    return SidebarContent()
+      .when(!entries.length, el => el.child(h_flex().h(32).flex_none().px(12).items_center().text_size(12).text_color(t.muted)
+        .child('No archived threads')))
+      .children(projects.map((folder, index) => {
+        const items = entries.filter(entry => folderKey(entry.folder) === folder);
+        return SidebarGroup(index > 0, t)
+          .child(h_flex().h(32).flex_none().px(12).items_center().text_size(12).font_medium().text_color(t.muted)
+            .child(div().min_w(0).truncate().child(items[0].projectName)))
+          .children(items.map(entry => this.archivedRow(entry, t)));
+      }));
+  },
+
+  archivedRow(entry, t) {
+    const icon = entry.icon ? (entry.tint ? svg(entry.icon).size(14).text_color(t.muted) : image(entry.icon).size(14))
+      : glyph('terminal', 14).text_color(t.muted);
+    const hovered = this.hoveredArchived === entry.id;
+    return SidebarMenuButton(`archived-${entry.id}`, false, t).accessibility_label(`Restore ${entry.title}`)
+      .on_hover((inside, cx) => {
+        if (!inside && this.hoveredArchived !== entry.id) return;
+        this.hoveredArchived = inside ? entry.id : null;
+        cx.notify();
+      })
+      .on_click(() => this.restoreThread(entry))
+      .child(div().size(16).flex_none().flex().items_center().justify_center().child(icon))
+      .child(div().flex_1().min_w(0).truncate().text_size(13).text_color(t.foreground).child(entry.title))
+      .when(!hovered, el => el.child(div().flex_none().text_size(11).text_color(t.muted).child(archivedAge(entry.at))))
+      .when(hovered, el => el.child(Button(`remove-archived-${entry.id}`, t, { variant: 'row', size: 'icon-sm' })
+        .accessibility_label('Remove from archive')
+        .on_click((_event, cx) => { cx.stop_propagation(); this.removeArchived(entry); })
+        .child(glyph('close', 12))));
+  },
+};
