@@ -385,6 +385,8 @@ export default class Devkits extends View {
           props: { view: 'project-picker' } }), 'start', { x: 8, y: 9 }) // Clear of the header's 1px bottom border
         .child(div().max_w(220).truncate().child(space?.name || 'Open project'))
         .child(glyph('chevron-down', 12).text_color(t.muted)))
+      .when(Boolean(space?.branch), el => el.child(h_flex().h_full().pl(4).gap(4).items_center().text_size(12).text_color(t.muted)
+        .child(glyph('branch', 12)).child(div().max_w(200).truncate().child(space.branch))))
       .child(div().flex_1())
       .when(Boolean(space), el => el.child(RunControls(t)))
       .when(Boolean(win?.buttons), el => el
@@ -438,9 +440,11 @@ export default class Devkits extends View {
     // Other platforms keep the button; the panel says it is unsupported there.
     const simulator = layoutNode(layout(), 'simulator'), editor = layoutNode(layout(), 'editor');
     const showing = name => Boolean(editor) && !editor.hidden && editor.active === name;
-    return h_flex().size_full().pl(16).pr(4).gap(8).items_center().bg(t.background).border_t(1).border_color(t.border)
-      .text_size(11).text_color(t.muted).child(glyph('terminal', 12)).child(space?.machine || 'Local project')
-      .when(Boolean(space?.branch), el => el.child(glyph('branch', 12)).child(space.branch))
+    // Like Zed: the branch sits beside the project in the header; only a remote project names its machine here.
+    return h_flex().size_full().pr(4).gap(8).items_center().bg(t.background).border_t(1).border_color(t.border)
+      .text_size(11).text_color(t.muted)
+      .when(Boolean(space?.machine), el => el.child(h_flex().pl(16).gap(8).items_center().child(glyph('terminal', 12)).child(space.machine)))
+
       .child(div().flex_1())
       .when(Boolean(simulator), el => el
         .child(Button('open-simulator', t, { variant: 'ghost', size: 'icon' })
