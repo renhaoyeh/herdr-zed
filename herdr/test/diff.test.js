@@ -613,7 +613,8 @@ test('wrapping follows viewport width and font metrics, aligns split rows and ke
   assert.equal(pairs[10].right.new, 2);
   assert.ok(sizes.every(size => [20, 32, 40].includes(size)));
   view.reveal('b', { notify() {} });
-  assert.deepEqual(scrolled, [[rows.findIndex(row => row.key === 'file:b'), 'top']]);
+  const b = rows.findIndex(row => row.key === 'file:b');
+  assert.deepEqual(scrolled, [[b, 'top']], 'An unmeasured viewport cannot be scrolled past');
   view.files = [{ path: 'huge', hunks: [{ lines: Array.from({ length: 25 }, () => ({ type: 'ctx', text: 'x'.repeat(2000) })) }] }];
   view.width = 72; view.rowCache = null;
   assert.equal(view.rows().rows.length, 20000);
@@ -673,8 +674,12 @@ test('changed files group as Tracked then Untracked, matching the multibuffer, a
   const view = new DiffViewer(); view.init();
   view.files = [...files].sort((a, b) => a.path.localeCompare(b.path));
   view.toggle('a.md', { notify() {} });
+  view.viewportHeight = 40;
   view.reveal('src/lib/c.js', { notify() {} });
-  assert.deepEqual(scrolled, [[3, 'top']]);
+  assert.deepEqual(scrolled, [[4, 'top'], [3, 'top']], 'A header first scrolls past the top, then aligns to it from above');
+  scrolled.length = 0; view.visible = { rows: view.rows().rows, start: 4 };
+  view.reveal('src/lib/c.js', { notify() {} });
+  assert.deepEqual(scrolled, [[3, 'top']], 'A header above the viewport aligns in one step');
   assert.equal(view.selected, 'src/lib/c.js');
   view.reveal('a.md', { notify() {} });
   assert.ok(!view.collapsed.has('a.md'));

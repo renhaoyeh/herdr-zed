@@ -578,9 +578,33 @@ export default class DiffViewer {
     this.selected = path;
     this.pendingReveal = path;
     if (this.collapsed.delete(path)) this.rowCache = null;
-    const index = this.rows(cx).rows.findIndex(row => row.key === `file:${path}`);
-    if (index >= 0 && !this.rowJob) { this.scroll.scroll_to_item(index, 'top'); this.pendingReveal = null; }
+    const rows = this.rows(cx), index = rows.rows.findIndex(row => row.key === `file:${path}`);
+    if (index >= 0 && !this.rowJob) { this.scrollToTop(rows, index, cx); this.pendingReveal = null; }
     cx.notify();
+  }
+
+  /**
+   * `scroll_to_item(…, 'top')` only scrolls to the nearer edge: a header above the
+   * viewport lands at its top, but one below lands at its bottom and a visible one
+   * does not move. Those first scroll until the header's top is just past the
+   * viewport's, at most one row further, then align it once that frame is laid out.
+   */
+  scrollToTop(rows, index, cx) {
+    const jump = this.jump = {};
+    if (this.visible?.rows === rows.rows && index <= this.visible.start) { this.scroll.scroll_to_item(index, 'top'); return; }
+    const { sizes } = rows, height = this.viewportHeight || 0;
+    let past = index, extent = sizes[index];
+    while (past < sizes.length - 1 && extent <= height) extent += sizes[++past];
+    this.scroll.scroll_to_item(past, 'top');
+    if (past === index) return;
+    const frame = this.listFrame;
+    const finish = () => { if (this.jump === jump && this.rowCache === rows) this.scroll.scroll_to_item(index, 'top'); };
+    if (!cx?.spawn) { finish(); return; }
+    cx.spawn(async cx => {
+      for (let tries = 0; tries < 120 && this.listFrame === frame; tries++) await cx.sleep(4);
+      finish();
+      cx.notify();
+    });
   }
 
   toggleFolder(path, cx) {
@@ -724,7 +748,7 @@ export default class DiffViewer {
           this.rowCache = this.visibleRows = next.value;
           this.rowTask = null; this.rowJob = null;
           const index = next.value.rows.findIndex(row => row.key === `file:${this.pendingReveal}`);
-          if (index >= 0) this.scroll.scroll_to_item(index, 'top');
+          if (index >= 0) this.scrollToTop(next.value, index, cx);
           this.pendingReveal = null;
           cx.notify();
           return;
@@ -876,6 +900,7 @@ export default class DiffViewer {
         .child(rows.length
           ? v_flex().id('diff-viewport').relative().flex_1().min_h(0)
             .on_size_change((size, cx) => {
+              this.viewportHeight = size.height;
               if (this.width === size.width) return;
               this.width = size.width;
               cx.notify();
@@ -890,7 +915,12 @@ export default class DiffViewer {
             .child(v_flex().id(wrap === false ? 'diff-horizontal' : 'diff-wrapped').size_full().min_w(0)
               .when(wrap === false, el => el.overflow_x_scrollbar())
               .child(v_virtual_list('diff-rows', rows.length, sizes, index => rows[index].key,
-              range => rows.slice(range.start, range.end).map(row => this.row(row, t, mono, gutter)))
+              range => {
+                // The first call per frame measures one row; the second is the visible range.
+                if (range.end - range.start > 1 || rows.length === 1) this.visible = { rows, start: range.start };
+                this.listFrame = (this.listFrame || 0) + 1;
+                return rows.slice(range.start, range.end).map(row => this.row(row, t, mono, gutter));
+              })
               .size_full().when(wrap === false, el => el.w(contentWidth).flex_none()).track_scroll(this.scroll)
               .on_item_click((key, cx) => { if (key.startsWith('file:')) this.toggle(key.slice(5), cx); })))
             .child(Scrollbar.vertical('diff-rows').absolute().inset_0())
