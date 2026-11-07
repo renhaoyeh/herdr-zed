@@ -268,16 +268,17 @@ export default class FileViewer {
   /** Opens a file as Zed does: a single click reuses the italic preview tab; pinning keeps it. */
   show(path, cx, pin = false) {
     let doc = this.tabs.find(doc => doc.path === path);
+    let replaced;
     if (!doc) {
       doc = openDocument(path);
       const previewIndex = this.tabs.findIndex(other => other.path === this.preview);
-      if (!pin && previewIndex >= 0) { this.tabs[previewIndex].code?.release(); this.tabs[previewIndex] = doc; }
+      if (!pin && previewIndex >= 0) { replaced = this.tabs[previewIndex].path; this.tabs[previewIndex].code?.release(); this.tabs[previewIndex] = doc; }
       else this.tabs.push(doc);
       if (!pin) this.preview = path;
     } else if (pin && this.preview === path) this.preview = null;
     this.file = path; this.tabSwitch = null;
     this.recordActivation();
-    this.onOpen?.();
+    this.onOpen?.({ path, replaced }, cx);
     this.load(doc, cx);
     this.remember();
     cx.notify();
@@ -305,7 +306,7 @@ export default class FileViewer {
   activate(path, cx, reveal = true, record = true) {
     this.file = this.tabs.some(doc => doc.path === path) ? path : this.tabs[0]?.path || null;
     if (record) { this.tabSwitch = null; this.recordActivation(); }
-    if (reveal) this.onOpen?.();
+    if (reveal) this.onOpen?.({ path: this.file }, cx);
     const doc = this.doc;
     if (doc && (!doc.loaded || doc.stale)) this.load(doc, cx);
     this.remember();
@@ -405,7 +406,7 @@ export default class FileViewer {
     cx.notify();
   }
 
-  render(project, cx, parts = false) {
+  render(project, cx, parts = false, withTabs = true) {
     if (this.context?.id !== project?.id || this.context?.folder !== project?.folder || this.context?.machine !== project?.machine) this.refresh(project, cx);
     const t = theme();
     const tree = v_flex().size_full().min_h(0).bg(t.chrome).border_l(1).border_color(t.border)
@@ -434,7 +435,7 @@ export default class FileViewer {
             .child(this.errors.get('') || (this.pending.has('') ? 'Loading files…' : 'No files'))))
           .when(this.limited.size > 0, el => el.child(div().p(12).text_size(11).text_color(t.muted).child('List limited to 500 entries per folder and 5,000 total.'))));
     const content = v_flex().size_full().min_w(0).min_h(0)
-        .when(this.tabs.length > 0, el => el.child(this.tabBar(t)))
+        .when(withTabs && this.tabs.length > 0, el => el.child(this.tabBar(t)))
         .when(Boolean(this.doc), el => el.child(this.markdown !== null ? v_flex().id(`markdown-preview-${this.file}`).flex_1().min_h(0).overflow_y_scrollbar().p(24)
           .child(TextView.markdown(`markdown-${this.file}`, this.markdown).selectable(true).scrollable(false).w_full())
           : this.code ? Editor.new(this.code).flex_1().min_h(0) : Empty(t).flex_1()
@@ -445,35 +446,41 @@ export default class FileViewer {
       .child(SidePanelLayout('files-split', this.sidePanel, content, tree));
   }
 
-  tabBar(t) {
+  tabBar(t, { extra = [], fileActive = true, order = [], closeFile } = {}) {
     const wrap = this.wrapTabs, name = path => path.slice(path.lastIndexOf('/') + 1);
     const counts = new Map();
     for (const doc of this.tabs) counts.set(name(doc.path), (counts.get(name(doc.path)) || 0) + 1);
+    const items = [...this.tabs.map(doc => ({ key: `file:${doc.path}`, path: doc.path })), ...extra];
+    const positions = new Map(order.map((key, i) => [key, i]));
+    items.sort((a, b) => (positions.get(a.key) ?? Infinity) - (positions.get(b.key) ?? Infinity));
     const list = wrap ? h_flex().flex_wrap() : h_flex().id('file-tab-list').overflow_x_scroll();
     return h_flex().id('file-tabs').flex_none().items_start().bg(t.chrome).border_b(1).border_color(t.border)
-      .child(list.flex_1().min_w(0).role('tab_list').accessibility_label('Open files')
-        .children(this.tabs.map((doc, index) => {
-          const active = doc.path === this.file, preview = doc.path === this.preview, base = name(doc.path);
-          const folder = doc.path.includes('/') ? doc.path.slice(0, doc.path.lastIndexOf('/')) : '';
-          return Button(`file-tab-${doc.path}`, t, { variant: 'ghost' }).h(32).max_w(240).pl(12).pr(6).gap(6).justify_start()
+      .child(list.flex_1().min_w(0).role('tab_list').accessibility_label('Open editor tabs')
+        .children(items.map((doc, index) => {
+          const active = doc.path ? fileActive && doc.path === this.file : doc.active;
+          const preview = Boolean(doc.path && doc.path === this.preview), base = doc.path ? name(doc.path) : doc.label;
+          const folder = doc.path?.includes('/') ? doc.path.slice(0, doc.path.lastIndexOf('/')) : '';
+          const close = cx => doc.path ? (closeFile ? closeFile(doc.path, cx) : this.closeTab(doc.path, cx)) : doc.close(cx);
+          const id = doc.path || doc.key;
+          return Button(`file-tab-${id}`, t, { variant: 'ghost' }).h(32).max_w(240).pl(12).pr(6).gap(6).justify_start()
             .border_r(1).border_color(t.border).bg(active ? t.background : t.chrome).text_color(active ? t.foreground : t.muted)
-            .role('tab').selected(active).set_position(index + 1, this.tabs.length)
-            .accessibility_label(`${doc.path}${preview ? ', preview' : ''}`)
+            .role('tab').selected(active).set_position(index + 1, items.length)
+            .accessibility_label(`${doc.path || doc.label}${preview ? ', preview' : ''}`)
             .on_hover((inside, cx) => {
-              if (!inside && this.hoveredTab !== doc.path) return;
-              this.hoveredTab = inside ? doc.path : null; cx.notify();
+              if (!inside && this.hoveredTab !== id) return;
+              this.hoveredTab = inside ? id : null; cx.notify();
             })
-            .on_click((event, cx) => event.click_count >= 2 ? this.pin(doc.path, cx) : this.activate(doc.path, cx))
-            .on_mouse_down('middle', (_event, cx) => { cx.stop_propagation(); this.closeTab(doc.path, cx); })
-            .child(icon('file').text_color(t.muted))
+            .on_click((event, cx) => doc.path ? event.click_count >= 2 ? this.pin(doc.path, cx) : this.activate(doc.path, cx) : doc.activate(cx))
+            .on_mouse_down('middle', (_event, cx) => { cx.stop_propagation(); close(cx); })
+            .child(icon(doc.icon || 'file').text_color(t.muted))
             // Italic alone vanishes in UI fonts without an italic face, so a preview tab is also one step dimmer.
             .child(div().min_w(0).truncate().text_size(12).when(preview, el => el.italic().text_color(active ? t.muted : t.dim)).child(base))
             // Same-named files show their folder, as Zed does.
             .when(counts.get(base) > 1 && Boolean(folder), el => el.child(div().min_w(0).truncate().text_size(11).text_color(t.dim).child(folder)))
-            .child(Button(`close-file-tab-${doc.path}`, t, { variant: 'row', size: 'icon-sm' })
-              .opacity(active || this.hoveredTab === doc.path ? 1 : 0)
+            .child(Button(`close-file-tab-${id}`, t, { variant: 'row', size: 'icon-sm' })
+              .opacity(active || this.hoveredTab === id ? 1 : 0)
               .accessibility_label(`Close ${base}`)
-              .on_click((_event, cx) => { cx.stop_propagation(); this.closeTab(doc.path, cx); })
+              .on_click((_event, cx) => { cx.stop_propagation(); close(cx); })
               .child(icon('close').size(12)));
         })))
       .child(DropdownMenu('file-tab-options', this.optionsMenu,

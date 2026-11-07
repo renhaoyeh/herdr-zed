@@ -374,6 +374,7 @@ test('push prevents duplicate actions, retains errors for retry and isolates pro
     exec: (cmd, args, options) => {
       if (args.includes('devkits-push-state')) return Promise.resolve({ code: 0, stderr: '',
         stdout: `main\n${'a'.repeat(40)}\n0\t0\nrefs/remotes/origin/main\norigin\norigin\n` });
+      if (args.includes('--no-patch')) return Promise.resolve({ code: 0, stderr: '', stdout: '' });
       calls.push({ cmd, args, options }); return new Promise(resolve => { complete = resolve; });
     } });
   const cx = { notify() {}, spawn(fn) { tasks.push(fn(cx)); } };
@@ -837,4 +838,112 @@ test('loaded diff text preserves row rendering in unified and split views', asyn
     assert.ok(painted.includes('after'), `${layout} paints added text`);
     assert.ok(painted.includes('1'), `${layout} paints line numbers`);
   }
+});
+
+test('Git Graph opens in the editor, reuses loaded commit changes and returns to the preserved working diff', async () => {
+  const patch = name => `diff --git a/${name} b/${name}\n--- a/${name}\n+++ b/${name}\n@@ -1 +1 @@\n-old\n+new\n`;
+  const graphs = [];
+  class Graph {
+    constructor(_cx, parser) { this.parser = parser; this.focus = { focus() {} }; graphs.push(this); }
+    reset(context) { this.context = context; }
+    load() { this.loads = (this.loads || 0) + 1; }
+  }
+  const { DiffViewer, parseDiff } = await load({ GitGraph: Graph,
+    VirtualListScrollHandle: { new: () => ({ scroll_to_item() {} }) } });
+  const cx = { notify() {} }, view = new DiffViewer(); view.init(cx);
+  view.context = { folder: '/repo' }; view.files = parseDiff(patch('working.txt'));
+  const working = view.files;
+  view.openGraph(cx);
+  const graph = graphs[0];
+  assert.equal(view.graphMode, true); assert.equal(graph.context.folder, '/repo');
+  assert.equal(graph.fileRows(working)[0].path, 'working.txt');
+  const commit = { sha: 'c'.repeat(40), shortSha: 'ccccccc' }, files = parseDiff(patch('committed.txt'));
+  view.history.pending = 'old'; const selection = view.history.selection;
+  graph.onOpen(commit, cx, 'committed.txt', { commit, files });
+  assert.equal(view.graphMode, false); assert.equal(view.graphReturn, true);
+  assert.equal(view.history.selection, selection + 1); assert.equal(view.history.pending, null);
+  assert.equal(view.history.preview.files, files); assert.equal(view.pendingReveal, 'committed.txt');
+  assert.deepEqual(view.displayFiles, files); assert.equal(view.files, working);
+  view.openGraph(cx); assert.equal(graphs.length, 1); assert.equal(graph.loads, 2);
+  view.showChanges(cx); assert.equal(view.graphMode, false); assert.deepEqual(view.displayFiles, working);
+  view.close(); assert.equal(graph.context, null); assert.equal(view.graphReturn, false);
+});
+
+test('commit descriptions start folded, expand on demand and leave single-line messages without a disclosure', async () => {
+  const nodes = new Map();
+  const element = () => {
+    const state = { children: [], styles: {} };
+    const el = new Proxy(state, { get(_target, key) {
+      if (key in state) return state[key];
+      if (key === 'when') return (condition, fn) => { if (condition) fn(el); return el; };
+      if (key === 'child') return value => { state.children.push(value); return el; };
+      if (key === 'id') return id => { nodes.set(id, state); return el; };
+      if (key === 'on_click') return fn => { state.click = fn; return el; };
+      return (...args) => { state.styles[key] = args; return el; };
+    } }); return el;
+  };
+  const { DiffViewer } = await load({ div: element, v_flex: element, h_flex: element, svg: element,
+    Button: id => element().id(id), VirtualListScrollHandle: { new: () => ({}) } });
+  const view = new DiffViewer(); view.init();
+  const commit = { sha: 'a'.repeat(40), author: 'Author', at: 1700000000, message: 'Subject\n\nLong description\nSecond line' };
+  const render = current => { nodes.clear(); view.commitHeader({ commit: current }, {}); };
+  const cx = { notify() {} };
+  render(commit);
+  assert.deepEqual(nodes.get('commit-description').children, ['Subject']);
+  assert.deepEqual(nodes.get('commit-description').styles.h, [20]);
+  assert.ok(nodes.has('commit-description-toggle'));
+  nodes.get('commit-description-toggle').click({}, cx); render(commit);
+  assert.deepEqual(nodes.get('commit-description').children, [commit.message]);
+  assert.deepEqual(nodes.get('commit-description').styles.max_h, [240]);
+  assert.ok(nodes.get('commit-description').styles.overflow_y_scrollbar);
+  render({ ...commit, sha: 'b'.repeat(40) });
+  assert.deepEqual(nodes.get('commit-description').children, ['Subject']);
+  render(commit); nodes.get('commit-description-toggle').click({}, cx); render(commit);
+  assert.deepEqual(nodes.get('commit-description').children, ['Subject']);
+  render({ ...commit, message: 'Single line' });
+  assert.equal(nodes.has('commit-description-toggle'), false);
+  view.expandedCommitMessage = commit.sha; view.close();
+  assert.equal(view.expandedCommitMessage, null);
+});
+
+test('each commit tab retains its scroll handle and pending commit tabs never display working changes', async () => {
+  let serial = 0;
+  const { DiffViewer } = await load({ VirtualListScrollHandle: { new: () => ({ serial: ++serial, scroll_to_item() {} }) } });
+  const view = new DiffViewer(); view.init();
+  const cx = { notify() {} }, a = { sha: 'a'.repeat(40), at: 1700000000 }, b = { sha: 'b'.repeat(40), at: 1700000000 };
+  const workingScroll = view.scroll;
+  view.openCommit(a, cx, { commit: a, files: ['A'] }); const aScroll = view.scroll;
+  view.openCommit(b, cx, { commit: b, files: ['B'] }); const bScroll = view.scroll;
+  assert.notEqual(aScroll, bScroll);
+  view.openCommit(a, cx, { commit: a, files: ['A'] }); assert.equal(view.scroll, aScroll);
+  view.showChanges(cx); assert.equal(view.scroll, workingScroll);
+  view.history.pending = b.sha;
+  view.openCommit(b, cx);
+  assert.equal(view.previewMode, true); assert.equal(view.graphMode, false);
+  assert.equal(view.commitPreview.commit.sha, b.sha); assert.equal(view.commitPreview.pending, true);
+  assert.deepEqual(view.displayFiles, []);
+});
+
+test('Git Graph entry is in the latest-commit row below Git actions and absent from the Changes/History tab bar', async () => {
+  const nodes = new Map();
+  const element = () => {
+    const state = { items: [] };
+    const el = new Proxy(state, { get(_target, key) {
+      if (key in state) return state[key];
+      if (key === 'when') return (condition, fn) => { if (condition) fn(el); return el; };
+      if (key === 'id') return id => { nodes.set(id, el); return el; };
+      if (key === 'child') return child => { state.items.push(child); return el; };
+      if (key === 'children') return children => { state.items.push(...children); return el; };
+      return () => el;
+    } }); return el;
+  };
+  const { DiffViewer } = await load({ div: element, h_flex: element, v_flex: element, svg: element,
+    Button: id => element().id(id), Popup: { new: element }, VirtualListScrollHandle: { new: () => ({}) } });
+  const view = new DiffViewer(); view.init(); view.pushFooter = () => element().id('git-actions');
+  view.latestCommit = { sha: 'a'.repeat(40), shortSha: 'aaaaaaa', subject: 'Latest commit' };
+  const panel = view.panel({});
+  assert.ok(nodes.get('git-latest-commit').items.includes(nodes.get('git-open-graph')));
+  assert.ok(panel.items.indexOf(nodes.get('git-actions')) < panel.items.indexOf(nodes.get('git-latest-commit')));
+  nodes.clear(); view.panelTab = 'history'; view.history.render = element; view.panel({});
+  assert.equal(nodes.has('git-open-graph'), false);
 });

@@ -34,6 +34,14 @@ export async function readCommitHistory(folder, on, revision = null, skip = 0) {
   return { revision: page.revision, entries: page.entries.slice(0, PAGE), hasMore: page.entries.length > PAGE };
 }
 
+export async function readCommitSummary(folder, on, sha) {
+  if (!validSha(sha)) throw new Error('Invalid commit.');
+  const result = await exec('git', ['-C', folder, '-c', 'log.showSignature=false', '--no-pager', 'show',
+    '--no-patch', '--no-color', '-z', '--format=%H%x00%h%x00%an%x00%at%x00%B', sha, '--'], { on });
+  if (result.code !== 0) throw new Error(result.stderr.trim() || 'Cannot read latest commit.');
+  return parseCommitHistory(`${sha}\0${result.stdout}`).entries[0] || null;
+}
+
 /** Root commits compare to the empty tree; merge commits compare to their first parent. */
 export async function readCommitPatch(folder, on, sha) {
   if (!validSha(sha)) throw new Error('Invalid commit.');
@@ -102,7 +110,7 @@ export class CommitHistory {
 
   select(commit, cx) {
     if (!this.context || !commit || this.pending === commit.sha) return;
-    this.onSelect?.();
+    this.onSelect?.(commit, cx);
     if (this.preview?.commit.sha === commit.sha && !this.pending) { this.previewError = null; cx.notify(); return; }
     const context = this.context, version = this.version, selection = ++this.selection;
     this.pending = commit.sha; this.previewError = null; cx.notify();

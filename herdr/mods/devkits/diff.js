@@ -6,7 +6,8 @@ import { Button } from './components/button.js';
 import { DropdownMenu, DropdownMenuState } from './components/dropdown-menu.js';
 import { TreeItem, TreeItemIcon, TreeItemLabel, GitStatusColor } from './components/tree.js';
 import { Empty, EmptyDescription } from './components/empty.js';
-import { CommitHistory } from './git-history.js';
+import { CommitHistory, readCommitSummary } from './git-history.js';
+import { GitGraph } from './git-graph.js';
 import { SidePanelLayout, SidePanelState } from './components/side-panel.js';
 import { gitAccount, setGitAccount, readGitAccounts, gitAuthArgs } from './git-auth.js';
 
@@ -275,6 +276,7 @@ export default class DiffViewer {
     this.folders = new Set();
     this.request = 0;
     this.scroll = VirtualListScrollHandle.new();
+    this.workingScroll = this.scroll; this.commitScrolls = new Map();
     this.gitMenu = new DropdownMenuState(cx);
     this.optionsMenu = new DropdownMenuState(cx);
     this.fileViewMenu = new DropdownMenuState(cx);
@@ -284,8 +286,15 @@ export default class DiffViewer {
       this.scroll.scroll_to_item(0, 'top');
       return parseDiff(text);
     });
-    this.history.onSelect = () => {
-      this.previewMode = true; this.output?.release(); this.output = null; this.onOpen?.();
+    this.history.onSelect = (commit, cx) => {
+      if (commit) {
+        this.previewCommit = commit;
+        if (!this.commitScrolls.has(commit.sha)) this.commitScrolls.set(commit.sha, VirtualListScrollHandle.new());
+        this.scroll = this.commitScrolls.get(commit.sha);
+      }
+      this.graphMode = false;
+      this.previewMode = true; this.output?.release(); this.output = null;
+      this.onOpen?.(commit ? { kind: 'commit', commit } : undefined, cx);
     };
   }
 
@@ -297,7 +306,12 @@ export default class DiffViewer {
     this.watcher?.cancel(); this.poll?.cancel(); this.queued?.cancel();
     this.queued = null;
     this.context = null; this.previewMode = false;
+    this.previewCommit = null;
+    this.expandedCommitMessage = null;
     this.history.reset(null);
+    this.graph?.reset(null); this.graphMode = false; this.graphReturn = false;
+    this.latestCommit = null; this.latestRevision = null;
+    this.commitScrolls.clear(); this.scroll = this.workingScroll;
     this.request++;
   }
 
@@ -306,6 +320,7 @@ export default class DiffViewer {
     this.context = project ? { ...project } : null;
     this.nativeBranch = project?.branch || null;
     this.history.reset(this.context);
+    this.graph?.reset(this.context);
     this.files = []; this.collapsed.clear(); this.folders.clear(); this.rowCache = null; this.selected = null;
     this.error = null; this.loaded = false; this.truncated = false; this.diffText = null;
     this.loading = false; this.dirty = false;
@@ -355,6 +370,7 @@ export default class DiffViewer {
     if (this.loading) { this.dirty = true; return; }
     const context = this.context, request = ++this.request;
     this.loading = true;
+    if (this.graphMode) this.graph?.load(cx);
     let changed = !this.loaded;
     cx.spawn(async cx => {
       try {
@@ -367,6 +383,7 @@ export default class DiffViewer {
           const changedHead = state.value?.revision !== this.pushState?.revision;
           this.pushState = state.value; this.pushStateError = state.error || null; changed = true;
           if (changedHead && this.panelTab === 'history') this.history.load(cx);
+          if (changedHead) this.loadLatestCommit(state.value?.revision, cx);
         }
         // Like Zed, keep what is shown until the result actually differs; most events change nothing.
         if (text !== this.diffText || this.error) {
@@ -389,6 +406,19 @@ export default class DiffViewer {
   }
 
   push(cx) { this.remoteAction('push', cx); }
+
+  loadLatestCommit(sha, cx) {
+    if (this.latestRevision === sha) return;
+    this.latestRevision = sha || null;
+    if (!sha) { this.latestCommit = null; return; }
+    const context = this.context;
+    cx.spawn(async cx => {
+      try {
+        const commit = await readCommitSummary(context.folder, context.machine, sha);
+        if (this.context === context && this.latestRevision === sha) { this.latestCommit = commit; cx.notify(); }
+      } catch { if (this.context === context && this.latestRevision === sha) this.latestRevision = null; }
+    });
+  }
 
   primaryRemoteAction() {
     const state = this.pushState;
@@ -429,11 +459,13 @@ export default class DiffViewer {
           if (this.context === context) {
             if (state.revision !== this.pushState?.revision && this.panelTab === 'history') this.history.load(cx);
             this.pushState = state; this.pushStateError = null;
+            this.loadLatestCommit(state.revision, cx);
           }
         } catch {}
       }
       this.pushing = null;
       if (this.context === context) {
+        if (this.graphMode) this.graph?.load(cx);
         this.pushResult = { message, failed };
         this.resultTitle = `${operation.label} ${failed ? 'failed' : 'completed'}`;
         this.toastVisible = true;
@@ -579,7 +611,9 @@ export default class DiffViewer {
 
   /** Jumps the multibuffer to a file's header, expanding the file if it was collapsed. */
   reveal(path, cx) {
-    this.previewMode = false; this.onOpen?.();
+    this.graphMode = false;
+    this.scroll = this.workingScroll;
+    this.previewMode = false; this.onOpen?.({ kind: 'changes' }, cx);
     this.output?.release(); this.output = null;
     this.selected = path;
     this.pendingReveal = path;
@@ -618,7 +652,29 @@ export default class DiffViewer {
     cx.notify();
   }
 
-  get commitPreview() { return this.previewMode ? this.history.preview : null; }
+  get commitPreview() {
+    if (!this.previewMode) return null;
+    if (this.previewCommit && this.history.preview?.commit.sha !== this.previewCommit.sha)
+      return { commit: this.previewCommit, files: [], pending: this.history.pending === this.previewCommit.sha };
+    return this.history.preview;
+  }
+
+  commitHeader(preview, t) {
+    const commit = preview.commit, message = (commit.message || commit.subject || '').trim();
+    const hasMore = message.includes('\n'), expanded = this.expandedCommitMessage === commit.sha;
+    return v_flex().id('commit-details').flex_none().px(12).py(8).gap(4).border_b(1).border_color(t.border)
+      .child(h_flex().h(20).gap(6).items_center().text_size(11).text_color(t.muted)
+        .child(div().flex_none().child(commit.author))
+        .when(hasMore, el => el.child(Button('commit-description-toggle', t, { variant: 'ghost', size: 'icon-sm' })
+          .accessibility_label(expanded ? 'Fold commit description' : 'Expand commit description')
+          .child(icon(expanded ? 'chevron-down' : 'chevron-right'))
+          .on_click((_event, cx) => { this.expandedCommitMessage = expanded ? null : commit.sha; cx.notify(); })))
+        .child(div().min_w(0).truncate().child(new Date(commit.at * 1000).toISOString().replace('T', ' ').replace('.000Z', ' UTC'))))
+      .child(div().id('commit-description').text_size(13)
+        .when(!expanded, el => el.h(20).line_height('20px').truncate())
+        .when(expanded, el => el.max_h(240).overflow_y_scrollbar())
+        .child(expanded ? message : message.split('\n')[0]));
+  }
   get hideLockFiles() { return shared('devkits.diff-hide-lock-files') !== false; }
   get fileView() { return shared('devkits.diff-file-view') === 'list' ? 'list' : 'tree'; }
 
@@ -644,9 +700,42 @@ export default class DiffViewer {
   }
 
   showChanges(cx) {
+    this.graphMode = false;
+    this.scroll = this.workingScroll;
     if (this.output || this.previewMode) this.rowCache = null;
     this.output?.release(); this.output = null; this.previewMode = false;
-    this.onOpen?.(); cx.notify();
+    this.onOpen?.({ kind: 'changes' }, cx); cx.notify();
+  }
+
+  openCommit(commit, cx, preview) {
+    this.rowCache = null; this.selected = null; this.pendingReveal = null;
+    if (preview) {
+      this.history.selection++;
+      this.history.pending = null; this.history.previewError = null;
+      this.history.preview = preview; this.history.onSelect(commit, cx);
+    } else if (this.history.pending === commit.sha) this.history.onSelect(commit, cx);
+    else this.history.select(commit, cx);
+    cx.notify();
+  }
+
+  openGraph(cx) {
+    if (!this.graph) {
+      this.graph = new GitGraph(cx, parseDiff);
+      this.graph.visibleFiles = files => this.visibleFiles(files);
+      this.graph.fileRows = changeTree;
+      this.graph.reset(this.context);
+      this.graph.onClose = cx => { this.graphMode = false; cx.notify(); };
+      this.graph.onOpen = (commit, cx, path, preview) => {
+        this.graphReturn = true;
+        this.collapsed.clear();
+        this.openCommit(commit, cx, preview);
+        this.selected = path || null;
+        this.pendingReveal = path || null;
+        cx.notify();
+      };
+    }
+    this.graphMode = true; this.output?.release(); this.output = null;
+    this.graph.load(cx); this.graph.focus?.focus(); this.onOpen?.({ kind: 'graph' }, cx); cx.notify();
   }
 
   setPanelTab(tab, cx) {
@@ -715,7 +804,14 @@ export default class DiffViewer {
                   .child(div().text_color(GitStatusColor.deleted).child(`−${row.file.removed}`))));
             })));
         })))
-      .child(this.pushFooter(t));
+      .child(this.pushFooter(t))
+      .when(this.panelTab === 'changes' && Boolean(this.latestCommit), el => el.child(h_flex().id('git-latest-commit').h(32).flex_none()
+        .border_t(1).border_color(t.border)
+        .child(Button('git-view-latest-commit', t, { variant: 'ghost' }).flex_1().min_w(0).h_full().px(10).justify_start()
+          .accessibility_label(`View commit ${this.latestCommit.shortSha}`).child(div().truncate().text_size(12).child(this.latestCommit.subject))
+          .on_click((_event, cx) => this.openCommit(this.latestCommit, cx)))
+        .child(Button('git-open-graph', t, { variant: 'ghost', size: 'icon' }).size(32)
+          .accessibility_label('Open Git Graph').child(icon('git-graph').size(14)).on_click((_event, cx) => this.openGraph(cx)))));
   }
 
   get split() { return shared('devkits.diff-layout') === 'split'; }
@@ -880,6 +976,13 @@ export default class DiffViewer {
   render(project, cx, parts = false) {
     if (this.context?.id !== project?.id || this.context?.folder !== project?.folder || this.context?.machine !== project?.machine) this.refresh(project, cx);
     this.nativeBranch = project?.branch || null;
+    if (this.graphMode) {
+      const t = theme();
+      const body = div().id('diff-viewer').relative().size_full().min_h(0).bg(t.background).text_color(t.foreground)
+        .child(this.graph.render(t, this.managedTabs)).when(this.toastVisible, el => el.child(this.resultToast(t)));
+      if (parts) return { content: body, panel: this.panel(t) };
+      return div().size_full().child(SidePanelLayout('diff-split', this.sidePanel, body, this.panel(t)));
+    }
     const t = theme(), mono = settings().font_family, { rows, sizes, limited, gutter, contentWidth, wrap } = this.rows(cx), split = this.split;
     const preview = this.commitPreview;
     const choice = (id, label, value) => Button(id, t, { variant: 'ghost', size: 'icon' }).h_full().w(32)
@@ -889,6 +992,9 @@ export default class DiffViewer {
     // The editor and the Git panel are side by side, each with its own 32px header, like Files; drag the line between them.
     const content = this.output ? this.outputView(t) : v_flex().size_full().min_w(0).min_h(0)
         .child(h_flex().h(32).flex_none().pl(12).gap(8).items_center().bg(t.chrome).border_b(1).border_color(t.border).text_size(12)
+          .when(Boolean(!this.managedTabs && this.graphReturn && this.previewMode), el => el.child(Button('diff-back-to-graph', t, { variant: 'ghost', size: 'icon' })
+            .h_full().w(32).accessibility_label('Back to Git Graph').child(icon('chevron-left'))
+            .on_click((_event, cx) => this.openGraph(cx))))
           .child(div().flex_1().min_w(0).truncate().font_medium().child(preview ? `Commit ${preview.commit.shortSha}` : 'Uncommitted changes'))
           .when(rows.length > 0, el => el
             .child(choice('diff-unified', 'Unified', 'unified'))
@@ -899,9 +1005,7 @@ export default class DiffViewer {
             [{ key: 'wrap', label: 'Wrap', checked: this.wrap },
               { key: 'hide-lock-files', label: 'Hide lock files', checked: this.hideLockFiles }],
             (key, cx) => key === 'wrap' ? this.toggleWrap(cx) : this.toggleLockFiles(cx), t, { offset: { x: 8, y: 9 }, fullHeight: true })))
-        .when(Boolean(preview), el => el.child(v_flex().flex_none().max_h(160).overflow_y_scrollbar().px(12).py(8).gap(4).border_b(1).border_color(t.border)
-          .child(div().text_size(11).text_color(t.muted).child(`${preview.commit.author} · ${new Date(preview.commit.at * 1000).toISOString().replace('T', ' ').replace('.000Z', ' UTC')}`))
-          .child(div().text_size(13).child(preview.commit.message))))
+        .when(Boolean(preview), el => el.child(this.commitHeader(preview, t)))
         .when(this.panelTab === 'history' && Boolean(this.history.previewError), el => el.child(div().flex_none().px(12).py(8).text_size(12).text_color(t.muted)
           .child(this.history.previewError)))
         .when((preview ? preview.truncated : this.truncated) || limited, el => el.child(div().flex_none().px(12).py(6).text_size(11).text_color(t.muted).border_b(1).border_color(t.border)
@@ -934,7 +1038,7 @@ export default class DiffViewer {
               .on_item_click((key, cx) => { if (key.startsWith('file:')) this.toggle(key.slice(5), cx); })))
             .child(Scrollbar.vertical('diff-rows').absolute().inset_0())
           : Empty(t).flex_1().p(24).gap(4).font_family('Geist')
-            .child(EmptyDescription(t).text_size(13).child(this.rowJob ? 'Loading changes…' : !this.displayFiles.length && (preview?.files || this.files).length ? 'All changed files are hidden by Hide lock files' : preview ? 'No file changes in this commit' : this.error ? 'Changes unavailable' : this.loaded ? 'No uncommitted changes' : 'Loading changes…'))
+            .child(EmptyDescription(t).text_size(13).child(preview?.pending ? 'Loading commit…' : this.rowJob ? 'Loading changes…' : !this.displayFiles.length && (preview?.files || this.files).length ? 'All changed files are hidden by Hide lock files' : preview ? this.history.previewError ? 'Commit changes unavailable' : 'No file changes in this commit' : this.error ? 'Changes unavailable' : this.loaded ? 'No uncommitted changes' : 'Loading changes…'))
             .when(!preview && Boolean(this.error), el => el.child(EmptyDescription(t).child(this.error))));
     const body = div().id('diff-viewer').relative().size_full().min_h(0).bg(t.background).text_color(t.foreground)
       .child(content).when(this.toastVisible, el => el.child(this.resultToast(t)));

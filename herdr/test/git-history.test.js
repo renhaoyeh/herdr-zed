@@ -12,7 +12,7 @@ async function load(host = {}) {
   const shell = await readFile(new URL('../mods/devkits/shell.js', import.meta.url), 'utf8');
   const command = await readFile(new URL('../mods/devkits/shell-command.js', import.meta.url), 'utf8');
   return new Function(...Object.keys(host), (command + '\n' + shell + '\n' + source).replace(/^import .*;\r?\n/gm, '').replace(/^export /gm, '')
-    + '\nreturn { CommitHistory, parseCommitHistory, readCommitHistory, readCommitPatch, commitAge };')(...Object.values(host));
+    + '\nreturn { CommitHistory, parseCommitHistory, readCommitHistory, readCommitPatch, readCommitSummary, commitAge };')(...Object.values(host));
 }
 const record = (sha, subject) => [sha, sha.slice(0, 7), '作者 Name', '1700000000', `${subject}\n\nBody | $(literal)\n`].join('\0') + '\0';
 const clock = () => {
@@ -25,7 +25,7 @@ test('history pages are anchored to a revision and previews handle root and merg
   t.after(() => rm(folder, { recursive: true, force: true }));
   const repo = join(folder, 'repo'), path = repo.replaceAll('\\', '/');
   const git = (...args) => run('git', ['-c', 'user.name=作者 Name', '-c', 'user.email=t@t', ...args]);
-  const { readCommitHistory, readCommitPatch } = await load({ exec: async (cmd, args, options) => {
+  const { readCommitHistory, readCommitPatch, readCommitSummary } = await load({ exec: async (cmd, args, options) => {
     assert.equal(options.on, 'box');
     try { const { stdout, stderr } = await run(cmd, args, { maxBuffer: 8 * 1024 * 1024 }); return { code: 0, stdout, stderr }; }
     catch (error) { if (typeof error.code !== 'number') throw error; return { code: error.code, stdout: error.stdout, stderr: error.stderr }; }
@@ -38,6 +38,7 @@ test('history pages are anchored to a revision and previews handle root and merg
   assert.equal(root.author, '作者 Name');
   assert.equal(root.subject, '初始提交');
   assert.match(root.message, /Body \| \$\(literal\)/);
+  assert.deepEqual(await readCommitSummary(path, 'box', root.sha), root);
   const rootPatch = await readCommitPatch(path, 'box', root.sha);
   assert.match(rootPatch.text, /--- \/dev\/null/);
   assert.match(rootPatch.text, /中文.txt/);
