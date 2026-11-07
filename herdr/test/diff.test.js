@@ -524,15 +524,56 @@ test('large hunks bound pairing by the remaining display rows', async () => {
   // A preceding file can exhaust almost all of the shared multibuffer budget.
   const view = new DiffViewer(); view.collapsed = new Set();
   view.files = [
-    { path: 'first', hunks: [{ lines: Array(19997).fill({ type: 'ctx', text: '' }) }] },
+    { path: 'first', hunks: [{ lines: Array(9997).fill({ type: 'ctx', text: '' }) }] },
     { path: 'large', hunks: [{ lines }] },
   ];
   for (layout of ['unified', 'split']) {
     reads = 0; view.rowCache = null;
-    assert.equal(view.rows().rows.length, 20000);
+    assert.equal(view.rows().rows.length, 10000);
     assert.equal(view.rows().limited, true);
     assert.ok(reads < 20, 'Rows must pass the remaining budget into pairing');
   }
+});
+
+test('large diffs render within the native item_sizes limit in both layouts, with and without wrapping', async () => {
+  const memory = {}, lists = [], labels = [];
+  const element = () => {
+    const el = new Proxy({}, { get(_target, key) {
+      if (key === 'when') return (condition, render) => { if (condition) render(el); return el; };
+      return (...args) => { if (key === 'child' && typeof args[0] === 'string') labels.push(args[0]); return el; };
+    } });
+    return el;
+  };
+  const { DiffViewer } = await load({
+    div: element, svg: element, h_flex: element, v_flex: element, Button: element,
+    Popup: { new: element }, Scrollbar: { vertical: element },
+    VirtualListScrollHandle: { new: () => ({}) }, theme: () => ({}), settings: () => ({}),
+    shared: key => memory[key],
+    v_virtual_list(id, count, sizes, getKey, render) {
+      assert.ok(sizes.length <= 10000, 'item_sizes may contain at most 10000 entries');
+      assert.equal(sizes.length, count);
+      assert.equal(typeof getKey(count - 1), 'string');
+      assert.equal(render({ start: count - 1, end: count }).length, 1);
+      lists.push(count);
+      return element();
+    },
+  });
+  const view = new DiffViewer(); view.init(); view.context = { id: 'project', folder: '/project' };
+  view.panel = element; view.width = 216; view.charWidth = 8;
+  for (const layout of ['unified', 'split']) for (const wrap of [true, false]) {
+    memory['devkits.diff-layout'] = layout; memory['devkits.diff-wrap'] = wrap;
+    // Include the file header in the boundary; wrapped lines add more visual rows.
+    for (const count of [9999, 10000, 10001]) {
+      view.files = [{ path: 'large', hunks: [{ lines: Array(count - 1).fill({ type: 'ctx', text: 'x'.repeat(60) }) }] }];
+      view.rowCache = null; labels.length = 0;
+      const rows = view.rows();
+      view.render(view.context, {}, true);
+      assert.equal(lists.at(-1), wrap ? 10000 : Math.min(count, 10000));
+      assert.equal(rows.limited, wrap || count > 10000);
+      assert.equal(labels.includes('Diff limited to 4 MB and 10,000 rows.'), rows.limited);
+    }
+  }
+  assert.equal(lists.length, 12);
 });
 
 test('soft wrapping preserves source text, Unicode, whitespace, line numbers and highlight offsets', async () => {
@@ -623,7 +664,7 @@ test('wrapping follows viewport width and font metrics, aligns split rows and ke
   assert.deepEqual(scrolled, [[b, 'top']], 'An unmeasured viewport cannot be scrolled past');
   view.files = [{ path: 'huge', hunks: [{ lines: Array.from({ length: 25 }, () => ({ type: 'ctx', text: 'x'.repeat(2000) })) }] }];
   view.width = 72; view.rowCache = null;
-  assert.equal(view.rows().rows.length, 20000);
+  assert.equal(view.rows().rows.length, 10000);
   assert.equal(view.rows().limited, true);
 });
 

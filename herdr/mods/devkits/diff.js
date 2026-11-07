@@ -12,7 +12,8 @@ import { SidePanelLayout, SidePanelState } from './components/side-panel.js';
 import { gitAccount, setGitAccount, readGitAccounts, gitAuthArgs } from './git-auth.js';
 
 const icon = name => svg(`mods/devkits/assets/icons/${name}.svg`).size(12).flex_none();
-const MAX_BYTES = 4000000, MAX_ROWS = 20000, MAX_LINE = 2000;
+// Native virtual lists accept at most 10,000 per-item sizes, including chrome rows.
+const MAX_BYTES = 4000000, MAX_ROWS = 10000, MAX_LINE = 2000;
 const LINE = 20, HEADER = 32, GAP = 8, SEPARATOR = 12;
 // Code uses a monospace font. Reserve two columns for wide/fallback glyphs;
 // combining marks stay attached to their preceding character without using a column.
@@ -1009,7 +1010,7 @@ export default class DiffViewer {
         .when(this.panelTab === 'history' && Boolean(this.history.previewError), el => el.child(div().flex_none().px(12).py(8).text_size(12).text_color(t.muted)
           .child(this.history.previewError)))
         .when((preview ? preview.truncated : this.truncated) || limited, el => el.child(div().flex_none().px(12).py(6).text_size(11).text_color(t.muted).border_b(1).border_color(t.border)
-          .child('Diff limited to 4 MB and 20,000 rows.')))
+          .child('Diff limited to 4 MB and 10,000 rows.')))
         .child(rows.length
           ? v_flex().id('diff-viewport').relative().flex_1().min_h(0)
             .on_size_change((size, cx) => {
