@@ -1,7 +1,7 @@
 import { View, div, svg, image } from 'gpui-kit';
 import { v_flex, h_flex } from 'gpui-base';
 import { agents, spaces, panes, theme, run, props, window, openOverlay, closeOverlay, setAgentOrder, layout, settings, pickFolder, shared, setShared, knownAgents, notify, appHome, readTextFile, nextCommand } from 'herdr';
-import { projectGroups, projectCatalog, folderKey, launcherChoices, isAccountLauncher, launcherArgv, sessionArgv, sessionKind, resolveThreadProfiles, threadProfile } from './model.js';
+import { projectGroups, projectCatalog, folderKey, launcherChoices, isAccountLauncher, launcherArgv, sessionArgv, sessionKind, resolveThreadProfiles, threadProfile, archivable } from './model.js';
 import { commandArgv } from './shell-command.js';
 import AccountLogin from './account-login.js';
 import FileViewer, { FileMenu } from './files.js';
@@ -13,6 +13,7 @@ import { sessionMenu } from './session-menu.js';
 import { accountActions } from './account-actions.js';
 import { agentUsage } from './usage.js';
 import { RunControls, RunMenu, runApp } from './run-app.js';
+import { threadArchive } from './thread-archive.js';
 import { DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from './components/dropdown-menu.js';
 import { Button } from './components/button.js';
 import { AlertDialogContent, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from './components/alert-dialog.js';
@@ -321,19 +322,23 @@ export default class Devkits extends View {
     catch (error) { notify({ title: 'Could not start session', body: error.message, level: 'error' }); return; }
     if (target.overlay) closeOverlay(target.overlay);
     if (task) argv = [...argv, taskPrompt(task)];
-    if (!spaces().find(space => space.id === target.space)?.machine) argv = commandArgv(argv, window()?.platform);
-    const name = task?.name || agent?.name;
     if (task) unsaveTask(target.folder, task.gid);
+    this.openThread(target, task?.name || agent?.name, argv, agent?.key, task ? { gid: task.gid, name: task.name, folder: target.folder } : null);
+  }
+
+  // Opens a thread (or a plain terminal, without argv) in the target project and shows it.
+  openThread(target, name, argv, profile, task) {
+    if (argv && !spaces().find(space => space.id === target.space)?.machine) argv = commandArgv(argv, window()?.platform);
     // Commands do not return the new tab, so the sidebar matches it once it appears.
-    if (agent) setShared('devkits.pending-profiles', [...(shared('devkits.pending-profiles') || []), { key: agent.key,
+    if (profile) setShared('devkits.pending-profiles', [...(shared('devkits.pending-profiles') || []), { key: profile,
       space: target.space || null, folder: target.folder, before: spaces().flatMap(space => space.tabs.map(tab => tab.id)), at: Date.now(),
-      ...(task ? { task: { gid: task.gid, name: task.name, folder: target.folder } } : {}) }]);
+      ...(task ? { task } : {}) }]);
     hidePanels();
     rememberPanel(target.space, null);
     setShared('devkits.selected-project', null);
     run('layout.select', { stack: 'workspace-view', child: 'main' });
-    if (target.space) run('tab.new', { space: target.space, folder: target.folder, ...(agent ? { name, argv } : {}) });
-    else run('space.new', { name: target.projectName, folder: target.folder, machine: '', ...(agent ? { tab: name, argv } : {}) });
+    if (target.space) run('tab.new', { space: target.space, folder: target.folder, ...(argv ? { name, argv } : {}) });
+    else run('space.new', { name: target.projectName, folder: target.folder, machine: '', ...(argv ? { tab: name, argv } : {}) });
   }
 
   // The Asana composer starts the session itself with the chosen agent, model and effort.
@@ -450,6 +455,7 @@ export default class Devkits extends View {
     const working = thread.status === 'working' || thread.agents.some(agent => agent.status === 'working');
     const isFocused = thread.active;
     const p = thread.agent?.program;
+    const archive = archivable(thread);
     const icon = working ? glyph('loader', 14).text_color(t.working).spin(900).accessibility_label('Working')
       : p?.icon ? (p.tint ? svg(p.icon).size(14).text_color(t.muted) : image(p.icon).size(14)) : glyph('terminal', 14).text_color(t.muted);
     return SidebarMenuButton(`thread-${thread.tab.id}`, isFocused, t)
@@ -469,11 +475,12 @@ export default class Devkits extends View {
       .child(div().size(16).flex_none().flex().items_center().justify_center().child(icon))
       .child(div().flex_1().min_w(0).truncate().text_size(13).text_color(t.foreground)
         .when(isFocused, el => el.font_medium()).child(thread.title))
-      .child(Button(`close-thread-${thread.tab.id}`, t, { variant: 'row', size: 'icon-sm' })
+      // Only a Claude or Codex conversation can be archived; terminals simply close.
+      .child(Button(`${archive ? 'archive' : 'close'}-thread-${thread.tab.id}`, t, { variant: 'row', size: 'icon-sm' })
         .opacity(this.hovered === thread.tab.id ? 1 : 0)
-        .accessibility_label('Close thread')
-        .on_click((_event, cx) => { cx.stop_propagation(); run('tab.close', { id: thread.tab.id }); })
-        .child(glyph('close', 12)));
+        .accessibility_label(archive ? 'Archive thread' : 'Close thread')
+        .on_click((_event, cx) => { cx.stop_propagation(); this.archiveThread(thread); })
+        .child(glyph(archive ? 'archive' : 'close', 12)));
   }
 
   render(cx) {
@@ -554,7 +561,7 @@ export default class Devkits extends View {
     const visible = groups.filter(g => !this.folded.has(g.space.id)).flatMap(g => g.threads.flatMap(thread => thread.agents));
     setAgentOrder(visible.map(a => a.address));
     return Sidebar(t)
-      .child(SidebarContent()
+      .child(this.archiveOpen ? this.archiveList(t) : SidebarContent()
         .children(groups.map(({ space, threads }, index) => SidebarGroup(index > 0, t)
           .child(SidebarGroupLabel(`project-${space.id}`, space.active, t)
             .on_hover((hovered, cx) => { this.hoveredProject = hovered ? space.id : null; cx.notify(); })
@@ -584,9 +591,13 @@ export default class Devkits extends View {
         .child(Button('settings', t, { variant: 'ghost', size: 'icon' }).accessibility_label('Settings')
           .h_full().rounded(0)
           .on_click(() => run('app.settings')).child(glyph('settings')))
+        .child(Button('archived-threads', t, { variant: 'ghost', size: 'icon' })
+          .accessibility_label(this.archiveOpen ? 'Show threads' : 'Show archived threads')
+          .h_full().rounded(0).bg(this.archiveOpen ? t.selected : t.chrome)
+          .on_click((_event, cx) => { this.archiveOpen = !this.archiveOpen; cx.notify(); }).child(glyph('archive')))
         .child(div().flex_1()));
   }
 }
 
 // Feature views share this view's state and its project, agent and session helpers.
-Object.assign(Devkits.prototype, sessionMenu, accountActions, agentUsage);
+Object.assign(Devkits.prototype, sessionMenu, accountActions, agentUsage, threadArchive);
