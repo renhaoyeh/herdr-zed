@@ -6,6 +6,7 @@ import { commandArgv } from './shell-command.js';
 import AccountLogin from './account-login.js';
 import FileViewer, { FileMenu } from './files.js';
 import DiffViewer from './diff.js';
+import WorkspaceEditor from './workspace-editor.js';
 import Analytics from './analytics.js';
 import XcodeStorage from './xcode-storage.js';
 import AsanaPanel, { AsanaProjectPicker, taskPrompt, unsaveTask } from './asana.js';
@@ -34,11 +35,9 @@ const hidePanels = () => { setShared('devkits.asana', null); };
 const rememberPanel = (id, name) => { if (id) setShared('devkits.project-panels', { ...(shared('devkits.project-panels') || {}), [id]: name || null }); };
 const showPanel = (name, id) => { hidePanels(); setShared(`devkits.${name}`, id); rememberPanel(id, name); };
 const restorePanel = id => { const shown = shared('devkits.project-panels')?.[id] === 'asana'; if (shown) setShared('devkits.asana', id); return shown; };
-// Shows Files or Changes in the editor beside the thread, or hides the editor when that one is already shown.
-const toggleEditor = (editor, name) => {
-  if (editor && !editor.hidden && editor.active === name) { run('layout.hide', { id: 'editor' }); return; }
-  run('layout.select', { stack: 'editor', child: name });
-  run('layout.show', { id: 'editor' });
+// Like Zed's dock buttons: close only the side panel, preserving the central document.
+const toggleEditor = (_editor, name) => {
+  setShared('devkits.right-panel', shared('devkits.right-panel') === name ? null : name);
 };
 const conversationKey = project => JSON.stringify([project.machine || '', folderKey(project.folder) || project.id]);
 const conversationVisible = project => Boolean(project && shared('devkits.conversation-visible')?.[conversationKey(project)]);
@@ -102,8 +101,20 @@ export default class Devkits extends View {
         const command = await nextCommand();
         if (command === 'run') await runApp();
         if (command === 'new-thread') await this.repeatThread(cx);
+        if (command === 'reveal-conversation') this.showConversation(true);
       }
     });
+    if (props()?.view === 'editor') {
+      this.editor = new WorkspaceEditor(); this.editor.init(cx); this.files = this.editor.files;
+      cx.spawn(async cx => {
+        for (;;) {
+          const command = await nextCommand();
+          if (command === 'close-file') this.closeFileTab(cx);
+          if (command === 'focus' || command === 'focus-editor') this.editor.focus();
+        }
+      });
+      return;
+    }
     if (props()?.view === 'files') {
       this.files = new FileViewer();
       this.files.init(cx);
@@ -310,11 +321,15 @@ export default class Devkits extends View {
     if (!project) return;
     setShared('devkits.conversation-visible', { ...(shared('devkits.conversation-visible') || {}), [conversationKey(project)]: visible });
     run(visible ? 'layout.show' : 'layout.hide', { id: 'workspace-view' });
+    if (visible) {
+      const pane = panes().find(pane => pane.tab === project.tabs?.find(tab => tab.active)?.id);
+      if (pane) run('pane.focus', { pane: pane.pane });
+    } else run('devkits.focus-editor');
   }
 
   closeFileTab(cx) {
     const editor = layoutNode(layout(), 'editor');
-    if (editor && !editor.hidden && editor.active === 'files' && this.files?.file)
+    if (editor && !editor.hidden && (shared('devkits.editor-kind') || editor.active || 'files') === 'files' && this.files?.file)
       this.files.closeTab(this.files.file, cx);
   }
 
@@ -431,7 +446,8 @@ export default class Devkits extends View {
   }
 
   async close() {
-    this.files?.close();
+    if (this.editor) this.editor.close();
+    else this.files?.close();
     this.diff?.close();
     await this.login?.close();
   }
@@ -513,7 +529,7 @@ export default class Devkits extends View {
     // Other platforms keep the button; the panel says it is unsupported there.
     const simulator = layoutNode(layout(), 'simulator'), editor = layoutNode(layout(), 'editor');
     const conversation = layoutNode(layout(), 'workspace-view');
-    const showing = name => Boolean(editor) && !editor.hidden && editor.active === name;
+    const showing = name => Boolean(editor) && shared('devkits.right-panel') === name;
     // Like Zed: the branch sits beside the project in the header; only a remote project names its machine here.
     return h_flex().size_full().pr(4).gap(8).items_center().bg(t.background).border_t(1).border_color(t.border)
       .text_size(11).text_color(t.muted)
@@ -557,7 +573,9 @@ export default class Devkits extends View {
     const working = thread.status === 'working' || thread.agents.some(agent => agent.status === 'working');
     const isFocused = thread.active;
     const p = threadProgram(thread, terminals());
-    const archive = archivable(thread, terminals()) && !this.closeOnlyThreads?.has(thread.tab.id);
+    const canArchive = archivable(thread, terminals());
+    const stopping = canArchive && this.threadBusy(thread);
+    const archive = canArchive && !stopping && !this.closeOnlyThreads?.has(thread.tab.id);
     const icon = working ? glyph('loader', 14).text_color(t.working).spin(900).accessibility_label('Working')
       : p?.icon ? (p.tint ? svg(p.icon).size(14).text_color(t.muted) : image(p.icon).size(14)) : glyph('terminal', 14).text_color(t.muted);
     return SidebarMenuButton(`thread-${thread.tab.id}`, isFocused, t)
@@ -572,22 +590,24 @@ export default class Devkits extends View {
       .on_click(() => {
         rememberPanel(thread.space, null);
         this.selectProject(this.projects().find(project => project.id === thread.space));
-        this.showConversation(true);
         run('tab.select', { id: thread.tab.id });
+        this.showConversation(true, { ...this.projects().find(project => project.id === thread.space), tabs: [{ id: thread.tab.id, active: true }] });
       })
       .child(div().size(16).flex_none().flex().items_center().justify_center().child(icon))
       .child(div().flex_1().min_w(0).truncate().text_size(13).text_color(t.foreground)
         .when(isFocused, el => el.font_medium()).child(thread.title))
       // Only a Claude or Codex conversation can be archived; terminals simply close.
-      .child(Button(`${archive ? 'archive' : 'close'}-thread-${thread.tab.id}`, t, { variant: 'row', size: 'icon-sm' })
+      .child(Button(`${stopping ? 'stop' : archive ? 'archive' : 'close'}-thread-${thread.tab.id}`, t, { variant: 'row', size: 'icon-sm' })
         .opacity(this.hovered === thread.tab.id ? 1 : 0)
-        .accessibility_label(archive ? 'Archive thread' : 'Close thread')
+        .accessibility_label(stopping ? 'Stop generation' : archive ? 'Archive thread' : 'Close thread')
+        .disabled(this.stoppingThreads?.has(thread.tab.id) || false)
         .on_click((_event, cx) => {
           cx.stop_propagation();
-          if (archive) cx.spawn(async cx => { await this.archiveThread(thread); cx.notify(); });
+          if (stopping) cx.spawn(async cx => { await this.stopThread(thread); cx.notify(); });
+          else if (archive) cx.spawn(async cx => { await this.archiveThread(thread); cx.notify(); });
           else run('tab.close', { id: thread.tab.id });
         })
-        .child(glyph(archive ? 'archive' : 'close', 12)));
+        .child(glyph(stopping ? 'square' : archive ? 'archive' : 'close', 12)));
   }
 
   // A terminal the thread's agent started with hc run, indented under it; it peeks over the thread when clicked.
@@ -607,8 +627,8 @@ export default class Devkits extends View {
       .on_click(() => {
         rememberPanel(thread.space, null);
         this.selectProject(this.projects().find(project => project.id === thread.space));
-        this.showConversation(true);
         run('tab.select', { id: thread.tab.id });
+        this.showConversation(true, { ...this.projects().find(project => project.id === thread.space), tabs: [{ id: thread.tab.id, active: true }] });
         run('terminal.peek', { terminal: terminal.address });
       })
       .child(div().size(16).flex_none().flex().items_center().justify_center().child(icon))
@@ -627,6 +647,7 @@ export default class Devkits extends View {
     if (props()?.view === 'xcode-storage') return this.xcodeStorage.render();
     if (props()?.view === 'codex-permissions') return div();
     if (props()?.view === 'file-menu') return this.fileMenu.render();
+    if (props()?.view === 'editor') return this.editor.render(this.projects().find(project => project.active), cx);
     if (props()?.view === 'files') return this.files.render(this.projects().find(project => project.active), cx);
     if (props()?.view === 'diff') return this.diff.render(this.projects().find(project => project.active), cx);
     if (props()?.view === 'account-login') return this.login.render();
@@ -740,9 +761,9 @@ export default class Devkits extends View {
       .child(this.accountUsage(t))
       .child(SidebarFooter(t)
         .child(Button('archived-threads', t, { variant: 'ghost', size: 'icon' })
-          .accessibility_label(this.archiveOpen ? 'Show threads' : 'Show archived threads')
+          .accessibility_label(this.archiveOpen ? 'Show threads' : 'Show thread history')
           .h_full().rounded(0).bg(this.archiveOpen ? t.selected : t.chrome)
-          .on_click((_event, cx) => { this.archiveOpen = !this.archiveOpen; cx.notify(); }).child(glyph('archive')))
+          .on_click((_event, cx) => { this.archiveOpen = !this.archiveOpen; cx.notify(); }).child(glyph('clock')))
         .child(div().flex_1()));
   }
 }
