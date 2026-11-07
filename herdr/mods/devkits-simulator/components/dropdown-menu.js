@@ -58,7 +58,7 @@ export class DropdownMenuState {
 }
 
 /** An anchored action menu with native dismissal and focus, and keyboard navigation. */
-export function DropdownMenu(id, state, trigger, items, onSelect, t, { side = 'bottom', align = 'end', offset = OFFSET } = {}) {
+export function DropdownMenu(id, state, trigger, items, onSelect, t, { side = 'bottom', align = 'end', offset = OFFSET, fullHeight = false } = {}) {
   const close = cx => { state.open = false; state.page = null; state.trigger?.focus(); cx.notify(); };
   const choose = (item, cx) => {
     cx.stop_propagation();
@@ -116,5 +116,5 @@ export function DropdownMenu(id, state, trigger, items, onSelect, t, { side = 'b
     .when(side === 'top', el => el.pb(offset.y)).when(side !== 'top', el => el.pt(offset.y))
     .when(align === 'start', el => el.pl(offset.x)).when(align !== 'start', el => el.pr(offset.x))
     .child(content);
-  return Popup.new(id, trigger).relative().flex_none().anchor(anchor).when(state.open, el => el.content(spaced));
+  return Popup.new(id, trigger).relative().flex_none().when(fullHeight, el => el.h_full()).anchor(anchor).when(state.open, el => el.content(spaced));
 }

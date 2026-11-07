@@ -499,7 +499,7 @@ export default class Devkits extends View {
     const title = thread?.title || p.title || 'Terminal';
     const link = shared('devkits.thread-tasks')?.[p.tab];
     const icon = program?.icon ? (program.tint ? svg(program.icon).size(14).text_color(t.muted) : image(program.icon).size(14)) : glyph('terminal');
-    return h_flex().size_full().px(12).gap(8).items_center().bg(t.chrome).border_b(1).border_color(t.border)
+    return h_flex().size_full().pl(12).gap(8).items_center().bg(t.chrome).border_b(1).border_color(t.border)
       .text_size(12).text_color(t.muted).on_click(() => run('pane.focus', { pane: p.pane }))
       .child(div().flex_none().child(icon))
       .child(div().min_w(0).truncate().text_color(t.foreground).child(title))
@@ -509,7 +509,7 @@ export default class Devkits extends View {
         .border(1).border_color(t.border).accessibility_label(`Show Asana task ${link.name}`)
         .on_click((_event, cx) => { cx.stop_propagation(); this.openTask(thread.space, link); })
         .child(glyph('list-todo', 12)).child('Asana')))
-      .child(DropdownMenuTrigger(Button(`new-thread-${p.pane}`, t, { variant: 'ghost', size: 'icon' })
+      .child(DropdownMenuTrigger(Button(`new-thread-${p.pane}`, t, { variant: 'ghost', size: 'icon' }).h_full().w(32)
         .accessibility_label('New thread…').child(glyph('plus')), 280,
         (cx, at) => this.newThread(cx, thread?.space, at), 'end'));
   }
@@ -729,7 +729,7 @@ export default class Devkits extends View {
     return Sidebar(t)
       .child(this.archiveOpen ? this.archiveList(t) : SidebarContent()
         .children(groups.map(({ space, threads }, index) => SidebarGroup(index > 0, t)
-          .child(SidebarGroupLabel(`project-${space.id}`, space.active, t)
+          .child(SidebarGroupLabel(`project-${space.id}`, space.active, t).pr(0)
             .on_hover((hovered, cx) => { this.hoveredProject = hovered ? space.id : null; cx.notify(); })
             .on_click((event, cx) => {
               const modifier = window()?.platform === 'macos' ? event?.modifiers?.platform : event?.modifiers?.control;
@@ -741,7 +741,7 @@ export default class Devkits extends View {
               .child(glyph(this.folded.has(space.id) ? 'chevron-right' : 'chevron-down', 12)))
             .when(Boolean(space.machine), el => el.child(div().text_size(9).text_color(t.muted).child(space.machine)))
             .child(div().flex_1())
-            .child(Button(`new-thread-${space.id}`, t, { variant: 'row', size: 'icon' })
+            .child(Button(`new-thread-${space.id}`, t, { variant: 'row', size: 'icon' }).h_full().w(32)
               .accessibility_label(`New thread in ${space.name}`)
               .on_click((_event, cx) => {
                 cx.stop_propagation();
@@ -750,7 +750,7 @@ export default class Devkits extends View {
                 cx.notify();
               })
               .child(glyph('plus')).opacity(this.hoveredProject === space.id ? 1 : 0))
-            .child(DropdownMenuTrigger(Button(`project-menu-${space.id}`, t, { variant: 'row', size: 'icon' })
+            .child(DropdownMenuTrigger(Button(`project-menu-${space.id}`, t, { variant: 'row', size: 'icon' }).h_full().w(32)
               .accessibility_label(`More actions for ${space.name}`), 200,
               (_cx, at) => openOverlay({ mod: 'devkits', kind: 'popup', frame: 'none', width: 200, at,
                 props: { view: 'project-menu', project: space } }), 'end', SIDEBAR_MENU)
