@@ -338,6 +338,7 @@ export default class Devkits extends View {
 
   closeFileTab(cx) {
     const editor = layoutNode(layout(), 'editor');
+    if (editor && !editor.hidden && this.editor) { this.editor.closeActiveTab(cx); return; }
     if (editor && !editor.hidden && (shared('devkits.editor-kind') || editor.active || 'files') === 'files' && this.files?.file)
       this.files.closeTab(this.files.file, cx);
   }
