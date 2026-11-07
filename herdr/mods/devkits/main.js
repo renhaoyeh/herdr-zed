@@ -568,7 +568,7 @@ export default class Devkits extends View {
                 props: { view: 'project-menu', project: space } }), 'end', SIDEBAR_MENU)
               .child(glyph('ellipsis')).opacity(this.hoveredProject === space.id ? 1 : 0)))
           .when(!this.folded.has(space.id), el => el.children(threads.map(thread => this.threadRow(thread, t)))
-            .when(!threads.length, el => el.child(div().px(12).py(6).text_size(12).text_color(t.muted).child('No threads yet')))))))
+            .when(!threads.length, el => el.child(h_flex().h(32).flex_none().px(12).items_center().text_size(12).text_color(t.muted).child('No threads yet')))))))
       .child(this.accountUsage(t))
       .child(SidebarFooter(t)
         .child(Button('settings', t, { variant: 'ghost', size: 'icon' }).accessibility_label('Settings')
