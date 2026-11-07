@@ -1,7 +1,7 @@
 import { View, div, svg, image } from 'gpui-kit';
 import { v_flex, h_flex } from 'gpui-base';
-import { agents, spaces, panes, theme, run, props, window, openOverlay, closeOverlay, setAgentOrder, layout, settings, pickFolder, shared, setShared, knownAgents, notify, appHome, readTextFile, nextCommand } from 'herdr';
-import { projectGroups, projectCatalog, folderKey, launcherChoices, isAccountLauncher, launcherArgv, sessionArgv, sessionKind, resolveThreadProfiles, threadProfile, archivable, rulesArgv } from './model.js';
+import { agents, spaces, panes, theme, run, props, window, openOverlay, closeOverlay, setAgentOrder, layout, settings, pickFolder, shared, setShared, knownAgents, notify, appHome, readTextFile, nextCommand, terminals } from 'herdr';
+import { projectGroups, projectCatalog, folderKey, launcherChoices, isAccountLauncher, launcherArgv, sessionArgv, sessionKind, resolveThreadProfiles, threadProfile, archivable, rulesArgv, childTerminals } from './model.js';
 import { commandArgv } from './shell-command.js';
 import AccountLogin from './account-login.js';
 import FileViewer, { FileMenu } from './files.js';
@@ -489,6 +489,35 @@ export default class Devkits extends View {
         .child(glyph(archive ? 'archive' : 'close', 12)));
   }
 
+  // A terminal the thread's agent started with hc run, indented under it; it peeks over the thread when clicked.
+  childRow(thread, { terminal, depth, label }, t) {
+    const key = `child:${terminal.address}`;
+    const p = terminal.program;
+    const icon = terminal.status === 'working' ? glyph('loader', 14).text_color(t.working).spin(900).accessibility_label('Working')
+      : p?.icon && !p.shell ? (p.tint ? svg(p.icon).size(14).text_color(t.muted) : image(p.icon).size(14)) : glyph('terminal', 14).text_color(t.muted);
+    return SidebarMenuButton(`child-${terminal.address}`, false, t).pl(12 + depth * 16)
+      .on_hover((hovered, cx) => {
+        if (!hovered && this.hovered !== key) return;
+        const next = hovered ? key : null;
+        if (this.hovered === next) return;
+        this.hovered = next;
+        cx.notify();
+      })
+      .on_click(() => {
+        rememberPanel(thread.space, null);
+        this.selectProject(this.projects().find(project => project.id === thread.space));
+        run('tab.select', { id: thread.tab.id });
+        run('terminal.peek', { terminal: terminal.address });
+      })
+      .child(div().size(16).flex_none().flex().items_center().justify_center().child(icon))
+      .child(div().flex_1().min_w(0).truncate().text_size(12).text_color(t.muted).child(label))
+      .child(Button(`end-child-${terminal.address}`, t, { variant: 'row', size: 'icon-sm' })
+        .opacity(this.hovered === key ? 1 : 0)
+        .accessibility_label(`End ${label}`)
+        .on_click((_event, cx) => { cx.stop_propagation(); run('terminal.kill', { terminal: terminal.address }); })
+        .child(glyph('close', 12)));
+  }
+
   render(cx) {
     const t = theme();
     if (props()?.view === 'codex-sharing') return this.sharingDialog(t);
@@ -564,6 +593,7 @@ export default class Devkits extends View {
       }
     }
     const groups = projectGroups(workspaces, all, defaults);
+    const live = terminals();
     const visible = groups.filter(g => !this.folded.has(g.space.id)).flatMap(g => g.threads.flatMap(thread => thread.agents));
     setAgentOrder(visible.map(a => a.address));
     return Sidebar(t)
@@ -590,7 +620,8 @@ export default class Devkits extends View {
               (_cx, at) => openOverlay({ mod: 'devkits', kind: 'popup', frame: 'none', width: 200, at,
                 props: { view: 'project-menu', project: space } }), 'end', SIDEBAR_MENU)
               .child(glyph('ellipsis')).opacity(this.hoveredProject === space.id ? 1 : 0)))
-          .when(!this.folded.has(space.id), el => el.children(threads.map(thread => this.threadRow(thread, t)))
+          .when(!this.folded.has(space.id), el => el.children(threads.flatMap(thread => [this.threadRow(thread, t),
+            ...childTerminals(live, thread.agents.map(agent => agent.address)).map(child => this.childRow(thread, child, t))]))
             .when(!threads.length, el => el.child(h_flex().h(32).flex_none().px(12).items_center().text_size(12).text_color(t.muted).child('No threads yet')))))))
       .child(this.accountUsage(t))
       .child(SidebarFooter(t)
