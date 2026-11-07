@@ -463,6 +463,9 @@ export default class Devkits extends View {
       .when(Boolean(space?.machine), el => el.child(h_flex().pl(16).gap(8).items_center().child(glyph('terminal', 12)).child(space.machine)))
 
       .child(div().flex_1())
+      .child(Button('settings', t, { variant: 'ghost', size: 'icon' }).h_full()
+        .accessibility_label('Herdr settings')
+        .on_click(() => run('app.settings')).child(glyph('gear')))
       .when(Boolean(simulator), el => el
         .child(Button('open-simulator', t, { variant: 'ghost', size: 'icon' })
           .h_full().rounded(0)
@@ -660,9 +663,6 @@ export default class Devkits extends View {
             .when(!threads.length, el => el.child(h_flex().h(32).flex_none().px(12).items_center().text_size(12).text_color(t.muted).child('No threads yet')))))))
       .child(this.accountUsage(t))
       .child(SidebarFooter(t)
-        .child(Button('settings', t, { variant: 'ghost', size: 'icon' }).accessibility_label('Settings')
-          .h_full().rounded(0)
-          .on_click(() => run('app.settings')).child(glyph('settings')))
         .child(Button('archived-threads', t, { variant: 'ghost', size: 'icon' })
           .accessibility_label(this.archiveOpen ? 'Show threads' : 'Show archived threads')
           .h_full().rounded(0).bg(this.archiveOpen ? t.selected : t.chrome)
