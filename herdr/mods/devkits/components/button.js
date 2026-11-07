@@ -4,6 +4,21 @@ import { Button as NativeButton } from 'gpui-base';
 
 export function Button(id, t, { variant = 'default', size = 'sm' } = {}) {
   const icon = size.startsWith('icon');
+  if (t.appearance === 'linear') {
+    const primary = variant === 'default', bordered = ['secondary', 'outline'].includes(variant);
+    return NativeButton.new(id).flex_none().flex().items_center().justify_center().p(0).gap(icon ? 0 : 6)
+      .when(icon, el => el.size(size === 'icon-sm' ? 24 : 28).px(2))
+      .when(!icon, el => el.h(28).px(10).text_size(12))
+      .rounded(999).font_medium().cursor_default().border(1)
+      .border_color(bordered ? t.controlBorder : '#00000000')
+      .bg(primary ? t.solid : bordered ? t.control : '#00000000')
+      .text_color(primary ? t.solid_foreground : t.muted)
+      .hover(el => el.bg(primary ? t.solidHover : t.hover).text_color(primary ? t.solid_foreground : t.secondary))
+      .on_mouse_down('left', (_event, cx) => cx.stop_propagation())
+      .on_key_down((event, cx) => {
+        if (event.key === 'enter' || event.key === 'space') cx.stop_propagation();
+      });
+  }
   return NativeButton.new(id).flex_none().flex().items_center().justify_center().gap(8).rounded(0)
     .when(icon, el => el.size(size === 'icon-sm' ? 20 : 28))
     .when(!icon, el => el.h(32).px(12).text_size(12))

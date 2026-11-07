@@ -2,6 +2,8 @@ import { div, svg, image } from 'gpui-kit';
 import { h_flex } from 'gpui-base';
 import { shared, setShared, run, notify, hc, exec, readTextFile, home, terminals } from 'herdr';
 import { archivable, agentCommand, commandKind, resumeArgv, codexSessionId, archivedAge, folderKey } from './model.js';
+import { taskActions } from './agent-board-model.js';
+import { threadBoardTask, setTaskArchived } from './agent-board-state.js';
 import { Button } from './components/button.js';
 import { SidebarContent, SidebarGroup, SidebarMenuButton } from './components/sidebar.js';
 import { glyph } from './components/icon.js';
@@ -49,6 +51,8 @@ export const threadArchive = {
   },
   async archiveThread(thread) {
     if (this.threadBusy(thread)) return;
+    const taskProject = this.projects().find(project => project.id === thread.space);
+    if (taskProject && !taskActions({ ...threadBoardTask(taskProject, thread), agents: thread.agents }).canArchive) return;
     const tab = thread.tab.id;
     if (archiving.has(tab)) return;
     archiving.add(tab);
@@ -75,11 +79,13 @@ export const threadArchive = {
         if (id) {
           const project = this.projects().find(project => project.id === thread.space);
           const task = shared('devkits.thread-tasks')?.[tab] || null;
+          const boardTask = project ? threadBoardTask(project, thread) : null;
           const entry = { id: `${kind}:${id}`, title: thread.title, folder: project?.folder || terminal.cwd,
             projectName: project?.name || terminal.cwd, profile: shared('devkits.thread-profiles')?.[tab] || null,
-            argv: resumeArgv(command, id, Boolean(task)), task, at: Date.now(),
+            argv: resumeArgv(command, id, Boolean(task)), task, boardTask, at: Date.now(),
             icon: thread.agent?.program?.icon || null, tint: Boolean(thread.agent?.program?.tint) };
           setShared('devkits.archived-threads', [entry, ...archived().filter(item => item.id !== entry.id)].slice(0, 200));
+          if (project && boardTask) setTaskArchived(project, boardTask, true, entry.id);
         }
       }
       run('tab.close', { id: tab });
@@ -97,8 +103,10 @@ export const threadArchive = {
     }
     setShared('devkits.archived-threads', archived().filter(item => item.id !== entry.id));
     this.archiveOpen = false;
+    const boardTask = entry.boardTask || entry.task;
+    if (boardTask) setTaskArchived({ folder: entry.folder }, boardTask, false);
     this.openThread({ space: project && !project.pending ? project.id : null, folder: entry.folder,
-      projectName: project?.name || entry.projectName }, entry.title, entry.argv, entry.profile, entry.task);
+      projectName: project?.name || entry.projectName }, entry.title, entry.argv, entry.profile, entry.task || (entry.boardTask ? { gid: entry.boardTask.gid, name: entry.title, folder: entry.folder, source: 'thread' } : null));
   },
 
   removeArchived(entry) {

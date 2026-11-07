@@ -16,10 +16,10 @@ async function host() {
     if (command === 'layout.hide' || command === 'layout.show') node.hidden = command === 'layout.hide';
   };
   const Controller = new Function('layout', 'run', 'shared', 'setShared',
-    source.replace(/^import .*;\n/gm, '').replace(/^export /gm, '') + '\nreturn { ProjectLayout, maximizeConversation, conversationMaximized };')(
+    source.replace(/^import .*;\n/gm, '').replace(/^export /gm, '') + '\nreturn { ProjectLayout, maximizeConversation, conversationMaximized, openTaskBoard, closeTaskBoard, enforceTaskBoard, taskMode };')(
     () => root, run, key => store[key], (key, value) => { store[key] = structuredClone(value); });
   return { Controller: Controller.ProjectLayout, maximize: Controller.maximizeConversation,
-    isMaximized: Controller.conversationMaximized, root, store, calls };
+    isMaximized: Controller.conversationMaximized, openTasks: Controller.openTaskBoard, closeTasks: Controller.closeTaskBoard, enforceTasks: Controller.enforceTaskBoard, taskMode: Controller.taskMode, root, store, calls };
 }
 const a = { id: 'a', folder: '/a' }, b = { id: 'b', folder: '/b' };
 
@@ -116,4 +116,83 @@ test('project switches and reloads leave maximization without persisting hidden 
   assert.equal(root.children[0].hidden, false);
   assert.equal(root.children[1].hidden, true);
   assert.equal(store['devkits.right-panel'], 'files');
+});
+
+
+test('Tasks covers the work area and restores panel visibility without saving its temporary layout', async () => {
+  const { Controller, openTasks, closeTasks, enforceTasks, root, store, calls } = await host();
+  root.children.find(node => node.id === 'workspace-view').hidden = false;
+  const controller = new Controller();
+  store['devkits.right-panel'] = 'diff';
+  const normal = controller.snapshot();
+  const visibility = root.children.map(node => node.hidden);
+  openTasks(a);
+  assert.equal(store['devkits.board-project'], 'a');
+  assert.deepEqual(root.children.map(node => node.hidden), [false, true, true]);
+  assert.deepEqual(controller.snapshot(), normal);
+  openTasks(a); // Reopening cannot replace the underlying snapshot with the covered layout.
+  root.children.find(node => node.id === 'simulator').hidden = false;
+  enforceTasks();
+  assert.equal(root.children.find(node => node.id === 'simulator').hidden, true);
+  closeTasks();
+  assert.deepEqual(root.children.map(node => node.hidden), visibility);
+  assert.equal(store['devkits.right-panel'], 'diff');
+  assert.equal(store['devkits.board-project'], null);
+  assert.deepEqual(controller.snapshot(), normal);
+  assert.ok(!calls.some(([name]) => ['tab.new', 'space.new', 'tab.close', 'terminal.kill'].includes(name)));
+});
+
+test('Tasks also works without a Simulator and does not create missing layout blocks', async () => {
+  const { openTasks, closeTasks, root, calls } = await host();
+  root.children = root.children.filter(node => node.id !== 'simulator');
+  openTasks(a); closeTasks();
+  assert.ok(!calls.some(([, args]) => args.id === 'simulator'));
+});
+
+
+test('Tasks remains the workspace mode across projects and restores the destination layout on exit', async () => {
+  const { Controller, openTasks, closeTasks, taskMode, root, store } = await host();
+  const controller = new Controller(); controller.sync(a); controller.sync(a);
+  const saved = structuredClone(controller.snapshot());
+  store['devkits.project-layouts']['["","/b"]'] = { ...saved, simulator: { hidden: false, size: { px: 520 } } };
+  openTasks(a); assert.equal(taskMode(), true);
+  closeTasks(true); // Selecting another project suspends only the temporary cover.
+  controller.sync(b); controller.sync(b);
+  openTasks(b);
+  assert.equal(taskMode(), true); assert.equal(store['devkits.board-project'], 'b');
+  assert.equal(root.children.find(node => node.id === 'simulator').hidden, true);
+  assert.equal(controller.snapshot().simulator.hidden, false);
+  closeTasks();
+  assert.equal(taskMode(), false);
+  assert.equal(root.children.find(node => node.id === 'simulator').hidden, false);
+});
+
+test('switching projects in Tasks never restores normal panels or resizes the work area between boards', async () => {
+  const { Controller, openTasks, closeTasks, taskMode, root, store, calls } = await host();
+  const controller = new Controller(); controller.sync(a); controller.sync(a);
+  const originalA = structuredClone(store['devkits.project-layouts']['["","/a"]']);
+  const targetB = { editor: { hidden: false, active: 'diff', size: { weight: 3 } },
+    simulator: { hidden: false, size: { px: 520 } }, 'workspace-view': { size: { weight: 2 } },
+    dock: 'diff', widths: [360, 680] };
+  store['devkits.project-layouts']['["","/b"]'] = structuredClone(targetB);
+  store['devkits.conversation-visible'] = { '["","/b"]': true };
+  openTasks(a);
+  const dimensions = root.children.map(node => structuredClone(node.size));
+  calls.length = 0;
+  closeTasks(true); // Existing project-switch callers must leave the cover intact too.
+  controller.sync(b); controller.sync(b); openTasks(b);
+  assert.equal(taskMode(), true); assert.equal(store['devkits.board-project'], 'b');
+  assert.deepEqual(root.children.map(node => node.hidden), [false, true, true]);
+  assert.deepEqual(root.children.map(node => node.size), dimensions);
+  assert.ok(!calls.some(([command, args]) => command === 'layout.resize'
+    || (command === 'layout.show' && ['workspace-view', 'simulator'].includes(args.id))
+    || (command === 'layout.hide' && args.id === 'editor')));
+  assert.deepEqual(store['devkits.project-layouts']['["","/a"]'], originalA);
+  assert.deepEqual(store['devkits.project-layouts']['["","/b"]'], targetB);
+  closeTasks(); controller.sync(b); controller.sync(b);
+  assert.equal(taskMode(), false);
+  assert.equal(root.children.find(node => node.id === 'simulator').hidden, false);
+  assert.equal(root.children.find(node => node.id === 'simulator').size.px, 520);
+  assert.equal(root.children.find(node => node.id === 'editor').size.weight, 3);
+  assert.equal(store['devkits.right-panel'], 'diff');
 });

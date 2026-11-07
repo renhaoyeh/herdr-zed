@@ -27,6 +27,48 @@ export function maximizeConversation(project, maximized) {
   setShared(MAXIMIZED, { key: keyFor(project), hidden });
   for (const id of Object.keys(hidden)) run('layout.hide', { id });
 }
+// Tasks temporarily owns the workspace without changing its underlying panel layout.
+const TASK_LAYOUT = 'devkits.board-layout';
+export const taskMode = () => shared('devkits.tasks-open') ?? Boolean(shared('devkits.board-project'));
+export function enforceTaskBoard() {
+  for (const id of ['workspace-view', 'simulator', 'editor']) {
+    const node = layoutNode(layout(), id), hidden = id !== 'editor';
+    if (node && Boolean(node.hidden) !== hidden) run(hidden ? 'layout.hide' : 'layout.show', { id });
+  }
+}
+export function openTaskBoard(project) {
+  const previous = shared(TASK_LAYOUT);
+  if (shared(TASK_LAYOUT)?.project !== project.id) {
+    const hidden = {};
+    for (const id of ['workspace-view', 'simulator', 'editor']) {
+      const node = layoutNode(layout(), id);
+      if (node) hidden[id] = Boolean(node.hidden);
+    }
+    if (taskMode()) {
+      // The cover is already up: read the destination's normal visibility without
+      // ever applying it to the screen during a Tasks-to-Tasks switch.
+      const saved = shared(STORAGE)?.[keyFor(project)];
+      if (hidden.editor !== undefined) hidden.editor = Boolean(saved?.editor?.hidden);
+      if (hidden.simulator !== undefined) hidden.simulator = saved?.simulator?.hidden ?? true;
+      if (hidden['workspace-view'] !== undefined) hidden['workspace-view'] = !shared('devkits.conversation-visible')?.[keyFor(project)];
+    }
+    setShared(TASK_LAYOUT, { project: project.id, hidden });
+  }
+  if (shared('devkits.tasks-open') !== true) setShared('devkits.tasks-open', true);
+  if (shared('devkits.board-project') !== project.id) setShared('devkits.board-project', project.id);
+  enforceTaskBoard();
+}
+export function closeTaskBoard(keepMode = false) {
+  if (keepMode) return; // Project selection must not reveal or resize the workspace.
+  const previous = shared(TASK_LAYOUT);
+  setShared('devkits.tasks-open', Boolean(keepMode));
+  setShared('devkits.board-project', null);
+  if (!previous) return;
+  setShared(TASK_LAYOUT, null);
+  for (const [id, hidden] of Object.entries(previous.hidden))
+    if (layoutNode(layout(), id)) run(hidden ? 'layout.hide' : 'layout.show', { id });
+}
+
 // Native layout weights round through f32; compare their values rather than JSON decimals.
 const restored = (actual, expected) => ['editor', 'simulator', 'workspace-view'].every(id => {
   const a = actual[id], b = expected[id];
@@ -40,6 +82,15 @@ const restored = (actual, expected) => ['editor', 'simulator', 'workspace-view']
 export class ProjectLayout {
   sync(project) {
     const key = keyFor(project);
+    if (taskMode()) {
+      this.tasks = true;
+      this.key = key;
+      this.restoring = null;
+      if (project) openTaskBoard(project);
+      return;
+    }
+    // Restore the destination layout once, only when leaving the global Tasks mode.
+    if (this.tasks) { this.tasks = false; this.key = null; }
     if (this.key !== key) {
       this.key = key;
       if (!key) return;
@@ -65,10 +116,10 @@ export class ProjectLayout {
 
   snapshot() {
     const root = layout(), result = {};
-    const maximized = shared(MAXIMIZED);
+    const maximized = shared(MAXIMIZED), board = shared(TASK_LAYOUT);
     for (const id of ['editor', 'simulator', 'workspace-view']) {
       const node = layoutNode(root, id);
-      if (node) result[id] = { ...(id !== 'workspace-view' ? { hidden: maximized?.hidden[id] ?? Boolean(node.hidden) } : {}),
+      if (node) result[id] = { ...(id !== 'workspace-view' ? { hidden: board?.hidden[id] ?? maximized?.hidden[id] ?? Boolean(node.hidden) } : {}),
         ...(id === 'editor' ? { active: shared('devkits.editor-kind') || node.active || 'files' } : {}), size: node.size };
     }
     result.dock = shared('devkits.right-panel') ?? null;
