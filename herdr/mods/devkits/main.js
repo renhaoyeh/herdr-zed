@@ -340,12 +340,13 @@ export default class Devkits extends View {
     if (allowed.efforts?.includes(session.effort)) session.effort = null;
     try { argv = agent && sessionArgv(agent, launcherArgv(agent, shared('devkits.codex-permissions')?.[settingsKey(agent)]), session); }
     catch (error) { notify({ title: 'Could not start session', body: error.message, level: 'error' }); return; }
-    if (target.overlay) closeOverlay(target.overlay);
     // Global rules live on this computer, so only local sessions get them.
     if (argv && !spaces().find(space => space.id === target.space)?.machine) {
       try { argv = rulesArgv(agent, argv, await sessionRules()); } catch {}
     }
     if (task) argv = [...argv, taskPrompt(task)];
+    // Closing the launcher destroys its async context; finish reading rules first.
+    if (target.overlay) closeOverlay(target.overlay);
     if (task) unsaveTask(target.folder, task.gid);
     this.openThread(target, task?.name || agent?.name, argv, agent?.key, task ? { gid: task.gid, name: task.name, folder: target.folder } : null);
   }
