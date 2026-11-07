@@ -1,7 +1,7 @@
 import { View, div, svg, image } from 'gpui-kit';
 import { v_flex, h_flex } from 'gpui-base';
 import { agents, spaces, panes, theme, run, props, window, openOverlay, closeOverlay, setAgentOrder, layout, settings, pickFolder, shared, setShared, knownAgents, notify, appHome, readTextFile, nextCommand, terminals } from 'herdr';
-import { projectGroups, projectCatalog, folderKey, launcherChoices, isAccountLauncher, launcherArgv, sessionArgv, sessionKind, resolveThreadProfiles, threadProfile, threadProgram, archivable, rulesArgv, childTerminals, settingsKey, rootSettings } from './model.js';
+import { projectGroups, projectCatalog, threadTitle, folderKey, launcherChoices, isAccountLauncher, launcherArgv, sessionArgv, sessionKind, resolveThreadProfiles, threadProfile, threadProgram, archivable, rulesArgv, childTerminals, terminalLabel, settingsKey, rootSettings } from './model.js';
 import { commandArgv } from './shell-command.js';
 import AccountLogin from './account-login.js';
 import FileViewer, { FileMenu } from './files.js';
@@ -18,10 +18,10 @@ import { BranchMenu } from './branch-menu.js';
 import { ProjectLayout, layoutNode } from './project-layout.js';
 import { threadArchive } from './thread-archive.js';
 import { sessionRules, ensureRules } from './global-rules.js';
-import { DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from './components/dropdown-menu.js';
+import { DropdownMenu, DropdownMenuState, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from './components/dropdown-menu.js';
 import { Button } from './components/button.js';
 import { AlertDialogContent, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from './components/alert-dialog.js';
-import { Sidebar, SidebarContent, SidebarGroup, SidebarGroupLabel, SidebarMenuButton, SidebarFooter } from './components/sidebar.js';
+import { Sidebar, SidebarContent, SidebarGroup, SidebarGroupLabel, SidebarMenuButton, SidebarTreeMenuButton, SidebarFooter } from './components/sidebar.js';
 
 // A 28px icon button centred in a 32px project row: 8px below the row.
 const SIDEBAR_MENU = { x: 0, y: 10 };
@@ -50,6 +50,7 @@ const agentLoads = new Map();
 
 export default class Devkits extends View {
   init(_props, cx) {
+    if (props()?.view === 'pane') { this.threadMenu = new DropdownMenuState(cx); return; }
     if (props()?.view === 'codex-sharing') { this.initCodexSharing(cx); return; }
     if (props()?.view === 'file-menu') {
       this.fileMenu = new FileMenu(); this.fileMenu.init(cx); return;
@@ -493,30 +494,43 @@ export default class Devkits extends View {
     return div().size_full().bg(t.chrome).border_b(1).border_color(t.border);
   }
 
-  paneHeader(t) {
+  paneHeader(t, cx) {
     const p = panes().find(p => p.pane === props()?.pane);
     if (!p) return div();
     const thread = projectGroups(spaces(), agents()).flatMap(group => group.threads).find(thread => thread.tab.id === p.tab);
-    const program = threadProgram(thread, terminals(), p.program);
+    const members = panes().filter(pane => pane.tab === p.tab);
+    const primary = members.find(pane => pane.terminal === thread?.agents[0]?.address) || members[0];
+    const secondary = members.length > 1 && primary?.pane !== p.pane;
+    const program = secondary ? p.program : threadProgram(thread, terminals(), p.program);
     const machine = spaces().find(space => space.id === thread?.space)?.machine || null;
-    const profile = thread?.agent ? threadProfile(thread.tab, shared('devkits.agent-cache')?.[JSON.stringify(machine)],
+    const profile = !secondary && thread?.agent ? threadProfile(thread.tab, shared('devkits.agent-cache')?.[JSON.stringify(machine)],
       shared('devkits.thread-profiles') || {}) : null;
-    const title = thread?.title || p.title || 'Terminal';
-    const link = shared('devkits.thread-tasks')?.[p.tab];
-    const icon = program?.icon ? (program.tint ? svg(program.icon).size(14).text_color(t.muted) : image(program.icon).size(14)) : glyph('terminal');
-    return h_flex().size_full().pl(12).gap(8).items_center().bg(t.chrome).border_b(1).border_color(t.border)
+    const title = secondary ? p.title || 'Terminal' : thread?.tab.name === '__devkits_default_terminal__' && !thread.agent ? 'Terminal' : thread?.title || p.title || 'Terminal';
+    const link = secondary ? null : shared('devkits.thread-tasks')?.[p.tab];
+    this.threadMenu ??= new DropdownMenuState();
+    const actions = [{ key: 'close', label: secondary ? 'Close terminal' : 'Close thread' }];
+    const choose = () => secondary ? run('pane.close', { pane: p.pane }) : run('tab.close', { id: p.tab });
+    const icon = program?.icon ? (program.tint ? svg(program.icon).size(14).text_color(p.focused ? t.foreground : t.muted) : image(program.icon).size(14)) : glyph('terminal').text_color(p.focused ? t.foreground : t.muted);
+    return h_flex().id(`pane-header-${p.pane}`).size_full().pl(12).gap(8).items_center()
+      .bg(p.focused ? t.selected : t.chrome).border_b(1).border_color(p.focused ? t.accent : t.border)
       .text_size(12).text_color(t.muted).on_click(() => run('pane.focus', { pane: p.pane }))
       .child(div().flex_none().child(icon))
-      .child(div().min_w(0).truncate().text_color(t.foreground).child(title))
+      .child(div().min_w(0).truncate().text_color(p.focused ? t.foreground : t.muted)
+        .when(Boolean(p.focused), el => el.font_medium()).child(title))
       .when(Boolean(profile) && profile !== title, el => el.child(div().flex_none().child(profile)))
       .child(div().flex_1())
       .when(Boolean(link), el => el.child(Button(`asana-link-${p.tab}`, t, { variant: 'ghost' }).h(22).px(6).gap(5).text_size(10)
         .border(1).border_color(t.border).accessibility_label(`Show Asana task ${link.name}`)
         .on_click((_event, cx) => { cx.stop_propagation(); this.openTask(thread.space, link); })
         .child(glyph('list-todo', 12)).child('Asana')))
-      .child(DropdownMenuTrigger(Button(`new-thread-${p.pane}`, t, { variant: 'ghost', size: 'icon' }).h_full().w(32)
-        .accessibility_label('New thread…').child(glyph('plus')), 280,
-        (cx, at) => this.newThread(cx, thread?.space, at), 'end'));
+      .child(h_flex().h_full().flex_none().items_center()
+        .child(DropdownMenuTrigger(Button(`new-thread-${p.pane}`, t, { variant: 'ghost', size: 'icon' }).h_full().w(32)
+          .accessibility_label('New thread…').child(glyph('plus')), 280,
+          (cx, at) => this.newThread(cx, thread?.space, at), 'end'))
+        .child(DropdownMenu(`thread-actions-${p.pane}`, this.threadMenu,
+          Button(`thread-menu-${p.pane}`, t, { variant: 'ghost', size: 'icon' }).h_full().w(32)
+            .accessibility_label('Thread options').child(glyph('ellipsis')),
+          actions, choose, t, { offset: { x: 8, y: 9 }, fullHeight: true })));
   }
 
   // Opens the linked task in its project's Asana pop-out.
@@ -573,16 +587,21 @@ export default class Devkits extends View {
           .child(glyph('folder'))));
   }
 
-  threadRow(thread, t) {
+  threadRow(thread, t, trunk = null) {
+    const members = panes().filter(pane => pane.tab === thread.tab.id);
+    const primary = members.find(pane => pane.terminal === thread.agents[0]?.address) || members[0];
+    const primaryAgent = thread.agents.find(agent => agent.address === primary?.terminal) || thread.agent;
+    if (primaryAgent && primaryAgent !== thread.agent)
+      thread = { ...thread, agent: primaryAgent, title: threadTitle(thread.tab, primaryAgent, null) };
     const working = thread.status === 'working' || thread.agents.some(agent => agent.status === 'working');
-    const isFocused = thread.active;
+    const isFocused = thread.active && (!members.some(pane => pane.focused) || Boolean(primary?.focused));
     const p = threadProgram(thread, terminals());
     const canArchive = archivable(thread, terminals());
     const stopping = canArchive && this.threadBusy(thread);
     const archive = canArchive && !stopping && !this.closeOnlyThreads?.has(thread.tab.id);
     const icon = working ? glyph('loader', 14).text_color(t.working).spin(900).accessibility_label('Working')
       : p?.icon ? (p.tint ? svg(p.icon).size(14).text_color(t.muted) : image(p.icon).size(14)) : glyph('terminal', 14).text_color(t.muted);
-    return SidebarMenuButton(`thread-${thread.tab.id}`, isFocused, t)
+    return SidebarTreeMenuButton(`thread-${thread.tab.id}`, isFocused, t, 0, trunk)
       .on_hover((hovered, cx) => {
         // A previous row's leave event can arrive after the next row's enter.
         if (!hovered && this.hovered !== thread.tab.id) return;
@@ -597,12 +616,12 @@ export default class Devkits extends View {
         run('tab.select', { id: thread.tab.id });
         this.showConversation(true, { ...this.projects().find(project => project.id === thread.space), tabs: [{ id: thread.tab.id, active: true }] });
       })
-      .child(div().size(16).flex_none().flex().items_center().justify_center().child(icon))
+      .child(div().size(16).mr(8).flex_none().flex().items_center().justify_center().child(icon))
       .child(div().flex_1().min_w(0).truncate().text_size(13).text_color(t.foreground)
         .when(isFocused, el => el.font_medium()).child(thread.title))
       // Only a Claude or Codex conversation can be archived; terminals simply close.
       .child(Button(`${stopping ? 'stop' : archive ? 'archive' : 'close'}-thread-${thread.tab.id}`, t, { variant: 'row', size: 'icon-sm' })
-        .opacity(this.hovered === thread.tab.id ? 1 : 0)
+        .ml(8).opacity(this.hovered === thread.tab.id ? 1 : 0)
         .accessibility_label(stopping ? 'Stop generation' : archive ? 'Archive thread' : 'Close thread')
         .disabled(this.stoppingThreads?.has(thread.tab.id) || false)
         .on_click((_event, cx) => {
@@ -614,13 +633,62 @@ export default class Devkits extends View {
         .child(glyph(stopping ? 'square' : archive ? 'archive' : 'close', 12)));
   }
 
+  renderThreadGroup(thread, t, live) {
+    const entries = this.paneEntries(thread, live);
+    const hasPeers = entries.some(entry => entry.depth === 0);
+    const lastPeer = entries.reduce((last, entry, index) => entry.depth === 0 ? index + 1 : last, 0);
+    const bracket = index => hasPeers ? { visible: index <= lastPeer, first: index === 0, last: index === lastPeer } : null;
+    return v_flex().id(`thread-group-${thread.tab.id}`).flex_none()
+      .child(this.threadRow(thread, t, bracket(0)))
+      .children(entries.map((entry, index) => this.childRow(thread, { ...entry, trunk: bracket(index + 1) }, t)));
+  }
+
+  paneEntries(thread, live) {
+    const allPanes = panes(), members = allPanes.filter(pane => pane.tab === thread.tab.id);
+    const primary = members.find(pane => pane.terminal === thread.agents[0]?.address) || members[0];
+    const byAddress = new Map(members.filter(pane => pane.terminal).map(pane => [pane.terminal, pane]));
+    const external = new Set(allPanes.filter(pane => pane.tab !== thread.tab.id).map(pane => pane.terminal));
+    const terminals = live.filter(terminal => !external.has(terminal.address));
+    const seen = new Set(), rows = [];
+    const entry = (terminal, depth, pane) => ({ terminal: pane ? { ...terminal, address: pane.terminal || pane.pane,
+      program: pane.program, status: pane.status || terminal?.status } : terminal, depth, pane,
+      label: pane?.title?.trim() || pane?.mod || (terminal ? terminalLabel(terminal) : 'Terminal') });
+    const descendants = address => {
+      if (!address) return;
+      seen.add(address);
+      for (const child of childTerminals(terminals, [address], 1, Infinity, seen))
+        rows.push(entry(child.terminal, child.depth, byAddress.get(child.terminal.address)));
+    };
+    descendants(primary?.terminal || thread.agents[0]?.address);
+    const hasPaneAncestor = pane => {
+      const visited = new Set([pane.terminal]);
+      let parent = terminals.find(terminal => terminal.address === pane.terminal)?.parent;
+      while (parent && !visited.has(parent)) {
+        if (byAddress.has(parent)) return true;
+        visited.add(parent); parent = terminals.find(terminal => terminal.address === parent)?.parent;
+      }
+      return false;
+    };
+    const appendPeer = pane => {
+      const address = pane.terminal || pane.pane;
+      if (pane === primary || seen.has(address)) return;
+      rows.push(entry(terminals.find(terminal => terminal.address === pane.terminal), 0, pane));
+      descendants(address);
+    };
+    members.filter(pane => !hasPaneAncestor(pane)).forEach(appendPeer);
+    // Retain native panes even while parent metadata is missing or inconsistent.
+    members.forEach(appendPeer);
+    return rows;
+  }
+
   // A terminal the thread's agent started with hc run, indented under it; it peeks over the thread when clicked.
-  childRow(thread, { terminal, depth, label }, t) {
-    const key = `child:${terminal.address}`;
+  childRow(thread, { terminal, depth, label, pane, trunk }, t) {
+    const key = pane ? `pane:${pane.pane}` : `child:${terminal.address}`;
     const p = terminal.program;
     const icon = terminal.status === 'working' ? glyph('loader', 14).text_color(t.working).spin(900).accessibility_label('Working')
       : p?.icon && !p.shell ? (p.tint ? svg(p.icon).size(14).text_color(t.muted) : image(p.icon).size(14)) : glyph('terminal', 14).text_color(t.muted);
-    return SidebarMenuButton(`child-${terminal.address}`, false, t).pl(12 + depth * 16)
+    return SidebarTreeMenuButton(pane ? `thread-pane-${pane.pane}` : `child-${terminal.address}`, Boolean(pane?.focused), t, depth, trunk)
+      .accessibility_label(`${depth ? 'Child task' : 'Parallel pane'}: ${label}`)
       .on_hover((hovered, cx) => {
         if (!hovered && this.hovered !== key) return;
         const next = hovered ? key : null;
@@ -633,14 +701,19 @@ export default class Devkits extends View {
         this.selectProject(this.projects().find(project => project.id === thread.space));
         run('tab.select', { id: thread.tab.id });
         this.showConversation(true, { ...this.projects().find(project => project.id === thread.space), tabs: [{ id: thread.tab.id, active: true }] });
-        run('terminal.peek', { terminal: terminal.address });
+        if (pane) run('pane.focus', { pane: pane.pane });
+        else run('terminal.peek', { terminal: terminal.address });
       })
-      .child(div().size(16).flex_none().flex().items_center().justify_center().child(icon))
-      .child(div().flex_1().min_w(0).truncate().text_size(12).text_color(t.muted).child(label))
-      .child(Button(`end-child-${terminal.address}`, t, { variant: 'row', size: 'icon-sm' })
-        .opacity(this.hovered === key ? 1 : 0)
-        .accessibility_label(`End ${label}`)
-        .on_click((_event, cx) => { cx.stop_propagation(); run('terminal.kill', { terminal: terminal.address }); })
+      .child(div().size(16).mr(8).flex_none().flex().items_center().justify_center().child(icon))
+      .child(div().flex_1().min_w(0).truncate().text_size(depth ? 12 : 13).text_color(depth ? t.muted : t.foreground).child(label))
+      .child(Button(pane ? `close-pane-${pane.pane}` : `end-child-${terminal.address}`, t, { variant: 'row', size: 'icon-sm' })
+        .ml(8).opacity(this.hovered === key ? 1 : 0)
+        .accessibility_label(pane ? `Close ${label}` : `End ${label}`)
+        .on_click((_event, cx) => {
+          cx.stop_propagation();
+          if (pane) run('pane.close', { pane: pane.pane });
+          else run('terminal.kill', { terminal: terminal.address });
+        })
         .child(glyph('close', 12)));
   }
 
@@ -660,7 +733,7 @@ export default class Devkits extends View {
     if (props()?.view === 'branch-menu') return this.branchMenu.render(t);
     if (props()?.view === 'usage-details') return this.usageDetails(t);
     if (props()?.view === 'brand') return this.brand(t);
-    if (props()?.view === 'pane') return this.paneHeader(t);
+    if (props()?.view === 'pane') return this.paneHeader(t, cx);
     if (props()?.view === 'status') return this.statusBar(t);
     if (props()?.view === 'launcher') return this.launcher(t);
     if (props()?.view === 'asana') return this.asanaPanel(cx);
@@ -673,7 +746,7 @@ export default class Devkits extends View {
     if (props()?.view === 'project-menu') return this.projectMenu(t);
     if (props()?.view === 'project-picker') return this.projectPicker(t);
     if (cx) this.refreshUsage(cx, false);
-    const all = agents(), native = spaces();
+    const all = agents(), native = spaces(), modelPanes = panes();
     const roots = shared('devkits.project-roots') || {};
     const missing = native.filter(s => roots[s.id] === undefined && s.folder);
     if (missing.length) setShared('devkits.project-roots', { ...roots, ...Object.fromEntries(missing.map(s => [s.id, s.folder])) });
@@ -699,7 +772,8 @@ export default class Devkits extends View {
     const selectedTab = chosen?.tabs.find(tab => tab.active);
     const defaultSelected = selectedTab && (selectedTab.id === shared('devkits.default-terminals')?.[chosen.id]
       || selectedTab.name === '__devkits_default_terminal__')
-      && !all.some(agent => agent.space === chosen.id && agent.tab === selectedTab.id);
+      && !all.some(agent => agent.space === chosen.id && agent.tab === selectedTab.id)
+      && modelPanes.filter(pane => pane.tab === selectedTab.id).length < 2;
     const content = chosen && shared('devkits.asana') === chosen.id ? 'asana' : chosen?.pending || defaultSelected ? 'project-empty' : 'main';
     if (this.shownContent !== content) {
       this.shownContent = content;
@@ -726,7 +800,12 @@ export default class Devkits extends View {
         setShared('devkits.pending-profiles', resolved.pending);
       }
     }
-    const groups = projectGroups(workspaces, all, defaults);
+    // A split created in the otherwise hidden default shell is user-visible work too.
+    const sidebarDefaults = Object.fromEntries(Object.entries(defaults)
+      .filter(([, tab]) => modelPanes.filter(pane => pane.tab === tab).length < 2));
+    const groups = projectGroups(workspaces, all, sidebarDefaults);
+    for (const group of groups) for (const thread of group.threads)
+      if (thread.tab.id === defaults[group.space.id] && !thread.agent) thread.title = 'Terminal';
     const live = terminals();
     const visible = groups.filter(g => !this.folded.has(g.space.id)).flatMap(g => g.threads.flatMap(thread => thread.agents));
     setAgentOrder(visible.map(a => a.address));
@@ -759,8 +838,7 @@ export default class Devkits extends View {
               (_cx, at) => openOverlay({ mod: 'devkits', kind: 'popup', frame: 'none', width: 200, at,
                 props: { view: 'project-menu', project: space } }), 'end', SIDEBAR_MENU)
               .child(glyph('ellipsis')).opacity(this.hoveredProject === space.id ? 1 : 0)))
-          .when(!this.folded.has(space.id), el => el.children(threads.flatMap(thread => [this.threadRow(thread, t),
-            ...childTerminals(live, thread.agents.map(agent => agent.address)).map(child => this.childRow(thread, child, t))]))
+          .when(!this.folded.has(space.id), el => el.children(threads.map(thread => this.renderThreadGroup(thread, t, live)))
             .when(!threads.length, el => el.child(h_flex().h(32).flex_none().px(12).items_center().text_size(12).text_color(t.muted).child('No threads yet')))))))
       .child(this.accountUsage(t))
       .child(SidebarFooter(t)
