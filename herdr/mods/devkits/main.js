@@ -733,6 +733,7 @@ export default class Devkits extends View {
     const canArchive = archivable(thread, terminals());
     const stopping = canArchive && this.threadBusy(thread);
     const archive = canArchive && !stopping && !this.closeOnlyThreads?.has(thread.tab.id);
+    const checkingArchive = archive && Boolean(this.archiveChecks?.get(thread.tab.id)?.pending);
     const project = this.projects().find(project => project.id === thread.space);
     const archiveDisabled = Boolean(archive && project && !taskActions({ ...threadBoardTask(project, thread), agents: thread.agents }).canArchive);
     const icon = working ? glyph('loader', 14).text_color(t.working).spin(900).accessibility_label('Working')
@@ -759,10 +760,10 @@ export default class Devkits extends View {
       .child(Button(`${stopping ? 'stop' : archive ? 'archive' : 'close'}-thread-${thread.tab.id}`, t, { variant: 'row', size: 'icon-sm' })
         .ml(8).opacity(this.hovered === thread.tab.id && !archiveDisabled ? 1 : 0)
         .accessibility_label(stopping ? 'Stop generation' : archive ? 'Archive thread' : 'Close thread')
-        .disabled(archiveDisabled || this.stoppingThreads?.has(thread.tab.id) || false)
+        .disabled(checkingArchive || archiveDisabled || this.stoppingThreads?.has(thread.tab.id) || false)
         .on_click((_event, cx) => {
           cx.stop_propagation();
-          if (archiveDisabled) return;
+          if (checkingArchive || archiveDisabled || (!stopping && canArchive && this.threadBusy(thread))) return;
           if (stopping) cx.spawn(async cx => { await this.stopThread(thread); cx.notify(); });
           else if (archive) cx.spawn(async cx => { await this.archiveThread(thread); cx.notify(); });
           else run('tab.close', { id: thread.tab.id });
@@ -951,6 +952,11 @@ export default class Devkits extends View {
       if (thread.tab.id === defaults[group.space.id] && !thread.agent) thread.title = 'Terminal';
     const live = terminals();
     observeTaskInput(all, live, cx);
+    const openTabs = new Set(groups.flatMap(group => group.threads.map(thread => thread.tab.id)));
+    for (const tab of this.archiveChecks?.keys() || []) if (!openTabs.has(tab)) {
+      this.archiveChecks.delete(tab); this.closeOnlyThreads?.delete(tab);
+    }
+    for (const { threads } of groups) for (const thread of threads) this.prepareThreadArchive(thread, cx);
     // Observe progress even while a project's rows are collapsed or the board is closed.
     for (const { space } of groups) projectBoardTasks(space, all);
     const visible = groups.filter(g => !this.folded.has(g.space.id)).flatMap(g => g.threads.filter(thread => threadVisibleInSidebar(g.space, thread)).flatMap(thread => thread.agents));
