@@ -26,14 +26,16 @@ test('projects restore open and closed panels, active editor, native sizes and i
   const { Controller, root, store, calls } = await host();
   const state = new Controller();
   store['devkits.side-panel-width'] = 320;
-  state.sync(a);
+  store['devkits.project-layouts'] = { '["","/a"]': state.snapshot() };
+  state.sync(a); state.sync(a);
   state.sync(b); state.sync(b);
-  assert.equal(root.children[0].hidden, true);
+  assert.equal(root.children[0].hidden, false);
   assert.equal(root.children[1].hidden, true);
   assert.equal(store['devkits.side-panel-width'], 280);
   root.children[0].hidden = false;
   root.children[0].active = 'files';
   root.children[0].size = { px: 600 };
+  root.children[1].hidden = true;
   state.sync(b);
   state.sync(a); state.sync(a);
   assert.deepEqual(root.children.map(n => ({ ...n })), [
@@ -53,7 +55,7 @@ test('projects restore open and closed panels, active editor, native sizes and i
 test('saved layout survives controller reload and remains separate on remote machines', async () => {
   const { Controller, root } = await host();
   const state = new Controller();
-  state.sync(a);
+  state.sync(a); state.sync(a);
   root.children[0].hidden = true; state.sync(a);
   state.sync({ ...a, machine: 'remote' }); state.sync({ ...a, machine: 'remote' });
   root.children[0].hidden = false; state.sync({ ...a, machine: 'remote' });
@@ -68,4 +70,19 @@ test('layouts without simulator blocks never create one', async () => {
   const state = new Controller(); state.sync(a); state.sync(b); state.sync(b);
   assert.equal(calls.some(([, args]) => args.id === 'simulator'), false);
   assert.equal(state.restoring, null);
+});
+
+
+test('an unsaved project opens only Files on startup and keeps later saved visibility', async () => {
+  const { Controller, root, store } = await host();
+  root.children.forEach(node => { node.hidden = true; });
+  const state = new Controller(); state.sync(a); state.sync(a);
+  assert.equal(root.children[0].hidden, false);
+  assert.equal(root.children[0].active, 'files');
+  assert.equal(root.children[1].hidden, true);
+  root.children.forEach(node => { node.hidden = true; }); state.sync(a);
+  const reload = new Controller(); reload.sync(a); reload.sync(a);
+  assert.equal(root.children[0].hidden, true);
+  assert.equal(root.children[1].hidden, true);
+  assert.equal(store['devkits.project-layouts']['["","/a"]'].editor.hidden, true);
 });

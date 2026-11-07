@@ -23,14 +23,13 @@ export class ProjectLayout {
       this.key = key;
       if (!key) return;
       const saved = shared(STORAGE)?.[key];
-      // Migrate the currently visible project once; other new projects start with closed panels.
-      if (saved || this.started) this.restore(saved || {
-        editor: { hidden: true, active: 'files', size: { weight: 1.6 } },
+      // Every project without saved state starts with Files open and Simulator closed, including on startup.
+      this.restore(saved || {
+        editor: { hidden: false, active: 'files', size: { weight: 1.6 } },
         simulator: { hidden: true, size: { px: 380 } }, widths: [280, null],
       });
-      this.started = true;
       // Commands may trigger another render; never save the outgoing layout as the new project's.
-      if (saved || this.restoring) return;
+      return;
     }
     if (!key) return;
     const snapshot = this.snapshot();
