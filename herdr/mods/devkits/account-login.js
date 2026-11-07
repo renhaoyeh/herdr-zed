@@ -384,7 +384,7 @@ export default class AccountLogin {
 
   finish() {
     closeOverlay(this.target.overlay);
-    if (this.target.returnTo) openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: false, width: 680, height: 0.8,
+    if (this.target.returnTo) openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: false, width: 820, height: 0.8,
       props: { ...this.target.returnTo, refreshAgents: true } });
   }
 

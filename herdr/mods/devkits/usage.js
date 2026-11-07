@@ -124,11 +124,7 @@ export const agentUsage = {
         .child(Button('open-token-statistics', t, { variant: 'ghost', size: 'icon' }).h_full().w(32)
           .accessibility_label('Token statistics')
           .on_click(() => openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: false, width: 1080, height: 0.85,
-            props: { view: 'token-statistics' } })).child(glyph('chart-column')))
-        .child(Button('manage-agent-profiles', t, { variant: 'ghost', size: 'icon' }).h_full().w(32)
-          .accessibility_label('Manage agent profiles')
-          .on_click(() => openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: false, width: 680, height: 0.8,
-            props: { view: 'manage-launchers', space: space?.id } })).child(glyph('settings'))))
+            props: { view: 'token-statistics' } })).child(glyph('chart-column'))))
       .child(v_flex().id('account-usage-list').w_full().h_auto().flex_none()
         .children(choices.map(choice => {
             const data = (this.usage || []).find(account => account.key === choice.agent?.key);

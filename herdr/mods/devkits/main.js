@@ -1,7 +1,7 @@
 import { View, div, svg, image } from 'gpui-kit';
 import { v_flex, h_flex } from 'gpui-base';
 import { agents, spaces, panes, theme, run, props, window, openOverlay, closeOverlay, setAgentOrder, layout, settings, pickFolder, shared, setShared, knownAgents, notify, appHome, readTextFile, nextCommand, terminals } from 'herdr';
-import { projectGroups, projectCatalog, folderKey, launcherChoices, isAccountLauncher, launcherArgv, sessionArgv, sessionKind, resolveThreadProfiles, threadProfile, archivable, rulesArgv, childTerminals } from './model.js';
+import { projectGroups, projectCatalog, folderKey, launcherChoices, isAccountLauncher, launcherArgv, sessionArgv, sessionKind, resolveThreadProfiles, threadProfile, archivable, rulesArgv, childTerminals, settingsKey, rootSettings } from './model.js';
 import { commandArgv } from './shell-command.js';
 import AccountLogin from './account-login.js';
 import FileViewer, { FileMenu } from './files.js';
@@ -15,7 +15,7 @@ import { agentUsage } from './usage.js';
 import { RunControls, RunMenu, runApp } from './run-app.js';
 import { BranchMenu } from './branch-menu.js';
 import { threadArchive } from './thread-archive.js';
-import { sessionRules, ensureRules, RulesPreview } from './global-rules.js';
+import { sessionRules, ensureRules } from './global-rules.js';
 import { DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from './components/dropdown-menu.js';
 import { Button } from './components/button.js';
 import { AlertDialogContent, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from './components/alert-dialog.js';
@@ -61,7 +61,7 @@ export default class Devkits extends View {
     // Return an already-open permissions dialog to Manage during live updates.
     if (props()?.view === 'codex-permissions') {
       const target = props(); closeOverlay(target.overlay);
-      openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: false, width: 680, height: 0.8,
+      openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: false, width: 820, height: 0.8,
         props: { view: 'manage-launchers', space: target.space } });
       return;
     }
@@ -77,11 +77,12 @@ export default class Devkits extends View {
       }
       cx.timer.every(60000, cx => this.refreshUsage(cx));
       cx.spawn(async () => { try { await ensureRules(); } catch {} });
-    }
-    if (props()?.view === 'rules') {
-      this.rules = new RulesPreview();
-      this.rules.init(cx);
-      return;
+      // Settings saved per account before they moved to the provider (Claude, Codex) carry over once.
+      const permissions = shared('devkits.codex-permissions') || {}, sessions = shared('devkits.profile-sessions') || {};
+      const movedPermissions = rootSettings(permissions);
+      const movedSessions = rootSettings(sessions, (kept = {}, value = {}) => ({ model: kept.model ?? value.model ?? null, effort: kept.effort ?? value.effort ?? null }));
+      if (movedPermissions !== permissions) setShared('devkits.codex-permissions', movedPermissions);
+      if (movedSessions !== sessions) setShared('devkits.profile-sessions', movedSessions);
     }
     if (props()?.view === 'branch-menu') {
       this.branchMenu = new BranchMenu();
@@ -114,7 +115,7 @@ export default class Devkits extends View {
     if (props()?.view === 'rename-account') this.initRenameAccount();
     this.hovered = null;
     this.hoveredProject = null;
-    if (['close-project', 'remove-account', 'rename-account', 'project-menu', 'thread-menu', 'project-picker', 'usage-details'].includes(props()?.view)) {
+    if (['close-project', 'remove-account', 'rename-account', 'project-menu', 'project-picker', 'usage-details'].includes(props()?.view)) {
       this.handle = cx.focus_handle();
       if (props().view !== 'rename-account') this.handle.focus();
       if (props().view === 'project-picker') this.projectIndex = -1;
@@ -331,13 +332,13 @@ export default class Devkits extends View {
     const task = target.task;
     let argv;
     // A choice made for this session wins; otherwise the profile's own default model and effort apply.
-    const profile = shared('devkits.profile-sessions')?.[agent?.key] || {};
+    const profile = shared('devkits.profile-sessions')?.[settingsKey(agent)] || {};
     const session = { model: options.model === undefined ? profile.model : options.model,
       effort: options.effort === undefined ? profile.effort : options.effort };
     const allowed = shared('devkits.session-options')?.[sessionKind(agent)] || {};
     if (allowed.models?.includes(session.model)) session.model = null;
     if (allowed.efforts?.includes(session.effort)) session.effort = null;
-    try { argv = agent && sessionArgv(agent, launcherArgv(agent, shared('devkits.codex-permissions')?.[agent?.key]), session); }
+    try { argv = agent && sessionArgv(agent, launcherArgv(agent, shared('devkits.codex-permissions')?.[settingsKey(agent)]), session); }
     catch (error) { notify({ title: 'Could not start session', body: error.message, level: 'error' }); return; }
     if (target.overlay) closeOverlay(target.overlay);
     // Global rules live on this computer, so only local sessions get them.
@@ -428,9 +429,7 @@ export default class Devkits extends View {
     const title = thread?.title || p.title || 'Terminal';
     const link = shared('devkits.thread-tasks')?.[p.tab];
     const icon = program?.icon ? (program.tint ? svg(program.icon).size(14).text_color(t.muted) : image(program.icon).size(14)) : glyph('terminal');
-    // Claude and Codex threads get the global rules; their title row's ⋯ menu shows them.
-    const rules = Boolean(thread) && archivable(thread);
-    return h_flex().size_full().pl(12).when(!rules, el => el.pr(12)).gap(8).items_center().bg(t.chrome).border_b(1).border_color(t.border)
+    return h_flex().size_full().px(12).gap(8).items_center().bg(t.chrome).border_b(1).border_color(t.border)
       .text_size(12).text_color(t.muted).on_click(() => run('pane.focus', { pane: p.pane }))
       .child(div().flex_none().child(icon))
       .child(div().min_w(0).truncate().text_color(t.foreground).child(title))
@@ -439,31 +438,7 @@ export default class Devkits extends View {
       .when(Boolean(link), el => el.child(Button(`asana-link-${p.tab}`, t, { variant: 'ghost' }).h(22).px(6).gap(5).text_size(10)
         .border(1).border_color(t.border).accessibility_label(`Show Asana task ${link.name}`)
         .on_click((_event, cx) => { cx.stop_propagation(); this.openTask(thread.space, link); })
-        .child(glyph('list-todo', 12)).child('Asana')))
-      // Like Zed's agent panel, the thread's ⋯ menu holds Global rules.
-      .when(rules, el => el.child(DropdownMenuTrigger(Button(`thread-menu-${p.tab}`, t, { variant: 'ghost', size: 'icon' }).h_full().w(32).rounded(0)
-        .accessibility_label(`More actions for ${title}`), 200,
-        (_cx, at) => openOverlay({ mod: 'devkits', kind: 'popup', frame: 'none', width: 200, at,
-          props: { view: 'thread-menu' } }), 'end', { x: 0, y: 9 })
-        .child(glyph('ellipsis'))));
-  }
-
-  threadMenu(t) {
-    const target = props();
-    // The rules open in a dialog over the workspace, read only.
-    const choose = () => {
-      closeOverlay(target.overlay);
-      openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: false, width: 720, height: 0.8, props: { view: 'rules' } });
-    };
-    return DropdownMenuContent('thread-menu', undefined, t)
-      .track_focus(this.handle).on_key_down((event, cx) => {
-        if (event.key === 'enter' || event.key === 'space') choose();
-        else if (event.key === 'escape') closeOverlay(target.overlay);
-        else return;
-        cx.stop_propagation();
-      })
-      .child(DropdownMenuItem('menu-global-rules', t).bg(t.hover).on_click(choose)
-        .child(glyph('book-open')).child(div().flex_1().child('Global rules')));
+        .child(glyph('list-todo', 12)).child('Asana')));
   }
 
   // Opens the thread's project on its Asana panel with the linked task in the preview.
@@ -583,7 +558,6 @@ export default class Devkits extends View {
     if (props()?.view === 'header') return this.header(t);
     if (props()?.view === 'run-menu') return this.runMenu.render(t);
     if (props()?.view === 'branch-menu') return this.branchMenu.render(t);
-    if (props()?.view === 'rules') return this.rules.render(t);
     if (props()?.view === 'usage-details') return this.usageDetails(t);
     if (props()?.view === 'brand') return this.brand(t);
     if (props()?.view === 'pane') return this.paneHeader(t);
@@ -597,7 +571,6 @@ export default class Devkits extends View {
     if (props()?.view === 'project-empty') return div().size_full().bg(t.background);
     if (props()?.view === 'close-project') return this.closePrompt(t);
     if (props()?.view === 'project-menu') return this.projectMenu(t);
-    if (props()?.view === 'thread-menu') return this.threadMenu(t);
     if (props()?.view === 'project-picker') return this.projectPicker(t);
     if (cx) this.refreshUsage(cx, false);
     const all = agents(), native = spaces();

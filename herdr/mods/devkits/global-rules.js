@@ -1,8 +1,6 @@
 import { div } from 'gpui-kit';
 import { v_flex, TextView } from 'gpui-base';
-import { appHome, home, props, readTextFile, writeTextFile, closeOverlay } from 'herdr';
-import { Button } from './components/button.js';
-import { DialogContent, DialogTitle, DialogDescription, DialogFooter } from './components/dialog.js';
+import { appHome, home, readTextFile, writeTextFile } from 'herdr';
 
 // One rules file for every Claude and Codex session started from Devkits on this computer.
 export const rulesPath = () => `${appHome()}/data/devkits/AGENTS.md`;
@@ -33,11 +31,10 @@ export async function ensureRules() {
   if (await readTextFile(rulesPath()) === null) await writeTextFile(rulesPath(), defaultRules, null);
 }
 
-// The rules, read only, in a dialog over the workspace, as Zed shows its rules inside the app.
-// It rereads the file every few seconds so edits made elsewhere appear.
+// The rules, read only, on the Rules page of Settings; it rereads the file every few seconds so edits made elsewhere appear.
 export class RulesPreview {
-  init(cx) {
-    this.handle = cx.focus_handle(); this.handle.focus();
+  // Reads the rules now and every few seconds after, so the Settings page can show them too.
+  start(cx) {
     this.text = undefined;
     const load = async cx => {
       let text = null;
@@ -48,18 +45,16 @@ export class RulesPreview {
     cx.timer.every(3000, cx => cx.spawn(load));
   }
 
-  render(t) {
-    const close = () => closeOverlay(props().overlay);
+  description() {
     const path = rulesPath(), shown = path.startsWith(`${home()}/`) ? `~${path.slice(home().length)}` : path;
-    return DialogContent('global-rules', t).track_focus(this.handle).accessibility_label('Global rules')
-      .on_key_down((event, cx) => { if (event.key === 'escape') { cx.stop_propagation(); close(); } })
-      .child(DialogTitle().flex_none().child('Global rules'))
-      .child(DialogDescription(t).flex_none().child(`Added to every Claude and Codex session started here. Edit ${shown} to change them.`))
-      .child(this.text?.trim()
-        ? v_flex().id('rules-markdown').flex_1().min_h(0).overflow_y_scrollbar().border(1).border_color(t.border).p(16)
-          .child(TextView.markdown('rules-text', this.text).selectable(true).scrollable(false).w_full())
-        : div().flex_1().min_h(0).text_size(12).text_color(t.muted)
-          .child(this.text === undefined ? 'Loading rules…' : 'No global rules: new sessions get no extra instructions.'))
-      .child(DialogFooter().flex_none().child(Button('global-rules-done', t).on_click(close).child('Done')));
+    return `Added to every Claude and Codex session started here. Edit ${shown} to change them.`;
+  }
+
+  body(t) {
+    return this.text?.trim()
+      ? v_flex().id('rules-markdown').flex_1().min_h(0).overflow_y_scrollbar().border(1).border_color(t.border).p(16)
+        .child(TextView.markdown('rules-text', this.text).selectable(true).scrollable(false).w_full())
+      : div().flex_1().min_h(0).text_size(12).text_color(t.muted)
+        .child(this.text === undefined ? 'Loading rules…' : 'No global rules: new sessions get no extra instructions.');
   }
 }

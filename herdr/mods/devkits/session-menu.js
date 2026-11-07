@@ -7,9 +7,10 @@ import { Button } from './components/button.js';
 import { Checkbox } from './components/checkbox.js';
 import { Switch } from './components/switch.js';
 import { ToggleGroup, ToggleGroupItem } from './components/toggle-group.js';
-import { Select, SelectState } from './components/select.js';
 import { DialogContent, DialogTitle, DialogDescription, DialogFooter } from './components/dialog.js';
 import { glyph, AgentIcon } from './components/icon.js';
+import { Select, SelectState } from './components/select.js';
+import { RulesPreview } from './global-rules.js';
 
 const launcherSections = ['Terminal', 'Agents', 'Your accounts'];
 
@@ -19,12 +20,16 @@ export const sessionMenu = {
   initSessionMenu(cx) {
     if (props().refreshAgents) setShared('devkits.agent-cache', {});
     this.launchers = [];
-    this.permissionSelects = new Map();
     this.manageIndex = 0;
     this.handle = cx.focus_handle();
     this.handle.focus();
     this.loadAgents(cx);
-    if (props().view === 'manage-launchers') this.loadCodexModels(cx);
+    if (props().view !== 'manage-launchers') return;
+    this.loadCodexModels(cx);
+    this.settingsPage = props().page || 'agents';
+    this.defaultSelects = { permissions: new SelectState(cx), model: new SelectState(cx), effort: new SelectState(cx) };
+    this.rulesPreview = new RulesPreview();
+    this.rulesPreview.start(cx);
   },
 
   // Manage lists the models every local Codex profile knows.
@@ -43,48 +48,63 @@ export const sessionMenu = {
     });
   },
 
-  // A profile's settings line under its name: default permissions and, for local profiles, the model and effort
-  // every new session starts with. Default adds no flag and leaves the profile's own Claude Code or Codex configuration.
-  profileSettings(agent, local, t) {
-    const key = agent.key, kind = sessionKind(agent);
-    const colors = [t.muted, t.done, t.working, t.ansi1];
-    // Labels sit above bordered selects whose left edges line up with the profile name.
-    const line = h_flex().id(`profile-settings-${key}`).pl(92).pr(8).pb(12).gap(8).items_center()
-      .child(Select(`permissions-${key}`, this.permissionSelects.get(key), shared('devkits.codex-permissions')?.[key] || 'default',
-        permissionModes(agent).map((mode, index) => ({ ...mode, color: colors[index] })), `Default permissions for ${agent.name}`, mode => {
-          const saved = { ...(shared('devkits.codex-permissions') || {}) };
-          if (mode === 'default') delete saved[key]; else saved[key] = mode;
-          setShared('devkits.codex-permissions', saved);
-        }, t, { width: 168, prefix: 'Permissions', boxed: true }));
-    const selects = this.sessionSelects?.get(key);
-    if (!local || !kind || !selects) return line;
+  // A provider's defaults for new sessions, shared by every account of it: permissions and the model and effort
+  // every new session starts with. Default adds no flag and leaves each account's own configuration.
+  providerDefaults(kind) {
+    const key = kind, modes = permissionModes({ key });
+    const permission = shared('devkits.codex-permissions')?.[key] || 'default';
     const settings = shared('devkits.session-options')?.[kind] || {};
     const stored = shared('devkits.profile-sessions')?.[key] || {};
     const saved = { model: settings.models?.includes(stored.model) ? null : stored.model,
       effort: settings.efforts?.includes(stored.effort) ? null : stored.effort };
-    const codexList = this.codexModelsByHome?.get(codexHome(agent, home())) || this.codexModelList;
-    const { models, efforts } = sessionChoices(kind, codexList, settings, saved.model);
-    const set = change => setShared('devkits.profile-sessions', { ...(shared('devkits.profile-sessions') || {}),
-      [key]: { model: saved.model || null, effort: saved.effort || null, ...change } });
-    const option = (value, label) => ({ key: value, label, color: value === 'default' ? t.muted : t.foreground });
-    return line
-      .child(Select(`profile-model-${key}`, selects.model, models.some(item => item.key === saved.model) ? saved.model : 'default',
-        [option('default', 'Default'), ...models.map(item => option(item.key, item.label))], `Default model for ${agent.name}`,
-        value => {
-          const model = value === 'default' ? null : value;
-          const supported = sessionChoices(kind, codexList, settings, model).efforts;
-          set({ model, effort: supported.includes(saved.effort) ? saved.effort : null });
-        }, t, { width: 168, prefix: 'Model', boxed: true }))
-      .child(Select(`profile-effort-${key}`, selects.effort, efforts.includes(saved.effort) ? saved.effort : 'default',
-        [option('default', 'Default'), ...efforts.map(item => option(item, effortLabel(item)))], `Default effort for ${agent.name}`,
-        value => set({ effort: value === 'default' ? null : value }), t, { width: 168, prefix: 'Effort', boxed: true }));
+    const { models, efforts } = sessionChoices(kind, this.codexModelList, settings, saved.model);
+    const model = models.some(item => item.key === saved.model) ? saved.model : null;
+    const effort = efforts.includes(saved.effort) ? saved.effort : null;
+    // Read the saved choice when picking, so several picks before a repaint keep each other.
+    const set = change => {
+      const current = shared('devkits.profile-sessions')?.[key] || {};
+      setShared('devkits.profile-sessions', { ...(shared('devkits.profile-sessions') || {}),
+        [key]: { model: current.model ?? null, effort: current.effort ?? null, ...change } });
+    };
+    return [
+      { id: 'permissions', label: 'Permissions', items: modes.map(mode => ({ key: mode.key, label: mode.label, checked: mode.key === permission,
+        choose: () => {
+          const saved = { ...(shared('devkits.codex-permissions') || {}) };
+          if (mode.key === 'default') delete saved[key]; else saved[key] = mode.key;
+          setShared('devkits.codex-permissions', saved);
+        } })) },
+      { id: 'model', label: 'Model', items: [{ key: 'default', label: 'Default' }, ...models].map(item => ({ key: item.key, label: item.label,
+        checked: (item.key === 'default' ? null : item.key) === model, choose: () => {
+          const next = item.key === 'default' ? null : item.key;
+          const current = shared('devkits.profile-sessions')?.[key]?.effort ?? null;
+          set({ model: next, effort: sessionChoices(kind, this.codexModelList, settings, next).efforts.includes(current) ? current : null });
+        } })) },
+      { id: 'effort', label: 'Effort', items: ['default', ...efforts].map(value => ({ key: value, label: value === 'default' ? 'Default' : effortLabel(value),
+        checked: (value === 'default' ? null : value) === effort, choose: () => set({ effort: value === 'default' ? null : value }) })) }];
+  },
+
+  // A provider's Settings page: its defaults, then which models and efforts its accounts offer.
+  providerPage(kind, t) {
+    const colors = [t.muted, t.done, t.working, t.ansi1], name = kind === 'claude' ? 'Claude' : 'Codex';
+    return v_flex().id(`settings-${kind}`).flex_1().min_h(0).overflow_y_scroll().gap(12)
+      .child(DropdownMenuLabel(t).id(`defaults-section-${kind}`).px(0).child('DEFAULTS'))
+      .child(div().flex_none().text_size(12).text_color(t.muted).child(`Every new ${name} session uses these, whichever ${name} account starts it.`))
+      .children(this.providerDefaults(kind).map(section => {
+        const value = section.items.find(item => item.checked)?.key || 'default';
+        const options = section.items.map((item, index) => ({ key: item.key, label: item.label,
+          color: section.id === 'permissions' ? colors[index] : item.key === 'default' ? t.muted : t.foreground }));
+        return h_flex().flex_none().gap(12).items_center()
+          .child(div().w(96).flex_none().text_size(13).child(section.label))
+          .child(Select(`defaults-${section.id}`, this.defaultSelects[section.id], value, options, `Default ${section.label.toLowerCase()} for ${name}`,
+            key => section.items.find(item => item.key === key)?.choose(), t, { width: 240, boxed: true }));
+      }))
+      .children(this.sessionOptions(kind, t));
   },
 
   // Which models and efforts Asana's session composer offers, like Cursor's model list: one row and switch per model,
   // and efforts as joined segments as in Claude Code and Codex. Turned-off ones are hidden; Default always stays.
-  sessionOptions(choices, t) {
-    const kinds = ['claude', 'codex'].filter(kind => choices.some(choice => sessionKind(choice.agent) === kind));
-    if (!kinds.length) return [];
+  sessionOptions(kind, t) {
+    const kinds = [kind];
     const saved = shared('devkits.session-options') || {};
     const shown = (kind, field, key) => !(saved[kind]?.[field] || []).includes(key);
     const toggle = (kind, field, key) => {
@@ -103,7 +123,9 @@ export const sessionMenu = {
       }
     };
     const title = effortLabel;
-    return [DropdownMenuLabel(t).id('manage-section-session').px(0).mt(16).child('MODELS AND EFFORT'),
+    const name = kind === 'claude' ? 'Claude' : 'Codex';
+    return [DropdownMenuLabel(t).id('defaults-section-session').px(0).mt(8).child('MODELS AND EFFORT'),
+      div().flex_none().text_size(12).text_color(t.muted).child(`Which models and efforts the Model and Effort choices offer, for every ${name} account.`),
       ...kinds.map(kind => {
         const models = orderedOptions(kind === 'claude' ? claudeModels : this.codexModelList || [], saved[kind]?.order);
         const reorder = (key, target) => {
@@ -158,7 +180,7 @@ export const sessionMenu = {
       this.launchers = cached;
       this.loading = false;
       this.launchError = false;
-      if (props().view === 'manage-launchers') this.preparePermissionSelects(cx);
+      if (props().view === 'manage-launchers') this.prepareAccountMenus(cx);
       return;
     }
     this.loading = true;
@@ -166,22 +188,16 @@ export const sessionMenu = {
     cx.spawn(async cx => {
       try {
         this.launchers = await this.cachedAgents(machine);
-        if (props().view === 'manage-launchers') this.preparePermissionSelects(cx);
+        if (props().view === 'manage-launchers') this.prepareAccountMenus(cx);
       } catch { this.launchError = true; }
       this.loading = false;
       cx.notify();
     });
   },
 
-  preparePermissionSelects(cx) {
-    this.permissionSelects ||= new Map();
-    this.sessionSelects ||= new Map();
+  prepareAccountMenus(cx) {
     this.accountMenus ||= new Map();
     for (const agent of this.launchers) if (!this.accountMenus.has(agent.key)) this.accountMenus.set(agent.key, new DropdownMenuState(cx));
-    for (const agent of this.launchers.filter(permissionModes)) {
-      if (!this.permissionSelects.has(agent.key)) this.permissionSelects.set(agent.key, new SelectState(cx));
-      if (!this.sessionSelects.has(agent.key)) this.sessionSelects.set(agent.key, { model: new SelectState(cx), effort: new SelectState(cx) });
-    }
   },
 
   manageLaunchers(t) {
@@ -208,7 +224,15 @@ export const sessionMenu = {
       if (!this.dragKey && !this.modelDrag) return;
       this.dragKey = null; this.dropKey = null; this.modelDrag = null; this.modelDrop = null; cx.notify();
     };
-    return DialogContent('manage-launchers', t).accessibility_label('Manage session menu')
+    // Like Cursor's and Zed's settings, one page per subject in a left list; Claude and Codex each get their own.
+    // What every agent shares comes first, then each provider's own page.
+    const pages = [{ id: 'agents', label: 'Agents', icon: glyph('terminal') },
+      { id: 'rules', label: 'Rules', icon: glyph('book-open') },
+      ...(local ? ['claude', 'codex'].filter(kind => choices.some(choice => sessionKind(choice.agent) === kind))
+        .map(kind => ({ id: kind, label: kind === 'claude' ? 'Claude' : 'Codex',
+          icon: AgentIcon(choices.find(choice => choice.agent?.key === kind)?.agent || { icon: null }, t).size(14) })) : [])];
+    const page = pages.some(item => item.id === this.settingsPage) ? this.settingsPage : 'agents';
+    return DialogContent('manage-launchers', t).accessibility_label('Settings')
       .on_mouse_up('left', (_event, cx) => cancelDrag(cx))
       .on_hover((inside, cx) => { if (!inside) cancelDrag(cx); })
       .track_focus(this.handle).on_key_down((event, cx) => {
@@ -216,6 +240,7 @@ export const sessionMenu = {
           if (this.dragKey || this.modelDrag) cancelDrag(cx); else done();
           cx.stop_propagation(); return;
         }
+        if (page !== 'agents') return;
         if (event.modifiers?.alt && ['up', 'down'].includes(event.key)) {
           move(this.manageIndex, this.manageIndex + (event.key === 'up' ? -1 : 1), cx);
         } else if (event.key === 'down') this.manageIndex = (this.manageIndex + 1) % choices.length;
@@ -224,9 +249,25 @@ export const sessionMenu = {
         else return;
         cx.stop_propagation(); cx.notify();
       })
-      .child(DialogTitle().child('Manage session menu'))
-      .child(DialogDescription(t).child('Choose what Add session shows. Drag to reorder; changes save automatically.'))
-      .child(v_flex().id('manage-launchers-list').flex_1().min_h(0).overflow_y_scroll().gap(8)
+      .child(DialogTitle().flex_none().child('Settings'))
+      .child(h_flex().flex_1().min_h(0).gap(16).items_start()
+        .child(v_flex().id('settings-pages').w(140).flex_none().gap(2)
+          .children(pages.map(item => Button(`settings-page-${item.id}`, t, { variant: 'ghost' }).h(32).px(8).gap(8).justify_start()
+            .bg(item.id === page ? t.selected : t.popover).text_color(item.id === page ? t.foreground : t.muted)
+            .accessibility_label(`${item.label} settings${item.id === page ? ', selected' : ''}`)
+            .on_click((_event, cx) => { this.settingsPage = item.id; cancelDrag(cx); cx.notify(); })
+            .child(div().size(16).flex_none().flex().items_center().justify_center().child(item.icon)).child(item.label))))
+        .child(v_flex().h_full().flex_1().min_w(0).min_h(0).gap(8)
+          .when(page === 'agents', el => el.child(DialogDescription(t).flex_none().child('Choose what Add session shows. Drag to reorder; changes save automatically.'))
+            .child(this.agentsPage(choices, hidden, local, toggle, move, cancelDrag, t)))
+          .when(page === 'claude' || page === 'codex', el => el.child(this.providerPage(page, t)))
+          .when(page === 'rules', el => el.child(DialogDescription(t).flex_none().child(this.rulesPreview.description()))
+            .child(this.rulesPreview.body(t)))))
+      .child(DialogFooter().flex_none().child(Button('manage-launchers-done', t).on_click(done).child('Done')));
+  },
+
+  agentsPage(choices, hidden, local, toggle, move, cancelDrag, t) {
+    return v_flex().id('manage-launchers-list').flex_1().min_h(0).overflow_y_scroll().gap(8)
         // One bordered table per section; rows are separated by rules and hover with t.selected.
         .children([0, 1, 2].filter(group => choices.some(choice => choice.group === group)).map(group => v_flex().flex_none().gap(4)
           .when(group > 0, el => el.mt(8))
@@ -271,17 +312,13 @@ export const sessionMenu = {
                         ...(choice.agent.key.startsWith('devkits-codex-') ? [{ key: 'sync', label: 'Shared plugins and skills…' }] : []),
                         { key: 'remove', label: 'Remove', separator: true }],
                       key => key === 'rename' ? this.renameAccount(choice.agent)
-                        : key === 'sync' ? this.openCodexSharing(choice.agent) : this.confirmRemoveAccount(choice.agent), t))))
-                .when(Boolean(permissionModes(choice.agent)) && Boolean(this.permissionSelects?.get(choice.agent.key)), el => el
-                  .child(this.profileSettings(choice.agent, local, t))))))))
+                        : key === 'sync' ? this.openCodexSharing(choice.agent) : this.confirmRemoveAccount(choice.agent), t)))))))))
         .when(local && !this.loading && !this.launchError && !choices.some(choice => choice.group === 2), el => el
           .child(DropdownMenuLabel(t).id('manage-section-2').px(0).mt(16).child('YOUR ACCOUNTS'))
           .child(div().text_size(12).text_color(t.muted).child('No accounts added. Use Add account on the Codex or Claude row.')))
-        .when(local && !this.loading && !this.launchError, el => el.children(this.sessionOptions(choices, t)))
         .when(this.loading, el => el.child(div().p(8).text_size(12).text_color(t.muted).child('Loading agents…')))
         .when(this.launchError, el => el.child(Button('manage-retry-agents', t, { variant: 'secondary' })
-          .on_click((_event, cx) => this.loadAgents(cx)).child('Could not load agents. Retry'))))
-      .child(DialogFooter().child(Button('manage-launchers-done', t).on_click(done).child('Done')));
+          .on_click((_event, cx) => this.loadAgents(cx)).child('Could not load agents. Retry')));
   },
 
   launcher(t) {
@@ -312,12 +349,12 @@ export const sessionMenu = {
         .when(this.launchError, el => el.child(div().id('retry-agents').p(10).text_size(12).text_color(t.muted).cursor_pointer()
           .on_click((_event, cx) => this.loadAgents(cx)).child('Could not load agents. Click to retry.')))
         .when(!this.loading && !this.launchError && !choices.length, el => el.child(div().p(10).text_size(12).text_color(t.muted)
-          .child(this.launchers.length ? 'All agents are hidden. Use Manage to show them.' : 'No installed agents found.'))))
+          .child(this.launchers.length ? 'All agents are hidden. Use Settings to show them.' : 'No installed agents found.'))))
       .child(DropdownMenuSeparator(t))
-      .child(row('manage-launchers-open', 'Manage…', glyph('settings'), () => {
+      .child(row('manage-launchers-open', 'Settings…', glyph('settings'), () => {
         const target = props();
         closeOverlay(target.overlay);
-        openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: false, width: 680, height: 0.8,
+        openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: false, width: 820, height: 0.8,
           props: { view: 'manage-launchers', space: target.space } });
       }));
   },

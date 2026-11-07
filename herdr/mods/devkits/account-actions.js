@@ -39,7 +39,7 @@ export const accountActions = {
 
   finishCodexSharing() {
     const target = props(); closeOverlay(target.overlay);
-    openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: false, width: 680, height: 0.8,
+    openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: false, width: 820, height: 0.8,
       props: { view: 'manage-launchers', space: target.space } });
   },
 
@@ -126,7 +126,7 @@ export const accountActions = {
     if (this.renaming) return;
     const target = props();
     closeOverlay(target.overlay);
-    openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: false, width: 680, height: 0.8,
+    openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: false, width: 820, height: 0.8,
       props: { view: 'manage-launchers', space: target.space } });
   },
 
@@ -173,7 +173,7 @@ export const accountActions = {
     const back = () => {
       if (this.removing) return;
       closeOverlay(target.overlay);
-      openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: false, width: 680, height: 0.8,
+      openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: false, width: 820, height: 0.8,
         props: { view: 'manage-launchers', space: target.space } });
     };
     const confirm = cx => {
