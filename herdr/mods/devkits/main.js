@@ -1,7 +1,7 @@
 import { View, div, svg, image } from 'gpui-kit';
 import { v_flex, h_flex } from 'gpui-base';
 import { agents, spaces, panes, theme, run, props, window, openOverlay, closeOverlay, setAgentOrder, layout, settings, pickFolder, shared, setShared, knownAgents, notify, appHome, readTextFile, nextCommand } from 'herdr';
-import { projectGroups, projectCatalog, folderKey, launcherChoices, isAccountLauncher, launcherArgv, sessionArgv, sessionKind, resolveThreadProfiles, threadProfile, archivable } from './model.js';
+import { projectGroups, projectCatalog, folderKey, launcherChoices, isAccountLauncher, launcherArgv, sessionArgv, sessionKind, resolveThreadProfiles, threadProfile, archivable, rulesArgv } from './model.js';
 import { commandArgv } from './shell-command.js';
 import AccountLogin from './account-login.js';
 import FileViewer, { FileMenu } from './files.js';
@@ -14,6 +14,7 @@ import { accountActions } from './account-actions.js';
 import { agentUsage } from './usage.js';
 import { RunControls, RunMenu, runApp } from './run-app.js';
 import { threadArchive } from './thread-archive.js';
+import { sessionRules, ensureRules } from './global-rules.js';
 import { DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from './components/dropdown-menu.js';
 import { Button } from './components/button.js';
 import { AlertDialogContent, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from './components/alert-dialog.js';
@@ -68,6 +69,7 @@ export default class Devkits extends View {
         cx.spawn(async () => { try { await this.cachedAgents(machine); } catch {} });
       }
       cx.timer.every(60000, cx => this.refreshUsage(cx));
+      cx.spawn(async () => { try { await ensureRules(); } catch {} });
     }
     if (props()?.view === 'run-menu') {
       this.runMenu = new RunMenu();
@@ -321,6 +323,10 @@ export default class Devkits extends View {
     try { argv = agent && sessionArgv(agent, launcherArgv(agent, shared('devkits.codex-permissions')?.[agent?.key]), session); }
     catch (error) { notify({ title: 'Could not start session', body: error.message, level: 'error' }); return; }
     if (target.overlay) closeOverlay(target.overlay);
+    // Global rules live on this computer, so only local sessions get them.
+    if (argv && !spaces().find(space => space.id === target.space)?.machine) {
+      try { argv = rulesArgv(agent, argv, await sessionRules()); } catch {}
+    }
     if (task) argv = [...argv, taskPrompt(task)];
     if (task) unsaveTask(target.folder, task.gid);
     this.openThread(target, task?.name || agent?.name, argv, agent?.key, task ? { gid: task.gid, name: task.name, folder: target.folder } : null);

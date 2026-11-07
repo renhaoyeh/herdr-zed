@@ -10,6 +10,7 @@ import { ToggleGroup, ToggleGroupItem } from './components/toggle-group.js';
 import { Select, SelectState } from './components/select.js';
 import { DialogContent, DialogTitle, DialogDescription, DialogFooter } from './components/dialog.js';
 import { glyph, AgentIcon } from './components/icon.js';
+import { rulesPath, editRules } from './global-rules.js';
 
 const launcherSections = ['Terminal', 'Agents', 'Your accounts'];
 
@@ -151,6 +152,21 @@ export const sessionMenu = {
       })];
   },
 
+  editGlobalRules() { return editRules(); },
+
+  globalRules(t) {
+    const path = rulesPath(), shown = path.startsWith(`${home()}/`) ? `~${path.slice(home().length)}` : path;
+    return v_flex().flex_none().gap(4).mt(8)
+      .child(DropdownMenuLabel(t).id('manage-section-rules').px(0).child('GLOBAL RULES'))
+      .child(div().text_size(12).text_color(t.muted).child('Added to the system prompt of every Claude and Codex session started on this computer.'))
+      .child(h_flex().h(44).px(12).gap(8).items_center().border(1).border_color(t.border)
+        .child(glyph('file').text_color(t.muted))
+        .child(div().flex_none().text_size(13).child('AGENTS.md'))
+        .child(div().flex_1().min_w(0).truncate().text_size(12).text_color(t.muted).child(shown))
+        .child(Button('edit-global-rules', t, { variant: 'secondary' }).h(28).px(10)
+          .accessibility_label('Edit global rules').on_click(() => this.editGlobalRules()).child('Edit')));
+  },
+
   loadAgents(cx) {
     const machine = spaces().find(s => s.id === props().space)?.machine;
     const cached = shared('devkits.agent-cache')?.[JSON.stringify(machine || null)];
@@ -277,7 +293,7 @@ export const sessionMenu = {
         .when(local && !this.loading && !this.launchError && !choices.some(choice => choice.group === 2), el => el
           .child(DropdownMenuLabel(t).id('manage-section-2').px(0).mt(16).child('YOUR ACCOUNTS'))
           .child(div().text_size(12).text_color(t.muted).child('No accounts added. Use Add account on the Codex or Claude row.')))
-        .when(local && !this.loading && !this.launchError, el => el.children(this.sessionOptions(choices, t)))
+        .when(local && !this.loading && !this.launchError, el => el.children(this.sessionOptions(choices, t)).child(this.globalRules(t)))
         .when(this.loading, el => el.child(div().p(8).text_size(12).text_color(t.muted).child('Loading agents…')))
         .when(this.launchError, el => el.child(Button('manage-retry-agents', t, { variant: 'secondary' })
           .on_click((_event, cx) => this.loadAgents(cx)).child('Could not load agents. Retry'))))
