@@ -1,6 +1,6 @@
 import { div, svg, image } from 'gpui-kit';
 import { h_flex } from 'gpui-base';
-import { shared, setShared, run, notify, hc, exec, readTextFile, home } from 'herdr';
+import { shared, setShared, run, notify, hc, exec, readTextFile, home, terminals } from 'herdr';
 import { archivable, agentCommand, commandKind, resumeArgv, codexSessionId, archivedAge, folderKey } from './model.js';
 import { Button } from './components/button.js';
 import { SidebarContent, SidebarGroup, SidebarMenuButton } from './components/sidebar.js';
@@ -20,6 +20,7 @@ async function sessionId(kind, command, pid) {
   }
   // Codex keeps its rollout file open, in its own process or a child of a wrapper.
   const result = await exec('sh', ['-c', 'pids=$(pgrep -P "$1" | tr "\\n" ,)$1; lsof -Fn -p "$pids"', 'sh', String(pid)]);
+  // shortcut: Codex versions without an open rollout need another reliable session-ID source.
   return codexSessionId(result.stdout);
 }
 
@@ -31,7 +32,7 @@ export const threadArchive = {
     if (archiving.has(tab)) return;
     archiving.add(tab);
     try {
-      if (archivable(thread)) {
+      if (archivable(thread, terminals())) {
         // The thread's own agent, not a terminal one of its agents started (those have a parent).
         let terminal = null, command = null;
         for (const agent of thread.agents) {
@@ -44,6 +45,11 @@ export const threadArchive = {
         if (!command || !terminal.foreground?.pid) throw new Error('Could not find the Claude or Codex session this thread started.');
         const kind = commandKind(command);
         const id = await sessionId(kind, command, terminal.foreground.pid);
+        if (kind === 'codex' && !id) {
+          (this.closeOnlyThreads ||= new Set()).add(tab);
+          notify({ title: 'Archive unavailable', body: 'No open Codex rollout file was found. Use Close thread to end this session without adding it to the archive.' });
+          return;
+        }
         if (id) {
           const project = this.projects().find(project => project.id === thread.space);
           const task = shared('devkits.thread-tasks')?.[tab] || null;
