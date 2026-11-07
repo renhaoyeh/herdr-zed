@@ -196,9 +196,7 @@ export const simulatorShown = root => { const node = findNode(root, 'simulator')
 export default class SimulatorPanel {
   init(cx) {
     // phase: starting | no-device | shutdown | booting | repairing | live | error | unsupported
-    // iOS simulators run only on macOS; elsewhere the panel shows and says so instead of streaming.
-    const supported = window()?.platform === 'macos';
-    this.phase = supported ? { kind: 'starting', device: null } : { kind: 'unsupported', device: null };
+    this.phase = { kind: 'starting', device: null };
     this.touch = null;
     this.keys = new Map();
     this.devices = [];
@@ -211,7 +209,16 @@ export default class SimulatorPanel {
     this.session = null;
     this.socket = null;
     this.closed = false;
-    if (supported) cx.spawn(cx => this.run(cx));
+    cx.spawn(async cx => {
+      // iOS simulators run only on macOS; elsewhere the panel shows and says so instead of streaming.
+      // window() can be null while the mod starts or reloads, so wait for the platform rather than
+      // mistaking an unknown one for another.
+      let platform;
+      while (!this.closed && !(platform = window()?.platform)) await sleep(cx, 100);
+      if (this.closed) return;
+      if (platform !== 'macos') { this.set({ kind: 'unsupported', device: null }, cx); return; }
+      await this.run(cx);
+    });
   }
 
   async close() {

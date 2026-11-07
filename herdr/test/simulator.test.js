@@ -128,3 +128,25 @@ test('the device menu shuts down the chosen simulator after closing itself', asy
   assert.deepEqual(closed, ['menu']);
   assert.deepEqual(calls, [['xcrun', 'simctl', 'shutdown', 'ABC']]);
 });
+
+test('the panel waits for the window platform before deciding the simulator is unsupported', async () => {
+  let platform = null;
+  const { SimulatorPanel } = await load({ window: () => platform && { platform } });
+  const timers = [], tasks = [];
+  const cx = { focus_handle() {}, notify() {}, timer: { after: (_ms, fn) => timers.push(fn) },
+    spawn(fn) { tasks.push(fn(cx)); } };
+  const tick = async () => { timers.splice(0).forEach(fn => fn()); await new Promise(resolve => setImmediate(resolve)); };
+  const mac = new SimulatorPanel(), ran = [];
+  mac.run = async () => { ran.push('run'); };
+  mac.init(cx);
+  await tick(); await tick();
+  assert.equal(mac.phase.kind, 'starting', 'An unknown platform is not another platform');
+  platform = 'macos'; await tick();
+  assert.deepEqual(ran, ['run']);
+  assert.equal(mac.phase.kind, 'starting');
+  platform = 'windows';
+  const other = new SimulatorPanel(); other.run = async () => { ran.push('other'); };
+  other.init(cx); await tick();
+  assert.equal(other.phase.kind, 'unsupported');
+  assert.deepEqual(ran, ['run']);
+});
