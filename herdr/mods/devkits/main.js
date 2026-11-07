@@ -13,6 +13,7 @@ import { sessionMenu } from './session-menu.js';
 import { accountActions } from './account-actions.js';
 import { agentUsage } from './usage.js';
 import { RunControls, RunMenu, runApp } from './run-app.js';
+import { BranchMenu } from './branch-menu.js';
 import { threadArchive } from './thread-archive.js';
 import { sessionRules, ensureRules } from './global-rules.js';
 import { DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from './components/dropdown-menu.js';
@@ -76,6 +77,11 @@ export default class Devkits extends View {
       }
       cx.timer.every(60000, cx => this.refreshUsage(cx));
       cx.spawn(async () => { try { await ensureRules(); } catch {} });
+    }
+    if (props()?.view === 'branch-menu') {
+      this.branchMenu = new BranchMenu();
+      this.branchMenu.init(cx);
+      return;
     }
     if (props()?.view === 'run-menu') {
       this.runMenu = new RunMenu();
@@ -385,7 +391,11 @@ export default class Devkits extends View {
           props: { view: 'project-picker' } }), 'start', { x: 8, y: 9 }) // Clear of the header's 1px bottom border
         .child(div().max_w(220).truncate().child(space?.name || 'Open project'))
         .child(glyph('chevron-down', 12).text_color(t.muted)))
-      .when(Boolean(space?.branch), el => el.child(h_flex().h_full().pl(4).gap(4).items_center().text_size(12).text_color(t.muted)
+      // Like Zed, the branch opens a list of the project's branches; it only shows them for now.
+      .when(Boolean(space?.branch), el => el.child(DropdownMenuTrigger(h_flex().id('branch-switcher').h_full().px(8).gap(4).items_center().rounded(0)
+        .text_size(12).text_color(t.muted).hover(el => el.bg(t.hover)).cursor_pointer().accessibility_label(`Branches of ${space.name}`), 320,
+        (_cx, at) => openOverlay({ mod: 'devkits', kind: 'popup', frame: 'none', width: 320, at,
+          props: { view: 'branch-menu', folder: space.folder, machine: space.machine || null, branch: space.branch } }), 'start', { x: 8, y: 9 })
         .child(glyph('branch', 12)).child(div().max_w(200).truncate().child(space.branch))))
       .child(div().flex_1())
       .when(Boolean(space), el => el.child(RunControls(t)))
@@ -541,6 +551,7 @@ export default class Devkits extends View {
     if (props()?.view === 'account-login') return this.login.render();
     if (props()?.view === 'header') return this.header(t);
     if (props()?.view === 'run-menu') return this.runMenu.render(t);
+    if (props()?.view === 'branch-menu') return this.branchMenu.render(t);
     if (props()?.view === 'usage-details') return this.usageDetails(t);
     if (props()?.view === 'brand') return this.brand(t);
     if (props()?.view === 'pane') return this.paneHeader(t);
