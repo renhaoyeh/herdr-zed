@@ -14,6 +14,7 @@ import { accountActions } from './account-actions.js';
 import { agentUsage } from './usage.js';
 import { RunControls, RunMenu, runApp } from './run-app.js';
 import { BranchMenu } from './branch-menu.js';
+import { ProjectLayout, layoutNode } from './project-layout.js';
 import { threadArchive } from './thread-archive.js';
 import { sessionRules, ensureRules } from './global-rules.js';
 import { DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from './components/dropdown-menu.js';
@@ -40,7 +41,6 @@ const toggleEditor = (editor, name) => {
   run('layout.show', { id: 'editor' });
 };
 const agentLoads = new Map();
-const layoutNode = (node, id) => node?.id === id ? node : (node?.children ?? []).map(child => layoutNode(child, id)).find(Boolean) ?? null;
 
 export default class Devkits extends View {
   init(_props, cx) {
@@ -599,6 +599,8 @@ export default class Devkits extends View {
     }
     const workspaces = this.projects();
     const chosen = workspaces.find(p => p.active);
+    this.projectLayout ??= new ProjectLayout();
+    this.projectLayout.sync(chosen);
     const selectedTab = chosen?.tabs.find(tab => tab.active);
     const defaultSelected = selectedTab && (selectedTab.id === shared('devkits.default-terminals')?.[chosen.id]
       || selectedTab.name === '__devkits_default_terminal__')
