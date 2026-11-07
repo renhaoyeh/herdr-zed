@@ -16,9 +16,10 @@ async function host() {
     if (command === 'layout.hide' || command === 'layout.show') node.hidden = command === 'layout.hide';
   };
   const Controller = new Function('layout', 'run', 'shared', 'setShared',
-    source.replace(/^import .*;\n/gm, '').replace(/^export /gm, '') + '\nreturn ProjectLayout;')(
+    source.replace(/^import .*;\n/gm, '').replace(/^export /gm, '') + '\nreturn { ProjectLayout, maximizeConversation, conversationMaximized };')(
     () => root, run, key => store[key], (key, value) => { store[key] = structuredClone(value); });
-  return { Controller, root, store, calls };
+  return { Controller: Controller.ProjectLayout, maximize: Controller.maximizeConversation,
+    isMaximized: Controller.conversationMaximized, root, store, calls };
 }
 const a = { id: 'a', folder: '/a' }, b = { id: 'b', folder: '/b' };
 
@@ -77,4 +78,42 @@ test('legacy hidden editor migrates to a closed dock with the document still vis
   assert.equal(store['devkits.editor-kind'], 'diff');
   assert.equal(store['devkits.right-panel'], null);
   assert.deepEqual(root.children[0].size, { px: 650 });
+});
+
+test('maximizing preserves normal visibility, widths and content through layout persistence', async () => {
+  const { Controller, maximize, isMaximized, root, store, calls } = await host();
+  const state = new Controller(); state.sync(a); state.sync(a);
+  root.children[0].size = { px: 610 };
+  root.children[1].hidden = false;
+  store['devkits.editor-kind'] = 'diff'; store['devkits.right-panel'] = 'diff';
+  state.sync(a);
+  const before = structuredClone(store['devkits.project-layouts']);
+  maximize(a, true); state.sync(a);
+  assert.equal(isMaximized(a), true);
+  assert.equal(isMaximized({ ...a, machine: 'remote' }), false);
+  assert.ok(root.children.slice(0, 2).every(node => node.hidden));
+  assert.deepEqual(store['devkits.project-layouts'], before);
+  maximize(a, false); state.sync(a);
+  assert.equal(root.children[0].hidden, false);
+  assert.equal(root.children[1].hidden, false);
+  assert.deepEqual(root.children[0].size, { px: 610 });
+  assert.equal(store['devkits.editor-kind'], 'diff');
+  assert.equal(store['devkits.right-panel'], 'diff');
+  assert.ok(calls.every(([name]) => name.startsWith('layout.')));
+});
+
+test('project switches and reloads leave maximization without persisting hidden panels', async () => {
+  const { Controller, maximize, isMaximized, root, store } = await host();
+  const state = new Controller(); state.sync(a); state.sync(a);
+  maximize(a, true); state.sync(a);
+  state.sync(b); state.sync(b);
+  assert.equal(isMaximized(a), false);
+  assert.equal(root.children[0].hidden, false);
+  assert.equal(root.children[1].hidden, true);
+  state.sync(a); state.sync(a); maximize(a, true); state.sync(a);
+  const reload = new Controller(); reload.sync(a); reload.sync(a);
+  assert.equal(isMaximized(a), false);
+  assert.equal(root.children[0].hidden, false);
+  assert.equal(root.children[1].hidden, true);
+  assert.equal(store['devkits.right-panel'], 'files');
 });

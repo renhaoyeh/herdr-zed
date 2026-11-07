@@ -6,6 +6,27 @@ export const layoutNode = (node, id) => node?.id === id ? node
   : (node?.children ?? []).map(child => layoutNode(child, id)).find(Boolean) ?? null;
 const keyFor = project => project ? JSON.stringify([project.machine || '',
   (project.folder || '').replace(/\\/g, '/').replace(/\/+$/, '') || project.id]) : null;
+const MAXIMIZED = 'devkits.conversation-maximized';
+export const conversationMaximized = project => Boolean(project && shared(MAXIMIZED)?.key === keyFor(project));
+// Keep normal panel visibility separate from the temporary maximized layout.
+export function maximizeConversation(project, maximized) {
+  const previous = shared(MAXIMIZED);
+  if (maximized && (!project || conversationMaximized(project))) return;
+  if (!maximized) {
+    if (!previous) return;
+    setShared(MAXIMIZED, null);
+    for (const [id, hidden] of Object.entries(previous.hidden))
+      if (layoutNode(layout(), id)) run(hidden ? 'layout.hide' : 'layout.show', { id });
+    return;
+  }
+  const hidden = {};
+  for (const id of ['editor', 'simulator']) {
+    const node = layoutNode(layout(), id);
+    if (node) hidden[id] = Boolean(node.hidden);
+  }
+  setShared(MAXIMIZED, { key: keyFor(project), hidden });
+  for (const id of Object.keys(hidden)) run('layout.hide', { id });
+}
 // Native layout weights round through f32; compare their values rather than JSON decimals.
 const restored = (actual, expected) => ['editor', 'simulator', 'workspace-view'].every(id => {
   const a = actual[id], b = expected[id];
@@ -44,9 +65,10 @@ export class ProjectLayout {
 
   snapshot() {
     const root = layout(), result = {};
+    const maximized = shared(MAXIMIZED);
     for (const id of ['editor', 'simulator', 'workspace-view']) {
       const node = layoutNode(root, id);
-      if (node) result[id] = { ...(id !== 'workspace-view' ? { hidden: Boolean(node.hidden) } : {}),
+      if (node) result[id] = { ...(id !== 'workspace-view' ? { hidden: maximized?.hidden[id] ?? Boolean(node.hidden) } : {}),
         ...(id === 'editor' ? { active: shared('devkits.editor-kind') || node.active || 'files' } : {}), size: node.size };
     }
     result.dock = shared('devkits.right-panel') ?? null;
@@ -55,6 +77,7 @@ export class ProjectLayout {
   }
 
   restore(saved) {
+    maximizeConversation(null, false);
     const root = layout(), target = {};
     for (const id of ['editor', 'simulator', 'workspace-view']) {
       const node = layoutNode(root, id);
