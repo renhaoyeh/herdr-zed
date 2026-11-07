@@ -2,7 +2,7 @@ import { View, div, svg, image } from 'gpui-kit';
 import { v_flex, h_flex } from 'gpui-base';
 import { agents, spaces, panes, theme, run, props, window, openOverlay, closeOverlay, setAgentOrder, layout, settings, pickFolder, shared, setShared, knownAgents, notify, appHome, readTextFile, nextCommand, terminals } from 'herdr';
 import { projectGroups, projectCatalog, threadTitle, folderKey, launcherChoices, isAccountLauncher, launcherArgv, sessionArgv, sessionKind, resolveThreadProfiles, threadProfile, threadProgram, archivable, rulesArgv, childTerminals, terminalLabel, settingsKey, rootSettings } from './model.js';
-import { commandArgv } from './shell-command.js';
+import { terminalArgv } from './shell-command.js';
 import AccountLogin from './account-login.js';
 import FileViewer, { FileMenu } from './files.js';
 import DiffViewer from './diff.js';
@@ -431,7 +431,7 @@ export default class Devkits extends View {
 
   // Opens a thread (or a plain terminal, without argv) in the target project and shows it.
   openThread(target, name, argv, profile, task) {
-    if (argv && !spaces().find(space => space.id === target.space)?.machine) argv = commandArgv(argv, window()?.platform);
+    if (argv && !spaces().find(space => space.id === target.space)?.machine) argv = terminalArgv(argv, window()?.platform);
     // Commands do not return the new tab, so the sidebar matches it once it appears.
     if (profile) setShared('devkits.pending-profiles', [...(shared('devkits.pending-profiles') || []), { key: profile,
       space: target.space || null, folder: target.folder, before: spaces().flatMap(space => space.tabs.map(tab => tab.id)), at: Date.now(),
