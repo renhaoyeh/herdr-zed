@@ -79,6 +79,7 @@ export default class Devkits extends View {
       // Shared values survive restarts; discover once for this app session.
       setShared('devkits.agent-cache', {});
       this.refreshUsage(cx);
+      this.initSkillWatch(cx);
       const activeMachine = this.projects().find(project => project.active)?.machine || null;
       for (const machine of new Set([null, ...spaces().map(space => space.machine || null)])) {
         if (machine === activeMachine) continue;
@@ -456,6 +457,8 @@ export default class Devkits extends View {
   }
 
   async close() {
+    this.closeSkillWatch();
+    this.sharingPoll?.cancel();
     if (this.editor) this.editor.close();
     else this.files?.close();
     this.diff?.close();

@@ -1,6 +1,6 @@
 import { div } from 'gpui-kit';
 import { v_flex, h_flex, InputState, Input } from 'gpui-base';
-import { shared, setShared, props, openOverlay, closeOverlay, exec, appHome, notify } from 'herdr';
+import { shared, setShared, props, openOverlay, closeOverlay, exec, appHome, home, watchFolder, notify } from 'herdr';
 import { accountLabel, removeAccountProfile, renameAccountProfile } from './account-login.js';
 import { DropdownMenuLabel } from './components/dropdown-menu.js';
 import { Button } from './components/button.js';
@@ -10,17 +10,104 @@ import { AlertDialogContent, AlertDialogTitle, AlertDialogDescription, AlertDial
 
 // Account actions opened from Manage: add, rename, remove and Codex sharing. Mixed into the Devkits view.
 export const accountActions = {
-  initCodexSharing(cx) {
-    this.handle = cx.focus_handle(); this.handle.focus();
-    this.sharingItems = []; this.sharingLoading = true;
+  initSkillWatch(cx) {
+    this.skillWatchClosed = false;
+    this.checkSkills(cx);
+    // Polling also detects newly created roots and edits through directory symlinks.
+    this.skillPoll = cx.timer.every(30000, cx => this.checkSkills(cx));
+    this.skillWatchers = ['.agents/skills', '.codex/skills'].map(root => cx.spawn(async cx => {
+      try {
+        while (!this.skillWatchClosed) {
+          await watchFolder(`${home()}/${root}`);
+          if (this.skillWatchClosed) return;
+          this.skillDebounce?.cancel();
+          this.skillDebounce = cx.timer.after(1000, cx => this.checkSkills(cx));
+        }
+      } catch { /* Missing roots and unavailable watches use the timer. */ }
+    }));
+  },
+
+  checkSkills(cx) {
+    if (this.skillChecking || this.skillWatchClosed) return;
+    this.skillChecking = true;
     cx.spawn(async cx => {
       try {
-        const result = await exec('node', [`${appHome()}/mods/devkits/codex-sharing.js`, appHome(), props().agent.key, '--list']);
+        const result = await exec('node', [`${appHome()}/mods/devkits/skill-snapshot.js`]);
+        const next = JSON.parse(result.stdout);
+        if (result.code !== 0 || next.error || this.skillWatchClosed) return;
+        const previous = shared('devkits.skill-snapshot');
+        if (previous) {
+          const changed = [...new Set([...Object.keys(previous), ...Object.keys(next)])]
+            .filter(key => previous[key] !== next[key]);
+          if (changed.length) {
+            const names = changed.slice(0, 3).map(key => key.slice(key.lastIndexOf('/') + 1)).join(', ');
+            notify({ title: 'Global skills changed',
+              body: `${names}${changed.length > 3 ? ` and ${changed.length - 3} more` : ''}. Shared skill contents update through links. Review additions and removals in Shared plugins and skills…` });
+          }
+        }
+        if (JSON.stringify(previous) !== JSON.stringify(next)) setShared('devkits.skill-snapshot', next);
+      } catch { /* Retry without discarding the last successful snapshot. */ }
+      finally { this.skillChecking = false; }
+    });
+  },
+
+  closeSkillWatch() {
+    this.skillWatchClosed = true;
+    this.sharingClosed = true;
+    this.skillPoll?.cancel(); this.skillDebounce?.cancel();
+    this.sharingPoll?.cancel(); this.sharingDebounce?.cancel();
+    for (const task of [...(this.skillWatchers || []), ...(this.sharingWatchers || [])]) task?.cancel();
+  },
+
+  initCodexSharing(cx) {
+    this.handle = cx.focus_handle(); this.handle.focus();
+    this.sharingClosed = false;
+    this.sharingItems = []; this.sharingLoading = true;
+    this.loadCodexSharing(cx);
+    // Native events update the open picker; polling covers missing roots and linked targets.
+    this.sharingWatchers = ['.codex/skills', '.codex/plugins'].map(root => cx.spawn(async cx => {
+      try {
+        while (!this.sharingClosed) {
+          await watchFolder(`${home()}/${root}`);
+          if (this.sharingClosed) return;
+          this.queueCodexSharing(cx);
+        }
+      } catch { /* Missing roots and unavailable watches use the timer. */ }
+    }));
+    this.sharingPoll = cx.timer?.every(30000, cx => this.loadCodexSharing(cx));
+  },
+
+  queueCodexSharing(cx) {
+    if (this.sharingClosed) return;
+    this.sharingDebounce?.cancel();
+    this.sharingDebounce = cx.timer.after(1000, cx => this.loadCodexSharing(cx));
+  },
+
+  loadCodexSharing(cx) {
+    if (this.sharingClosed) return;
+    if (this.sharingReading || this.sharingBusy) { this.sharingDirty = true; return; }
+    this.sharingDirty = false;
+    this.sharingReading = true;
+    const agent = props().agent;
+    cx.spawn(async cx => {
+      try {
+        const result = await exec('node', [`${appHome()}/mods/devkits/codex-sharing.js`, appHome(), agent.key, '--list']);
+        if (this.sharingClosed) return;
         const data = JSON.parse(result.stdout);
         if (result.code !== 0 || data.error) throw new Error(data.error || 'Could not read shared items.');
+        const selected = new Map(this.sharingItems.map(item => [`${item.kind}/${item.key}`, item.selected]));
+        for (const item of data.items) if (!item.unavailable && selected.has(`${item.kind}/${item.key}`)) item.selected = selected.get(`${item.kind}/${item.key}`);
         this.sharingItems = data.items;
-      } catch (error) { this.sharingError = error.message; }
-      finally { this.sharingLoading = false; cx.notify(); }
+        if (this.sharingReadError) this.sharingError = null;
+        this.sharingReadError = false;
+      } catch (error) { this.sharingReadError = true; this.sharingError = error.message; }
+      finally {
+        this.sharingReading = false; this.sharingLoading = false;
+        if (!this.sharingClosed) {
+          if (this.sharingDirty) this.queueCodexSharing(cx);
+          cx.notify();
+        }
+      }
     });
   },
 
@@ -83,13 +170,13 @@ export const accountActions = {
       .when(Boolean(this.sharingError), el => el.child(div().text_size(12).text_color(t.ansi1).child(this.sharingError)))
       .child(DialogFooter()
         .child(Button('sharing-cancel', t, { variant: 'secondary' }).disabled(Boolean(this.sharingBusy)).on_click(() => this.finishCodexSharing()).child('Cancel'))
-        .child(Button('sharing-apply', t).disabled(Boolean(this.sharingBusy) || this.sharingLoading || Boolean(this.sharingError && !this.sharingItems.length))
+        .child(Button('sharing-apply', t).disabled(Boolean(this.sharingBusy) || this.sharingLoading || this.sharingReading || Boolean(this.sharingReadError))
           .on_click((_event, cx) => this.syncCodexSettings(agent, cx)).child(this.sharingBusy ? 'Syncing…' : `Sync ${selected} items`)));
   },
 
   // Only the selection dialog's explicit action runs synchronization.
   syncCodexSettings(agent, cx) {
-    if (this.sharingBusy) return;
+    if (this.sharingBusy || this.sharingReading || this.sharingReadError) return;
     this.sharingBusy = agent.key;
     this.sharingError = null;
     const selection = { plugins: [], skills: [] };
@@ -104,7 +191,11 @@ export const accountActions = {
         notify({ title: 'Shared settings updated', body: data.message });
         this.finishCodexSharing();
       } catch (error) { this.sharingError = error.message; }
-      finally { this.sharingBusy = null; cx.notify(); }
+      finally {
+        this.sharingBusy = null;
+        if (this.sharingDirty && !this.sharingClosed) this.queueCodexSharing(cx);
+        cx.notify();
+      }
     });
   },
 
