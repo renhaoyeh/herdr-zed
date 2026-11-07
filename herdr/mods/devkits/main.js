@@ -489,7 +489,7 @@ export default class Devkits extends View {
     const working = thread.status === 'working' || thread.agents.some(agent => agent.status === 'working');
     const isFocused = thread.active;
     const p = thread.agent?.program;
-    const archive = archivable(thread);
+    const archive = archivable(thread, terminals()) && !this.closeOnlyThreads?.has(thread.tab.id);
     const icon = working ? glyph('loader', 14).text_color(t.working).spin(900).accessibility_label('Working')
       : p?.icon ? (p.tint ? svg(p.icon).size(14).text_color(t.muted) : image(p.icon).size(14)) : glyph('terminal', 14).text_color(t.muted);
     return SidebarMenuButton(`thread-${thread.tab.id}`, isFocused, t)
@@ -513,7 +513,11 @@ export default class Devkits extends View {
       .child(Button(`${archive ? 'archive' : 'close'}-thread-${thread.tab.id}`, t, { variant: 'row', size: 'icon-sm' })
         .opacity(this.hovered === thread.tab.id ? 1 : 0)
         .accessibility_label(archive ? 'Archive thread' : 'Close thread')
-        .on_click((_event, cx) => { cx.stop_propagation(); this.archiveThread(thread); })
+        .on_click((_event, cx) => {
+          cx.stop_propagation();
+          if (archive) cx.spawn(async cx => { await this.archiveThread(thread); cx.notify(); });
+          else run('tab.close', { id: thread.tab.id });
+        })
         .child(glyph(archive ? 'archive' : 'close', 12)));
   }
 
