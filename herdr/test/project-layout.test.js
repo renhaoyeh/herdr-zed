@@ -16,7 +16,7 @@ async function host() {
     if (command === 'layout.hide' || command === 'layout.show') node.hidden = command === 'layout.hide';
   };
   const Controller = new Function('layout', 'run', 'shared', 'setShared',
-    source.replace(/^import .*;\n/gm, '').replace(/^export /gm, '') + '\nreturn { ProjectLayout, maximizeConversation, conversationMaximized, openTaskBoard, closeTaskBoard, enforceTaskBoard, taskMode };')(
+    source.replace(/^import .*;\r?\n/gm, '').replace(/^export /gm, '') + '\nreturn { ProjectLayout, maximizeConversation, conversationMaximized, openTaskBoard, closeTaskBoard, enforceTaskBoard, taskMode };')(
     () => root, run, key => store[key], (key, value) => { store[key] = structuredClone(value); });
   return { Controller: Controller.ProjectLayout, maximize: Controller.maximizeConversation,
     isMaximized: Controller.conversationMaximized, openTasks: Controller.openTaskBoard, closeTasks: Controller.closeTaskBoard, enforceTasks: Controller.enforceTaskBoard, taskMode: Controller.taskMode, root, store, calls };

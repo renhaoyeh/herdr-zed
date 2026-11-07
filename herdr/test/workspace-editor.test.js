@@ -17,7 +17,7 @@ test('dock switches preserve the document; choosing a file or diff changes the c
   }
   const layouts = [];
   const Editor = new Function('div', 'v_flex', 'shared', 'setShared', 'theme', 'FileViewer', 'DiffViewer', 'SidePanelLayout',
-    source.replace(/^import .*;\n/gm, '').replace('export default class', 'class') + '\nreturn WorkspaceEditor;')(
+    source.replace(/^import .*;\r?\n/gm, '').replace('export default class', 'class') + '\nreturn WorkspaceEditor;')(
     element, element, key => store[key], (key, value) => { store[key] = value; }, () => ({}), Files, Diff,
     (_id, _state, content, panel) => { layouts.push(panel); return content; });
   let focused = false;
@@ -69,7 +69,7 @@ async function editorHarness(store = {}) {
     close() {}
   }
   const Editor = new Function('div', 'v_flex', 'shared', 'setShared', 'theme', 'FileViewer', 'DiffViewer', 'SidePanelLayout',
-    source.replace(/^import .*;\n/gm, '').replace('export default class', 'class') + '\nreturn WorkspaceEditor;')(
+    source.replace(/^import .*;\r?\n/gm, '').replace('export default class', 'class') + '\nreturn WorkspaceEditor;')(
     element, element, key => store[key], (key, value) => { store[key] = JSON.parse(JSON.stringify(value)); }, () => ({}), Files, Diff, (_id, _state, content) => content);
   const tasks = [], cx = { notify() {}, stop_propagation() {}, focus_handle: () => ({ focus() {} }), bind_keys() {}, sleep: async () => {}, spawn(fn) { tasks.push(fn(cx)); } };
   const editor = new Editor(); editor.init(cx);
