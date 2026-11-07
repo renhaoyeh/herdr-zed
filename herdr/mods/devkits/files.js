@@ -5,6 +5,7 @@ import { execShell } from './shell.js';
 import { Button } from './components/button.js';
 import { TreeItem, TreeItemIcon, TreeItemLabel, GitStatusColor } from './components/tree.js';
 import { Empty, EmptyTitle, EmptyDescription } from './components/empty.js';
+import { SidePanelLayout, SidePanelState } from './components/side-panel.js';
 import { DropdownMenu, DropdownMenuState, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from './components/dropdown-menu.js';
 
 const icon = name => svg(`mods/devkits/assets/icons/${name}.svg`).size(14).flex_none();
@@ -133,6 +134,7 @@ export default class FileViewer {
     this.limited = new Set();
     this.tabs = []; this.file = null; this.preview = null;
     this.optionsMenu = new DropdownMenuState(cx);
+    this.sidePanel = new SidePanelState(() => shared('devkits.side-panel-width') || 280, width => setShared('devkits.side-panel-width', width));
   }
 
   get doc() { return this.tabs.find(doc => doc.path === this.file) || null; }
@@ -381,8 +383,7 @@ export default class FileViewer {
   render(project, cx) {
     if (this.context?.id !== project?.id || this.context?.folder !== project?.folder || this.context?.machine !== project?.machine) this.refresh(project, cx);
     const t = theme();
-    return h_flex().id('file-viewer').flex_row_reverse().size_full().min_h(0).bg(t.background).text_color(t.foreground)
-      .child(v_flex().w(240).flex_none().min_h(0).h_full().bg(t.chrome).border_l(1).border_color(t.border)
+    const tree = v_flex().size_full().min_h(0).bg(t.chrome).border_l(1).border_color(t.border)
         .child(h_flex().h(32).flex_none().px(12).gap(8).items_center().border_b(1).border_color(t.border)
           .child(div().flex_1().min_w(0).truncate().text_size(12).font_medium().child(project?.name || 'Files')))
         .child(v_flex().id('file-tree').flex_1().min_h(0).overflow_y_scrollbar()
@@ -406,14 +407,16 @@ export default class FileViewer {
               .child(div().px(12).py(4).text_size(11).text_color(t.muted).child(this.errors.get(row.path) || 'Loading…')))))
           .when(!this.entries.get('')?.length, el => el.child(div().p(12).text_size(12).text_color(t.muted)
             .child(this.errors.get('') || (this.pending.has('') ? 'Loading files…' : 'No files'))))
-          .when(this.limited.size > 0, el => el.child(div().p(12).text_size(11).text_color(t.muted).child('List limited to 500 entries per folder and 5,000 total.')))))
-      .child(v_flex().flex_1().min_w(0).min_h(0).h_full()
+          .when(this.limited.size > 0, el => el.child(div().p(12).text_size(11).text_color(t.muted).child('List limited to 500 entries per folder and 5,000 total.'))));
+    const content = v_flex().size_full().min_w(0).min_h(0)
         .when(this.tabs.length > 0, el => el.child(this.tabBar(t)))
         .when(Boolean(this.doc), el => el.child(this.markdown !== null ? v_flex().id(`markdown-preview-${this.file}`).flex_1().min_h(0).overflow_y_scrollbar().p(24)
           .child(TextView.markdown(`markdown-${this.file}`, this.markdown).selectable(true).scrollable(false).w_full())
           : this.code ? Editor.new(this.code).flex_1().min_h(0) : Empty(t).flex_1()
           .child(EmptyTitle().child(this.fileError ? 'Preview unavailable' : 'Loading file…'))
-          .child(EmptyDescription(t).child(this.fileError || '')))));
+          .child(EmptyDescription(t).child(this.fileError || ''))));
+    return div().id('file-viewer').size_full().min_h(0).bg(t.background).text_color(t.foreground)
+      .child(SidePanelLayout('files-split', this.sidePanel, content, tree));
   }
 
   tabBar(t) {

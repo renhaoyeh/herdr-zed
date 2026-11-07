@@ -14,9 +14,10 @@ async function load(host = {}) {
     memory[key] = JSON.parse(JSON.stringify(value));
   }, ...host };
   const source = await readFile(new URL('../mods/devkits/files.js', import.meta.url), 'utf8');
+  const sidePanel = await readFile(new URL('../mods/devkits/components/side-panel.js', import.meta.url), 'utf8');
   const shell = await readFile(new URL('../mods/devkits/shell.js', import.meta.url), 'utf8');
   const command = await readFile(new URL('../mods/devkits/shell-command.js', import.meta.url), 'utf8');
-  return new Function(...Object.keys(host), (command + '\n' + shell + '\n' + source).replace(/^import .*;\r?\n/gm, '')
+  return new Function(...Object.keys(host), (command + '\n' + shell + '\n' + sidePanel + '\n' + source).replace(/^import .*;\r?\n/gm, '')
     .replace('export default class', 'class').replace(/^export /gm, '') + '\nreturn { FileViewer, FileMenu, fullPath, revealPath, directory, parseStatus, gitStatus };')(...Object.values(host));
 }
 const project = { id: 'project', folder: '/project', machine: 'server' };
@@ -392,4 +393,42 @@ test('Reveal passes paths as arguments to the platform file manager and reports 
   code = 1; await revealPath('C:/dev', 'file', 'windows');
   await assert.rejects(revealPath('/project', 'file', 'macos'), /failed/);
   code = 2; await assert.rejects(revealPath('C:/dev', 'file', 'windows'), /failed/);
+});
+
+test('dragging the line beside a preview resizes the list within bounds and saves the width when released or left', async () => {
+  const source = await readFile(new URL('../mods/devkits/components/side-panel.js', import.meta.url), 'utf8');
+  const nodes = new Map(), owners = new WeakMap();
+  const element = () => {
+    const data = { calls: {}, children: [] };
+    const el = new Proxy(data, { get: (_target, key) => (...args) => {
+      if (key === 'id') nodes.set(args[0], data);
+      if (key === 'child') data.children.push(owners.get(args[0]) || args[0]); else data.calls[key] = args;
+      return el;
+    } });
+    owners.set(el, data);
+    return el;
+  };
+  const { SidePanelLayout, SidePanelState } = new Function('div', 'h_flex', source.replace(/^import .*;\r?\n/gm, '')
+    .replace(/^export /gm, '') + '\nreturn { SidePanelLayout, SidePanelState };')(element, element);
+  let saved = 300;
+  const state = new SidePanelState(() => saved, width => { saved = width; });
+  const cx = { notify() {}, stop_propagation() {} };
+  const render = () => { nodes.clear(); SidePanelLayout('files-split', state, 'preview', 'tree'); return nodes.get('files-split'); };
+  let root = render();
+  assert.deepEqual(root.children[1].calls.w, [300]);
+  assert.ok('cursor_col_resize' in nodes.get('files-split-handle').calls);
+  nodes.get('files-split-handle').calls.on_mouse_down[1]({ position: { x: 1000 } }, cx);
+  root.calls.on_mouse_move[0]({ position: { x: 950 } }, cx);
+  root = render();
+  assert.deepEqual(root.children[1].calls.w, [350]);
+  assert.equal(saved, 300);
+  root.calls.on_mouse_move[0]({ position: { x: 0 } }, cx);
+  root.calls.on_mouse_up[1]({}, cx);
+  assert.equal(saved, 560);
+  nodes.get('files-split-handle').calls.on_mouse_down[1]({ position: { x: 500 } }, cx);
+  root.calls.on_mouse_move[0]({ position: { x: 2000 } }, cx);
+  root.calls.on_hover[0](false, cx);
+  assert.equal(saved, 200);
+  root.calls.on_hover[0](false, cx);
+  assert.equal(state.drag, null);
 });

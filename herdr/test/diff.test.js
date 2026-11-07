@@ -9,12 +9,13 @@ import { execFile } from 'node:child_process';
 async function load(host = {}) {
   host = { shared: () => undefined, setShared() {}, ...host };
   const source = await readFile(new URL('../mods/devkits/diff.js', import.meta.url), 'utf8');
+  const sidePanel = await readFile(new URL('../mods/devkits/components/side-panel.js', import.meta.url), 'utf8');
   const menu = await readFile(new URL('../mods/devkits/components/dropdown-menu.js', import.meta.url), 'utf8');
   const history = await readFile(new URL('../mods/devkits/git-history.js', import.meta.url), 'utf8');
   const auth = await readFile(new URL('../mods/devkits/git-auth.js', import.meta.url), 'utf8');
   const shell = await readFile(new URL('../mods/devkits/shell.js', import.meta.url), 'utf8');
   const command = await readFile(new URL('../mods/devkits/shell-command.js', import.meta.url), 'utf8');
-  return new Function(...Object.keys(host), (command + '\n' + shell + '\n' + menu + '\n' + history + '\n' + auth + '\n' + source).replace(/^import .*;\r?\n/gm, '')
+  return new Function(...Object.keys(host), (command + '\n' + shell + '\n' + menu + '\n' + history + '\n' + auth + '\n' + sidePanel + '\n' + source).replace(/^import .*;\r?\n/gm, '')
     .replace('export default class', 'class').replace(/^export /gm, '') + '\nreturn { DiffViewer, DropdownMenu, DropdownMenuState, parseDiff, readDiff, readPushState, pushBranch, gitRemoteAction, affectsDiff, pairLines, changedRanges, changeSections, changeTree, wrapLine, isLockFile };')(...Object.values(host));
 }
 const run = promisify(execFile);

@@ -7,6 +7,7 @@ import { DropdownMenu, DropdownMenuState } from './components/dropdown-menu.js';
 import { TreeItem, TreeItemIcon, TreeItemLabel, GitStatusColor } from './components/tree.js';
 import { Empty, EmptyDescription } from './components/empty.js';
 import { CommitHistory } from './git-history.js';
+import { SidePanelLayout, SidePanelState } from './components/side-panel.js';
 import { gitAccount, setGitAccount, readGitAccounts, gitAuthArgs } from './git-auth.js';
 
 const icon = name => svg(`mods/devkits/assets/icons/${name}.svg`).size(12).flex_none();
@@ -268,6 +269,7 @@ export const isLockFile = path => /(?:\.lock|(?:^|-)lock\.(?:json|ya?ml)|^npm-sh
 
 export default class DiffViewer {
   init(cx) {
+    this.sidePanel = new SidePanelState(() => shared('devkits.side-panel-width') || 280, width => setShared('devkits.side-panel-width', width));
     this.files = [];
     this.collapsed = new Set();
     this.folders = new Set();
@@ -476,7 +478,7 @@ export default class DiffViewer {
   }
 
   outputView(t) {
-    return v_flex().id('git-output').flex_1().min_w(0).min_h(0).h_full()
+    return v_flex().id('git-output').size_full().min_w(0).min_h(0)
       .child(h_flex().h(32).flex_none().pl(12).gap(8).items_center().bg(t.chrome).border_b(1).border_color(t.border)
         .child(div().flex_1().min_w(0).truncate().text_size(12).child(`Git output: ${this.outputTitle}`))
         .child(Button('git-output-close', t, { variant: 'ghost', size: 'icon' }).h_full().w(32)
@@ -657,7 +659,7 @@ export default class DiffViewer {
       .accessibility_label(`${label}${this.panelTab === key ? ', selected' : ''}`)
       .on_click((_event, cx) => this.setPanelTab(key, cx)).child(label);
     // A full-height dock with its own header, as Zed's Git panel sits beside the editor.
-    return v_flex().w(280).flex_none().min_h(0).h_full().bg(t.chrome).border_l(1).border_color(t.border)
+    return v_flex().size_full().min_h(0).bg(t.chrome).border_l(1).border_color(t.border)
       .child(h_flex().h(32).flex_none().items_center().border_b(1).border_color(t.border).text_size(12)
         .child(tab('changes', `Changes (${files.length})`))
         .child(tab('history', 'History')))
@@ -875,10 +877,9 @@ export default class DiffViewer {
       .when(split === (value === 'split'), el => el.bg(t.selected).text_color(t.foreground))
       .accessibility_label(`${label} diff${split === (value === 'split') ? ', selected' : ''}`)
       .on_click((_event, cx) => this.setLayout(value, cx)).child(icon(`diff-${value}`).size(16));
-    // The editor and the Git panel are side by side, each with its own 32px header, like Files.
-    return h_flex().id('diff-viewer').relative().flex_row_reverse().size_full().min_h(0).bg(t.background).text_color(t.foreground)
-      .child(this.panel(t))
-      .child(this.output ? this.outputView(t) : v_flex().flex_1().min_w(0).min_h(0).h_full()
+    // The editor and the Git panel are side by side, each with its own 32px header, like Files; drag the line between them.
+    return div().id('diff-viewer').relative().size_full().min_h(0).bg(t.background).text_color(t.foreground)
+      .child(SidePanelLayout('diff-split', this.sidePanel, this.output ? this.outputView(t) : v_flex().size_full().min_w(0).min_h(0)
         .child(h_flex().h(32).flex_none().pl(12).gap(8).items_center().bg(t.chrome).border_b(1).border_color(t.border).text_size(12)
           .child(div().flex_1().min_w(0).truncate().font_medium().child(preview ? `Commit ${preview.commit.shortSha}` : 'Uncommitted changes'))
           .when(rows.length > 0, el => el
@@ -926,7 +927,7 @@ export default class DiffViewer {
             .child(Scrollbar.vertical('diff-rows').absolute().inset_0())
           : Empty(t).flex_1().p(24).gap(4).font_family('Geist')
             .child(EmptyDescription(t).text_size(13).child(this.rowJob ? 'Loading changes…' : !this.displayFiles.length && (preview?.files || this.files).length ? 'All changed files are hidden by Hide lock files' : preview ? 'No file changes in this commit' : this.error ? 'Changes unavailable' : this.loaded ? 'No uncommitted changes' : 'Loading changes…'))
-            .when(!preview && Boolean(this.error), el => el.child(EmptyDescription(t).child(this.error)))))
+            .when(!preview && Boolean(this.error), el => el.child(EmptyDescription(t).child(this.error)))), this.panel(t)))
       .when(this.toastVisible, el => el.child(this.resultToast(t)));
   }
 }
