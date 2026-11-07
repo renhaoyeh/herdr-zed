@@ -3,6 +3,7 @@ import { h_flex, v_flex, InputState, Input, TextareaState, Textarea, TextView } 
 import { shared, setShared, agents as currentAgents, spaces as currentSpaces } from 'herdr';
 import AsanaPanel, { readAsanaToken } from './asana.js';
 import { boardStatuses, boardKey, liveVersion, boardPriorityOptions, boardPriorities, canStartTask, taskActions, taskManualStatusOptions } from './agent-board-model.js';
+import { launcherLabel, launcherOption } from './model.js';
 import { rememberBoardTask, projectBoardTasks, boardRecords, deleteLocalTask } from './agent-board-state.js';
 import { readTaskOutput, taskIdentifier, outputMarkdown } from './agent-board-details.js';
 import { glyph, AgentIcon } from './components/icon.js';
@@ -46,7 +47,7 @@ export default class AgentBoard {
     const key = task.agentKey || task.tabs.map(tab => shared('devkits.thread-profiles')?.[tab.id]).find(Boolean);
     const selected = launchers.find(agent => agent.key === key);
     const agent = selected || task.agents[0]?.program;
-    const name = selected?.name || (task.agentName || agent?.name || 'Unassigned').replace(/^(?:Codex|Claude) · /, '');
+    const name = launcherLabel(selected?.name || task.agentName || agent?.name || 'Unassigned');
     return h_flex().gap(6).items_center().min_w(0).accessibility_label(`Agent: ${name}`)
       .child(agent?.icon ? AgentIcon(agent, t).size(size).flex_none() : glyph('agent', size).text_color(t.muted))
       .child(div().flex_1().min_w(0).truncate().child(name));
@@ -247,8 +248,7 @@ export default class AgentBoard {
     const editable = task.source === 'local' && policy.canEdit;
     const assignment = editable ? Select('board-task-agent', this.agentSelect, task.agentKey || 'unassigned', [
       { key: 'unassigned', label: 'Unassigned', color: t.foreground, icon: 'agent', iconColor: t.muted },
-      ...launchers.map(agent => ({ key: agent.key, label: agent.name, color: t.foreground,
-        icon: agent.icon || 'agent', iconTint: agent.icon ? Boolean(agent.tint) : true })),
+      ...launchers.map(agent => ({ ...launcherOption(agent), color: t.foreground })),
     ], 'Agent', key => {
       const current = latestTask(), agent = launchers.find(agent => agent.key === key);
       if (current?.source === 'local' && taskActions(current).canEdit)

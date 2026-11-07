@@ -1,4 +1,5 @@
 import { test } from 'node:test';
+import { launcherOption } from '../mods/devkits/model.js';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { boardKey, liveVersion, taskActions } from '../mods/devkits/agent-board-model.js';
@@ -7,7 +8,7 @@ async function composer(options = {}) {
   const source = await readFile(new URL('../mods/devkits/task-composer.js', import.meta.url), 'utf8');
   const memory = {}, closed = [], tasks = [], currentTasks = [];
   const state = { new: () => ({ value: () => '', set_value(value) { this.value = () => value; }, set_auto_grow() {}, on() {}, focus() {} }) };
-  const host = { InputState: state, TextareaState: state, SelectState: class {}, boardKey, liveVersion, taskActions, liveAgents: () => [], projectBoardTasks: () => currentTasks,
+  const host = { InputState: state, TextareaState: state, SelectState: class {}, launcherOption, boardKey, liveVersion, taskActions, liveAgents: () => [], projectBoardTasks: () => currentTasks,
     shared: key => memory[key], setShared: (key, value) => { memory[key] = structuredClone(value); }, closeOverlay: id => closed.push(id),
     createLocalTask: (project, name, notes, fields) => { const task = { gid: 'local:1', name, notes, ...fields }; tasks.push({ project, ...task }); return task; },
     rememberBoardTask: (project, task, fields) => tasks.push({ project, ...task, ...fields }) };

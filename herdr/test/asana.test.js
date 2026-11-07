@@ -1,13 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { claudeModels, claudeEfforts, codexHome, codexModels, isClaudeLauncher, isCodexLauncher, sessionArgv, sessionKind, shownOptions, mergeModels, orderedOptions, moveOption, effortLabel, sessionChoices, settingsKey } from '../mods/devkits/model.js';
+import { claudeModels, claudeEfforts, codexHome, codexModels, isClaudeLauncher, isCodexLauncher, sessionArgv, sessionKind, shownOptions, mergeModels, orderedOptions, moveOption, effortLabel, sessionChoices, settingsKey, launcherOption } from '../mods/devkits/model.js';
 
 const names = ['asanaTheme', 'AsanaPanel', 'AsanaProjectPicker', 'previewWidthAt', 'avatarColor', 'statusKind', 'initials', 'dueLabel', 'searchProjects', 'projectTasksPage', 'myProjectTasks', 'projectWorkspace', 'openSubtasks', 'taskDetails', 'taskComments', 'relativeTime',
   'filterTasks', 'taskPrompt', 'readAsanaToken', 'saveAsanaToken'];
 async function load(host = {}) {
   const source = await readFile(new URL('../mods/devkits/asana.js', import.meta.url), 'utf8');
-  host = { fetch: () => assert.fail('unexpected request'), Button: () => {}, claudeModels, claudeEfforts, codexHome, codexModels, isClaudeLauncher, isCodexLauncher, sessionKind, shownOptions, orderedOptions, effortLabel, settingsKey,
+  host = { fetch: () => assert.fail('unexpected request'), Button: () => {}, claudeModels, claudeEfforts, codexHome, codexModels, isClaudeLauncher, isCodexLauncher, sessionKind, shownOptions, orderedOptions, effortLabel, settingsKey, launcherOption,
     home: () => '/home', Select: () => element(), SelectState: class {}, ...host };
   return new Function(...Object.keys(host), source.replace(/^import .*;\r?\n/gm, '')
     .replace('export default class', 'class').replace(/^export /gm, '')
@@ -305,6 +305,7 @@ test('Asana names and applies profile defaults, narrows efforts to the effective
   const render = () => panel.launchRow({ gid: 'task' }, agents, (_agent, _task, options) => { started = options; }, {});
   render();
   assert.deepEqual(panel.session(agents).efforts, ['low', 'high']);
+  assert.equal(picks.get('asana-agent').options[0].label, 'Default account');
   assert.equal(picks.get('asana-agent').options[0].icon, 'icons/codex.svg');
   assert.equal(picks.get('asana-agent').options[0].iconTint, false);
   assert.equal(picks.get('asana-model').options[0].label, 'Default (A)');

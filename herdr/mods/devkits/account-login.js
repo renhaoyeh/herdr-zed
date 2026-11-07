@@ -3,6 +3,7 @@ import { v_flex, h_flex, InputState, Input } from 'gpui-base';
 import { WebSocket } from 'websocket';
 import { appHome, exec, hc, readTextFile, writeTextFile, theme, closeOverlay, openOverlay, window } from 'herdr';
 import { commandArgv } from './shell-command.js';
+import { launcherLabel } from './model.js';
 import { Button } from './components/button.js';
 
 // Each account owns a private credentials directory; the CLI itself signs in, stores, and refreshes tokens.
@@ -23,7 +24,7 @@ export const accountProviders = {
 };
 
 const keyPattern = /^devkits-(codex|claude)-([a-zA-Z0-9][a-zA-Z0-9_-]{0,47})$/;
-export const accountLabel = name => name.replace(/^(?:Codex|Claude) · /, '');
+export const accountLabel = launcherLabel;
 
 function provider(id) {
   if (!Object.hasOwn(accountProviders, id)) throw new Error('Unsupported account provider.');
@@ -384,7 +385,7 @@ export default class AccountLogin {
 
   finish() {
     closeOverlay(this.target.overlay);
-    if (this.target.returnTo) openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: false, width: 820, height: 0.8,
+    if (this.target.returnTo) openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: false, width: 1040, height: 0.8,
       props: { ...this.target.returnTo, refreshAgents: true } });
   }
 

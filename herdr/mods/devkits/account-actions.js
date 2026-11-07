@@ -126,7 +126,7 @@ export const accountActions = {
 
   finishCodexSharing() {
     const target = props(); closeOverlay(target.overlay);
-    openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: false, width: 820, height: 0.8,
+    openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: false, width: 1040, height: 0.8,
       props: { view: 'manage-launchers', space: target.space } });
   },
 
@@ -217,7 +217,7 @@ export const accountActions = {
     if (this.renaming) return;
     const target = props();
     closeOverlay(target.overlay);
-    openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: false, width: 820, height: 0.8,
+    openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: false, width: 1040, height: 0.8,
       props: { view: 'manage-launchers', space: target.space } });
   },
 
@@ -264,7 +264,7 @@ export const accountActions = {
     const back = () => {
       if (this.removing) return;
       closeOverlay(target.overlay);
-      openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: false, width: 820, height: 0.8,
+      openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: false, width: 1040, height: 0.8,
         props: { view: 'manage-launchers', space: target.space } });
     };
     const confirm = cx => {
@@ -274,13 +274,17 @@ export const accountActions = {
         try {
           await removeAccountProfile(target.account.key);
           setShared('devkits.agent-cache', {});
+          const configs = shared('devkits.agent-configs') || [];
+          const removed = new Set([target.account.key, ...configs.filter(item => item.profileKey === target.account.key).map(item => item.key)]);
+          setShared('devkits.agent-configs', configs.filter(item => !removed.has(item.key)));
+          setShared('devkits.hidden-usage-profiles', (shared('devkits.hidden-usage-profiles') || []).filter(item => !removed.has(item)));
           const key = `agent:${target.account.key}`;
           for (const setting of ['devkits.hidden-launchers', 'devkits.launcher-order']) {
-            setShared(setting, (shared(setting) || []).filter(item => item !== key));
+            setShared(setting, (shared(setting) || []).filter(item => item !== key && !removed.has(item.slice(6))));
           }
           for (const setting of ['devkits.codex-permissions', 'devkits.profile-sessions']) {
             const saved = { ...(shared(setting) || {}) };
-            delete saved[target.account.key];
+            for (const item of removed) delete saved[item];
             setShared(setting, saved);
           }
           this.removing = false; back();

@@ -21,7 +21,7 @@ const claudeDirectory = agent => agent.run.find(arg => arg.startsWith('CLAUDE_CO
 export const agentUsage = {
   refreshUsage(cx, force = true, manual = false) {
     const machine = this.projects().find(project => project.active)?.machine || null;
-    const hidden = shared('devkits.hidden-launchers') || [];
+    const hidden = shared('devkits.hidden-usage-profiles') || [];
     const order = shared('devkits.launcher-order') || [];
     const scope = JSON.stringify([machine, hidden, order, shared('devkits.profile-revision') || 0]);
     if (this.usageLoading || (!force && this.usageScope === scope)) return;
@@ -35,13 +35,13 @@ export const agentUsage = {
     cx.spawn(async cx => {
       try {
         const agents = await this.cachedAgents(machine);
-        this.usageAgents = agents;
+        this.usageAgents = agents.filter(agent => !agent.profileKey);
         if (this.usageMachine !== machine) this.usage = [];
         this.usageMachine = machine;
         this.usageError = null;
         cx.notify();
         const accounts = launcherChoices(this.usageAgents, order)
-          .filter(choice => !hidden.includes(choice.key) && !machine && usageProvider(choice.agent)).map(choice => choice.agent);
+          .filter(choice => choice.agent && !(shared('devkits.hidden-usage-profiles') || []).includes(choice.agent.key) && !machine && usageProvider(choice.agent)).map(choice => choice.agent);
         // Cached results survive reloads and restarts so providers are queried at most once per interval.
         const cached = () => shared('devkits.usage-cache') || {};
         const now = Date.now();
@@ -113,7 +113,7 @@ export const agentUsage = {
     const choices = launcherChoices(this.usageMachine === (space?.machine || null) ? this.usageAgents || [] : [],
       shared('devkits.launcher-order') || [])
       // The plain terminal launcher is not an agent profile and never has usage.
-      .filter(choice => choice.agent && !(shared('devkits.hidden-launchers') || []).includes(choice.key));
+      .filter(choice => choice.agent && !choice.agent.profileKey && !(shared('devkits.hidden-usage-profiles') || []).includes(choice.agent.key));
     return v_flex().id('account-usage').w_full().flex_none().h_auto().min_h(0)
       .border_t(1).border_color(t.border)
       .child(h_flex().h(32).flex_none().pl(12).items_center()
