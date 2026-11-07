@@ -19,7 +19,7 @@ export function SelectTrigger(id, color, t, width = 144) {
 
 // Label fields above their triggers so the setting name stays separate from the chosen value. `boxed` draws the
 // trigger as a bordered field instead of an underline, for rows inside bordered tables.
-export function Select(id, state, value, options, label, onChange, t, { width = 144, prefix, boxed = false } = {}) {
+export function Select(id, state, value, options, label, onChange, t, { width = 144, prefix, boxed = false, radius = 0 } = {}) {
   const selected = options.find(option => option.key === value) || options[0];
   const close = cx => { state.open = false; state.trigger.focus(); cx.notify(); };
   const choose = (option, cx) => { cx.stop_propagation(); onChange(option.key, cx); close(cx); };
@@ -28,7 +28,7 @@ export function Select(id, state, value, options, label, onChange, t, { width = 
     ? h_flex().id(id).w(width).h(28).px(8).gap(8).items_center().flex_none().rounded(0).text_size(12).text_color(selected.color)
       .border(1).border_color(t.border).bg(t.popover).hover(el => el.bg(t.input)).cursor_pointer()
     : SelectTrigger(id, selected.color, t, width);
-  const trigger = base
+  const trigger = base.rounded(radius)
     .on_mouse_down('left', (_event, cx) => { cx.stop_propagation(); state.trigger.focus(); })
     .on_click((_event, cx) => {
       cx.stop_propagation();
@@ -39,7 +39,8 @@ export function Select(id, state, value, options, label, onChange, t, { width = 
     })
     .child(div().flex_1().min_w(0).truncate().text_color(selected.color).child(selected.label))
     .child(svg('mods/devkits/assets/icons/chevron-down.svg').size(12).flex_none().text_color(boxed ? t.muted : selected.color));
-  const list = DropdownMenuContent(`${id}-options`, undefined, t).w(Math.max(168, width)).mt(4)
+  const list = DropdownMenuContent(`${id}-options`, undefined, t).w(Math.max(168, width)).mt(4).rounded(radius ? radius + 2 : 0)
+    .when(radius > 0, el => el.font_family('Arial').shadow_lg())
     .role('list_box').track_focus(state.list).accessibility_label(label)
     .on_mouse_down_out((_event, cx) => { cx.stop_propagation(); close(cx); })
     .on_key_down((event, cx) => {
@@ -52,7 +53,7 @@ export function Select(id, state, value, options, label, onChange, t, { width = 
       else return;
       cx.stop_propagation(); cx.notify();
     })
-    .children(options.map((option, index) => DropdownMenuItem(`${id}-option-${option.key}`, t)
+    .children(options.map((option, index) => DropdownMenuItem(`${id}-option-${option.key}`, t).rounded(Math.max(0, radius - 2))
       .role('list_box_option').text_color(option.color).bg(state.index === index ? t.selected : t.popover)
       .accessibility_label(`${option.label}${selected.key === option.key ? ', selected' : ''}`)
       .when(state.index === index, el => el.aria_active_descendant())
