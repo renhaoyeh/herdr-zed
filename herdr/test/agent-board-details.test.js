@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 
 async function details() {
   const source = await readFile(new URL('../mods/devkits/agent-board-details.js', import.meta.url), 'utf8');
-  return new Function(source.replace(/^import .*;\n/gm, '').replace(/^export /gm, '') + '\nreturn { readTaskOutput, outputMarkdown };')();
+  return new Function(source.replace(/^import .*;\r?\n/gm, '').replace(/^export /gm, '') + '\nreturn { readTaskOutput, outputMarkdown };')();
 }
 
 test('details read actual attached agents once each and never send terminal input', async () => {

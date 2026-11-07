@@ -17,7 +17,7 @@ async function evidenceHost() {
     readTextFile: async () => null, home: () => '/home', appHome: () => '/app',
   };
   const host = { agentCommand, ...services, shared: key => store[key], setShared: (key, value) => { store[key] = structuredClone(value); } };
-  const module = new Function(...Object.keys(host), source.replace(/^import .*;\n/gm, '').replace(/^export /gm, '')
+  const module = new Function(...Object.keys(host), source.replace(/^import .*;\r?\n/gm, '').replace(/^export /gm, '')
     + '\nreturn { probeTaskState, observeTaskInput, withTaskInputEvidence };')(...Object.values(host));
   return { ...module, services, store, requests, tasks, setHasMessage: value => { hasMessage = value; },
     setFileExists: value => { fileExists = value; }, setPid: value => { pid = value; },

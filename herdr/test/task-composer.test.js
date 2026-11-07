@@ -12,7 +12,7 @@ async function composer(options = {}) {
     shared: key => memory[key], setShared: (key, value) => { memory[key] = structuredClone(value); }, closeOverlay: id => closed.push(id),
     createLocalTask: (project, name, notes, fields) => { const task = { gid: 'local:1', name, notes, ...fields }; tasks.push({ project, ...task }); return task; },
     rememberBoardTask: (project, task, fields) => tasks.push({ project, ...task, ...fields }) };
-  const Composer = new Function(...Object.keys(host), source.replace(/^import .*;\n/gm, '').replace('export default class', 'class')
+  const Composer = new Function(...Object.keys(host), source.replace(/^import .*;\r?\n/gm, '').replace('export default class', 'class')
     .replace(/^export /gm, '') + '\nreturn TaskComposer;')(...Object.values(host));
   const view = new Composer(); view.init({ project: { id: 'p', folder: '/app', name: 'App' }, overlay: 'composer', ...options }, { focus_handle: () => ({}) });
   return { view, memory, closed, tasks, currentTasks, Composer };
