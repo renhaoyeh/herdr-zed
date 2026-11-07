@@ -1,6 +1,6 @@
 import { View, div, svg, image } from 'gpui-kit';
 import { v_flex, h_flex } from 'gpui-base';
-import { agents, spaces, panes, theme, run, props, window, openOverlay, closeOverlay, setAgentOrder, layout, settings, pickFolder, shared, setShared, knownAgents, notify, appHome, readTextFile } from 'herdr';
+import { agents, spaces, panes, theme, run, props, window, openOverlay, closeOverlay, setAgentOrder, layout, settings, pickFolder, shared, setShared, knownAgents, notify, appHome, readTextFile, nextCommand } from 'herdr';
 import { projectGroups, projectCatalog, folderKey, launcherChoices, isAccountLauncher, launcherArgv, sessionArgv, sessionKind, resolveThreadProfiles, threadProfile } from './model.js';
 import { commandArgv } from './shell-command.js';
 import AccountLogin from './account-login.js';
@@ -12,6 +12,7 @@ import AsanaPanel, { AsanaProjectPicker, taskPrompt, unsaveTask } from './asana.
 import { sessionMenu } from './session-menu.js';
 import { accountActions } from './account-actions.js';
 import { agentUsage } from './usage.js';
+import { RunControls, RunMenu, runApp } from './run-app.js';
 import { DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from './components/dropdown-menu.js';
 import { Button } from './components/button.js';
 import { AlertDialogContent, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from './components/alert-dialog.js';
@@ -67,6 +68,13 @@ export default class Devkits extends View {
       }
       cx.timer.every(60000, cx => this.refreshUsage(cx));
     }
+    if (props()?.view === 'run-menu') {
+      this.runMenu = new RunMenu();
+      this.runMenu.init(cx);
+      return;
+    }
+    // keys.json binds F5 to "devkits.run" in the Devkits layout; only the header's copy runs it.
+    if (props()?.view === 'header') cx.spawn(async () => { for (;;) if (await nextCommand() === 'run') await runApp(); });
     if (props()?.view === 'files') {
       this.files = new FileViewer();
       this.files.init(cx);
@@ -361,6 +369,7 @@ export default class Devkits extends View {
         .child(div().max_w(220).truncate().child(space?.name || 'Open project'))
         .child(glyph('chevron-down', 12).text_color(t.muted)))
       .child(div().flex_1())
+      .when(Boolean(space), el => el.child(RunControls(t)))
       .when(Boolean(win?.buttons), el => el
         .child(Button('minimize', t, { variant: 'ghost', size: 'icon' }).h_full().w(32).accessibility_label('Minimize')
           .on_click(() => run('window.minimize')).child(glyph('minus')))
@@ -478,6 +487,7 @@ export default class Devkits extends View {
     if (props()?.view === 'diff') return this.diff.render(this.projects().find(project => project.active), cx);
     if (props()?.view === 'account-login') return this.login.render();
     if (props()?.view === 'header') return this.header(t);
+    if (props()?.view === 'run-menu') return this.runMenu.render(t);
     if (props()?.view === 'usage-details') return this.usageDetails(t);
     if (props()?.view === 'brand') return this.brand(t);
     if (props()?.view === 'pane') return this.paneHeader(t);
