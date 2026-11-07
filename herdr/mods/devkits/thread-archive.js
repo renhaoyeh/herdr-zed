@@ -26,9 +26,49 @@ async function sessionId(kind, command, pid) {
   return codexSessionId(result.stdout);
 }
 
+async function threadSession(thread) {
+  // The thread's own agent, not a terminal one of its agents started.
+  for (const agent of thread.agents) {
+    const result = await hc(['get', agent.address, '--json']);
+    if (result.code) throw new Error(result.stderr.trim() || 'Herdr could not describe this terminal.');
+    const terminal = JSON.parse(result.stdout);
+    const command = !terminal.parent && agentCommand(terminal.argv);
+    if (!command || !commandKind(command)) continue;
+    if (!terminal.foreground?.pid) break;
+    const kind = commandKind(command);
+    return { terminal, command, kind, id: await sessionId(kind, command, terminal.foreground.pid) };
+  }
+  throw new Error('Could not find the Claude or Codex session this thread started.');
+}
+
 // Archive only inactive conversations. Running/waiting agents expose Stop instead; terminal
 // threads retain Close. Claude and Codex conversations can be resumed from the archive. Mixed into the Devkits view.
 export const threadArchive = {
+  prepareThreadArchive(thread, cx) {
+    if (!cx?.spawn || !archivable(thread, terminals())) return;
+    const tab = thread.tab.id;
+    if (this.threadBusy(thread)) {
+      this.archiveChecks?.delete(tab); this.closeOnlyThreads?.delete(tab);
+      return;
+    }
+    const live = terminals();
+    const version = JSON.stringify(thread.agents.map(agent => [agent.address, agent.seq, agent.status,
+      live.find(terminal => terminal.address === agent.address)?.foreground?.pid,
+      live.find(terminal => terminal.address === agent.address)?.created_ms]));
+    this.archiveChecks ||= new Map();
+    if (this.archiveChecks.get(tab)?.version === version) return;
+    const check = { version, pending: true };
+    this.archiveChecks.set(tab, check); this.closeOnlyThreads?.delete(tab);
+    cx.spawn(async cx => {
+      let resumable = false;
+      try { resumable = Boolean((await threadSession(thread)).id); } catch {}
+      if (this.archiveChecks.get(tab) !== check || this.threadBusy(thread)) return;
+      check.pending = false;
+      if (!resumable) (this.closeOnlyThreads ||= new Set()).add(tab);
+      cx.notify();
+    });
+  },
+
   threadBusy(thread) {
     const live = terminals();
     return ['working', 'blocked'].includes(thread.status) || thread.agents.some(agent =>
@@ -58,18 +98,7 @@ export const threadArchive = {
     archiving.add(tab);
     try {
       if (archivable(thread, terminals())) {
-        // The thread's own agent, not a terminal one of its agents started (those have a parent).
-        let terminal = null, command = null;
-        for (const agent of thread.agents) {
-          const result = await hc(['get', agent.address, '--json']);
-          if (result.code) throw new Error(result.stderr.trim() || 'Herdr could not describe this terminal.');
-          const info = JSON.parse(result.stdout);
-          const found = !info.parent && agentCommand(info.argv);
-          if (found && commandKind(found)) { terminal = info; command = found; break; }
-        }
-        if (!command || !terminal.foreground?.pid) throw new Error('Could not find the Claude or Codex session this thread started.');
-        const kind = commandKind(command);
-        const id = await sessionId(kind, command, terminal.foreground.pid);
+        const { terminal, command, kind, id } = await threadSession(thread);
         if (this.threadBusy(thread)) return;
         if (kind === 'codex' && !id) {
           (this.closeOnlyThreads ||= new Set()).add(tab);
