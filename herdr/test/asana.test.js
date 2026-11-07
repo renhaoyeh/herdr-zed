@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { claudeModels, claudeEfforts, codexHome, codexModels, isClaudeLauncher, isCodexLauncher, sessionArgv, sessionKind, shownOptions, mergeModels, orderedOptions, moveOption, effortLabel, sessionChoices, settingsKey } from '../mods/devkits/model.js';
 
-const names = ['asanaTheme', 'AsanaPanel', 'AsanaProjectPicker', 'previewWidthAt', 'avatarColor', 'statusKind', 'initials', 'dueLabel', 'savedTasks', 'unsaveTask', 'searchProjects', 'projectTasksPage', 'myProjectTasks', 'projectWorkspace', 'openSubtasks', 'taskDetails', 'taskComments', 'relativeTime', 'reconcileSaved',
+const names = ['asanaTheme', 'AsanaPanel', 'AsanaProjectPicker', 'previewWidthAt', 'avatarColor', 'statusKind', 'initials', 'dueLabel', 'searchProjects', 'projectTasksPage', 'myProjectTasks', 'projectWorkspace', 'openSubtasks', 'taskDetails', 'taskComments', 'relativeTime',
   'filterTasks', 'taskPrompt', 'readAsanaToken', 'saveAsanaToken'];
 async function load(host = {}) {
   const source = await readFile(new URL('../mods/devkits/asana.js', import.meta.url), 'utf8');
@@ -62,22 +62,6 @@ test('subtasks hide completed ones; deleted tasks read as null; a rejected token
   const detail = await taskDetails('ok', 'a', 'p1', async () => reply(200, { data: { name: 'Child', notes: 'n', projects: [],
     parent: { gid: 'p', name: 'Parent', permalink_url: 'https://p' } } }));
   assert.deepEqual(detail.parent, { gid: 'p', name: 'Parent', url: 'https://p' });
-});
-
-test('saved tasks drop when deleted or completed, survive becoming a subtask, and mark moves', async () => {
-  const { reconcileSaved } = await load();
-  const saved = ['listed', 'deleted', 'done', 'child', 'moved', 'unknown'].map(gid => ({ gid, name: `old ${gid}`, parent: null, moved: false }));
-  const result = reconcileSaved(saved, [{ gid: 'listed', name: 'Renamed' }], {
-    deleted: null, done: { completed: true, projects: ['p1'] },
-    child: { name: 'Child', completed: false, projects: [], parent: { name: 'Parent' } },
-    moved: { name: 'Moved', completed: false, projects: ['p2'], parent: null },
-  }, 'p1');
-  assert.deepEqual(result, [
-    { gid: 'listed', name: 'Renamed', parent: null, moved: false },
-    { gid: 'child', name: 'Child', parent: 'Parent', moved: false },
-    { gid: 'moved', name: 'Moved', parent: null, moved: true },
-    { gid: 'unknown', name: 'old unknown', parent: null, moved: false },
-  ]);
 });
 
 test('search matches every word across name, section, assignee and parent; prompt carries the parent and trimmed notes', async () => {
@@ -144,15 +128,15 @@ const harness = () => {
   return { cx, settle: async () => { while (pending.length) await pending.shift(); } };
 };
 
-test('Mine loads only my tasks; All loads a page when shown and more on request; previews read fresh and saving is per project', async () => {
+test('Mine loads only my tasks; All loads a page when shown and more on request; previews read fresh', async () => {
   const memory = { 'devkits.asana-projects': { '["","/Code/api"]': { gid: 'p1', name: 'API' } } }, urls = [];
   const tasks = [{ gid: 't1', name: 'Fix login', me: true, projects: ['p1'], subs: ['s1'] }, { gid: 't2', name: 'Other', projects: ['p1'] },
     { gid: 't3', name: 'Nobody', projects: ['p1'] }, { gid: 't4', name: 'Elsewhere', me: true, projects: ['p2'] }];
-  const { AsanaPanel, savedTasks, unsaveTask } = await load({ ...ui, shared: key => memory[key], setShared: (key, value) => { memory[key] = value; },
+  const { AsanaPanel } = await load({ ...ui, shared: key => memory[key], setShared: (key, value) => { memory[key] = value; },
     folderKey: path => path.replace(/\/+$/, ''), appHome: () => '/herdr', readTextFile: async () => '{"token":"secret"}', fetch: asana(tasks, urls) });
   const { cx, settle } = harness();
   const panel = new AsanaPanel(); panel.init(cx);
-  const render = async () => { panel.render({ folder: '/Code/api/' }, [], () => assert.fail('nothing starts on preview'), () => {}, cx); await settle(); };
+  const render = async () => { panel.render({ folder: '/Code/api/' }, () => assert.fail('nothing starts on preview'), () => {}, cx); await settle(); };
   await render(); await render();
   assert.equal(panel.tab, 'mine');
   assert.deepEqual(panel.rows().map(row => row.task.gid), ['t1']);
@@ -171,15 +155,8 @@ test('Mine loads only my tasks; All loads a page when shown and more on request;
   assert.deepEqual(panel.subtasks.get('t1').map(sub => sub.gid), ['s1']);
   panel.toggleExpanded(panel.mine[0], cx);
   assert.deepEqual(panel.rows().map(row => [row.task.gid, row.depth]), [['t1', 0], ['s1', 1]]);
-  panel.toggleSaved(panel.detail);
-  assert.deepEqual(savedTasks('/Code/api'), [{ gid: 't1', name: 'Fix login', parent: null, moved: false }]);
-  assert.deepEqual(savedTasks('/Code/web'), []);
   memory['devkits.asana-view'] = 'board'; await render();
   assert.deepEqual(panel.groups().map(group => group.name), ['To do']);
-  panel.tab = 'saved';
-  assert.deepEqual(panel.rows().map(row => row.task.gid), ['t1']);
-  unsaveTask('/Code/api', 't1');
-  assert.deepEqual(savedTasks('/Code/api'), []);
 });
 
 test('an unbound project loads nothing until a project is chosen from the dropdown, which remembers it and its workspace', async () => {
@@ -189,8 +166,8 @@ test('an unbound project loads nothing until a project is chosen from the dropdo
     fetch: asana([{ gid: 'w1', name: 'Mine', me: true, projects: ['p9'] }], urls) });
   const { cx, settle } = harness();
   const panel = new AsanaPanel(); panel.init(cx);
-  panel.render({ folder: '/Code/web' }, [], () => {}, () => {}, cx); await settle();
-  panel.render({ folder: '/Code/web' }, [], () => {}, () => {}, cx); await settle();
+  panel.render({ folder: '/Code/web' }, () => {}, () => {}, cx); await settle();
+  panel.render({ folder: '/Code/web' }, () => {}, () => {}, cx); await settle();
   assert.deepEqual(panel.rows(), []);
   assert.equal(urls.length, 0);
   const picker = new AsanaProjectPicker(); picker.init({ folder: '/Code/web', overlay: 'menu' }, cx); await settle();
@@ -198,7 +175,7 @@ test('an unbound project loads nothing until a project is chosen from the dropdo
   picker.choose(picker.projects[0]);
   assert.deepEqual(memory['devkits.asana-projects'], { '["","/Code/web"]': { gid: 'p9', name: 'Web', workspace: 'w' } });
   assert.deepEqual(closed, ['menu']);
-  panel.render({ folder: '/Code/web' }, [], () => {}, () => {}, cx); await settle();
+  panel.render({ folder: '/Code/web' }, () => {}, () => {}, cx); await settle();
   assert.equal(panel.loadedGid, 'p9');
   assert.deepEqual(panel.rows().map(row => row.task.gid), ['w1']);
   assert.ok(!urls.some(url => url.includes('opt_fields=workspace.gid')));
@@ -240,7 +217,7 @@ test('switching Devkits projects keeps each project’s tasks, selection and pre
     fetch: asana([{ gid: 'a1', name: 'A task', me: true, projects: ['pa'] }, { gid: 'b1', name: 'B task', me: true, projects: ['pb'] }], urls) });
   const { cx, settle } = harness();
   const panel = new AsanaPanel(); panel.init(cx);
-  const show = async folder => { panel.render({ folder }, [], () => {}, () => {}, cx); await settle(); panel.render({ folder }, [], () => {}, () => {}, cx); await settle(); };
+  const show = async folder => { panel.render({ folder }, () => {}, () => {}, cx); await settle(); panel.render({ folder }, () => {}, () => {}, cx); await settle(); };
   await show('/a');
   panel.show(panel.mine[0], cx); await settle();
   await show('/b');
@@ -279,22 +256,6 @@ line two ${'x'.repeat(600)}` : `c${index}`, at: '2026-11-0' + (index + 1) + 'T00
   assert.ok(taskPrompt({ name: 'Fix', url: '', notes: 'Desc', parent: null, comments: many, note: '  Only touch the API  ' })
     .endsWith('My instructions:\nOnly touch the API'));
   assert.ok(!taskPrompt({ name: 'Fix', url: '', notes: '', parent: null, note: '   ' }).includes('instructions'));
-});
-
-test('each task keeps its own instructions draft, and Start session carries it', async () => {
-  const memory = { 'devkits.asana-projects': { '["","/a"]': { gid: 'pa', name: 'A', workspace: 'w' } } }, started = [];
-  const { AsanaPanel } = await load({ ...ui, shared: key => memory[key], setShared: (key, value) => { memory[key] = value; },
-    folderKey: path => path, appHome: () => '/herdr', readTextFile: async () => '{"token":"secret"}',
-    fetch: asana([{ gid: 'a1', name: 'One', me: true, projects: ['pa'] }, { gid: 'a2', name: 'Two', me: true, projects: ['pa'] }]) });
-  const { cx, settle } = harness();
-  const panel = new AsanaPanel(); panel.init(cx);
-  panel.show({ gid: 'a1' }, cx); panel.note.type('Use the new API');
-  panel.show({ gid: 'a2' }, cx);
-  assert.equal(panel.note.value(), '');
-  panel.show({ gid: 'a1' }, cx);
-  assert.equal(panel.note.value(), 'Use the new API');
-  assert.equal(panel.notes.get('a1'), 'Use the new API');
-  void settle; void started;
 });
 
 test('model and effort flags go right after the Claude or Codex executable; Default leaves the command alone', () => {
@@ -387,11 +348,11 @@ test('a thread’s Asana link opens its task in the preview once, for the matchi
     fetch: asana([{ gid: 'a1', name: 'One', me: true, projects: ['pa'] }, { gid: 'a2', name: 'Two', projects: ['pa'] }]) });
   const { cx, settle } = harness();
   const panel = new AsanaPanel(); panel.init(cx);
-  panel.render({ folder: '/b' }, [], () => {}, () => {}, cx); await settle();
-  panel.render({ folder: '/b' }, [], () => {}, () => {}, cx); await settle();
+  panel.render({ folder: '/b' }, () => {}, () => {}, cx); await settle();
+  panel.render({ folder: '/b' }, () => {}, () => {}, cx); await settle();
   assert.ok(memory['devkits.asana-focus']);
-  panel.render({ folder: '/a' }, [], () => {}, () => {}, cx); await settle();
-  panel.render({ folder: '/a' }, [], () => {}, () => {}, cx); await settle();
+  panel.render({ folder: '/a' }, () => {}, () => {}, cx); await settle();
+  panel.render({ folder: '/a' }, () => {}, () => {}, cx); await settle();
   assert.equal(memory['devkits.asana-focus'], null);
   assert.equal(panel.selected, 'a2');
   assert.equal(panel.detail.name, 'Two');
@@ -539,4 +500,56 @@ test('local task prompts carry instructions without claiming an Asana source', a
   const { taskPrompt } = await load();
   assert.equal(taskPrompt({ name: 'Fix login', notes: 'Add validation', source: 'local', comments: [] }),
     'Work on this task: Fix login\n\nDescription:\nAdd validation');
+});
+
+test('Asana preview only imports source content and has no agent, model, effort or execution controls', async () => {
+  const nodes = new Map(), clicks = new Map();
+  const node = id => {
+    const proxy = new Proxy({}, { get: (_target, key) => {
+      if (key === 'when') return (condition, render) => { if (condition) render(proxy); return proxy; };
+      return (...args) => { if (key === 'id') nodes.set(args[0], proxy); if (key === 'on_click' && typeof id === 'string') clicks.set(id, args[0]); return proxy; };
+    } });
+    if (typeof id === 'string') nodes.set(id, proxy);
+    return proxy;
+  };
+  const imported = [];
+  const { AsanaPanel } = await load({ ...ui, div: node, v_flex: node, h_flex: node, svg: node, Button: node,
+    shared: () => null, folderKey: path => path });
+  const panel = new AsanaPanel(); panel.init({ focus_handle: () => ({}) });
+  panel.folder = '/project'; panel.selected = 'a1';
+  panel.detail = { gid: 'a1', name: 'Source', notes: 'Description', comments: [{ author: 'Amy', text: 'Context' }] };
+  panel.session = () => assert.fail('source preview must not read model or agent settings');
+  panel.preview({}, task => imported.push(task));
+  assert.ok(nodes.has('asana-import'));
+  for (const id of ['asana-start', 'asana-agent', 'asana-model', 'asana-effort', 'asana-note', 'asana-save', 'asana-tab-saved']) assert.ok(!nodes.has(id));
+  clicks.get('asana-import')();
+  assert.deepEqual(imported, [panel.detail]);
+});
+
+test('imported local prompts keep source links and comments plus all edited instructions', async () => {
+  const { taskPrompt } = await load();
+  const prompt = taskPrompt({ source: 'local', name: 'My task', notes: 'x'.repeat(4500) + '\nExtra requirement at the end',
+    asana: { gid: 'a1', url: 'https://app.asana.com/0/p/a1', parent: { name: 'Parent', url: 'https://parent' },
+      comments: [{ author: 'Amy', text: 'Use v2' }] } });
+  assert.match(prompt, /Work on this Asana task: My task/);
+  assert.match(prompt, /https:\/\/app.asana.com\/0\/p\/a1/); assert.match(prompt, /It is a subtask of: Parent/);
+  assert.match(prompt, /Extra requirement at the end/); assert.match(prompt, /Amy: Use v2/);
+});
+
+test('legacy Saved selection falls back to Mine without reading or changing bookmarks or existing Tasks', async () => {
+  const memory = { 'devkits.asana-tab': 'saved', 'devkits.asana-projects': { '["","/project"]': { gid: 'p1', workspace: 'w' } },
+    'devkits.asana-saved': { '["","/project"]': [{ gid: 'legacy' }] },
+    'devkits.agent-board': { '["","/project"]': { existing: { gid: 'existing', source: 'local', status: 'todo' } } } };
+  const originalBookmarks = structuredClone(memory['devkits.asana-saved']), originalTasks = structuredClone(memory['devkits.agent-board']);
+  const reads = [], urls = [];
+  const { AsanaPanel } = await load({ ...ui, folderKey: path => path, appHome: () => '/herdr',
+    shared: key => { reads.push(key); return memory[key]; }, setShared: (key, value) => { memory[key] = value; },
+    readTextFile: async () => '{"token":"secret"}', fetch: asana([{ gid: 'a1', name: 'Mine', me: true, projects: ['p1'] }], urls) });
+  const panel = new AsanaPanel(), { cx, settle } = harness(); panel.init(cx);
+  assert.equal(panel.tab, 'mine');
+  panel.render({ folder: '/project' }, () => {}, () => {}, cx); await settle();
+  panel.render({ folder: '/project' }, () => {}, () => {}, cx); await settle();
+  assert.deepEqual(panel.rows().map(row => row.task.gid), ['a1']);
+  assert.ok(!reads.includes('devkits.asana-saved')); assert.ok(!urls.some(url => url.includes('/tasks/legacy')));
+  assert.deepEqual(memory['devkits.asana-saved'], originalBookmarks); assert.deepEqual(memory['devkits.agent-board'], originalTasks);
 });

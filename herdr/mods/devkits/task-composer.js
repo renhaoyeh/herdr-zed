@@ -8,15 +8,21 @@ import { Select, SelectState } from './components/select.js';
 import { Button } from './components/button.js';
 import { glyph } from './components/icon.js';
 
-export function openTaskComposer(project, task = null, status = 'todo') {
+export function openTaskComposer(project, task = null, status = 'todo', importTask = null) {
   return openOverlay({ mod: 'devkits', kind: 'dialog', modal: true, frame: 'none', width: 760, height: 400,
-    props: { view: 'task-composer', project, task, status } });
+    props: { view: 'task-composer', project, task, status, importTask } });
 }
 
 export default class TaskComposer {
   init(options, cx) {
     this.options = options; this.project = options.project; this.task = options.task;
-    const draft = this.task || shared('devkits.task-drafts')?.[boardKey(this.project)] || {};
+    const source = options.importTask;
+    this.draftKey = boardKey(this.project) + (source ? `:asana:${source.gid}` : '');
+    const draft = this.task || shared('devkits.task-drafts')?.[this.draftKey] || (source ? {
+      name: source.name, notes: source.notes || '',
+      asana: { gid: source.gid, name: source.name, url: source.url, parent: source.parent, comments: source.comments || [] },
+    } : {});
+    this.asana = draft.asana || null;
     this.title = InputState.new({ placeholder: 'Task title', value: draft.name || '' });
     this.title.set_value(draft.name || '');
     this.description = TextareaState.new({ placeholder: 'Add description…' });
@@ -29,8 +35,9 @@ export default class TaskComposer {
   saveDraft() {
     if (this.saved || this.task) return;
     const drafts = shared('devkits.task-drafts') || {};
-    setShared('devkits.task-drafts', { ...drafts, [boardKey(this.project)]: {
-      name: this.title.value(), notes: this.description.value(), status: this.status, agentKey: this.agent, priority: this.priority } });
+    setShared('devkits.task-drafts', { ...drafts, [this.draftKey]: {
+      name: this.title.value(), notes: this.description.value(), status: this.status, agentKey: this.agent, priority: this.priority,
+      ...(this.asana ? { asana: this.asana } : {}) } });
   }
   dismiss() { this.saveDraft(); closeOverlay(this.options.overlay); }
   editable() {
@@ -39,17 +46,18 @@ export default class TaskComposer {
     return taskActions(current).canEdit;
   }
   submit(agents) {
-    if (!this.title.value().trim() || !this.editable()) return;
+    if (this.saved || !this.title.value().trim() || !this.editable()) return;
     const assignment = agents.find(agent => agent.key === this.agent);
     const fields = { agentKey: assignment?.key || null, agentName: assignment?.name || null, priority: this.priority,
-      status: 'todo', manual: this.task ? Boolean(this.task.manual) : false };
+      status: 'todo', manual: this.task ? Boolean(this.task.manual) : false,
+      ...(this.asana ? { asana: this.asana } : {}) };
     let task;
     if (this.task) {
       task = { ...this.task, name: this.title.value().trim(), notes: this.description.value().trim() };
       rememberBoardTask(this.project, task, fields);
     } else task = createLocalTask(this.project, this.title.value(), this.description.value(), fields);
     this.saved = true;
-    setShared('devkits.task-drafts', { ...(shared('devkits.task-drafts') || {}), [boardKey(this.project)]: null });
+    setShared('devkits.task-drafts', { ...(shared('devkits.task-drafts') || {}), [this.draftKey]: null });
     setShared('devkits.board-focus', task.gid);
     closeOverlay(this.options.overlay);
   }
@@ -66,7 +74,7 @@ export default class TaskComposer {
       .child(h_flex().h(52).flex_none().px(24).gap(10).items_center().text_size(12).text_color(t.muted)
         .child(h_flex().h(24).px(8).gap(6).items_center().rounded(999).border(1).border_color(t.controlBorder).bg(t.control)
           .child(glyph('folder', 12)).child(this.project.name))
-        .child(glyph('chevron-right', 12)).child(this.task ? 'Edit task' : 'New task').child(div().flex_1())
+        .child(glyph('chevron-right', 12)).child(this.task ? 'Edit task' : this.asana ? 'Import from Asana' : 'New task').child(div().flex_1())
         .child(Button('composer-close', t, { variant: 'ghost', size: 'icon' }).accessibility_label('Close task composer')
           .on_click(() => this.dismiss()).child(glyph('close', 14))))
       .child(v_flex().id('composer-content').flex_1().min_h(0).overflow_y_scrollbar().px(24).gap(14)

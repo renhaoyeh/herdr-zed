@@ -1,7 +1,6 @@
 import { shared, setShared, terminals } from 'herdr';
 import { folderKey } from './model.js';
 import { withTaskInputEvidence } from './agent-task-evidence.js';
-import { savedTasks } from './asana.js';
 import { boardKey, boardTasks, taskStatus, threadTaskId, agentsWithTurns, reconcileBoardRecords, taskActions } from './agent-board-model.js';
 
 export const boardRecords = project => shared('devkits.agent-board')?.[boardKey(project)] || {};
@@ -13,7 +12,7 @@ export function rememberBoardTask(project, task, change = {}) {
 }
 export function projectBoardTasks(project, agents = []) {
   const records = boardRecords(project);
-  const tasks = boardTasks(project, project.machine ? [] : savedTasks(project.folder), records, shared('devkits.thread-tasks') || {}, project.tabs || [], withTaskInputEvidence(agentsWithTurns(agents, terminals()), terminals()));
+  const tasks = boardTasks(project, [], records, shared('devkits.thread-tasks') || {}, project.tabs || [], withTaskInputEvidence(agentsWithTurns(agents, terminals()), terminals()));
   const next = reconcileBoardRecords(records, tasks);
   if (JSON.stringify(next) !== JSON.stringify(records))
     setShared('devkits.agent-board', { ...(shared('devkits.agent-board') || {}), [boardKey(project)]: next });

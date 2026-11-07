@@ -13,7 +13,7 @@ export async function readTaskOutput(task, request = hc) {
   return outputs.join('\n\n────────\n\n').slice(-12000);
 }
 
-export const taskIdentifier = task => task.source === 'thread' ? 'THREAD' : task.source === 'local' ? 'LOCAL' : 'ASANA';
+export const taskIdentifier = task => task.asana ? 'ASANA' : task.source === 'thread' ? 'THREAD' : task.source === 'local' ? 'LOCAL' : 'ASANA';
 export function outputMarkdown(text) {
   const fence = '`'.repeat(Math.max(3, ...((text || '').match(/`+/g) || []).map(run => run.length + 1)));
   return `${fence}text\n${text}\n${fence}`;

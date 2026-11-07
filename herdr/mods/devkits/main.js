@@ -14,7 +14,7 @@ import { observeTaskInput } from './agent-task-evidence.js';
 import TaskComposer, { openTaskComposer } from './task-composer.js';
 import { rememberBoardTask, threadBoardStatus, projectBoardTasks, setTaskArchived, threadTaskArchived, threadVisibleInSidebar, threadBoardTask } from './agent-board-state.js';
 import { boardStatuses, canStartTask, taskActions } from './agent-board-model.js';
-import AsanaPanel, { AsanaProjectPicker, taskPrompt, unsaveTask } from './asana.js';
+import AsanaPanel, { AsanaProjectPicker, taskPrompt } from './asana.js';
 import { sessionMenu } from './session-menu.js';
 import { accountActions } from './account-actions.js';
 import { agentUsage } from './usage.js';
@@ -101,7 +101,7 @@ export default class Devkits extends View {
       // Settings saved per account before they moved to the provider (Claude, Codex) carry over once.
       const permissions = shared('devkits.codex-permissions') || {}, sessions = shared('devkits.profile-sessions') || {};
       const movedPermissions = rootSettings(permissions);
-      const movedSessions = rootSettings(sessions, (kept = {}, value = {}) => ({ model: kept.model ?? value.model ?? null, effort: kept.effort ?? value.effort ?? null }));
+      const movedSessions = rootSettings(sessions, (kept = {}, value = {}) => ({ ...kept, model: kept.model ?? value.model ?? null, effort: kept.effort ?? value.effort ?? null }));
       if (movedPermissions !== permissions) setShared('devkits.codex-permissions', movedPermissions);
       if (movedSessions !== sessions) setShared('devkits.profile-sessions', movedSessions);
     }
@@ -182,8 +182,6 @@ export default class Devkits extends View {
     if (props()?.view === 'asana') {
       this.asana = new AsanaPanel();
       this.asana.init(cx);
-      // The composer offers the local agents Add session shows.
-      cx.spawn(async cx => { try { await this.cachedAgents(null); } catch {} cx.notify(); });
       return;
     }
     if (['launcher', 'manage-launchers'].includes(props()?.view)) this.initSessionMenu(cx);
@@ -244,11 +242,7 @@ export default class Devkits extends View {
     const projects = this.projects();
     const index = projects.findIndex(project => project.id === target.project.id);
     const close = () => { closeOverlay(target.overlay); this.closeProject(target.project); };
-    const asana = () => openAsana(target.project);
     const actions = [
-      ...(target.project.machine ? [] : [
-        { id: 'menu-asana-tasks', label: 'Asana tasks', icon: 'list-todo', enabled: true, action: asana, divider: true },
-      ]),
       { id: 'menu-project-up', label: 'Move up', enabled: index > 0, action: () => this.moveProject(target.project.id, -1) },
       { id: 'menu-project-down', label: 'Move down', enabled: index >= 0 && index < projects.length - 1, action: () => this.moveProject(target.project.id, 1) },
       { id: 'menu-close-project', label: 'Close project', icon: 'close', enabled: true, action: close, separated: true },
@@ -415,7 +409,7 @@ export default class Devkits extends View {
     try { return await pending; } finally { agentLoads.delete(key); }
   }
 
-  // An Asana task becomes the thread name and the agent's opening prompt, and leaves Saved once started.
+  // A task becomes the thread name and the agent's opening prompt.
   // `options` picks this session's model and effort; Default leaves the launcher's own.
   async startThread(agent, target = props(), options = {}) {
     const key = JSON.stringify([target.space || folderKey(target.folder || ''), agent?.key || agent?.run,
@@ -440,7 +434,8 @@ export default class Devkits extends View {
     // A choice made for this session wins; otherwise the profile's own default model and effort apply.
     const profile = shared('devkits.profile-sessions')?.[settingsKey(agent)] || {};
     const session = { model: options.model === undefined ? profile.model : options.model,
-      effort: options.effort === undefined ? profile.effort : options.effort };
+      effort: options.effort === undefined ? profile.effort : options.effort,
+      serviceTier: profile.serviceTier };
     const allowed = shared('devkits.session-options')?.[sessionKind(agent)] || {};
     if (allowed.models?.includes(session.model)) session.model = null;
     if (allowed.efforts?.includes(session.effort)) session.effort = null;
@@ -460,7 +455,6 @@ export default class Devkits extends View {
     if (target.overlay) closeOverlay(target.overlay);
     if (task) {
       rememberBoardTask({ folder: target.folder }, task, { status: 'todo', manual: false, seenWorking: false, agentKey: agent.key, agentName: agent.name });
-      unsaveTask(target.folder, task.gid);
     }
     this.closeBoard();
     this.openThread(target, task?.name || agent?.name, argv, agent?.key, task ? { gid: task.gid, name: task.name, folder: target.folder, ...(task.source ? { source: task.source } : {}) } : null);
@@ -488,14 +482,11 @@ export default class Devkits extends View {
     else run('space.new', { name: target.projectName, folder: target.folder, machine: '', ...(argv ? { tab: name, argv } : {}) });
   }
 
-  // The Asana composer starts the session itself with the chosen agent, model and effort.
+  // Asana only picks a source. Review its content in the normal task composer.
   asanaPanel(cx) {
     const project = props().project || this.projects().find(project => project.active);
-    const hidden = shared('devkits.hidden-launchers') || [];
-    const agents = launcherChoices(shared('devkits.agent-cache')?.[JSON.stringify(null)] || [], shared('devkits.launcher-order') || [])
-      .filter(choice => choice.agent && !hidden.includes(choice.key)).map(choice => choice.agent);
-    return this.asana.render(project, agents,
-      (agent, task, options) => { this.startThread(agent, { space: project.pending ? null : project.id, folder: project.folder, projectName: project.name, task }, options); closeOverlay(props().overlay); },
+    return this.asana.render(project,
+      task => { closeOverlay(props().overlay); openTaskComposer(project, null, 'todo', task); },
       () => closeOverlay(props().overlay), cx);
   }
 
@@ -661,13 +652,11 @@ export default class Devkits extends View {
           actions, choose, t, { offset: { x: 8, y: 9 }, fullHeight: true })));
   }
 
-  // Opens the linked task in its project's Asana pop-out.
+  // All linked tasks return to their project's Tasks workspace.
   openTask(spaceId, task) {
     const project = this.projects().find(project => project.id === spaceId);
     if (!project) return;
-    if (task.source === 'local') { this.openBoard(project); setShared('devkits.board-focus', task.gid); return; }
-    setShared('devkits.asana-focus', { folder: task.folder, gid: task.gid });
-    openAsana(project);
+    this.openBoard(project); setShared('devkits.board-focus', task.gid);
   }
 
   statusBar(t) {
