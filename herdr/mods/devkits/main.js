@@ -15,7 +15,7 @@ import { accountActions } from './account-actions.js';
 import { agentUsage } from './usage.js';
 import { RunControls, RunMenu, runApp } from './run-app.js';
 import { BranchMenu } from './branch-menu.js';
-import { ProjectLayout, layoutNode } from './project-layout.js';
+import { ProjectLayout, layoutNode, conversationMaximized, maximizeConversation } from './project-layout.js';
 import { threadArchive } from './thread-archive.js';
 import { sessionRules, ensureRules } from './global-rules.js';
 import { DropdownMenu, DropdownMenuState, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from './components/dropdown-menu.js';
@@ -42,7 +42,9 @@ const openAsana = project => {
 const restorePanel = () => false;
 // Like Zed's dock buttons: close only the side panel, preserving the central document.
 const toggleEditor = (_editor, name) => {
-  setShared('devkits.right-panel', shared('devkits.right-panel') === name ? null : name);
+  const maximized = Boolean(shared('devkits.conversation-maximized'));
+  maximizeConversation(null, false);
+  setShared('devkits.right-panel', !maximized && shared('devkits.right-panel') === name ? null : name);
 };
 const conversationKey = project => JSON.stringify([project.machine || '', folderKey(project.folder) || project.id]);
 const conversationVisible = project => Boolean(project && shared('devkits.conversation-visible')?.[conversationKey(project)]);
@@ -325,6 +327,7 @@ export default class Devkits extends View {
 
   showConversation(visible = true, project = this.projects().find(project => project.active)) {
     if (!project) return;
+    if (!visible) maximizeConversation(null, false);
     setShared('devkits.conversation-visible', { ...(shared('devkits.conversation-visible') || {}), [conversationKey(project)]: visible });
     run(visible ? 'layout.show' : 'layout.hide', { id: 'workspace-view' });
     if (visible) {
@@ -507,6 +510,8 @@ export default class Devkits extends View {
       shared('devkits.thread-profiles') || {}) : null;
     const title = secondary ? p.title || 'Terminal' : thread?.tab.name === '__devkits_default_terminal__' && !thread.agent ? 'Terminal' : thread?.title || p.title || 'Terminal';
     const link = secondary ? null : shared('devkits.thread-tasks')?.[p.tab];
+    const project = this.projects().find(project => project.id === thread?.space);
+    const maximized = conversationMaximized(project);
     this.threadMenu ??= new DropdownMenuState();
     const actions = [{ key: 'close', label: secondary ? 'Close terminal' : 'Close thread' }];
     const choose = () => secondary ? run('pane.close', { pane: p.pane }) : run('tab.close', { id: p.tab });
@@ -524,6 +529,14 @@ export default class Devkits extends View {
         .on_click((_event, cx) => { cx.stop_propagation(); this.openTask(thread.space, link); })
         .child(glyph('list-todo', 12)).child('Asana')))
       .child(h_flex().h_full().flex_none().items_center()
+        .when(Boolean(project && layoutNode(layout(), 'workspace-view')), el => el.child(
+          Button(`maximize-thread-${p.pane}`, t, { variant: 'ghost', size: 'icon' }).h_full().w(32)
+            .accessibility_label(maximized ? 'Restore thread' : 'Maximize thread')
+            .on_click((_event, cx) => {
+              cx.stop_propagation();
+              maximizeConversation(project, !conversationMaximized(project));
+              run('pane.focus', { pane: p.pane });
+            }).child(glyph(maximized ? 'minimize' : 'maximize'))))
         .child(DropdownMenuTrigger(Button(`new-thread-${p.pane}`, t, { variant: 'ghost', size: 'icon' }).h_full().w(32)
           .accessibility_label('New thread…').child(glyph('plus')), 280,
           (cx, at) => this.newThread(cx, thread?.space, at), 'end'))
@@ -570,7 +583,11 @@ export default class Devkits extends View {
           .h_full().rounded(0)
           .bg(simulator.hidden ? t.background : t.selected)
           .accessibility_label(simulator.hidden ? 'Show simulator' : 'Hide simulator')
-          .on_click(() => run('layout.toggle', { id: 'simulator' }))
+          .on_click(() => {
+            const maximized = Boolean(shared('devkits.conversation-maximized'));
+            maximizeConversation(null, false);
+            run(maximized ? 'layout.show' : 'layout.toggle', { id: 'simulator' });
+          })
           .child(glyph('smartphone'))))
       .when(Boolean(space), el => el
         .child(Button('open-diff', t, { variant: 'ghost', size: 'icon' })
