@@ -595,7 +595,7 @@ export default class Devkits extends View {
       thread = { ...thread, agent: primaryAgent, title: threadTitle(thread.tab, primaryAgent, null) };
     const working = thread.status === 'working' || thread.agents.some(agent => agent.status === 'working');
     const isFocused = thread.active && (!members.some(pane => pane.focused) || Boolean(primary?.focused));
-    const p = threadProgram(thread, terminals());
+    const p = threadProgram(thread, terminals(), primary?.program);
     const canArchive = archivable(thread, terminals());
     const stopping = canArchive && this.threadBusy(thread);
     const archive = canArchive && !stopping && !this.closeOnlyThreads?.has(thread.tab.id);
