@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { claudeModels, claudeEfforts, codexHome, codexModels, isClaudeLauncher, isCodexLauncher, sessionArgv, sessionKind, shownOptions, mergeModels, orderedOptions, moveOption, effortLabel, sessionChoices, settingsKey } from '../mods/devkits/model.js';
 
-const names = ['AsanaPanel', 'AsanaProjectPicker', 'previewWidthAt', 'avatarColor', 'statusKind', 'initials', 'dueLabel', 'savedTasks', 'unsaveTask', 'searchProjects', 'projectTasksPage', 'myProjectTasks', 'projectWorkspace', 'openSubtasks', 'taskDetails', 'taskComments', 'relativeTime', 'reconcileSaved',
+const names = ['asanaTheme', 'AsanaPanel', 'AsanaProjectPicker', 'previewWidthAt', 'avatarColor', 'statusKind', 'initials', 'dueLabel', 'savedTasks', 'unsaveTask', 'searchProjects', 'projectTasksPage', 'myProjectTasks', 'projectWorkspace', 'openSubtasks', 'taskDetails', 'taskComments', 'relativeTime', 'reconcileSaved',
   'filterTasks', 'taskPrompt', 'readAsanaToken', 'saveAsanaToken'];
 async function load(host = {}) {
   const source = await readFile(new URL('../mods/devkits/asana.js', import.meta.url), 'utf8');
@@ -436,4 +436,99 @@ test('a provider’s choices follow Manage, and Codex efforts narrow to the chos
   assert.deepEqual(sessionChoices('codex', codex, {}, 'a').efforts, ['low', 'high']);
   assert.deepEqual(sessionChoices('claude', [], { models: ['haiku'] }).models.map(model => model.key), ['fable', 'opus', 'sonnet']);
   assert.equal(effortLabel('xhigh'), 'XHigh');
+});
+
+
+test('Asana owns its colors in both modes regardless of the host accent and surfaces', async () => {
+  const { asanaTheme } = await load();
+  const dark = asanaTheme({ background: '#101010', foreground: '#ff0000', solid: '#00ff00' });
+  assert.equal(dark.background, '#1e1f21');
+  assert.equal(dark.popover, '#1e1f21');
+  assert.equal(dark.foreground, '#f5f4f3');
+  assert.equal(dark.solid, '#4573d2');
+  assert.deepEqual(dark, asanaTheme({ background: '#222', solid: '#ff00ff' }));
+  const light = asanaTheme({ background: '#ffffff', solid: '#00ff00' });
+  assert.equal(light.background, '#ffffff');
+  assert.equal(light.border, '#edeae9');
+  assert.equal(light.foreground, '#1e1f21');
+  assert.equal(light.solid, dark.solid);
+});
+
+test('token settings replaces credentials, clears caches and disconnects without losing bindings or bookmarks', async () => {
+  let file = '{"token":"old"}', draft = 'new';
+  const memory = { 'devkits.asana-projects': { project: 'p1' }, 'devkits.asana-saved': { project: ['t1'] } };
+  const { AsanaPanel, readAsanaToken } = await load({ ...ui, appHome: () => '/herdr',
+    shared: key => memory[key], readTextFile: async () => file,
+    writeTextFile: async (_path, text) => { file = text; } });
+  const { cx, settle } = harness();
+  const panel = new AsanaPanel(); panel.init(cx);
+  panel.tokenInput = { value: () => draft, set_value: value => { draft = value; } };
+  panel.token = 'old'; panel.needsToken = false; panel.settingsOpen = true;
+  panel.states = new Map([['/a', { mine: ['stale'] }]]);
+  panel.saveToken(cx); await settle();
+  assert.equal(await readAsanaToken(), 'new');
+  assert.equal(panel.token, 'new');
+  assert.equal(panel.settingsOpen, false);
+  assert.equal(draft, '');
+  assert.equal(panel.states.size, 0);
+  panel.mine = [{ gid: 'private' }]; panel.selected = 'private';
+  panel.clearToken(cx); await settle();
+  assert.equal(await readAsanaToken(), null);
+  assert.equal(panel.token, null);
+  assert.equal(panel.needsToken, true);
+  assert.equal(panel.settingsOpen, true);
+  assert.equal(panel.selected, null);
+  assert.equal(panel.mine, null);
+  assert.deepEqual(memory, { 'devkits.asana-projects': { project: 'p1' }, 'devkits.asana-saved': { project: ['t1'] } });
+});
+
+test('failed token updates keep the current connection and allow retrying', async () => {
+  const { AsanaPanel } = await load({ ...ui, appHome: () => '/herdr', shared: () => null,
+    readTextFile: async () => '{"token":"old"}', writeTextFile: async () => { throw new Error('Cannot save'); } });
+  const { cx, settle } = harness();
+  const panel = new AsanaPanel(); panel.init(cx);
+  panel.tokenInput = { value: () => 'replacement' };
+  panel.token = 'old'; panel.needsToken = false; panel.settingsOpen = true;
+  panel.saveToken(cx); await settle();
+  assert.equal(panel.token, 'old'); assert.equal(panel.tokenBusy, false);
+  assert.equal(panel.settingsOpen, true); assert.equal(panel.error, 'Cannot save');
+  panel.clearToken(cx); await settle();
+  assert.equal(panel.token, 'old'); assert.equal(panel.needsToken, false);
+  assert.equal(panel.tokenBusy, false); assert.equal(panel.error, 'Cannot save');
+});
+
+test('settings populates the saved token in a masked input and unchanged Save keeps the connection', async () => {
+  let draft = '', masked = false;
+  const { AsanaPanel } = await load({ ...ui, shared: () => null,
+    InputState: { new: () => ({ on() {}, value: () => draft, set_value: value => { draft = value; },
+      set_masked: value => { masked = value; } }) },
+    writeTextFile: () => assert.fail('unchanged token must not be written') });
+  const { cx } = harness();
+  const panel = new AsanaPanel(); panel.init(cx);
+  panel.token = 'saved-secret'; panel.needsToken = false;
+  const tasks = [{ gid: 't1' }]; panel.mine = tasks;
+  panel.openSettings(cx);
+  assert.equal(masked, true);
+  assert.equal(draft, 'saved-secret');
+  assert.equal(panel.settingsOpen, true);
+  panel.saveToken(cx);
+  assert.equal(panel.settingsOpen, false);
+  assert.equal(panel.token, 'saved-secret');
+  assert.equal(panel.mine, tasks);
+  assert.equal(draft, '');
+});
+
+test('Copy copies the current token value while empty fields leave the clipboard alone', async () => {
+  const { AsanaPanel } = await load({ ...ui, shared: () => null });
+  const { cx } = harness();
+  const panel = new AsanaPanel(); panel.init(cx);
+  let value = 'actual-secret'; const copied = [];
+  panel.tokenInput = { value: () => value };
+  cx.write_to_clipboard = text => copied.push(text);
+  panel.copyToken(cx);
+  assert.deepEqual(copied, ['actual-secret']);
+  assert.equal(panel.tokenCopied, true);
+  value = '';
+  panel.copyToken(cx);
+  assert.equal(copied.length, 1);
 });

@@ -28,13 +28,18 @@ const SIDEBAR_MENU = { x: 0, y: 10 };
 import { glyph } from './components/icon.js';
 
 const startingThreads = new Set();
-// Asana replaces the terminals for one project; selecting anything else returns to them.
+// Asana opens independently above the workspace, bound to its originating project.
 // Files and Changes share the editor beside the thread instead, shown or hidden in the layout like the simulator.
 const hidePanels = () => { setShared('devkits.asana', null); };
-// Each project remembers its open panel and gets it back when selected again; choosing a thread forgets it.
+// Clear legacy inline-panel state when opening an Asana pop-out.
 const rememberPanel = (id, name) => { if (id) setShared('devkits.project-panels', { ...(shared('devkits.project-panels') || {}), [id]: name || null }); };
-const showPanel = (name, id) => { hidePanels(); setShared(`devkits.${name}`, id); rememberPanel(id, name); };
-const restorePanel = id => { const shown = shared('devkits.project-panels')?.[id] === 'asana'; if (shown) setShared('devkits.asana', id); return shown; };
+const openAsana = project => {
+  hidePanels();
+  rememberPanel(project.id, null);
+  return openOverlay({ mod: 'devkits', kind: 'dialog', modal: true, frame: 'none',
+    width: 0.9, height: 0.86, props: { view: 'asana', project } });
+};
+const restorePanel = () => false;
 // Like Zed's dock buttons: close only the side panel, preserving the central document.
 const toggleEditor = (_editor, name) => {
   setShared('devkits.right-panel', shared('devkits.right-panel') === name ? null : name);
@@ -212,7 +217,7 @@ export default class Devkits extends View {
     const projects = this.projects();
     const index = projects.findIndex(project => project.id === target.project.id);
     const close = () => { closeOverlay(target.overlay); this.closeProject(target.project); };
-    const asana = () => { this.selectProject(target.project); showPanel('asana', target.project.id); };
+    const asana = () => openAsana(target.project);
     const actions = [
       ...(target.project.machine ? [] : [{ id: 'menu-asana-tasks', label: 'Asana tasks', icon: 'list-todo', enabled: true, action: asana, divider: true }]),
       { id: 'menu-project-up', label: 'Move up', enabled: index > 0, action: () => this.moveProject(target.project.id, -1) },
@@ -436,13 +441,13 @@ export default class Devkits extends View {
 
   // The Asana composer starts the session itself with the chosen agent, model and effort.
   asanaPanel(cx) {
-    const project = this.projects().find(project => project.active);
+    const project = props().project || this.projects().find(project => project.active);
     const hidden = shared('devkits.hidden-launchers') || [];
     const agents = launcherChoices(shared('devkits.agent-cache')?.[JSON.stringify(null)] || [], shared('devkits.launcher-order') || [])
       .filter(choice => choice.agent && !hidden.includes(choice.key)).map(choice => choice.agent);
     return this.asana.render(project, agents,
-      (agent, task, options) => this.startThread(agent, { space: project.pending ? null : project.id, folder: project.folder, projectName: project.name, task }, options),
-      () => { hidePanels(); rememberPanel(project.id, null); }, cx);
+      (agent, task, options) => { this.startThread(agent, { space: project.pending ? null : project.id, folder: project.folder, projectName: project.name, task }, options); closeOverlay(props().overlay); },
+      () => closeOverlay(props().overlay), cx);
   }
 
   async close() {
@@ -514,13 +519,12 @@ export default class Devkits extends View {
         (cx, at) => this.newThread(cx, thread?.space, at), 'end'));
   }
 
-  // Opens the thread's project on its Asana panel with the linked task in the preview.
+  // Opens the linked task in its project's Asana pop-out.
   openTask(spaceId, task) {
     const project = this.projects().find(project => project.id === spaceId);
     if (!project) return;
-    this.selectProject(project);
-    showPanel('asana', project.id);
     setShared('devkits.asana-focus', { folder: task.folder, gid: task.gid });
+    openAsana(project);
   }
 
   statusBar(t) {
