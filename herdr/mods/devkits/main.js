@@ -40,6 +40,8 @@ const toggleEditor = (editor, name) => {
   run('layout.select', { stack: 'editor', child: name });
   run('layout.show', { id: 'editor' });
 };
+const conversationKey = project => JSON.stringify([project.machine || '', folderKey(project.folder) || project.id]);
+const conversationVisible = project => Boolean(project && shared('devkits.conversation-visible')?.[conversationKey(project)]);
 const agentLoads = new Map();
 
 export default class Devkits extends View {
@@ -304,6 +306,12 @@ export default class Devkits extends View {
       props: { view: 'launcher', space: project.pending ? null : project.id, folder: project.folder, projectName: project.name } });
   }
 
+  showConversation(visible = true, project = this.projects().find(project => project.active)) {
+    if (!project) return;
+    setShared('devkits.conversation-visible', { ...(shared('devkits.conversation-visible') || {}), [conversationKey(project)]: visible });
+    run(visible ? 'layout.show' : 'layout.hide', { id: 'workspace-view' });
+  }
+
   closeFileTab(cx) {
     const editor = layoutNode(layout(), 'editor');
     if (editor && !editor.hidden && editor.active === 'files' && this.files?.file)
@@ -403,6 +411,7 @@ export default class Devkits extends View {
       space: target.space || null, folder: target.folder, before: spaces().flatMap(space => space.tabs.map(tab => tab.id)), at: Date.now(),
       ...(task ? { task } : {}) }]);
     hidePanels();
+    this.showConversation(true, { ...target, id: target.space, machine: spaces().find(space => space.id === target.space)?.machine });
     rememberPanel(target.space, null);
     setShared('devkits.selected-project', null);
     run('layout.select', { stack: 'workspace-view', child: 'main' });
@@ -503,12 +512,21 @@ export default class Devkits extends View {
     // The Simulator panel is the devkits-simulator mod; a layout without its block has no simulator button.
     // Other platforms keep the button; the panel says it is unsupported there.
     const simulator = layoutNode(layout(), 'simulator'), editor = layoutNode(layout(), 'editor');
+    const conversation = layoutNode(layout(), 'workspace-view');
     const showing = name => Boolean(editor) && !editor.hidden && editor.active === name;
     // Like Zed: the branch sits beside the project in the header; only a remote project names its machine here.
     return h_flex().size_full().pr(4).gap(8).items_center().bg(t.background).border_t(1).border_color(t.border)
       .text_size(11).text_color(t.muted)
       .when(Boolean(space?.machine), el => el.child(h_flex().pl(16).gap(8).items_center().child(glyph('terminal', 12)).child(space.machine)))
 
+      .when(Boolean(space && conversation), el => el
+        .child(Button('open-conversation', t, { variant: 'ghost', size: 'icon' }).h_full().rounded(0)
+          .bg(conversationVisible(space) ? t.selected : t.background)
+          .accessibility_label(conversationVisible(space) ? 'Hide conversation' : 'Show conversation')
+          .on_click(() => {
+            hidePanels(); rememberPanel(space.id, null);
+            this.showConversation(!conversationVisible(space));
+          }).child(glyph('agent'))))
       .child(div().flex_1())
       .child(Button('settings', t, { variant: 'ghost', size: 'icon' }).h_full()
         .accessibility_label('Herdr settings')
@@ -554,6 +572,7 @@ export default class Devkits extends View {
       .on_click(() => {
         rememberPanel(thread.space, null);
         this.selectProject(this.projects().find(project => project.id === thread.space));
+        this.showConversation(true);
         run('tab.select', { id: thread.tab.id });
       })
       .child(div().size(16).flex_none().flex().items_center().justify_center().child(icon))
@@ -588,6 +607,7 @@ export default class Devkits extends View {
       .on_click(() => {
         rememberPanel(thread.space, null);
         this.selectProject(this.projects().find(project => project.id === thread.space));
+        this.showConversation(true);
         run('tab.select', { id: thread.tab.id });
         run('terminal.peek', { terminal: terminal.address });
       })
@@ -660,6 +680,10 @@ export default class Devkits extends View {
       this.shownContent = content;
       run('layout.select', { stack: 'workspace-view', child: content });
     }
+    const conversation = layoutNode(layout(), 'workspace-view');
+    const showConversation = content === 'asana' || conversationVisible(chosen);
+    if (conversation && conversation.hidden === showConversation)
+      run(showConversation ? 'layout.show' : 'layout.hide', { id: 'workspace-view' });
     const defaults = { ...(shared('devkits.default-terminals') || {}) };
     let defaultsChanged = false;
     for (const space of native) {
