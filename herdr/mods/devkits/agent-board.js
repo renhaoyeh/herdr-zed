@@ -121,8 +121,13 @@ export default class AgentBoard {
     });
   }
   show(task, project, cx) {
+    const key = JSON.stringify([boardKey(project), task.gid]);
+    if (this.selected === task.gid && this.selection?.key === key && !this.detail.detailError) return;
+    const selection = { key };
+    this.selection = selection;
     this.selected = task.gid; this.currentTask = task;
     this.detail.selected = null; this.detail.detail = null; this.detail.detailError = null;
+    this.detail.detailRequest = null;
     this.detail.folder = project.folder;
     if (task.agentKey) setShared('devkits.asana-session', { ...(shared('devkits.asana-session') || {}), agent: task.agentKey });
     this.loadOutput(task, project, cx);
@@ -131,11 +136,11 @@ export default class AgentBoard {
     cx.spawn(async cx => {
       try {
         const token = await readAsanaToken();
-        if (this.selected !== task.gid || this.folder !== folder) return;
+        if (this.selection !== selection || this.selected !== task.gid || this.folder !== folder) return;
         this.detail.token = token;
         if (token) this.detail.show(task, cx);
         else this.detail.detailError = 'Connect Asana to read this task’s description.';
-      } catch (error) { if (this.selected === task.gid) this.detail.detailError = error.message; }
+      } catch (error) { if (this.selection === selection && this.selected === task.gid && this.folder === folder) this.detail.detailError = error.message; }
       cx.notify();
     });
   }

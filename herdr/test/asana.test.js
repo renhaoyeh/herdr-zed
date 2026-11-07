@@ -553,3 +553,47 @@ test('legacy Saved selection falls back to Mine without reading or changing book
   assert.ok(!reads.includes('devkits.asana-saved')); assert.ok(!urls.some(url => url.includes('/tasks/legacy')));
   assert.deepEqual(memory['devkits.asana-saved'], originalBookmarks); assert.deepEqual(memory['devkits.agent-board'], originalTasks);
 });
+
+test('reselecting an Asana issue reuses its pending read and loaded details and comments', async () => {
+  const urls = []; let release;
+  const { AsanaPanel } = await load({ ...ui, folderKey: path => path, shared: () => null,
+    fetch: async url => {
+      urls.push(url);
+      if (url.includes('/stories?')) return reply(200, { data: [] });
+      if (url.includes('/tasks/a?')) await new Promise(resolve => { release = resolve; });
+      return reply(200, { data: { name: url.includes('/tasks/a?') ? 'A' : 'B', notes: 'Description' } });
+    } });
+  const { cx, settle } = harness(), panel = new AsanaPanel(); panel.init(cx); panel.folder = '/a'; panel.token = 'secret';
+  panel.show({ gid: 'a' }, cx); const pending = panel.detailRequest;
+  panel.show({ gid: 'a' }, cx); panel.show({ gid: 'a' }, cx);
+  assert.equal(urls.length, 1); assert.equal(panel.detailRequest, pending);
+  release(); await settle();
+  const detail = panel.detail, count = urls.length;
+  panel.show({ gid: 'a' }, cx); await settle();
+  assert.equal(panel.detail, detail); assert.equal(urls.length, count);
+  panel.show({ gid: 'b' }, cx); await settle();
+  assert.equal(panel.detail.name, 'B'); assert.equal(urls.length, count + 2);
+});
+
+test('failed Asana reads can be retried and obsolete responses cannot replace a newer selection', async () => {
+  let fail = true; const pending = [];
+  const { AsanaPanel } = await load({ ...ui, folderKey: path => path, shared: () => null,
+    fetch: async url => {
+      if (url.includes('/stories?')) return reply(200, { data: [] });
+      if (fail) { fail = false; return reply(500, { errors: [{ message: 'Offline' }] }); }
+      return new Promise(resolve => pending.push(resolve));
+    } });
+  const { cx, settle } = harness(), panel = new AsanaPanel(); panel.init(cx); panel.folder = '/a'; panel.token = 'secret';
+  panel.show({ gid: 'same' }, cx); await settle();
+  assert.equal(panel.detailError, 'Offline'); assert.equal(panel.detailRequest, null);
+  panel.show({ gid: 'same' }, cx);
+  panel.show({ gid: 'other' }, cx);
+  panel.show({ gid: 'same' }, cx);
+  assert.equal(pending.length, 3);
+  pending[2](reply(200, { data: { name: 'Newest', notes: 'Keep this' } }));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(panel.detail.name, 'Newest');
+  pending[0](reply(200, { data: { name: 'Obsolete same issue' } }));
+  pending[1](reply(200, { data: { name: 'Obsolete other issue' } }));
+  await settle(); assert.equal(panel.detail.name, 'Newest');
+});
