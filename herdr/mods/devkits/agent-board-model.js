@@ -64,7 +64,7 @@ export function reconcileBoardRecords(records, tasks) {
 }
 
 // Saved is the inbox. Retain launched/manual cards independently when Saved drops them.
-export function boardTasks(project, saved = [], records = {}, links = {}, threads = [], agents = []) {
+export function boardTasks(project, saved = [], records = {}, links = {}, threads = [], agents = [], titleFor = threadTitle) {
   const tasks = new Map(Object.values(records).map(record => [record.gid, { ...record }]));
   for (const task of saved) tasks.set(task.gid, { ...tasks.get(task.gid), ...task });
   for (const [tab, task] of Object.entries(links)) {
@@ -76,7 +76,7 @@ export function boardTasks(project, saved = [], records = {}, links = {}, thread
     if (links[thread.id] || !agents.some(agent => agent.tab === thread.id)) continue;
     const gid = threadTaskId(thread.id), members = agents.filter(agent => agent.tab === thread.id);
     tasks.set(gid, { ...tasks.get(gid), gid, source: 'thread', threadId: thread.id,
-      name: threadTitle(thread, members.find(agent => agent.focused) || members[0], project) });
+      name: titleFor(thread, members.find(agent => agent.focused) || members[0], project) });
   }
   return [...tasks.values()].map(task => {
     const tabs = threads.filter(thread => task.threadId === thread.id || (links[thread.id]?.gid === task.gid

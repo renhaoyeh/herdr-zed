@@ -1,9 +1,20 @@
 import { shared, setShared, terminals } from 'herdr';
-import { folderKey } from './model.js';
+import { folderKey, threadTitle, configuredAgents } from './model.js';
 import { withTaskInputEvidence } from './agent-task-evidence.js';
 import { boardKey, boardTasks, taskStatus, threadTaskId, agentsWithTurns, reconcileBoardRecords, taskActions } from './agent-board-model.js';
 
 export const boardRecords = project => shared('devkits.agent-board')?.[boardKey(project)] || {};
+
+// Resolve every conversation title against the same saved task and launcher metadata.
+export function sessionThreadTitle(tab, agent, project) {
+  const launchers = configuredAgents(shared('devkits.agent-cache')?.[JSON.stringify(project?.machine || null)] || [], shared('devkits.agent-configs') || []);
+  const launcher = launchers.find(item => item.key === shared('devkits.thread-profiles')?.[tab.id])
+    || launchers.find(item => item.name === tab.name);
+  const link = shared('devkits.thread-tasks')?.[tab.id];
+  const task = link && (!project || folderKey(link.folder) === folderKey(project.folder)) ? link : null;
+  return threadTitle(tab, agent, project, { launcherName: launcher?.name,
+    taskName: task && (project && boardRecords(project)[task.gid]?.name || task.name) });
+}
 export function rememberBoardTask(project, task, change = {}) {
   const key = boardKey(project), all = shared('devkits.agent-board') || {};
   const records = all[key] || {};
@@ -12,7 +23,7 @@ export function rememberBoardTask(project, task, change = {}) {
 }
 export function projectBoardTasks(project, agents = []) {
   const records = boardRecords(project);
-  const tasks = boardTasks(project, [], records, shared('devkits.thread-tasks') || {}, project.tabs || [], withTaskInputEvidence(agentsWithTurns(agents, terminals()), terminals()));
+  const tasks = boardTasks(project, [], records, shared('devkits.thread-tasks') || {}, project.tabs || [], withTaskInputEvidence(agentsWithTurns(agents, terminals()), terminals()), sessionThreadTitle);
   const next = reconcileBoardRecords(records, tasks);
   if (JSON.stringify(next) !== JSON.stringify(records))
     setShared('devkits.agent-board', { ...(shared('devkits.agent-board') || {}), [boardKey(project)]: next });

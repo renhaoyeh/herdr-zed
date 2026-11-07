@@ -1,7 +1,7 @@
 import { View, div, svg, image } from 'gpui-kit';
 import { v_flex, h_flex } from 'gpui-base';
 import { agents, spaces, panes, theme, run, props, window, openOverlay, closeOverlay, setAgentOrder, layout, settings, pickFolder, shared, setShared, knownAgents, notify, appHome, readTextFile, nextCommand, terminals } from 'herdr';
-import { projectGroups, projectCatalog, threadTitle, folderKey, launcherChoices, isAccountLauncher, launcherArgv, sessionArgv, sessionKind, resolveThreadProfiles, threadProfile, threadProgram, archivable, rulesArgv, childTerminals, terminalLabel, terminalWorking, settingsKey } from './model.js';
+import { projectGroups, projectCatalog, folderKey, launcherChoices, isAccountLauncher, launcherArgv, sessionArgv, sessionKind, resolveThreadProfiles, threadProfile, threadProgram, archivable, rulesArgv, childTerminals, terminalLabel, terminalWorking, settingsKey } from './model.js';
 import { terminalArgv } from './shell-command.js';
 import AccountLogin, { accountLabel } from './account-login.js';
 import FileViewer, { FileMenu } from './files.js';
@@ -12,7 +12,7 @@ import XcodeStorage from './xcode-storage.js';
 import AgentBoard from './agent-board.js';
 import { observeTaskInput } from './agent-task-evidence.js';
 import TaskComposer, { openTaskComposer } from './task-composer.js';
-import { rememberBoardTask, threadBoardStatus, projectBoardTasks, setTaskArchived, threadTaskArchived, threadVisibleInSidebar, threadBoardTask } from './agent-board-state.js';
+import { rememberBoardTask, threadBoardStatus, projectBoardTasks, setTaskArchived, threadTaskArchived, threadVisibleInSidebar, threadBoardTask, sessionThreadTitle } from './agent-board-state.js';
 import { boardStatuses, canStartTask, taskActions } from './agent-board-model.js';
 import AsanaPanel, { AsanaProjectPicker, taskPrompt } from './asana.js';
 import { sessionMenu } from './session-menu.js';
@@ -416,7 +416,8 @@ export default class Devkits extends View {
   }
 
   async launchThread(agent, target, options) {
-    if (agent?.profileKey && !(shared('devkits.agent-configs') || []).some(item => item.key === agent.key && item.profileKey === agent.profileKey)) {
+    const config = agent?.profileKey && (shared('devkits.agent-configs') || []).find(item => item.key === agent.key && item.profileKey === agent.profileKey);
+    if (agent?.profileKey && !config) {
       notify({ title: 'Agent configuration is unavailable', body: 'Choose another agent configuration.' });
       return;
     }
@@ -442,7 +443,9 @@ export default class Devkits extends View {
     catch (error) { notify({ title: 'Could not start session', body: error.message, level: 'error' }); return; }
     // Global rules live on this computer, so only local sessions get them.
     if (argv && !spaces().find(space => space.id === target.space)?.machine) {
-      try { argv = rulesArgv(agent, argv, await sessionRules()); } catch {}
+      let rules = null;
+      try { rules = await sessionRules(); } catch {}
+      argv = rulesArgv(agent, argv, rules, config?.instructions);
     }
     // A local task may be deleted while its launch rules are being read.
     if (task?.source === 'local') {
@@ -515,7 +518,7 @@ export default class Devkits extends View {
         if (!taskActions(current).canArchive) return;
         task = current;
         if (!task.tabs.length) { setTaskArchived(project, task, true); return; }
-        const thread = projectGroups([project], agents()).flatMap(group => group.threads).find(thread => task.tabs.some(tab => tab.id === thread.tab.id));
+        const thread = projectGroups([project], agents(), {}, sessionThreadTitle).flatMap(group => group.threads).find(thread => task.tabs.some(tab => tab.id === thread.tab.id));
         if (thread) eventCx.spawn(async cx => { await this.archiveThread(thread); cx.notify(); });
       },
       restore: task => {
@@ -606,7 +609,7 @@ export default class Devkits extends View {
   paneHeader(t, cx) {
     const p = panes().find(p => p.pane === props()?.pane);
     if (!p) return div();
-    const thread = projectGroups(spaces(), agents()).flatMap(group => group.threads).find(thread => thread.tab.id === p.tab);
+    const thread = projectGroups(spaces(), agents(), {}, sessionThreadTitle).flatMap(group => group.threads).find(thread => thread.tab.id === p.tab);
     const members = panes().filter(pane => pane.tab === p.tab);
     const primary = members.find(pane => pane.terminal === thread?.agents[0]?.address) || members[0];
     const secondary = members.length > 1 && primary?.pane !== p.pane;
@@ -722,7 +725,7 @@ export default class Devkits extends View {
     const primary = members.find(pane => pane.terminal === thread.agents[0]?.address) || members[0];
     const primaryAgent = thread.agents.find(agent => agent.address === primary?.terminal) || thread.agent;
     if (primaryAgent && primaryAgent !== thread.agent)
-      thread = { ...thread, agent: primaryAgent, title: threadTitle(thread.tab, primaryAgent, null) };
+      thread = { ...thread, agent: primaryAgent, title: sessionThreadTitle(thread.tab, primaryAgent, this.projects().find(project => project.id === thread.space)) };
     const working = thread.status === 'working' || thread.agents.some(agent => agent.status === 'working')
       || terminalWorking(terminals().find(terminal => terminal.address === primary?.terminal));
     const isFocused = shared('devkits.board-project') !== thread.space && thread.active && (!members.some(pane => pane.focused) || Boolean(primary?.focused));
@@ -943,7 +946,7 @@ export default class Devkits extends View {
     // A split created in the otherwise hidden default shell is user-visible work too.
     const sidebarDefaults = Object.fromEntries(Object.entries(defaults)
       .filter(([, tab]) => modelPanes.filter(pane => pane.tab === tab).length < 2));
-    const groups = projectGroups(workspaces, all, sidebarDefaults);
+    const groups = projectGroups(workspaces, all, sidebarDefaults, sessionThreadTitle);
     for (const group of groups) for (const thread of group.threads)
       if (thread.tab.id === defaults[group.space.id] && !thread.agent) thread.title = 'Terminal';
     const live = terminals();
