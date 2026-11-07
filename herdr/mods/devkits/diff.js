@@ -284,6 +284,9 @@ export default class DiffViewer {
       this.scroll.scroll_to_item(0, 'top');
       return parseDiff(text);
     });
+    this.history.onSelect = () => {
+      this.previewMode = true; this.output?.release(); this.output = null; this.onOpen?.();
+    };
   }
 
   close() {
@@ -293,7 +296,7 @@ export default class DiffViewer {
     this.output?.release(); this.output = null;
     this.watcher?.cancel(); this.poll?.cancel(); this.queued?.cancel();
     this.queued = null;
-    this.context = null;
+    this.context = null; this.previewMode = false;
     this.history.reset(null);
     this.request++;
   }
@@ -576,6 +579,7 @@ export default class DiffViewer {
 
   /** Jumps the multibuffer to a file's header, expanding the file if it was collapsed. */
   reveal(path, cx) {
+    this.previewMode = false; this.onOpen?.();
     this.output?.release(); this.output = null;
     this.selected = path;
     this.pendingReveal = path;
@@ -614,7 +618,7 @@ export default class DiffViewer {
     cx.notify();
   }
 
-  get commitPreview() { return this.panelTab === 'history' ? this.history.preview : null; }
+  get commitPreview() { return this.previewMode ? this.history.preview : null; }
   get hideLockFiles() { return shared('devkits.diff-hide-lock-files') !== false; }
   get fileView() { return shared('devkits.diff-file-view') === 'list' ? 'list' : 'tree'; }
 
@@ -639,11 +643,15 @@ export default class DiffViewer {
     cx.notify();
   }
 
+  showChanges(cx) {
+    if (this.output || this.previewMode) this.rowCache = null;
+    this.output?.release(); this.output = null; this.previewMode = false;
+    this.onOpen?.(); cx.notify();
+  }
+
   setPanelTab(tab, cx) {
-    this.output?.release(); this.output = null;
     if (this.panelTab === tab) { cx.notify(); return; }
-    this.panelTab = tab; this.rowCache = null; this.collapsed.clear(); this.selected = null;
-    this.scroll.scroll_to_item(0, 'top');
+    this.panelTab = tab;
     if (tab === 'history') { this.history.load(cx); this.history.focus?.focus(); }
     cx.notify();
   }
@@ -665,7 +673,8 @@ export default class DiffViewer {
         .child(tab('history', 'History')))
       .when(this.panelTab !== 'history', el => el.child(h_flex().id('diff-files-toolbar').h(32).flex_none().px(8).gap(4)
         .items_center().border_b(1).border_color(t.border)
-        .child(h_flex().id('diff-view').h(24).gap(4).items_center().text_size(12).text_color(t.muted)
+        .child(Button('diff-view', t, { variant: 'ghost' }).h(24).px(0).gap(4).text_size(12).text_color(t.muted)
+          .on_click((_event, cx) => this.showChanges(cx))
           .accessibility_label('Uncommitted diff')
           .child(icon('git-compare')).child('View Diff')
           .when(files.length > 0, el => el
@@ -868,7 +877,7 @@ export default class DiffViewer {
     return line.child(this.cell(row.line, row.line.new, gutter, t));
   }
 
-  render(project, cx) {
+  render(project, cx, parts = false) {
     if (this.context?.id !== project?.id || this.context?.folder !== project?.folder || this.context?.machine !== project?.machine) this.refresh(project, cx);
     this.nativeBranch = project?.branch || null;
     const t = theme(), mono = settings().font_family, { rows, sizes, limited, gutter, contentWidth, wrap } = this.rows(cx), split = this.split;
@@ -878,8 +887,7 @@ export default class DiffViewer {
       .accessibility_label(`${label} diff${split === (value === 'split') ? ', selected' : ''}`)
       .on_click((_event, cx) => this.setLayout(value, cx)).child(icon(`diff-${value}`).size(16));
     // The editor and the Git panel are side by side, each with its own 32px header, like Files; drag the line between them.
-    return div().id('diff-viewer').relative().size_full().min_h(0).bg(t.background).text_color(t.foreground)
-      .child(SidePanelLayout('diff-split', this.sidePanel, this.output ? this.outputView(t) : v_flex().size_full().min_w(0).min_h(0)
+    const content = this.output ? this.outputView(t) : v_flex().size_full().min_w(0).min_h(0)
         .child(h_flex().h(32).flex_none().pl(12).gap(8).items_center().bg(t.chrome).border_b(1).border_color(t.border).text_size(12)
           .child(div().flex_1().min_w(0).truncate().font_medium().child(preview ? `Commit ${preview.commit.shortSha}` : 'Uncommitted changes'))
           .when(rows.length > 0, el => el
@@ -927,7 +935,10 @@ export default class DiffViewer {
             .child(Scrollbar.vertical('diff-rows').absolute().inset_0())
           : Empty(t).flex_1().p(24).gap(4).font_family('Geist')
             .child(EmptyDescription(t).text_size(13).child(this.rowJob ? 'Loading changes…' : !this.displayFiles.length && (preview?.files || this.files).length ? 'All changed files are hidden by Hide lock files' : preview ? 'No file changes in this commit' : this.error ? 'Changes unavailable' : this.loaded ? 'No uncommitted changes' : 'Loading changes…'))
-            .when(!preview && Boolean(this.error), el => el.child(EmptyDescription(t).child(this.error)))), this.panel(t)))
-      .when(this.toastVisible, el => el.child(this.resultToast(t)));
+            .when(!preview && Boolean(this.error), el => el.child(EmptyDescription(t).child(this.error))));
+    const body = div().id('diff-viewer').relative().size_full().min_h(0).bg(t.background).text_color(t.foreground)
+      .child(content).when(this.toastVisible, el => el.child(this.resultToast(t)));
+    if (parts) return { content: body, panel: this.panel(t) };
+    return div().size_full().child(SidePanelLayout('diff-split', this.sidePanel, body, this.panel(t)));
   }
 }

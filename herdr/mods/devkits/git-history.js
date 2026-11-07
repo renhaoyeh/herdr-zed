@@ -102,6 +102,7 @@ export class CommitHistory {
 
   select(commit, cx) {
     if (!this.context || !commit || this.pending === commit.sha) return;
+    this.onSelect?.();
     if (this.preview?.commit.sha === commit.sha && !this.pending) { this.previewError = null; cx.notify(); return; }
     const context = this.context, version = this.version, selection = ++this.selection;
     this.pending = commit.sha; this.previewError = null; cx.notify();

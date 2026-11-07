@@ -24,10 +24,31 @@ async function sessionId(kind, command, pid) {
   return codexSessionId(result.stdout);
 }
 
-// Archiving ends the thread like Zed: Claude and Codex conversations are kept to resume from the
-// archive; terminals and threads without a conversation simply close. Mixed into the Devkits view.
+// Archive only inactive conversations. Running/waiting agents expose Stop instead; terminal
+// threads retain Close. Claude and Codex conversations can be resumed from the archive. Mixed into the Devkits view.
 export const threadArchive = {
+  threadBusy(thread) {
+    const live = terminals();
+    return ['working', 'blocked'].includes(thread.status) || thread.agents.some(agent =>
+      ['working', 'blocked'].includes(live.find(terminal => terminal.address === agent.address)?.status || agent.status));
+  },
+
+  async stopThread(thread) {
+    if (this.stoppingThreads?.has(thread.tab.id)) return;
+    (this.stoppingThreads ||= new Set()).add(thread.tab.id);
+    try {
+      const active = thread.agents.filter(agent => ['working', 'blocked'].includes(agent.status));
+      if (!active.length && thread.agent) active.push(thread.agent);
+      for (const agent of active) {
+        const result = await hc(['interrupt', agent.address]);
+        if (result.code) throw new Error(result.stderr?.trim() || 'Could not stop generation.');
+      }
+    } catch (error) {
+      notify({ title: 'Could not stop generation', body: error.message, level: 'error' });
+    } finally { this.stoppingThreads.delete(thread.tab.id); }
+  },
   async archiveThread(thread) {
+    if (this.threadBusy(thread)) return;
     const tab = thread.tab.id;
     if (archiving.has(tab)) return;
     archiving.add(tab);
@@ -45,6 +66,7 @@ export const threadArchive = {
         if (!command || !terminal.foreground?.pid) throw new Error('Could not find the Claude or Codex session this thread started.');
         const kind = commandKind(command);
         const id = await sessionId(kind, command, terminal.foreground.pid);
+        if (this.threadBusy(thread)) return;
         if (kind === 'codex' && !id) {
           (this.closeOnlyThreads ||= new Set()).add(tab);
           notify({ title: 'Archive unavailable', body: 'No open Codex rollout file was found. Use Close thread to end this session without adding it to the archive.' });

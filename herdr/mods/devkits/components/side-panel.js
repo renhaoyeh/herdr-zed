@@ -30,6 +30,10 @@ export function SidePanelLayout(id, state, content, side) {
     .child(div().flex_1().min_w(0).h_full().child(content))
     .child(div().relative().flex_none().h_full().w(state.width).child(side)
       .child(div().id(`${id}-handle`).absolute().top(0).bottom(0).left(-3).w(6).cursor_col_resize()
+        .on_click((event, cx) => {
+          if (event.click_count < 2) return;
+          state.drag = null; state.setWidth(280); cx.notify();
+        })
         .on_mouse_down('left', (event, cx) => {
           cx.stop_propagation();
           state.drag = { x: event.position.x, width: state.width, now: state.width };

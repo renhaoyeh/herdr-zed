@@ -132,7 +132,7 @@ export default class FileViewer {
     this.errors = new Map();
     this.status = new Map();
     this.limited = new Set();
-    this.tabs = []; this.file = null; this.preview = null;
+    this.tabs = []; this.file = null; this.preview = null; this.activationHistory = []; this.tabSwitch = null;
     this.optionsMenu = new DropdownMenuState(cx);
     this.sidePanel = new SidePanelState(() => shared('devkits.side-panel-width') || 280, width => setShared('devkits.side-panel-width', width));
   }
@@ -148,14 +148,14 @@ export default class FileViewer {
     this.queued = null;
     this.context = null;
     for (const doc of this.tabs) doc.code?.release();
-    this.tabs = []; this.file = null; this.preview = null;
+    this.tabs = []; this.file = null; this.preview = null; this.activationHistory = []; this.tabSwitch = null;
   }
 
   /** Saves this project's tabs, writing only when they changed. */
   remember() {
     if (!this.context?.folder) return;
     const key = projectKey(this.context), all = shared('devkits.files-tabs') || {};
-    const session = this.tabs.length ? { paths: this.tabs.map(doc => doc.path), file: this.file, preview: this.preview } : undefined;
+    const session = this.tabs.length ? { paths: this.tabs.map(doc => doc.path), file: this.file, preview: this.preview, history: this.activationHistory } : undefined;
     if (JSON.stringify(all[key]) === JSON.stringify(session)) return;
     const next = { ...all };
     session ? next[key] = session : delete next[key];
@@ -172,7 +172,8 @@ export default class FileViewer {
     const session = shared('devkits.files-tabs')?.[projectKey(project)];
     if (session?.paths?.length) {
       this.tabs = session.paths.map(openDocument); this.preview = session.preview;
-      this.activate(session.file, cx);
+      this.activationHistory = (session.history || []).filter(path => session.paths.includes(path));
+      this.activate(session.file, cx, false);
     }
   }
 
@@ -274,14 +275,37 @@ export default class FileViewer {
       else this.tabs.push(doc);
       if (!pin) this.preview = path;
     } else if (pin && this.preview === path) this.preview = null;
-    this.file = path;
+    this.file = path; this.tabSwitch = null;
+    this.recordActivation();
+    this.onOpen?.();
     this.load(doc, cx);
     this.remember();
     cx.notify();
   }
 
-  activate(path, cx) {
+  recordActivation() {
+    if (this.file) this.activationHistory = [...this.activationHistory.filter(path => path !== this.file && this.tabs.some(doc => doc.path === path)), this.file];
+  }
+
+  cycleTab(direction, cx) {
+    if (!this.tabs.length) return;
+    if (!this.tabSwitch) this.tabSwitch = { order: [...this.activationHistory].reverse().concat(
+      this.tabs.map(doc => doc.path).reverse().filter(path => !this.activationHistory.includes(path))), index: 0 };
+    const order = this.tabSwitch.order.filter(path => this.tabs.some(doc => doc.path === path));
+    if (!order.length) return;
+    this.tabSwitch.index = (this.tabSwitch.index + direction + order.length) % order.length;
+    this.activate(order[this.tabSwitch.index], cx, true, false);
+  }
+
+  finishTabSwitch() {
+    if (!this.tabSwitch) return;
+    this.tabSwitch = null; this.recordActivation(); this.remember();
+  }
+
+  activate(path, cx, reveal = true, record = true) {
     this.file = this.tabs.some(doc => doc.path === path) ? path : this.tabs[0]?.path || null;
+    if (record) { this.tabSwitch = null; this.recordActivation(); }
+    if (reveal) this.onOpen?.();
     const doc = this.doc;
     if (doc && (!doc.loaded || doc.stale)) this.load(doc, cx);
     this.remember();
@@ -299,8 +323,9 @@ export default class FileViewer {
     this.tabs.splice(index, 1)[0].code?.release();
     if (this.preview === path) this.preview = null;
     if (this.hoveredTab === path) this.hoveredTab = null;
-    // Closing the shown tab shows its right neighbour, or the left one at the end.
-    if (this.file === path) this.activate((this.tabs[index] || this.tabs[index - 1])?.path, cx);
+    this.activationHistory = this.activationHistory.filter(entry => entry !== path);
+    // Zed defaults to the most recently active remaining tab, then the left neighbour.
+    if (this.file === path) this.activate(this.activationHistory.at(-1) || this.tabs[Math.max(0, index - 1)]?.path, cx);
     this.remember();
     cx.notify();
   }
@@ -380,7 +405,7 @@ export default class FileViewer {
     cx.notify();
   }
 
-  render(project, cx) {
+  render(project, cx, parts = false) {
     if (this.context?.id !== project?.id || this.context?.folder !== project?.folder || this.context?.machine !== project?.machine) this.refresh(project, cx);
     const t = theme();
     const tree = v_flex().size_full().min_h(0).bg(t.chrome).border_l(1).border_color(t.border)
@@ -415,6 +440,7 @@ export default class FileViewer {
           : this.code ? Editor.new(this.code).flex_1().min_h(0) : Empty(t).flex_1()
           .child(EmptyTitle().child(this.fileError ? 'Preview unavailable' : 'Loading file…'))
           .child(EmptyDescription(t).child(this.fileError || ''))));
+    if (parts) return { content, panel: tree };
     return div().id('file-viewer').size_full().min_h(0).bg(t.background).text_color(t.foreground)
       .child(SidePanelLayout('files-split', this.sidePanel, content, tree));
   }

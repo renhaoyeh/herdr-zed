@@ -100,7 +100,7 @@ test('slow reads cannot replace a later file, survive project changes, or create
   assert.equal(editors.length, 1);
 });
 
-test('tabs reuse one italic preview, pin on double-click, close to a neighbour and return per project', async () => {
+test('tabs reuse one italic preview, pin on double-click, close to the recent tab and return per project', async () => {
   const reads = [];
   const { view, cx, editors, drain } = await scenario(async path => { reads.push(path); return `text of ${path}`; });
   const tabs = () => view.tabs.map(doc => doc.path);
@@ -117,7 +117,7 @@ test('tabs reuse one italic preview, pin on double-click, close to a neighbour a
   const closed = view.code;
   view.closeTab('e.ts', cx);
   assert.equal(closed.released, true);
-  assert.equal(view.file, 'd.ts');
+  assert.equal(view.file, 'b.ts');
   assert.equal(view.preview, null);
   view.activate('b.ts', cx); view.closeTab('b.ts', cx);
   assert.equal(view.file, 'd.ts');
@@ -431,4 +431,21 @@ test('dragging the line beside a preview resizes the list within bounds and save
   assert.equal(saved, 200);
   root.calls.on_hover[0](false, cx);
   assert.equal(state.drag, null);
+  nodes.get('files-split-handle').calls.on_click[0]({ click_count: 2 }, cx);
+  assert.equal(saved, 280);
+});
+
+
+test('closing a tab follows recent activation and Ctrl+Tab keeps a stable recent order until release', async () => {
+  const { view, cx, drain } = await scenario();
+  for (const path of ['a.ts', 'b.ts', 'c.ts']) view.show(path, cx, true);
+  await drain(); view.activate('a.ts', cx); view.activate('c.ts', cx);
+  view.closeTab('c.ts', cx);
+  assert.equal(view.file, 'a.ts');
+  view.show('c.ts', cx, true); await drain();
+  view.cycleTab(1, cx); assert.equal(view.file, 'a.ts');
+  view.cycleTab(1, cx); assert.equal(view.file, 'b.ts');
+  view.cycleTab(1, cx); assert.equal(view.file, 'c.ts');
+  view.finishTabSwitch();
+  view.cycleTab(-1, cx); assert.equal(view.file, 'b.ts');
 });

@@ -39,7 +39,7 @@ test('lockfile preference filters working changes and history without discarding
   assert.deepEqual(view.displayFiles.map(file => file.path), ['Cargo.toml']);
   assert.equal(view.displayFiles, view.displayFiles, 'Stable filtering preserves the asynchronous row cache');
   assert.deepEqual(view.rows().rows.filter(row => row.kind === 'file').map(row => row.file.path), ['Cargo.toml']);
-  view.panelTab = 'history';
+  view.panelTab = 'history'; view.previewMode = true;
   view.history.preview = { files: parseDiff(patch('package-lock.json')) };
   const previewFiles = view.displayFiles;
   view.visibleFiles(view.files);
@@ -48,7 +48,7 @@ test('lockfile preference filters working changes and history without discarding
   view.toggleLockFiles({ notify() {} });
   assert.equal(memory['devkits.diff-hide-lock-files'], false);
   assert.equal(view.rows().rows[0].file.path, 'package-lock.json');
-  view.panelTab = 'changes';
+  view.panelTab = 'changes'; view.previewMode = false;
   assert.equal(view.displayFiles, view.files);
   assert.equal(view.files.length, 2);
   const reopened = new DiffViewer(); reopened.init();
@@ -485,9 +485,13 @@ test('History previews reuse the diff renderer without replacing working changes
   view.history.preview = { commit: { sha: 'a'.repeat(40) }, files };
   const cx = { notify() {} };
   view.setPanelTab('history', cx);
+  assert.equal(view.rows().rows[0].file.path, 'working.txt');
+  view.history.onSelect();
   assert.equal(view.rows().rows[0].file.path, 'committed.txt');
   assert.equal(view.files, working);
   view.setPanelTab('changes', cx);
+  assert.equal(view.rows().rows[0].file.path, 'committed.txt');
+  view.showChanges(cx);
   assert.equal(view.rows().rows[0].file.path, 'working.txt');
   assert.equal(view.history.preview.files, files);
 });
@@ -649,7 +653,7 @@ test('Wrap preference preserves full lines, highlights and horizontal extent in 
   view.width = 4000;
   assert.equal(view.rows().contentWidth, 4000, 'Short lines must still fill the viewport');
   view.width = 216;
-  view.panelTab = 'history'; view.history.preview = { files: view.files };
+  view.panelTab = 'history'; view.previewMode = true; view.history.preview = { files: view.files };
   assert.equal(view.rows().rows.length, 2);
   const reopened = new DiffViewer(); reopened.init();
   assert.equal(reopened.wrap, false);
@@ -721,7 +725,8 @@ test('List and Tree menu choices persist and preserve selection, collapsed folde
   assert.ok(!treeRows.some(row => row.id === 'diff-tree-src/deep/a.js'));
   assert.ok(nodes.has('diff-files-toolbar'));
   assert.ok(nodes.has('diff-view'));
-  assert.equal(nodes.get('diff-view').click, undefined, 'View Diff is a static title');
+  let opened = 0; view.onOpen = () => { opened++; };
+  nodes.get('diff-view').click({}, cx); assert.equal(opened, 1);
   assert.ok(!nodes.has('diff-options-list'));
   nodes.get('diff-file-view-trigger').click({}, cx);
   assert.equal(view.fileViewMenu.open, true);
@@ -746,7 +751,7 @@ test('List and Tree menu choices persist and preserve selection, collapsed folde
   assert.ok(view.folders.has('Tracked:src/deep'));
   assert.equal(view.selected, 'new/b.js');
   assert.equal(view.rows(), cache);
-  nodes.clear(); view.panelTab = 'history'; view.history.render = element;
+  nodes.clear(); view.panelTab = 'history'; view.previewMode = true; view.history.render = element;
   view.render(view.context, cx);
   assert.ok(!nodes.has('diff-files-toolbar'));
   assert.ok(!nodes.has('diff-file-view-trigger'));
@@ -783,7 +788,7 @@ test('project initialization yields before watchers, Git reads and History notif
     sleep() { return new Promise(resolve => waits.push(resolve)); },
     notify() { assert.equal(rendering, false, 'Cannot notify while rendering'); },
   };
-  const view = new DiffViewer(); view.init(); view.panelTab = 'history';
+  const view = new DiffViewer(); view.init(); view.panelTab = 'history'; view.previewMode = true;
   view.observe = () => started.push(['watch', view.context.folder]);
   view.reload = () => started.push(['diff', view.context.folder]);
   view.history.load = cx => { cx.notify(); started.push(['history', view.context.folder]); };

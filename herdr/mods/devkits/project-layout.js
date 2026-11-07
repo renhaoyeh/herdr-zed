@@ -7,12 +7,12 @@ export const layoutNode = (node, id) => node?.id === id ? node
 const keyFor = project => project ? JSON.stringify([project.machine || '',
   (project.folder || '').replace(/\\/g, '/').replace(/\/+$/, '') || project.id]) : null;
 // Native layout weights round through f32; compare their values rather than JSON decimals.
-const restored = (actual, expected) => ['editor', 'simulator'].every(id => {
+const restored = (actual, expected) => ['editor', 'simulator', 'workspace-view'].every(id => {
   const a = actual[id], b = expected[id];
   return !a && !b || Boolean(a && b && a.hidden === b.hidden && a.active === b.active
     && ['px', 'weight'].every(unit => a.size?.[unit] === b.size?.[unit]
       || Math.abs(a.size?.[unit] - b.size?.[unit]) < 0.001));
-}) && JSON.stringify(actual.widths) === JSON.stringify(expected.widths);
+}) && actual.dock === expected.dock && JSON.stringify(actual.widths) === JSON.stringify(expected.widths);
 
 // Only the sidebar owns this controller. Observe layout changes, including native divider drags,
 // while retaining the outgoing snapshot when the selected project changes.
@@ -26,7 +26,8 @@ export class ProjectLayout {
       // Every project without saved state starts with Files open and Simulator closed, including on startup.
       this.restore(saved || {
         editor: { hidden: false, active: 'files', size: { weight: 1.6 } },
-        simulator: { hidden: true, size: { px: 380 } }, widths: [280, null],
+        simulator: { hidden: true, size: { px: 380 } },
+        'workspace-view': { size: { weight: 1 } }, dock: 'files', widths: [280, null],
       });
       // Commands may trigger another render; never save the outgoing layout as the new project's.
       return;
@@ -43,24 +44,30 @@ export class ProjectLayout {
 
   snapshot() {
     const root = layout(), result = {};
-    for (const id of ['editor', 'simulator']) {
+    for (const id of ['editor', 'simulator', 'workspace-view']) {
       const node = layoutNode(root, id);
-      if (node) result[id] = { hidden: Boolean(node.hidden), ...(id === 'editor' ? { active: node.active } : {}), size: node.size };
+      if (node) result[id] = { ...(id !== 'workspace-view' ? { hidden: Boolean(node.hidden) } : {}),
+        ...(id === 'editor' ? { active: shared('devkits.editor-kind') || node.active || 'files' } : {}), size: node.size };
     }
+    result.dock = shared('devkits.right-panel') ?? null;
     result.widths = WIDTHS.map(name => shared(name) ?? null);
     return result;
   }
 
   restore(saved) {
     const root = layout(), target = {};
-    for (const id of ['editor', 'simulator']) {
-      const node = layoutNode(root, id), state = saved[id];
-      if (!node || !state) continue;
+    for (const id of ['editor', 'simulator', 'workspace-view']) {
+      const node = layoutNode(root, id);
+      if (!node) continue;
+      const state = id === 'editor' ? { ...(saved.editor || { size: node.size }), hidden: false, active: saved.editor?.active || 'files' }
+        : saved[id] || (id === 'workspace-view' ? { size: { weight: 1 } } : { hidden: node.hidden, size: node.size });
       target[id] = state;
       if (state.size) run('layout.resize', { id, ...state.size });
-      if (id === 'editor' && state.active) run('layout.select', { stack: id, child: state.active });
-      run(state.hidden ? 'layout.hide' : 'layout.show', { id });
+      if (id === 'editor') setShared('devkits.editor-kind', state.active || 'files');
+      if (id !== 'workspace-view') run(state.hidden ? 'layout.hide' : 'layout.show', { id });
     }
+    target.dock = saved.dock !== undefined ? saved.dock : saved.editor?.hidden ? null : saved.editor?.active || 'files';
+    setShared('devkits.right-panel', target.dock);
     target.widths = saved.widths || [280, null];
     this.restoring = target;
     WIDTHS.forEach((name, index) => { if ((shared(name) ?? null) !== target.widths[index]) setShared(name, target.widths[index]); });
