@@ -671,9 +671,9 @@ export default class DiffViewer {
       .child(h_flex().h(32).flex_none().items_center().border_b(1).border_color(t.border).text_size(12)
         .child(tab('changes', `Changes (${files.length})`))
         .child(tab('history', 'History')))
-      .when(this.panelTab !== 'history', el => el.child(h_flex().id('diff-files-toolbar').h(32).flex_none().px(8).gap(4)
+      .when(this.panelTab !== 'history', el => el.child(h_flex().id('diff-files-toolbar').h(32).flex_none().gap(0)
         .items_center().border_b(1).border_color(t.border)
-        .child(Button('diff-view', t, { variant: 'ghost' }).h(24).px(0).gap(4).text_size(12).text_color(t.muted)
+        .child(Button('diff-view', t, { variant: 'ghost' }).h_full().px(8).gap(4).text_size(12).text_color(t.muted)
           .on_click((_event, cx) => this.showChanges(cx))
           .accessibility_label('Uncommitted diff')
           .child(icon('git-compare')).child('View Diff')
@@ -682,11 +682,11 @@ export default class DiffViewer {
             .child(div().text_size(11).text_color(GitStatusColor.deleted).child(`−${removed}`))))
         .child(div().flex_1())
         .child(DropdownMenu('diff-file-view', this.fileViewMenu,
-          Button('diff-file-view-trigger', t, { variant: 'ghost', size: 'icon' }).size(24)
+          Button('diff-file-view-trigger', t, { variant: 'ghost', size: 'icon' }).h_full().w(32)
             .accessibility_label('Change file view').child(icon('settings')),
           [{ key: 'list', label: 'List', checked: this.fileView === 'list' },
             { key: 'tree', label: 'Tree', checked: this.fileView === 'tree' }],
-          (key, cx) => this.setFileView(key, cx), t, { offset: { x: 0, y: 12.5 } })))) // 8px below the toolbar's bottom border
+          (key, cx) => this.setFileView(key, cx), t, { offset: { x: 0, y: 9 }, fullHeight: true })))) // 8px below the toolbar's bottom border
       .child(this.panelTab === 'history' ? this.history.render(t) : v_flex().id('diff-files').flex_1().min_h(0).overflow_y_scrollbar().py(4)
         .children(changeSections(files).map(section => {
           const key = `section:${section.label}`, open = !this.folders.has(key);
@@ -882,7 +882,7 @@ export default class DiffViewer {
     this.nativeBranch = project?.branch || null;
     const t = theme(), mono = settings().font_family, { rows, sizes, limited, gutter, contentWidth, wrap } = this.rows(cx), split = this.split;
     const preview = this.commitPreview;
-    const choice = (id, label, value) => Button(id, t, { variant: 'ghost', size: 'icon' }).size(24)
+    const choice = (id, label, value) => Button(id, t, { variant: 'ghost', size: 'icon' }).h_full().w(32)
       .when(split === (value === 'split'), el => el.bg(t.selected).text_color(t.foreground))
       .accessibility_label(`${label} diff${split === (value === 'split') ? ', selected' : ''}`)
       .on_click((_event, cx) => this.setLayout(value, cx)).child(icon(`diff-${value}`).size(16));
@@ -898,7 +898,7 @@ export default class DiffViewer {
               .accessibility_label('Diff options').child(icon('ellipsis')),
             [{ key: 'wrap', label: 'Wrap', checked: this.wrap },
               { key: 'hide-lock-files', label: 'Hide lock files', checked: this.hideLockFiles }],
-            (key, cx) => key === 'wrap' ? this.toggleWrap(cx) : this.toggleLockFiles(cx), t, { offset: { x: 8, y: 9 } })))
+            (key, cx) => key === 'wrap' ? this.toggleWrap(cx) : this.toggleLockFiles(cx), t, { offset: { x: 8, y: 9 }, fullHeight: true })))
         .when(Boolean(preview), el => el.child(v_flex().flex_none().max_h(160).overflow_y_scrollbar().px(12).py(8).gap(4).border_b(1).border_color(t.border)
           .child(div().text_size(11).text_color(t.muted).child(`${preview.commit.author} · ${new Date(preview.commit.at * 1000).toISOString().replace('T', ' ').replace('.000Z', ' UTC')}`))
           .child(div().text_size(13).child(preview.commit.message))))
