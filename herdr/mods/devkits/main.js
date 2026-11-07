@@ -25,13 +25,19 @@ const SIDEBAR_MENU = { x: 0, y: 10 };
 import { glyph } from './components/icon.js';
 
 const startingThreads = new Set();
-// Files and Changes replace the terminals for one project; selecting anything else returns to them.
-const hidePanels = () => { setShared('devkits.files', null); setShared('devkits.diff', null); setShared('devkits.asana', null); };
+// Asana replaces the terminals for one project; selecting anything else returns to them.
+// Files and Changes share the editor beside the thread instead, shown or hidden in the layout like the simulator.
+const hidePanels = () => { setShared('devkits.asana', null); };
 // Each project remembers its open panel and gets it back when selected again; choosing a thread forgets it.
 const rememberPanel = (id, name) => { if (id) setShared('devkits.project-panels', { ...(shared('devkits.project-panels') || {}), [id]: name || null }); };
 const showPanel = (name, id) => { hidePanels(); setShared(`devkits.${name}`, id); rememberPanel(id, name); };
-const restorePanel = id => { const name = shared('devkits.project-panels')?.[id]; if (name) setShared(`devkits.${name}`, id); return Boolean(name); };
-const togglePanel = (name, id) => { if (shared(`devkits.${name}`) === id) { hidePanels(); rememberPanel(id, null); } else showPanel(name, id); };
+const restorePanel = id => { const shown = shared('devkits.project-panels')?.[id] === 'asana'; if (shown) setShared('devkits.asana', id); return shown; };
+// Shows Files or Changes in the editor beside the thread, or hides the editor when that one is already shown.
+const toggleEditor = (editor, name) => {
+  if (editor && !editor.hidden && editor.active === name) { run('layout.hide', { id: 'editor' }); return; }
+  run('layout.select', { stack: 'editor', child: name });
+  run('layout.show', { id: 'editor' });
+};
 const agentLoads = new Map();
 const layoutNode = (node, id) => node?.id === id ? node : (node?.children ?? []).map(child => layoutNode(child, id)).find(Boolean) ?? null;
 
@@ -430,7 +436,8 @@ export default class Devkits extends View {
     const space = this.projects().find(s => s.active);
     // The Simulator panel is the devkits-simulator mod; a layout without its block has no simulator button.
     // Other platforms keep the button; the panel says it is unsupported there.
-    const simulator = layoutNode(layout(), 'simulator');
+    const simulator = layoutNode(layout(), 'simulator'), editor = layoutNode(layout(), 'editor');
+    const showing = name => Boolean(editor) && !editor.hidden && editor.active === name;
     return h_flex().size_full().pl(16).pr(4).gap(8).items_center().bg(t.background).border_t(1).border_color(t.border)
       .text_size(11).text_color(t.muted).child(glyph('terminal', 12)).child(space?.machine || 'Local project')
       .when(Boolean(space?.branch), el => el.child(glyph('branch', 12)).child(space.branch))
@@ -445,15 +452,15 @@ export default class Devkits extends View {
       .when(Boolean(space), el => el
         .child(Button('open-diff', t, { variant: 'ghost', size: 'icon' })
           .h_full().rounded(0)
-          .bg(shared('devkits.diff') === space.id ? t.selected : t.background)
-          .accessibility_label(shared('devkits.diff') === space.id ? 'Hide changes' : 'Show changes')
-          .on_click(() => togglePanel('diff', space.id))
+          .bg(showing('diff') ? t.selected : t.background)
+          .accessibility_label(showing('diff') ? 'Hide changes' : 'Show changes')
+          .on_click(() => toggleEditor(editor, 'diff'))
           .child(glyph('git-compare')))
         .child(Button('open-files', t, { variant: 'ghost', size: 'icon' })
           .h_full().rounded(0)
-          .bg(shared('devkits.files') === space.id ? t.selected : t.background)
-          .accessibility_label(shared('devkits.files') === space.id ? 'Hide files' : 'Show files')
-          .on_click(() => togglePanel('files', space.id))
+          .bg(showing('files') ? t.selected : t.background)
+          .accessibility_label(showing('files') ? 'Hide files' : 'Show files')
+          .on_click(() => toggleEditor(editor, 'files'))
           .child(glyph('folder'))));
   }
 
@@ -570,7 +577,7 @@ export default class Devkits extends View {
     const defaultSelected = selectedTab && (selectedTab.id === shared('devkits.default-terminals')?.[chosen.id]
       || selectedTab.name === '__devkits_default_terminal__')
       && !all.some(agent => agent.space === chosen.id && agent.tab === selectedTab.id);
-    const content = chosen && shared('devkits.files') === chosen.id ? 'files' : chosen && shared('devkits.diff') === chosen.id ? 'diff' : chosen && shared('devkits.asana') === chosen.id ? 'asana' : chosen?.pending || defaultSelected ? 'project-empty' : 'main';
+    const content = chosen && shared('devkits.asana') === chosen.id ? 'asana' : chosen?.pending || defaultSelected ? 'project-empty' : 'main';
     if (this.shownContent !== content) {
       this.shownContent = content;
       run('layout.select', { stack: 'workspace-view', child: content });
