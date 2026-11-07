@@ -161,6 +161,7 @@ const gitActions = [
   { key: 'pull', label: 'Pull', progress: 'Pulling…', args: ['pull'] },
   { key: 'pull-rebase', label: 'Pull (Rebase)', progress: 'Rebasing…', args: ['pull', '--rebase'] },
   { key: 'push', label: 'Push', progress: 'Pushing…', args: ['push'] },
+  { key: 'push-tags', label: 'Push Tags', progress: 'Pushing tags…', args: ['push', '--tags'] },
   { key: 'publish', label: 'Publish', progress: 'Publishing…', args: ['push', '--set-upstream'] },
   { key: 'republish', label: 'Republish', progress: 'Publishing…', args: ['push', '--set-upstream'] },
   { key: 'force-push', label: 'Force Push (with lease)', progress: 'Pushing…', args: ['push', '--force-with-lease'] },
@@ -171,6 +172,7 @@ export async function gitRemoteAction(folder, on, action, remote, account) {
   if (!operation) throw new Error('Unknown Git operation.');
   const publish = action === 'publish' || action === 'republish';
   if (publish && !remote) throw new Error('Choose a Git remote to publish to.');
+  if (action === 'push-tags' && !remote) throw new Error('Choose a Git remote to push tags to.');
   const args = [...operation.args, ...(remote ? ['--', remote] : action === 'fetch' ? ['--all'] : [])];
   const script = 'cd "$1" || exit 2; shift; '
     + (publish ? 'branch=$(git symbolic-ref --quiet --short HEAD) || exit 3; set -- "$@" "HEAD:refs/heads/$branch"; ' : '')
@@ -434,7 +436,7 @@ export default class DiffViewer {
     if (action === 'push' && ['none', 'gone'].includes(this.pushState.upstream)) {
       action = this.pushState.upstream === 'gone' ? 'republish' : 'publish';
     }
-    if (action === 'publish' || action === 'republish') {
+    if (action === 'publish' || action === 'republish' || action === 'push-tags') {
       remote ||= this.pushState.pushRemote;
       if (!remote) {
         this.gitMenu.page = action; this.gitMenu.index = 0; this.gitMenu.open = true;
@@ -481,8 +483,8 @@ export default class DiffViewer {
 
   pushUnavailable(action = 'push') {
     if (!this.pushState) return this.pushStateError || (this.loaded ? 'Git branch unavailable' : 'Loading branch…');
-    if (action !== 'fetch' && !this.pushState.branch) return 'Check out a branch first';
-    if (action !== 'fetch' && !this.pushState.committed) return 'Create a commit first';
+    if (action !== 'fetch' && action !== 'push-tags' && !this.pushState.branch) return 'Check out a branch first';
+    if (action !== 'fetch' && action !== 'push-tags' && !this.pushState.committed) return 'Create a commit first';
     if (!this.pushState.remote) return 'No Git remote configured';
     return null;
   }
@@ -569,6 +571,7 @@ export default class DiffViewer {
       { key: 'pull-rebase', label: 'Pull (Rebase)', disabled: Boolean(this.pushUnavailable('pull-rebase')) },
       { key: 'push', label: 'Push', disabled: pushUnavailable, separator: true },
       { key: 'push-to', label: 'Push To…', disabled: pushUnavailable },
+      { key: 'push-tags', label: 'Push Tags', description: 'All local tags', disabled: Boolean(this.pushUnavailable('push-tags')) },
       { key: 'force-push', label: 'Force Push (with lease)', disabled: pushUnavailable },
       { key: 'accounts', label: 'GitHub account…', description: accountLabel, separator: true, disabled: Boolean(this.pushing) },
     ];

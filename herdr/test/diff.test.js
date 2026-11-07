@@ -143,9 +143,78 @@ test('Git menu runs only known commands and passes remote names as literal argum
   await assert.rejects(gitRemoteAction('/project', null, 'reset'), /Unknown/);
   assert.equal(calls.length, 6);
   await assert.rejects(gitRemoteAction('/project', null, 'publish'), /Choose a Git remote/);
+  await assert.rejects(gitRemoteAction('/project', null, 'push-tags'), /Choose a Git remote/);
   await gitRemoteAction('/project', 'box', 'push', 'origin', { host: 'github.com', login: 'alice' });
   assert.ok(calls.at(-1)[1].includes('credential.https://github.com.username=alice'));
   assert.deepEqual(calls.at(-1)[1].slice(-3), ['push', '--', 'origin']);
+  await gitRemoteAction('/project', 'box', 'push-tags', 'remote$(x)', { host: 'github.com', login: 'alice' });
+  assert.ok(calls.at(-1)[1].includes('credential.https://github.com.username=alice'));
+  assert.deepEqual(calls.at(-1)[1].slice(-4), ['push', '--tags', '--', 'remote$(x)']);
+});
+
+test('Push Tags selects a remote, pushes lightweight and annotated tags only and retains conflicting remote tags', async t => {
+  const folder = await mkdtemp(join(tmpdir(), "devkits tags ' $(x)"));
+  t.after(() => rm(folder, { recursive: true, force: true }));
+  const repo = join(folder, 'work'), alpha = join(folder, 'alpha.git'), beta = join(folder, 'beta.git');
+  const git = (...args) => run('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args]);
+  await git('init', '-q', '-b', 'main', repo);
+  for (const [name, path] of [['alpha', alpha], ['beta', beta]]) {
+    await git('init', '-q', '--bare', path);
+    await git('-C', repo, 'remote', 'add', name, path);
+  }
+  await git('-C', repo, 'commit', '--allow-empty', '-qm', 'initial');
+  await git('-C', repo, 'tag', 'v1-light');
+  await git('-C', repo, 'tag', '-am', 'release', 'v1-annotated');
+  await git('-C', repo, 'config', 'push.default', 'nothing');
+  await git('-C', repo, 'config', 'remote.alpha.push', 'HEAD:refs/heads/unwanted');
+  const { DiffViewer, readPushState } = await load({
+    VirtualListScrollHandle: { new: () => ({}) },
+    exec: async (cmd, args) => {
+      try { const { stdout, stderr } = await run(cmd, args); return { code: 0, stdout, stderr }; }
+      catch (error) { if (typeof error.code !== 'number') throw error; return { code: error.code, stdout: error.stdout, stderr: error.stderr }; }
+    },
+  });
+  const tasks = [], cx = { notify() {}, timer: { after: () => ({ cancel() {} }) }, spawn(fn) { tasks.push(fn(cx)); } };
+  const view = new DiffViewer(); view.init(); view.context = { folder: repo.replaceAll('\\', '/') };
+  view.reload = () => {};
+  const refresh = async () => { view.pushState = await readPushState(view.context.folder); };
+  await refresh();
+  view.remoteAction('push-tags', cx);
+  assert.equal(view.gitMenu.page, 'push-tags');
+  assert.equal(view.gitMenu.open, true);
+  assert.equal(tasks.length, 0);
+  view.remoteAction('push-tags', cx, 'alpha');
+  view.remoteAction('push-tags', cx, 'beta');
+  assert.equal(tasks.length, 1, 'Tag pushes share the remote operation lock');
+  await Promise.all(tasks.splice(0));
+  assert.equal(view.pushResult.failed, false, view.pushResult.message);
+  assert.equal((await git('--git-dir', alpha, 'tag', '-l')).stdout.trim(), 'v1-annotated\nv1-light');
+  assert.equal((await git('--git-dir', alpha, 'for-each-ref', 'refs/heads')).stdout, '', 'Configured branch refspecs must not publish branches');
+  assert.equal((await git('--git-dir', beta, 'tag', '-l')).stdout, '');
+  assert.equal(view.pushState.upstream, 'none');
+  const original = (await git('--git-dir', alpha, 'rev-parse', 'refs/tags/v1-light')).stdout;
+  await git('-C', repo, 'commit', '--allow-empty', '-qm', 'next');
+  await git('-C', repo, 'tag', '-f', 'v1-light');
+  view.remoteAction('push-tags', cx, 'alpha'); await Promise.all(tasks.splice(0));
+  assert.equal(view.pushResult.failed, true);
+  assert.match(view.pushResult.message, /rejected|already exists/);
+  assert.equal((await git('--git-dir', alpha, 'rev-parse', 'refs/tags/v1-light')).stdout, original);
+  await git('-C', repo, 'config', 'remote.pushDefault', 'beta');
+  await git('-C', repo, 'checkout', '-q', '--detach');
+  await refresh();
+  assert.equal(view.pushUnavailable('push-tags'), null);
+  view.remoteAction('push-tags', cx); await Promise.all(tasks.splice(0));
+  assert.equal(view.pushResult.failed, false, view.pushResult.message);
+  assert.equal((await git('--git-dir', beta, 'tag', '-l')).stdout.trim(), 'v1-annotated\nv1-light');
+  await git('-C', repo, 'checkout', '-q', '--orphan', 'unborn');
+  await refresh();
+  assert.equal(view.pushState.committed, false);
+  assert.equal(view.pushUnavailable('push-tags'), null, 'Existing tags can be pushed before the current branch has a commit');
+  view.remoteAction('push-tags', cx); await Promise.all(tasks.splice(0));
+  assert.equal(view.pushResult.failed, false);
+  view.pushState.remote = false;
+  view.remoteAction('push-tags', cx);
+  assert.equal(tasks.length, 0);
 });
 
 test('Zed remote actions publish, fetch every remote, pull before push and republish a missing upstream', async t => {
@@ -285,9 +354,15 @@ test('split button menu exposes Git operations, counts and keyboard navigation w
   assert.ok(nodes.get('diff-push').children.includes('Republish'));
   nodes.get('diff-push').click({}, cx);
   assert.deepEqual(actions.pop(), ['republish', cx]);
-  for (const key of ['fetch', 'fetch-from', 'pull', 'pull-rebase', 'push', 'push-to', 'force-push']) {
+  for (const key of ['fetch', 'fetch-from', 'pull', 'pull-rebase', 'push', 'push-to', 'push-tags', 'force-push']) {
     assert.ok(nodes.has(`diff-git-actions-${key}`));
   }
+  nodes.get('diff-git-actions-push-tags').click({}, cx);
+  assert.deepEqual(actions.pop(), ['push-tags', cx, undefined]);
+  view.gitMenu.page = 'push-tags'; view.pushFooter({});
+  nodes.get('diff-git-actions-remote:back').click({}, cx);
+  assert.deepEqual(actions.pop(), ['push-tags', cx, 'back']);
+  view.gitMenu.page = null; view.pushFooter({});
   nodes.get('diff-git-menu').click({}, cx);
   nodes.get('diff-git-actions-content').key({ key: 'down' }, cx);
   nodes.get('diff-git-actions-content').key({ key: 'enter' }, cx);
