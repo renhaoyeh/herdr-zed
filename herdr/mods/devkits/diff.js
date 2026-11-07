@@ -563,7 +563,7 @@ export default class DiffViewer {
           .child(DropdownMenu('diff-git-actions', this.gitMenu,
             Button('diff-git-menu', t, { size: 'icon' }).w(24).h(26).border_l(1).border_color(t.chrome)
               .disabled(Boolean(this.pushing)).accessibility_label('More Git operations')
-              .child(icon('chevron-down')), items, choose, t, { side: 'top' }))));
+              .child(icon('chevron-down')), items, choose, t, { side: 'top', offset: { x: 0, y: 15 } })))); // 8px above the footer's top border
   }
 
   toggle(path, cx) {
@@ -675,7 +675,7 @@ export default class DiffViewer {
             .accessibility_label('Change file view').child(icon('settings')),
           [{ key: 'list', label: 'List', checked: this.fileView === 'list' },
             { key: 'tree', label: 'Tree', checked: this.fileView === 'tree' }],
-          (key, cx) => this.setFileView(key, cx), t))))
+          (key, cx) => this.setFileView(key, cx), t, { offset: { x: 0, y: 12.5 } })))) // 8px below the toolbar's bottom border
       .child(this.panelTab === 'history' ? this.history.render(t) : v_flex().id('diff-files').flex_1().min_h(0).overflow_y_scrollbar().py(4)
         .children(changeSections(files).map(section => {
           const key = `section:${section.label}`, open = !this.folders.has(key);
@@ -889,7 +889,7 @@ export default class DiffViewer {
               .accessibility_label('Diff options').child(icon('ellipsis')),
             [{ key: 'wrap', label: 'Wrap', checked: this.wrap },
               { key: 'hide-lock-files', label: 'Hide lock files', checked: this.hideLockFiles }],
-            (key, cx) => key === 'wrap' ? this.toggleWrap(cx) : this.toggleLockFiles(cx), t)))
+            (key, cx) => key === 'wrap' ? this.toggleWrap(cx) : this.toggleLockFiles(cx), t, { offset: { x: 8, y: 9 } })))
         .when(Boolean(preview), el => el.child(v_flex().flex_none().max_h(160).overflow_y_scrollbar().px(12).py(8).gap(4).border_b(1).border_color(t.border)
           .child(div().text_size(11).text_color(t.muted).child(`${preview.commit.author} · ${new Date(preview.commit.at * 1000).toISOString().replace('T', ' ').replace('.000Z', ' UTC')}`))
           .child(div().text_size(13).child(preview.commit.message))))
