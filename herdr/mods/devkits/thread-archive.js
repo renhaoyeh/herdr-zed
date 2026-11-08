@@ -3,7 +3,7 @@ import { h_flex } from 'gpui-base';
 import { shared, setShared, run, notify, hc, exec, readTextFile, home, terminals } from 'herdr';
 import { archivable, agentCommand, commandKind, resumeArgv, codexSessionId, archivedAge, folderKey } from './model.js';
 import { taskActions } from './agent-board-model.js';
-import { threadBoardTask, setTaskArchived } from './agent-board-state.js';
+import { threadBoardTask, setTaskArchived, boardRecords } from './agent-board-state.js';
 import { Button } from './components/button.js';
 import { SidebarContent, SidebarGroup, SidebarMenuButton } from './components/sidebar.js';
 import { glyph } from './components/icon.js';
@@ -132,10 +132,11 @@ export const threadArchive = {
     }
     setShared('devkits.archived-threads', archived().filter(item => item.id !== entry.id));
     this.archiveOpen = false;
-    const boardTask = entry.boardTask || entry.task;
+    const boardTask = entry.boardTask || entry.task
+      || Object.values(boardRecords({ folder: entry.folder })).find(task => task.archiveId === entry.id);
     if (boardTask) setTaskArchived({ folder: entry.folder }, boardTask, false);
     this.openThread({ space: project && !project.pending ? project.id : null, folder: entry.folder,
-      projectName: project?.name || entry.projectName }, entry.title, entry.argv, entry.profile, entry.task || (entry.boardTask ? { gid: entry.boardTask.gid, name: entry.title, folder: entry.folder, source: 'thread' } : null));
+      projectName: project?.name || entry.projectName }, entry.title, entry.argv, entry.profile, entry.task || (boardTask ? { gid: boardTask.gid, name: entry.title, folder: entry.folder, source: boardTask.source || 'thread' } : null));
   },
 
   removeArchived(entry) {
