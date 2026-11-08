@@ -1006,7 +1006,7 @@ export default class DiffViewer {
             else this.toggleFolder(key.startsWith('dir:') ? key.slice(4) : key, cx);
           }))
         .child(Scrollbar.vertical('diff-files-list').absolute().inset_0()))
-      .child(this.pushFooter(t))
+      .when(this.panelTab !== 'history', el => el.child(this.pushFooter(t)))
       .when(this.panelTab === 'changes' && Boolean(this.latestCommit), el => el.child(h_flex().id('git-latest-commit').h(32).flex_none()
         .border_t(1).border_color(t.border)
         .child(Button('git-view-latest-commit', t, { variant: 'ghost' }).flex_1().min_w(0).h_full().px(10).justify_start()

@@ -1077,6 +1077,9 @@ test('Git Graph entry is in the latest-commit row below Git actions and absent f
   assert.ok(panel.items.indexOf(nodes.get('git-actions')) < panel.items.indexOf(nodes.get('git-latest-commit')));
   nodes.clear(); view.panelTab = 'history'; view.history.render = element; view.panel({});
   assert.equal(nodes.has('git-open-graph'), false);
+  assert.equal(nodes.has('git-actions'), false, 'History has no branch or remote-action footer');
+  nodes.clear(); view.panelTab = 'changes'; view.panel({});
+  assert.ok(nodes.has('git-actions'), 'Returning to Changes restores Git actions');
 });
 
 test('patch parsing yields and bounds allocations before a million short lines or oversized tab expansion', async () => {
