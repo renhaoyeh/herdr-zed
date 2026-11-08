@@ -18,7 +18,7 @@ async function locateTaskFile(agent, services) {
     const kind = agent.app === 'codex' ? 'codex' : 'claude';
     const prefix = kind === 'codex' ? 'CODEX_HOME=' : 'CLAUDE_CONFIG_DIR=';
     const directory = command.find(arg => arg.startsWith(prefix))?.slice(prefix.length) || `${services.home()}/.${kind}`;
-    const result = await services.exec('node', [`${services.appHome()}/mods/devkits-tasks/agent-task-file-windows.js`, String(pid), kind, directory]);
+    const result = await services.exec('node', [`${services.appHome()}/mods/devkits-tasks/components/agent-session-windows.js`, String(pid), kind, directory]);
     return result.code ? null : JSON.parse(result.stdout).file || null;
   }
   let file;

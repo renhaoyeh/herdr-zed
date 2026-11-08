@@ -1,3 +1,4 @@
+// Shared: edit mods/devkits/components/agent-process-windows.js, then npm run sync:shared.
 // Windows Script Host JScript: read-only WMI process metadata, no compiled helper.
 // https://learn.microsoft.com/windows/win32/wmisdk/swbemlocator
 function processDate(value) {

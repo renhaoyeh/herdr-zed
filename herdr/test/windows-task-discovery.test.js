@@ -5,12 +5,12 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createRequire } from 'node:module';
 import { DatabaseSync } from 'node:sqlite';
-import { codexTaskFile, claudeTaskFile, locateWindowsTaskFile } from '../mods/devkits-tasks/agent-task-file-windows.js';
+import { codexTaskFile, claudeTaskFile, locateWindowsTaskFile } from '../mods/devkits/components/agent-session-windows.js';
 
 const { readTaskEvents } = createRequire(import.meta.url)('../mods/devkits-tasks/agent-task-events.cjs');
 
 test('JScript process discovery follows wrappers, excludes other terminals and rejects reused parent PIDs', async () => {
-  const source = await readFile(new URL('../mods/devkits-tasks/agent-task-process-windows.js', import.meta.url), 'utf8');
+  const source = await readFile(new URL('../mods/devkits/components/agent-process-windows.js', import.meta.url), 'utf8');
   function Enumerator(rows) {
     let index = 0;
     this.atEnd = () => index >= rows.length; this.moveNext = () => index++; this.item = () => rows[index];

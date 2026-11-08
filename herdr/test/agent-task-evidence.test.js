@@ -12,7 +12,7 @@ async function evidenceHost(options = {}) {
     hc: async args => { requests.push(['hc', args]); return { code: 0, stdout: JSON.stringify({ argv: options.argv || ['codex'], foreground: { pid } }) }; },
     exec: async (command, args) => {
       requests.push([command, args]);
-      if (command === 'node' && args[0].endsWith('/agent-task-file-windows.js')) return { code: 0, stdout: JSON.stringify({ file: fileExists ? 'C:\\Profile with spaces\\sessions\\rollout-example.jsonl' : null }) };
+      if (command === 'node' && args[0].endsWith('/agent-session-windows.js')) return { code: 0, stdout: JSON.stringify({ file: fileExists ? 'C:\\Profile with spaces\\sessions\\rollout-example.jsonl' : null }) };
       if (command === 'node') return { code: 0, stdout: JSON.stringify({ hasInput: hasMessage, needsInput: false, cursor: { offset: 1 } }) };
         return { code: 0, stdout: fileExists ? 'p42\nn/home/sessions/rollout-example.jsonl\n' : '' };
     },
@@ -44,7 +44,7 @@ test('Windows finds a wrapped Codex conversation, retains empty startup as Todo 
   const terminals = [{ address: 't1', foreground: { pid: 42 } }];
   h.observeTaskInput([agent], terminals, h.cx); await h.settle();
   assert.equal(taskStatus({ source: 'thread' }, h.withTaskInputEvidence([agent], terminals)), 'todo');
-  const discovery = h.requests.find(([, args]) => args[0].endsWith('/agent-task-file-windows.js'))[1];
+  const discovery = h.requests.find(([, args]) => args[0].endsWith('/agent-session-windows.js'))[1];
   assert.equal(discovery[1], '42');
   assert.equal(discovery[2], 'codex');
   assert.equal(discovery[3], '/home/.codex');
@@ -52,7 +52,7 @@ test('Windows finds a wrapped Codex conversation, retains empty startup as Todo 
   h.setHasMessage(true); agent = { ...agent, seq: 2 };
   h.observeTaskInput([agent], terminals, h.cx); await h.settle();
   assert.equal(taskStatus({ source: 'thread' }, h.withTaskInputEvidence([agent], terminals)), 'doing');
-  assert.equal(h.requests.filter(([, args]) => args[0].endsWith('/agent-task-file-windows.js')).length, 1, 'Cache the exact transcript instead of discovering it every poll');
+  assert.equal(h.requests.filter(([, args]) => args[0].endsWith('/agent-session-windows.js')).length, 1, 'Cache the exact transcript instead of discovering it every poll');
   assert.equal(h.requests.filter(([, args]) => args[0].endsWith('/agent-task-events.cjs'))[1][1][1], 'C:\\Profile with spaces\\sessions\\rollout-example.jsonl');
 });
 
@@ -61,7 +61,7 @@ test('Windows Claude discovery respects its account directory and leaves missing
   const h = await evidenceHost({ platform: 'windows', argv: ['env', `CLAUDE_CONFIG_DIR=${directory}`, 'claude'] });
   const agent = { address: 't1', app: 'claude-code' };
   assert.equal((await h.probeTaskState(agent, {}, h.services)).hasInput, false);
-  const args = h.requests.find(([, args]) => args[0].endsWith('/agent-task-file-windows.js'))[1];
+  const args = h.requests.find(([, args]) => args[0].endsWith('/agent-session-windows.js'))[1];
   assert.equal(args[3], directory);
   assert.equal(args[2], 'claude');
   h.setFileExists(false);

@@ -1,3 +1,4 @@
+// Shared: edit mods/devkits/components/agent-session-windows.js, then npm run sync:shared.
 import { execFile } from 'node:child_process';
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { join, resolve, relative, isAbsolute, sep, basename } from 'node:path';
@@ -64,7 +65,7 @@ export async function claudeTaskFile(directory, processes) {
 
 export async function locateWindowsTaskFile(pid, kind, directory) {
   if (!Number.isInteger(pid) || pid <= 0 || !['codex', 'claude'].includes(kind) || !directory) return null;
-  const script = fileURLToPath(new URL('./agent-task-process-windows.js', import.meta.url));
+  const script = fileURLToPath(new URL('./agent-process-windows.js', import.meta.url));
   const { stdout } = await promisify(execFile)('cscript.exe', ['//NoLogo', '//E:JScript', script, String(pid), kind], { timeout: 5000, windowsHide: true });
   const { processes = [] } = JSON.parse(stdout);
   return kind === 'codex' ? codexTaskFile(directory, processes) : claudeTaskFile(directory, processes);
