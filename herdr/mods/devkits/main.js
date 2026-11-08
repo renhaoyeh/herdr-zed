@@ -10,6 +10,7 @@ import { GitResultToast, clearGitToast } from './git-result-toast.js';
 import WorkspaceEditor from './workspace-editor.js';
 import Analytics from './analytics.js';
 import LocalCalendar from './calendar.js';
+import { calendarTasks } from './calendar-tasks.js';
 import XcodeStorage from './xcode-storage.js';
 import AgentBoard from './agent-board.js';
 import { observeTaskInput } from './agent-task-evidence.js';
@@ -65,7 +66,15 @@ const agentLoads = new Map();
 export default class Devkits extends View {
   init(_props, cx) {
     if (['calendar', 'google-calendar'].includes(props()?.view)) {
-      this.calendar = new LocalCalendar(); this.calendar.init(cx); return;
+      const tasks = () => calendarTasks(this.projects(), shared('devkits.agent-board') || {}, shared('devkits.thread-tasks') || {}, agents(), sessionThreadTitle);
+      this.calendar = new LocalCalendar({
+        tasks,
+        openTask: id => {
+          const task = tasks().find(task => task.id === id);
+          if (!task) return false;
+          this.openTask(task.project.id, task); return true;
+        },
+      }); this.calendar.init(cx); return;
     }
     if (props()?.view === 'status') {
       clearGitToast(); setShared('devkits.git-output-request', null);

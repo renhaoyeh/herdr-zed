@@ -1,10 +1,11 @@
 import { div } from 'gpui-kit';
-import { h_flex, v_flex, InputState, Input, TextareaState, Textarea } from 'gpui-base';
+import { h_flex, v_flex, InputState, Input, TextareaState, Textarea, Popup } from 'gpui-base';
 import { shared, setShared, props, openOverlay, closeOverlay } from 'herdr';
 import { boardTheme } from './board-theme.js';
 import { Button } from './components/button.js';
 import { Checkbox } from './components/checkbox.js';
 import { glyph } from './components/icon.js';
+import { mentionTrigger } from './calendar-tasks.js';
 import { dayKey, nextDay, localDate, monthDays, weekDays, timelineEvents, timelineMinute, rangeDraft, eventsOnDay, eventTime, eventFromDraft, eventDraft, saveEvent, deleteEvent } from './calendar-model.js';
 
 const storageKey = 'devkits.calendar-events';
@@ -21,16 +22,29 @@ const weekdays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Frida
 const dateLabel = date => `${weekdays[date.getDay()]}, ${months[date.getMonth()]} ${date.getDate()}`;
 
 export default class LocalCalendar {
+  constructor({ tasks = () => [], openTask = () => false } = {}) { this.tasks = tasks; this.openTask = openTask; }
+
   init(cx) {
     const now = new Date(); this.month = new Date(now.getFullYear(), now.getMonth(), 1); this.selected = dayKey(now);
     const savedView = shared('devkits.calendar-view'); this.view = ['day', 'week', 'month'].includes(savedView) ? savedView : 'month';
     this.handle = cx.focus_handle(); this.handle.focus(); this.inputs = {};
     for (const [key, placeholder] of Object.entries({ title: 'Event title', startDate: 'YYYY-MM-DD', endDate: 'YYYY-MM-DD', startTime: '09:00', endTime: '10:00' })) {
       const input = InputState.new({ placeholder });
-      input.on('change', (_event, cx) => { this.error = null; if (key === 'title') this.titleError = false; cx.notify(); });
+      input.on('change', (_event, cx) => {
+        this.error = null;
+        if (key === 'title') { this.titleError = false; this.changedMention('title', cx); }
+        cx.notify();
+      });
       this.inputs[key] = input;
     }
-    this.notes = TextareaState.new({ placeholder: 'Add notes…' }); this.notes.set_auto_grow(3, 6);
+    this.notes = TextareaState.new({ placeholder: 'Add notes… Type @ to link a task' }); this.notes.set_auto_grow(3, 6);
+    this.notes.on('change', (_event, cx) => { this.changedMention('notes', cx); cx.notify(); });
+    this.mentionSearch = InputState.new({ placeholder: 'Search tasks…' });
+    this.mentionSearch.on('change', (_event, cx) => { this.mentionIndex = 0; cx.notify(); });
+    this.mentionSearch.on('submit', (_event, cx) => {
+      if (this.mention) this.insertMention(this.mentionItems()[this.mentionIndex]?.id, cx);
+    });
+    this.mentionHandle = cx.focus_handle(); this.previousText = {};
     this.creating = Boolean(props()?.calendarCreate);
     this.previewId = props()?.calendarPreview || null;
     if (this.creating) this.edit(null, cx, props()?.draft || {});
@@ -87,12 +101,15 @@ export default class LocalCalendar {
     }
     this.editing = event?.id || null; this.revision = event?.revision || null; this.composing = true; this.error = null; this.titleError = false;
     const draft = event ? eventDraft(event) : { title: 'New event', notes: '', startDate: this.selected, endDate: this.selected, startTime: '09:00', endTime: '10:00', allDay: false, ...initial };
-    for (const [key, input] of Object.entries(this.inputs)) input.set_value(draft[key]);
-    this.notes.set_value(draft.notes || ''); this.allDay = draft.allDay;
+    this.mention = null;
+    for (const [key, input] of Object.entries(this.inputs)) input.set_value(key === 'title' ? draft.titleContent || draft.title : draft[key]);
+    this.notes.set_value(draft.notesContent || draft.notes || ''); this.allDay = draft.allDay;
+    this.previousText = { title: this.inputs.title.value(), notes: this.notes.value() };
     this.inputs.title.focus(); cx.notify();
   }
 
   cancel(cx) {
+    if (this.mention) this.dismissMention(cx, false);
     if (this.creating) { this.composing = false; clearPreview(this.previewId); closeOverlay(props().overlay); return; }
     this.composing = false; this.editing = null; this.error = null; this.handle.focus(); cx.notify();
   }
@@ -144,11 +161,13 @@ export default class LocalCalendar {
 
   save(cx) {
     if (!this.composing) return;
+    if (this.mention) this.dismissMention(cx, false);
     if (!this.inputs.title.value().trim()) {
       this.error = 'Enter an event title.'; this.titleError = true; this.inputs.title.focus(); cx.notify(); return;
     }
     try {
-      const event = eventFromDraft({ ...Object.fromEntries(Object.entries(this.inputs).map(([key, input]) => [key, input.value().trim()])), notes: this.notes.value(), allDay: this.allDay }, this.editing || uid(), uid());
+      const event = eventFromDraft({ ...Object.fromEntries(Object.entries(this.inputs).map(([key, input]) => [key, input.value().trim()])),
+        titleContent: this.inputs.title.content(), notes: this.notes.value(), notesContent: this.notes.content(), allDay: this.allDay }, this.editing || uid(), uid());
       setShared(storageKey, saveEvent(this.records(), event, this.revision));
       this.choose(localDate(event.allDay ? event.start : dayKey(new Date(event.start))), cx, true);
       this.cancel(cx);
@@ -159,6 +178,106 @@ export default class LocalCalendar {
     if (!this.editing) return;
     try { setShared(storageKey, deleteEvent(this.records(), this.editing, this.revision)); this.cancel(cx); }
     catch (error) { this.error = error.message; cx.notify(); }
+  }
+
+  mentionInput(field) { return field === 'title' ? this.inputs.title : this.notes; }
+
+  changedMention(field, cx) {
+    const input = this.mentionInput(field), text = input.value();
+    const previous = this.previousText[field] || '';
+    this.previousText[field] = text;
+    if (!this.composing || this.insertingMention || previous === text) return;
+    if (this.mention) this.dismissMention(cx, false);
+    const trigger = mentionTrigger(previous, text, input.tokens());
+    if (!trigger) return;
+    this.mention = { field, ...trigger, text, anchor: `calendar-mention:${uid()}` };
+    // The native editor lays this temporary @ token out at the actual glyph,
+    // accounting for shaped text, wrapping, zoom and its own scroll offset.
+    this.insertingMention = true;
+    try { input.replace_range_with_token({ start: trigger.range.start, end: trigger.range.start + 1 }, { id: this.mention.anchor, text: '@' }); }
+    finally { this.insertingMention = false; }
+    this.mentionIndex = 0; this.mentionSearch.set_value(trigger.query); this.mentionSearch.focus(); cx.notify();
+  }
+
+  mentionItems() {
+    const query = this.mentionSearch.value().trim().toLowerCase();
+    return this.tasks().filter(task => !task.archived && `${task.name} ${task.project.name}`.toLowerCase().includes(query));
+  }
+
+  dismissMention(cx, focus = true) {
+    const mention = this.mention; this.mention = null;
+    if (mention) {
+      const input = this.mentionInput(mention.field), content = input.content();
+      if (content.tokens.some(({ token }) => token.id === mention.anchor))
+        input.set_value({ ...content, tokens: content.tokens.filter(({ token }) => token.id !== mention.anchor) });
+      if (focus) {
+        const caret = Math.min(mention.range.end, content.text.length);
+        input.set_selected_range({ start: caret, end: caret }); input.focus();
+      }
+    }
+    cx.notify();
+  }
+
+  insertMention(id, cx) {
+    const mention = this.mention, task = this.mentionItems().find(task => task.id === id);
+    if (!mention || !task) return;
+    const input = this.mentionInput(mention.field);
+    if (input.value() !== mention.text) { this.dismissMention(cx); return; }
+    this.mention = null; this.insertingMention = true;
+    try { input.replace_range_with_token(mention.range, { id: task.id, text: `@${task.name}`, label: task.name }); }
+    finally { this.insertingMention = false; }
+    this.previousText[mention.field] = input.value(); input.focus(); cx.notify();
+  }
+
+  visitTask(id, cx) {
+    if (this.creating) return;
+    if (this.openTask(id)) closeOverlay(props().overlay);
+    else { this.error = 'This task is no longer available in your projects.'; cx.notify(); }
+  }
+
+  mentionField(field, control, t) {
+    const tasks = this.tasks(), mention = this.mention?.field === field ? this.mention : null;
+    return control.token(context => {
+      if (mention && context.token.id === mention.anchor)
+        return Popup.new(`calendar-${field}-mentions`, div().h(context.line_height).text_size(field === 'title' ? 20 : 13).child('@'))
+          .relative().anchor('top_left').content(div().pt(4).child(this.mentionMenu(t)));
+      const task = tasks.find(task => task.id === context.token.id);
+      return div().px(4).rounded(4).bg(context.selected ? t.solid : t.selected).text_color(context.selected ? t.solid_foreground : t.secondary)
+        .max_w(context.available_width).truncate().text_size(Math.min(14, context.line_height * 0.7))
+        .child(`@${task?.name || context.token.label || context.token.text.slice(1)}`);
+    }).on_token_click((event, cx) => {
+      if (event.token.id === this.mention?.anchor) this.mentionSearch.focus();
+      else this.visitTask(event.token.id, cx);
+    });
+  }
+
+  mentionMenu(t) {
+    const items = this.mentionItems(), index = Math.min(this.mentionIndex, Math.max(0, items.length - 1));
+    return v_flex().id('calendar-task-picker').w(300).p(4).rounded(12).border(1).border_color(t.border)
+      .bg(t.popover).font_family(t.fontFamily).font_normal().text_color(t.foreground).text_size(13).shadow_md()
+      .track_focus(this.mentionHandle).role('list_box').accessibility_label('Link a task')
+      .on_mouse_down('left', (_event, cx) => cx.stop_propagation())
+      .on_mouse_down_out((_event, cx) => this.dismissMention(cx, false))
+      .on_key_down((event, cx) => {
+        if (event.key === 'escape') this.dismissMention(cx);
+        else if (event.key === 'enter' && !event.modifiers?.platform && !event.modifiers?.control) this.insertMention(items[index]?.id, cx);
+        else if (event.key === 'down') this.mentionIndex = items.length ? (index + 1) % items.length : 0;
+        else if (event.key === 'up') this.mentionIndex = items.length ? (index + items.length - 1) % items.length : 0;
+        else return;
+        cx.stop_propagation(); cx.notify();
+      })
+      .child(Input.new(this.mentionSearch).id('calendar-task-search').accessibility_label('Search tasks')
+        .w_full().h(36).px(10).border(0).border_b(1).border_color(t.border).bg(t.popover))
+      .child(v_flex().max_h(224).overflow_y_scroll()
+        .when(!items.length, el => el.child(div().p(12).text_color(t.muted).child('No tasks found')))
+        .children(items.map((task, i) => h_flex().id(`calendar-task-option-${i}`).h(40).px(10).gap(8).rounded(8)
+          .items_center().bg(i === index ? t.menuHover : t.popover).hover(el => el.bg(t.menuHover))
+          .role('list_box_option').accessibility_label(`${task.name}, ${task.project.name}`)
+          .when(i === index, el => el.aria_active_descendant())
+          .on_click((_event, cx) => { cx.stop_propagation(); this.insertMention(task.id, cx); })
+          .child(glyph('circle', 13).text_color(t.muted))
+          .child(v_flex().flex_1().min_w(0).gap(2).child(div().truncate().child(task.name))
+            .child(div().truncate().text_size(10).text_color(t.muted).child(task.project.name))))));
   }
 
   editor(t) {
@@ -173,8 +292,8 @@ export default class LocalCalendar {
           .child(glyph('close')).on_click((_event, cx) => this.cancel(cx))))
       .child(v_flex().flex_1().min_h(0).gap(16).overflow_y_scroll()
         .child(v_flex().gap(4)
-          .child(Input.new(this.inputs.title).id('calendar-input-title').accessibility_label('Event title (required)').w_full().h(36).text_size(20).font_semibold().bg(t.background).border(0)
-            .when(Boolean(this.titleError), el => el.border_b(1).border_color(t.destructive)))
+          .child(this.mentionField('title', Input.new(this.inputs.title).id('calendar-input-title').accessibility_label('Event title (required)').w_full().h(36).text_size(20).font_semibold().bg(t.background).border(0)
+            .when(Boolean(this.titleError), el => el.border_b(1).border_color(t.destructive)), t))
           .when(!this.inputs.title.value().trim(), el => el.child(div().id('calendar-title-hint').text_size(12).text_color(this.titleError ? t.destructive : t.muted)
             .child('Enter an event title.'))))
         .child(Checkbox('calendar-all-day', Boolean(this.allDay), t).text_size(12).child('All day')
@@ -182,7 +301,8 @@ export default class LocalCalendar {
         .child(h_flex().gap(12).child(field('startDate', 'Start date')).child(field('endDate', 'End date')))
         .when(!this.allDay, el => el.child(h_flex().gap(12).child(field('startTime', 'Start time')).child(field('endTime', 'End time'))))
         .child(div().text_size(11).text_color(t.muted).child(this.allDay ? 'Dates use YYYY-MM-DD. Includes the end date.' : 'Dates: YYYY-MM-DD · Times: HH:MM (24-hour)'))
-        .child(Textarea.new(this.notes).id('calendar-input-notes').accessibility_label('Event notes').w_full().text_size(13).bg(t.background).border(0))
+        .child(this.mentionField('notes', Textarea.new(this.notes).id('calendar-input-notes').accessibility_label('Event notes').w_full().text_size(13).bg(t.background).border(0), t))
+        .child(div().text_size(11).text_color(t.muted).child('Type @ in the title or notes to link a task.'))
         .when(Boolean(this.error && !this.titleError), el => el.child(div().text_size(12).text_color(t.destructive).child(this.error))))
       .child(h_flex().flex_none().gap(8).items_center().flex_wrap()
         .when(Boolean(this.editing), el => el.child(Button('calendar-delete', t, { variant: 'ghost' }).text_color(t.destructive).child('Delete event').on_click((_event, cx) => this.remove(cx))))

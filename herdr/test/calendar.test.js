@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { dayKey, nextDay, localDate, monthDays, weekDays, timelineEvents, timelineMinute, rangeDraft, eventsOnDay, eventTime, eventFromDraft, eventDraft, saveEvent, deleteEvent } from '../mods/devkits/calendar-model.js';
+import { calendarTasks, calendarContent, taskTokenId, taskTokenRef, mentionTrigger } from '../mods/devkits/calendar-tasks.js';
 
 const draft = { title: 'Plan the next task', notes: 'Details', startDate: '2026-11-08', endDate: '2026-11-08', startTime: '09:00', endTime: '10:00', allDay: false };
 
@@ -68,15 +69,15 @@ test('saving and deleting merge current records and reject a stale editor withou
   assert.equal(records.one, one, 'updates never mutate the previous snapshot');
 });
 
-async function ui(memory = {}, target = {}) {
+async function ui(memory = {}, target = {}, options = {}) {
   const source = await readFile(new URL('../mods/devkits/calendar.js', import.meta.url), 'utf8');
-  const nodes = new Map(), texts = [], writes = [], overlays = []; let rendering = false, closed = false;
+  const nodes = new Map(), texts = [], writes = [], overlays = [], controls = [], elements = new WeakMap(); let rendering = false, closed = false;
   const element = () => {
     const data = {};
     const el = new Proxy(data, { get: (_target, key) => (...args) => {
       if (key === 'when') { if (args[0]) args[1](el); }
       else if (key === 'id') nodes.set(args[0], data);
-      else if (key === 'child' && typeof args[0] === 'string') texts.push(args[0]);
+      else if (key === 'child') { (data.children ||= []).push(args[0]); if (typeof args[0] === 'string') texts.push(args[0]); }
       else if (key === 'on_click') data.click = args[0];
       else if (key === 'on_change') data.change = args[0];
       else if (key === 'on_key_down') data.key = args[0];
@@ -85,23 +86,45 @@ async function ui(memory = {}, target = {}) {
       else if (key === 'on_mouse_move') data.move = args[0];
       else if (key === 'on_hover') data.hover = args[0];
       else if (key === 'disabled') data.disabled = args[0];
+      else if (key === 'token') data.token = args[0];
+      else if (key === 'on_token_click') data.tokenClick = args[0];
+      else if (key === 'on_mouse_down_out') data.outside = args[0];
+      else if (key === 'anchor') data.anchor = args[0];
+      else if (key === 'content') data.content = args[0];
       return el;
-    } }); return el;
+    } }); elements.set(el, data); return el;
   };
   const inputs = { new: () => {
     assert.equal(rendering, false);
-    let value = '';
+    let value = '', tokens = [];
     return { events: {}, focusCount: 0, on(name, handler) { this.events[name] = handler; }, focus() { this.focusCount++; }, value: () => value,
-      set_value: next => { assert.equal(rendering, false); value = next; }, set_auto_grow() {} };
+      content: () => structuredClone({ text: value, tokens }), tokens: () => structuredClone(tokens),
+      set_selected_range(range) { this.selection = range; },
+      replace_range_with_token(range, token) {
+        const delta = token.text.length - (range.end - range.start);
+        tokens = tokens.filter(span => span.range.end <= range.start || span.range.start >= range.end)
+          .map(span => span.range.start >= range.end ? { ...span, range: { start: span.range.start + delta, end: span.range.end + delta } } : span);
+        value = value.slice(0, range.start) + token.text + value.slice(range.end);
+        tokens.push({ range: { start: range.start, end: range.start + token.text.length }, token });
+      },
+      set_value: next => { assert.equal(rendering, false); value = typeof next === 'string' ? next : next.text; tokens = typeof next === 'string' ? [] : structuredClone(next.tokens); }, set_auto_grow() {} };
   } };
-  const host = { div: element, h_flex: element, v_flex: element, InputState: inputs, TextareaState: inputs, Input: { new: element }, Textarea: { new: element },
+  const inputElement = state => { const el = element(); controls.push({ state, data: elements.get(el) }); return el; };
+  const host = { div: element, h_flex: element, v_flex: element, InputState: inputs, TextareaState: inputs, Input: { new: inputElement }, Textarea: { new: inputElement }, Popup: { new: (id, trigger) => element().id(id).child(trigger) }, mentionTrigger,
     shared: key => memory[key], setShared: (key, data) => { memory[key] = data; writes.push(key); }, props: () => ({ overlay: 'calendar', ...target }), openOverlay: options => { overlays.push(options); }, closeOverlay: () => { closed = true; }, boardTheme: () => ({}),
     Button: id => element().id(id), Checkbox: id => element().id(id), glyph: element, dayKey, nextDay, localDate, monthDays, weekDays, timelineEvents, timelineMinute, rangeDraft, eventsOnDay, eventTime, eventFromDraft, eventDraft, saveEvent, deleteEvent };
   const Type = new Function(...Object.keys(host), source.replace(/^import .*;\r?\n/gm, '').replace('export default class', 'return class'))(...Object.values(host));
   const cx = { focus_handle: () => ({ focus() {} }), notify() {}, stop_propagation() {} };
-  const view = new Type(); view.init(cx);
-  const render = () => { rendering = true; try { view.render(); } finally { rendering = false; } };
-  return { view, cx, memory, nodes, texts, writes, overlays, render, closed: () => closed };
+  const view = new Type(options); view.init(cx);
+  const render = () => {
+    controls.length = 0; rendering = true;
+    try {
+      view.render();
+      for (const { state, data } of controls)
+        for (const span of state.tokens()) data.token?.({ ...span, line_height: 24, available_width: 300 });
+    } finally { rendering = false; }
+  };
+  return { view, cx, memory, nodes, texts, writes, overlays, render, elements, closed: () => closed };
 }
 
 test('the local calendar creates, edits, persists across views, cancels and deletes through its native controls', async () => {
@@ -348,5 +371,146 @@ test('new events default to New event and can be created immediately from both N
     editor.view.inputs.title.set_value('My plan'); editor.view.save(editor.cx);
     assert.equal(editor.view.records()[saved.id].title, 'My plan');
     editor.view.edit(editor.view.records()[saved.id], editor.cx); assert.equal(editor.view.inputs.title.value(), 'My plan');
+  }
+});
+
+const mentionProject = { id: 'p1', folder: '/work/app', name: 'App', tabs: [] };
+const mentionTask = (name = 'Fix login', gid = 'local:one', project = mentionProject) => ({ id: taskTokenId(project, gid), gid, name, source: 'local', project });
+
+test('calendar task inventory uses project-scoped IDs and includes saved, imported and live thread tasks without writes', () => {
+  const other = { ...mentionProject, id: 'p2', folder: '/work/other', name: 'Other' };
+  const remote = { ...mentionProject, id: 'remote:p1', machine: 'remote' };
+  const project = { ...mentionProject, tabs: [{ id: 'thread1', name: 'Agent task' }] };
+  const records = { '["","/work/app"]': { one: { gid: 'one', source: 'local', name: 'Fix login' }, old: { gid: 'old', source: 'local', name: 'Archived', archived: true } },
+    '["","/work/other"]': { one: { gid: 'one', source: 'asana', name: 'Fix login' } } };
+  const links = { imported: { gid: 'imported', source: 'mantisbt', name: 'Imported', folder: project.folder } };
+  const before = JSON.stringify({ records, links });
+  const tasks = calendarTasks([project, other, remote], records, links, [{ tab: 'thread1', status: 'working' }]);
+  assert.equal(tasks.length, 5); assert.equal(JSON.stringify({ records, links }), before);
+  assert.equal(tasks.find(task => task.gid === 'thread:thread1').status, 'doing');
+  assert.equal(tasks.find(task => task.gid === 'old').archived, true, 'retain existing archived references for navigation');
+  const sameNames = tasks.filter(task => task.name === 'Fix login');
+  assert.equal(sameNames.length, 2); assert.notEqual(sameNames[0].id, sameNames[1].id);
+  assert.deepEqual(taskTokenRef(sameNames[0].id), { machine: '', folder: project.folder, gid: 'one' });
+  assert.equal(taskTokenId({ ...project, name: 'Renamed project', folder: '/work/app/' }, 'one'), sameNames[0].id);
+  assert.equal(taskTokenRef('not-json'), null); assert.equal(taskTokenRef('["task",1,"/work/app","one"]'), null);
+});
+
+test('mention detection handles mid-text edits, UTF-16 offsets and pasted queries without treating email addresses as mentions', () => {
+  assert.deepEqual(mentionTrigger('Before  after', 'Before @ after'), { range: { start: 7, end: 8 }, query: '' });
+  assert.deepEqual(mentionTrigger('📅 ', '📅 @Fix login'), { range: { start: 3, end: 13 }, query: 'Fix login' });
+  assert.deepEqual(mentionTrigger('', '@'), { range: { start: 0, end: 1 }, query: '' });
+  assert.equal(mentionTrigger('user', 'user@'), null); assert.equal(mentionTrigger('', 'user@example.com'), null);
+  assert.equal(mentionTrigger('@one', '@one'), null);
+  assert.equal(mentionTrigger('', '@Fix login', [{ range: { start: 0, end: 10 } }]), null);
+});
+
+test('native task tokens persist with trimmed UTF-16 ranges and cannot survive removal or stale plain text', () => {
+  const task = mentionTask(), token = { id: task.id, text: '@Fix login', label: task.name };
+  const content = { text: '  📅 @Fix login  ', tokens: [{ range: { start: 5, end: 15 }, token }] };
+  assert.deepEqual(calendarContent(content), { text: '📅 @Fix login', tokens: [{ range: { start: 3, end: 13 }, token }] });
+  const event = eventFromDraft({ ...draft, notes: content.text, notesContent: content }, 'one', 'r1');
+  assert.deepEqual(event.notesContent, calendarContent(content));
+  assert.deepEqual(eventDraft(JSON.parse(JSON.stringify(event))).notesContent, event.notesContent);
+  const removed = eventFromDraft({ ...draft, notes: 'Removed', notesContent: { text: 'Removed', tokens: [] } }, 'one', 'r2');
+  assert.equal(removed.notesContent, undefined);
+  assert.equal(eventFromDraft({ ...draft, notesContent: content }, 'one', 'r3').notesContent, undefined);
+  assert.equal(calendarContent({ ...content, tokens: [{ range: { start: 0, end: 2 }, token }] }).tokens.length, 0);
+});
+
+test('typing @ searches tasks across projects, inserts an atomic token and persists it through event editing', async () => {
+  const task = mentionTask(), other = mentionTask('Fix login', 'local:one', { ...mentionProject, folder: '/work/other', name: 'Other' });
+  const options = { tasks: () => [task, other, { ...mentionTask('Archived'), archived: true }] };
+  const h = await ui({}, { calendarCreate: true }, options); h.render();
+  h.view.notes.set_value('Prepare  tomorrow'); h.view.notes.events.change(null, h.cx);
+  h.view.notes.set_value('Prepare @ tomorrow'); h.view.notes.events.change(null, h.cx); h.render();
+  assert.ok(h.nodes.has('calendar-task-picker')); assert.equal(h.view.mentionItems().length, 2);
+  assert.equal(h.view.mentionSearch.focusCount, 1); assert.equal(h.writes.length, 0);
+  h.view.mentionSearch.set_value('Other'); h.view.mentionSearch.events.change(null, h.cx); h.render();
+  assert.equal(h.view.mentionItems().length, 1); h.nodes.get('calendar-task-option-0').click(null, h.cx);
+  assert.equal(h.view.notes.value(), 'Prepare @Fix login tomorrow');
+  assert.equal(h.view.notes.tokens()[0].token.id, other.id); assert.equal(h.view.mention, null);
+  h.view.save(h.cx); assert.equal(h.closed(), true);
+  const event = Object.values(h.view.records())[0]; assert.equal(event.notesContent.tokens[0].token.id, other.id);
+  const reopened = await ui(h.memory, {}, options); reopened.view.edit(event, reopened.cx); reopened.render();
+  assert.deepEqual(reopened.view.notes.content(), event.notesContent);
+  reopened.view.notes.set_value('Removed the reference'); reopened.view.notes.events.change(null, reopened.cx); reopened.view.save(reopened.cx);
+  assert.equal(reopened.view.records()[event.id].notesContent, undefined);
+});
+
+test('task picker Enter and Escape affect only the picker; empty results and disappearing tasks cannot insert or save', async () => {
+  let tasks = [mentionTask(), mentionTask('Review', 'local:two')], stopped = 0;
+  const h = await ui({}, { calendarCreate: true }, { tasks: () => tasks });
+  const cx = { ...h.cx, stop_propagation: () => { stopped++; } };
+  const typeAt = () => { h.view.inputs.title.set_value(''); h.view.inputs.title.events.change(null, cx); h.view.inputs.title.set_value('@'); h.view.inputs.title.events.change(null, cx); h.render(); };
+  typeAt(); h.nodes.get('calendar-task-picker').key({ key: 'down' }, cx); h.render();
+  h.nodes.get('calendar-task-picker').key({ key: 'enter' }, cx);
+  assert.equal(h.view.inputs.title.value(), '@Review'); assert.equal(h.closed(), false); assert.equal(h.writes.length, 0);
+  h.view.mentionSearch.events.submit(null, cx); assert.equal(h.view.inputs.title.tokens().length, 1, 'a native submit following the key event cannot insert twice');
+  typeAt(); h.nodes.get('calendar-task-picker').key({ key: 'escape' }, cx);
+  assert.equal(h.view.mention, null); assert.equal(h.view.composing, true); assert.equal(h.view.inputs.title.value(), '@');
+  typeAt(); h.view.mentionSearch.set_value('missing'); h.render(); h.nodes.get('calendar-task-picker').key({ key: 'enter' }, cx);
+  assert.ok(h.texts.includes('No tasks found')); assert.equal(h.view.inputs.title.value(), '@'); assert.equal(h.writes.length, 0);
+  h.view.mentionSearch.set_value(''); h.render(); const staleClick = h.nodes.get('calendar-task-option-0').click;
+  tasks = []; staleClick(null, cx); assert.equal(h.view.inputs.title.tokens().length, 1, 'only the temporary @ anchor remains'); assert.equal(h.closed(), false);
+  h.view.dismissMention(cx); assert.equal(h.view.inputs.title.tokens().length, 0); assert.ok(stopped >= 4);
+});
+
+test('saved task tokens navigate by stable identity after renames; missing tasks show an error and keep the calendar open', async () => {
+  let tasks = [mentionTask()], opened = [];
+  const h = await ui({}, { calendarCreate: true }, { tasks: () => tasks, openTask: id => { if (!tasks.some(task => task.id === id)) return false; opened.push(id); return true; } });
+  h.view.inputs.title.set_value('@'); h.view.inputs.title.events.change(null, h.cx); h.render();
+  h.nodes.get('calendar-task-option-0').click(null, h.cx);
+  h.view.visitTask(tasks[0].id, h.cx); assert.equal(opened.length, 0, 'creation never navigates away from its draft');
+  h.view.save(h.cx); const event = Object.values(h.view.records())[0];
+  tasks = [{ ...tasks[0], name: 'Renamed', archived: true }];
+  const reopened = await ui(h.memory, {}, { tasks: () => tasks, openTask: h.view.openTask }); reopened.view.edit(event, reopened.cx); reopened.render();
+  const token = reopened.view.inputs.title.tokens()[0].token;
+  reopened.nodes.get('calendar-input-title').token({ token, line_height: 24, available_width: 300 });
+  assert.ok(reopened.texts.includes('@Renamed'));
+  reopened.nodes.get('calendar-input-title').tokenClick({ token }, reopened.cx);
+  assert.equal(reopened.closed(), true); assert.deepEqual(opened, [token.id]);
+  const missing = await ui(h.memory, {}, { tasks: () => [], openTask: () => false }); missing.view.edit(event, missing.cx); missing.render();
+  missing.nodes.get('calendar-input-title').tokenClick({ token }, missing.cx);
+  assert.equal(missing.closed(), false); assert.match(missing.view.error, /no longer available/);
+  assert.deepEqual(missing.view.inputs.title.tokens()[0].token, token, 'deleted task labels remain readable');
+});
+
+test('the picker is anchored to the native @ glyph in both fields and dismissal preserves text, existing links and the caret', async () => {
+  const task = mentionTask(), token = { id: task.id, text: '@Fix login', label: task.name };
+  for (const field of ['title', 'notes']) {
+    const h = await ui({}, { calendarCreate: true }, { tasks: () => [task] });
+    const input = h.view.mentionInput(field), prefix = field === 'notes' ? '@Fix login\n📅 Discuss ' : '@Fix login and ';
+    const existing = { range: { start: 0, end: 10 }, token };
+    input.set_value({ text: prefix, tokens: [existing] }); input.events.change(null, h.cx);
+    input.set_value({ text: prefix + '@Review', tokens: [existing] }); input.events.change(null, h.cx);
+    const anchor = input.tokens().find(span => span.token.id === h.view.mention.anchor);
+    assert.deepEqual(anchor.range, { start: prefix.length, end: prefix.length + 1 });
+    assert.equal(anchor.token.text, '@', 'only the @ glyph determines the popup anchor, including after pasted queries');
+    h.render(); const popup = h.nodes.get(`calendar-${field}-mentions`);
+    assert.equal(popup.anchor, 'top_left');
+    assert.deepEqual(h.elements.get(popup.children[0]).children, ['@'], 'the trigger is the inline glyph, not the entire field');
+    assert.ok(h.nodes.has('calendar-task-picker'));
+    input.events.change(null, h.cx); assert.ok(h.view.mention, 'a token-only native change preserves the open picker');
+    h.nodes.get('calendar-task-picker').key({ key: 'escape' }, h.cx);
+    assert.equal(input.value(), prefix + '@Review'); assert.deepEqual(input.tokens(), [existing]);
+    assert.deepEqual(input.selection, { start: prefix.length + 7, end: prefix.length + 7 });
+    assert.equal(h.closed(), false); assert.equal(h.writes.length, 0);
+  }
+});
+
+test('outside dismissal and saving an open picker never retain temporary anchor tokens', async () => {
+  for (const action of ['outside', 'save']) {
+    const h = await ui({}, { calendarCreate: true }, { tasks: () => [mentionTask()] });
+    h.view.notes.set_value('Discuss @'); h.view.notes.events.change(null, h.cx); h.render();
+    const focusCount = h.view.notes.focusCount;
+    if (action === 'outside') h.nodes.get('calendar-task-picker').outside(null, h.cx);
+    else h.view.save(h.cx);
+    assert.equal(h.view.mention, null); assert.deepEqual(h.view.notes.content(), { text: 'Discuss @', tokens: [] });
+    assert.equal(h.view.notes.focusCount, focusCount, 'outside actions retain their own focus');
+    if (action === 'save') {
+      const saved = Object.values(h.view.records())[0];
+      assert.equal(saved.notes, 'Discuss @'); assert.equal(saved.notesContent, undefined);
+    }
   }
 });

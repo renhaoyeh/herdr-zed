@@ -1,3 +1,5 @@
+import { calendarContent } from './calendar-tasks.js';
+
 export const dayKey = date => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 export const nextDay = (date, days = 1) => new Date(date.getFullYear(), date.getMonth(), date.getDate() + days);
 
@@ -94,7 +96,12 @@ export function eventFromDraft(draft, id, revision) {
   const start = draft.allDay ? dayKey(localDate(draft.startDate)) : localDateTime(draft.startDate, draft.startTime);
   const end = draft.allDay ? dayKey(nextDay(localDate(draft.endDate))) : localDateTime(draft.endDate, draft.endTime);
   if (end <= start) throw new Error('The event must end after it starts.');
-  return { id, revision, title, notes: String(draft.notes || '').trim(), allDay: Boolean(draft.allDay), start, end };
+  const event = { id, revision, title, notes: String(draft.notes || '').trim(), allDay: Boolean(draft.allDay), start, end };
+  for (const field of ['title', 'notes']) {
+    const content = calendarContent(draft[`${field}Content`]);
+    if (content.text === event[field] && content.tokens.length) event[`${field}Content`] = content;
+  }
+  return event;
 }
 
 export function eventDraft(event) {
