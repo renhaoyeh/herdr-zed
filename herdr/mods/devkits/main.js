@@ -9,6 +9,7 @@ import DiffViewer from './diff.js';
 import { GitResultToast, clearGitToast } from './git-result-toast.js';
 import WorkspaceEditor from './workspace-editor.js';
 import Analytics from './analytics.js';
+import LocalCalendar from './calendar.js';
 import XcodeStorage from './xcode-storage.js';
 import AgentBoard from './agent-board.js';
 import { observeTaskInput } from './agent-task-evidence.js';
@@ -48,6 +49,8 @@ const openAsana = (project, source = 'asana') => {
   return openOverlay({ mod: 'devkits', kind: 'dialog', modal: true, frame: 'none',
     width: 0.9, height: 0.86, props: { view: source, project } });
 };
+const openCalendar = () => openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: true, width: 0.9, height: 0.86,
+  props: { view: 'calendar' } });
 const restorePanel = () => false;
 // Like Zed's dock buttons: close only the side panel, preserving the central document.
 const toggleEditor = (_editor, name) => {
@@ -61,6 +64,9 @@ const agentLoads = new Map();
 
 export default class Devkits extends View {
   init(_props, cx) {
+    if (['calendar', 'google-calendar'].includes(props()?.view)) {
+      this.calendar = new LocalCalendar(); this.calendar.init(cx); return;
+    }
     if (props()?.view === 'status') {
       clearGitToast(); setShared('devkits.git-output-request', null);
     }
@@ -127,6 +133,7 @@ export default class Devkits extends View {
       for (;;) {
         const command = await nextCommand();
         if (command === 'new-task') { const project = this.projects().find(project => project.active); if (project) openTaskComposer(project); }
+        if (command === 'calendar') openCalendar();
         if (command === 'run') await runApp();
         if (command === 'new-thread') await this.repeatThread(cx);
         if (command === 'reveal-conversation') this.showConversation(true);
@@ -574,6 +581,7 @@ export default class Devkits extends View {
   }
 
   async close() {
+    this.calendar?.close?.();
     this.closeSkillWatch();
     this.sharingPoll?.cancel();
     this.taskComposer?.saveDraft();
@@ -728,6 +736,8 @@ export default class Devkits extends View {
           .child(glyph('folder'))))
       .child(Button('system-monitor-settings', t, { variant: 'ghost' }).h_full().px(8).text_size(11)
         .accessibility_label('System monitor settings').on_click(() => this.openHardware('settings')).child('System'))
+      .child(Button('open-calendar', t, { variant: 'ghost', size: 'icon' }).h_full().rounded(0)
+        .accessibility_label('Calendar').on_click(openCalendar).child(glyph('calendar')))
       .when(Boolean(space), el => el.child(Button('open-tasks', t, { variant: 'ghost' }).h_full().rounded(0).px(10).gap(6)
         .bg(taskMode() ? t.selected : t.background)
         .accessibility_label('Tasks')
@@ -873,6 +883,7 @@ export default class Devkits extends View {
 
   render(cx) {
     const t = theme();
+    if (['calendar', 'google-calendar'].includes(props()?.view)) return this.calendar.render();
     if (props()?.view === 'codex-sharing') return this.sharingDialog(t);
     if (props()?.view === 'token-statistics') return this.analytics.render();
     if (props()?.view === 'xcode-storage') return this.xcodeStorage.render();
