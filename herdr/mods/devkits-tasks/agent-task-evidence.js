@@ -1,4 +1,4 @@
-import { shared, setShared, hc, exec, readTextFile, home, appHome } from 'herdr';
+import { shared, setShared, hc, exec, readTextFile, home, appHome, window } from 'herdr';
 import { agentCommand } from './components/session-model.js';
 
 const inputProbes = new Map();
@@ -14,6 +14,13 @@ async function locateTaskFile(agent, services) {
   const pid = terminal.foreground?.pid;
   if (!Number.isInteger(pid)) return null;
   const command = agentCommand(terminal.argv) || terminal.foreground?.argv || [];
+  if (services.window?.()?.platform === 'windows') {
+    const kind = agent.app === 'codex' ? 'codex' : 'claude';
+    const prefix = kind === 'codex' ? 'CODEX_HOME=' : 'CLAUDE_CONFIG_DIR=';
+    const directory = command.find(arg => arg.startsWith(prefix))?.slice(prefix.length) || `${services.home()}/.${kind}`;
+    const result = await services.exec('node', [`${services.appHome()}/mods/devkits-tasks/agent-task-file-windows.js`, String(pid), kind, directory]);
+    return result.code ? null : JSON.parse(result.stdout).file || null;
+  }
   let file;
   if (agent.app === 'codex') {
     const result = await services.exec('sh', ['-c', 'pids=$(pgrep -P "$1" | tr "\\n" ,)$1; lsof -Fn -p "$pids"', 'sh', String(pid)]);
@@ -30,7 +37,7 @@ async function locateTaskFile(agent, services) {
   return file || null;
 }
 
-export async function probeTaskState(agent, previous = {}, services = { hc, exec, readTextFile, home, appHome }) {
+export async function probeTaskState(agent, previous = {}, services = { hc, exec, readTextFile, home, appHome, window }) {
   const file = previous.file || await locateTaskFile(agent, services);
   if (!file) return { hasInput: null, needsInput: false };
   const result = await services.exec('node', [`${services.appHome()}/mods/devkits-tasks/agent-task-events.cjs`, file,
