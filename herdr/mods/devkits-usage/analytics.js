@@ -26,7 +26,7 @@ export default class Analytics {
             : agent.key === 'claude' || agent.run?.some(arg => arg.startsWith('CLAUDE_CONFIG_DIR=')) ? 'claude' : null;
           return provider ? [{ ...agent, provider }] : [];
         });
-        const result = await exec('node', [`${appHome()}/mods/devkits/analytics-reader.js`, appHome(), JSON.stringify(accounts)]);
+        const result = await exec('node', [`${appHome()}/mods/devkits-usage/analytics-reader.js`, appHome(), JSON.stringify(accounts)]);
         if (result.code !== 0) throw new Error('Could not read local token statistics.');
         this.data = JSON.parse(result.stdout); this.error = null;
       } catch (error) { this.error = error.message; }

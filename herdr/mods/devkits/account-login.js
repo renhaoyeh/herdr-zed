@@ -1,3 +1,4 @@
+import { ensureClaudeStatusLine } from './components/claude-usage-hook.js';
 import { div } from 'gpui-kit';
 import { v_flex, h_flex, InputState, Input } from 'gpui-base';
 import { WebSocket } from 'websocket';
@@ -81,29 +82,6 @@ export async function registerAccount(profile) {
   } };
   // Compare-and-swap keeps concurrent settings edits from being overwritten.
   await writeTextFile(path, `${JSON.stringify(data, null, 2)}\n`, text);
-}
-
-// Usage comes from Claude Code's own status line data. Another tool's status line is kept: without
-// `chain` it is left alone; with `chain` it is saved and run after recording, with the same input.
-export async function ensureClaudeStatusLine(directory, { chain = false } = {}) {
-  const path = `${directory}/settings.json`;
-  const source = await readTextFile(path);
-  const data = source === null ? {} : JSON.parse(source);
-  if (!data || typeof data !== 'object' || Array.isArray(data)) return false;
-  const command = `node "${appHome().replace(/\\/g, '/')}/mods/devkits/claude-statusline.js"`;
-  const current = data.statusLine;
-  const ours = String(current?.command || '').endsWith('/devkits/claude-statusline.js"');
-  if (ours && current.command === command) return false;
-  if (current && !ours) {
-    if (!chain || current.type !== 'command' || typeof current.command !== 'string') return false;
-    const chainPath = `${directory}/devkits-statusline-chain.json`;
-    await writeTextFile(chainPath, `${JSON.stringify(current, null, 2)}\n`, await readTextFile(chainPath));
-    const backup = `${path}.devkits-backup`;
-    if (await readTextFile(backup) === null) await writeTextFile(backup, source, null);
-  }
-  data.statusLine = { ...(current && !ours ? current : { padding: 0 }), type: 'command', command };
-  await writeTextFile(path, `${JSON.stringify(data, null, 2)}\n`, source);
-  return true;
 }
 
 export async function renameAccountProfile(key, name) {

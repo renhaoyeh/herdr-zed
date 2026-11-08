@@ -8,13 +8,12 @@ import FileViewer, { FileMenu } from './files.js';
 import DiffViewer from './diff.js';
 import { GitResultToast, clearGitToast } from './git-result-toast.js';
 import WorkspaceEditor from './workspace-editor.js';
-import Analytics from './analytics.js';
 import XcodeStorage from './xcode-storage.js';
 import { TaskHost, openTaskComposer, requestTaskOpen, requestTaskSource, requestTaskStart, projectBoardTasks, threadBoardStatus, threadTaskArchived, threadVisibleInSidebar, threadBoardTask, taskLinkForTab, sessionThreadTitle, taskActions, boardStatuses } from './components/tasks.js';
 import { sessionMenu } from './session-menu.js';
 import { agentProfiles } from './agent-profiles.js';
 import { accountActions } from './account-actions.js';
-import { agentUsage } from './usage.js';
+import { UsageClient } from './components/usage.js';
 import { SystemMonitor } from './components/system-monitor.js';
 import { SystemDisplay, SystemDisplayMenu, openSystemDetails } from './system-display.js';
 import { RunControls, RunMenu, runApp } from './run-app.js';
@@ -55,6 +54,8 @@ export default class Devkits extends View {
     active: () => this.systemDisplay.active(), openDetails: openSystemDetails,
   });
   systemDisplay = new SystemDisplay(this.systemMonitor, props()?.view);
+  usageClient = new UsageClient({ context: () => ({ machine: this.projects().find(project => project.active)?.machine || null }),
+    active: () => shared('devkits.usage-visible') !== false });
   taskHost = new TaskHost((event, cx) => this.taskNavigation(event, cx));
 
   init(_props, cx) {
@@ -75,10 +76,11 @@ export default class Devkits extends View {
     if (props()?.view === 'file-menu') {
       this.fileMenu = new FileMenu(); this.fileMenu.init(cx); return;
     }
-    if (props()?.view === 'token-statistics') {
-      this.analytics = new Analytics();
-      this.analytics.init(cx);
-      return;
+    if (['token-statistics', 'usage-details'].includes(props()?.view)) {
+      const target = props(); closeOverlay(target.overlay);
+      openOverlay({ mod: 'devkits-usage', kind: 'dialog', frame: 'none', modal: false,
+        width: target.view === 'usage-details' ? 480 : 1080, height: target.view === 'usage-details' ? 480 : 0.85,
+        props: { ...target, overlay: undefined } }); return;
     }
     if (props()?.view === 'xcode-storage') {
       this.xcodeStorage = new XcodeStorage();
@@ -92,7 +94,6 @@ export default class Devkits extends View {
         props: { view: 'manage-launchers', space: target.space } });
       return;
     }
-    if (props()?.view === 'usage-details') cx.timer.every(60000, cx => cx.notify());
     if (['hardware-details', 'status'].includes(props()?.view) || (!props()?.view && cx)) {
       this.systemDisplay.init(); this.systemMonitor.init(cx);
       if (props()?.view === 'hardware-details') { closeOverlay(props().overlay); openSystemDetails(props()?.page); return; }
@@ -101,14 +102,11 @@ export default class Devkits extends View {
       this.taskHost.init(cx);
       // Shared values survive restarts; discover once for this app session.
       setShared('devkits.agent-cache', {});
-      this.refreshUsage(cx);
+      this.usageClient.init(cx);
       this.initSkillWatch(cx);
-      const activeMachine = this.projects().find(project => project.active)?.machine || null;
       for (const machine of new Set([null, ...spaces().map(space => space.machine || null)])) {
-        if (machine === activeMachine) continue;
         cx.spawn(async () => { try { await this.cachedAgents(machine); } catch {} });
       }
-      cx.timer.every(60000, cx => this.refreshUsage(cx));
       cx.spawn(async () => { try { await ensureRules(); } catch {} });
     }
     if (props()?.view === 'branch-menu') {
@@ -175,7 +173,7 @@ export default class Devkits extends View {
     if (props()?.view === 'rename-account') this.initRenameAccount();
     this.hovered = null;
     this.hoveredProject = null;
-    if (['close-project', 'remove-account', 'rename-account', 'project-menu', 'project-picker', 'usage-details'].includes(props()?.view)) {
+    if (['close-project', 'remove-account', 'rename-account', 'project-menu', 'project-picker'].includes(props()?.view)) {
       this.handle = cx.focus_handle();
       if (props().view !== 'rename-account') this.handle.focus();
       if (props().view === 'project-picker') this.projectIndex = -1;
@@ -500,6 +498,8 @@ export default class Devkits extends View {
     else if (event.type === 'restore-thread') this.restoreThread(event.entry);
   }
 
+  accountUsage(t) { return this.usageClient.render(t); }
+
   groupedThreads(space, threads, t, live) {
     threads = threads.filter(thread => threadVisibleInSidebar(space, thread));
     const tasks = space.machine ? [] : projectBoardTasks(space, agents()).filter(task => !task.tabs.length && !task.archived && task.source !== 'thread');
@@ -520,6 +520,7 @@ export default class Devkits extends View {
 
   async close() {
     this.systemMonitor.close();
+    this.usageClient.close();
     this.closeSkillWatch();
     this.sharingPoll?.cancel();
     if (this.editor) this.editor.close();
@@ -819,7 +820,7 @@ export default class Devkits extends View {
     if (props()?.view === 'system-display-menu') return this.systemDisplayMenu.render(t);
     if (['calendar', 'google-calendar', 'task-composer'].includes(props()?.view)) return div();
     if (props()?.view === 'codex-sharing') return this.sharingDialog(t);
-    if (props()?.view === 'token-statistics') return this.analytics.render();
+    if (['token-statistics', 'usage-details'].includes(props()?.view)) return div();
     if (props()?.view === 'xcode-storage') return this.xcodeStorage.render();
     if (props()?.view === 'codex-permissions') return div();
     if (props()?.view === 'file-menu') return this.fileMenu.render();
@@ -833,7 +834,6 @@ export default class Devkits extends View {
     if (props()?.view === 'header') return this.header(t);
     if (props()?.view === 'run-menu') return this.runMenu.render(t);
     if (props()?.view === 'branch-menu') return this.branchMenu.render(t);
-    if (props()?.view === 'usage-details') return this.usageDetails(t);
     if (props()?.view === 'hardware-details') return div();
     if (props()?.view === 'brand') return this.brand(t);
     if (props()?.view === 'pane') return this.paneHeader(t, cx);
@@ -848,7 +848,6 @@ export default class Devkits extends View {
     if (props()?.view === 'close-project') return this.closePrompt(t);
     if (props()?.view === 'project-menu') return this.projectMenu(t);
     if (props()?.view === 'project-picker') return this.projectPicker(t);
-    if (cx) this.refreshUsage(cx, false);
     const all = agents(), native = spaces(), modelPanes = panes();
     const roots = shared('devkits.project-roots') || {};
     const missing = native.filter(s => roots[s.id] === undefined && s.folder);
@@ -952,4 +951,4 @@ export default class Devkits extends View {
 }
 
 // Feature views share this view's state and its project, agent and session helpers.
-Object.assign(Devkits.prototype, sessionMenu, agentProfiles, accountActions, agentUsage, threadArchive);
+Object.assign(Devkits.prototype, sessionMenu, agentProfiles, accountActions, threadArchive);

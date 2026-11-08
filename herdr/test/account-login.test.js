@@ -10,7 +10,7 @@ import { join } from 'node:path';
 async function load(host = {}) {
   host = { launcherLabel, window: () => ({ platform: 'macos' }), ...host };
   const source = await readFile(new URL('../mods/devkits/account-login.js', import.meta.url), 'utf8');
-  const helpers = await Promise.all(['components/session-shell'].map(name => readFile(new URL(`../mods/devkits/${name}.js`, import.meta.url), 'utf8')));
+  const helpers = await Promise.all(['components/session-shell', 'components/claude-usage-hook'].map(name => readFile(new URL(`../mods/devkits/${name}.js`, import.meta.url), 'utf8')));
   const factory = new Function('View', ...Object.keys(host), [...helpers, source].join('\n').replace(/^import .*;\r?\n/gm, '')
     .replace('export default class', 'class').replace(/^export /gm, '') + '\nreturn { AccountLogin, accountProfile, registerAccount, removeAccountProfile, renameAccountProfile, ensureClaudeStatusLine };');
   return factory(class {}, ...Object.values(host));
@@ -417,7 +417,7 @@ test('Claude sign-in waits for the CLI login, confirms the subscription account,
   assert.ok(result.commands.some(([command, args]) => command === 'hc' && args[0] === 'kill' && args[1] === 't-claude'));
   assert.ok(!result.commands.some(([command]) => command === 'open'));
   assert.deepEqual(JSON.parse(result.settings[`/root/data/devkits/claude/${profileId}/settings.json`]).statusLine,
-    { type: 'command', command: 'node "/root/mods/devkits/claude-statusline.js"', padding: 0 });
+    { type: 'command', command: 'node "/root/mods/devkits-usage/claude-statusline.js"', padding: 0 });
 });
 
 test('the usage status line is added to Devkits Claude profiles without replacing existing settings', async () => {
@@ -426,7 +426,7 @@ test('the usage status line is added to Devkits Claude profiles without replacin
     readTextFile: async path => files[path] ?? null,
     writeTextFile: async (path, next, expected) => { assert.equal(expected, files[path] ?? null); files[path] = next; } });
   assert.equal(await ensureClaudeStatusLine('/profile'), true);
-  assert.equal(JSON.parse(files['/profile/settings.json']).statusLine.command, 'node "/app/mods/devkits/claude-statusline.js"');
+  assert.equal(JSON.parse(files['/profile/settings.json']).statusLine.command, 'node "/app/mods/devkits-usage/claude-statusline.js"');
   files['/other/settings.json'] = JSON.stringify({ theme: 'dark', statusLine: { type: 'command', command: 'mine' } });
   assert.equal(await ensureClaudeStatusLine('/other'), false);
   assert.equal(JSON.parse(files['/other/settings.json']).statusLine.command, 'mine');
@@ -437,7 +437,7 @@ test('the usage status line is added to Devkits Claude profiles without replacin
   const windows = await load({ appHome: () => 'C:\\App', readTextFile: async path => files[path] ?? null,
     writeTextFile: async (path, next) => { files[path] = next; } });
   assert.equal(await windows.ensureClaudeStatusLine('/profile'), true);
-  assert.equal(JSON.parse(files['/profile/settings.json']).statusLine.command, 'node "C:/App/mods/devkits/claude-statusline.js"');
+  assert.equal(JSON.parse(files['/profile/settings.json']).statusLine.command, 'node "C:/App/mods/devkits-usage/claude-statusline.js"');
 });
 
 test('Claude sign-in that exits without credentials never registers; existing credentials skip the browser', async () => {
@@ -508,7 +508,7 @@ test('the built-in profile chains its existing status line, with a backup, and r
   assert.equal(await ensureClaudeStatusLine('/home/.claude', { chain: true }), true);
   const settings = JSON.parse(files['/home/.claude/settings.json']);
   assert.equal(settings.model, 'opus');
-  assert.deepEqual(settings.statusLine, { type: 'command', command: 'node "/app/mods/devkits/claude-statusline.js"', padding: 2 });
+  assert.deepEqual(settings.statusLine, { type: 'command', command: 'node "/app/mods/devkits-usage/claude-statusline.js"', padding: 2 });
   assert.deepEqual(JSON.parse(files['/home/.claude/devkits-statusline-chain.json']), other);
   assert.equal(files['/home/.claude/settings.json.devkits-backup'], original);
   assert.equal(await ensureClaudeStatusLine('/home/.claude', { chain: true }), false);

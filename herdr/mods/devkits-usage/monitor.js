@@ -1,0 +1,111 @@
+import { shared, setShared, exec, appHome, home, knownAgents, readTextFile } from 'herdr';
+import { launcherChoices, isAccountLauncher, configuredAgents } from './components/session-model.js';
+import { ensureClaudeStatusLine } from './components/claude-usage-hook.js';
+import { UsageClient } from './components/usage.js';
+const usageCacheMs = 5 * 60000;
+const usageProvider = agent => !Array.isArray(agent?.run) ? null
+  : agent.run.some(arg => !arg.includes('=') && /(?:^|[/\\])codex(?:\.exe)?$/i.test(arg)) ? 'codex'
+    // Claude usage comes from the status line Devkits configures: its own accounts and the built-in profile.
+    : agent.key === 'claude' || (agent.key?.startsWith('devkits-claude-') && agent.run.some(arg => arg.startsWith('CLAUDE_CONFIG_DIR=')))
+      ? 'claude' : null;
+const claudeDirectory = agent => agent.run.find(arg => arg.startsWith('CLAUDE_CONFIG_DIR='))?.slice(18) || `${home()}/.claude`;
+
+export class UsageMonitor extends UsageClient {
+  constructor({ machine = null, active = () => true } = {}) { super({ context: () => ({ machine }), active }); this.machine = machine; }
+  projects() { return [{ active: true, machine: this.machine }]; }
+  async cachedAgents(machine) {
+    const key = JSON.stringify(machine || null), cached = shared('devkits.agent-cache')?.[key];
+    let available = cached;
+    if (!available) {
+      available = (await knownAgents({ on: machine })).filter(agent => agent.installed && (!machine || !isAccountLauncher(agent)));
+      if (!machine) {
+        const source = await readTextFile(`${appHome()}/programs.json`), programs = source === null ? {} : JSON.parse(source).programs || {};
+        available = available.map(agent => typeof programs[agent.key]?.name === 'string' ? { ...agent, name: programs[agent.key].name } : agent);
+      }
+      setShared('devkits.agent-cache', { ...(shared('devkits.agent-cache') || {}), [key]: available });
+    }
+    if (!machine && available.length && shared('devkits.hidden-usage-profiles') === undefined) {
+      const hidden = shared('devkits.hidden-launchers') || [];
+      setShared('devkits.hidden-usage-profiles', available.filter(agent => !agent.profileKey && hidden.includes(`agent:${agent.key}`)).map(agent => agent.key));
+    }
+    return machine ? available.filter(agent => !isAccountLauncher(agent)) : configuredAgents(available, shared('devkits.agent-configs') || []);
+  }
+  snapshot() {
+    const machine = this.projects().find(project => project.active)?.machine || null;
+    const choices = launcherChoices(this.usageMachine === machine ? this.usageAgents || [] : [], shared('devkits.launcher-order') || [])
+      .filter(choice => choice.agent && !choice.agent.profileKey && !(shared('devkits.hidden-usage-profiles') || []).includes(choice.agent.key))
+      .map(choice => ({ key: choice.key, name: choice.name,
+        agent: { key: choice.agent.key, name: choice.agent.name, icon: choice.agent.icon, tint: choice.agent.tint },
+        provider: machine ? null : usageProvider(choice.agent) }));
+    const selected = new Set(choices.map(choice => choice.agent.key));
+    const usage = (this.usage || []).filter(entry => selected.has(entry.key)).map(entry => ({ key: entry.key,
+      checkedAt: entry.checkedAt, fetchedAt: entry.fetchedAt, error: entry.error,
+      windows: entry.windows?.map(window => ({ bucket: window.bucket, name: window.name, slot: window.slot, minutes: window.minutes, usedPercent: window.usedPercent, resetsAt: window.resetsAt })) }));
+    return { machine, choices, usage, loading: Boolean(this.usageLoading), error: this.usageError || null };
+  }
+  publish() {
+    const snapshot = this.snapshot(), signature = JSON.stringify(snapshot);
+    if (signature === this.published) return; this.published = signature;
+    const cached = shared('devkits.usage.snapshot') || {};
+    setShared('devkits.usage.snapshot', { contexts: { ...cached.contexts, [JSON.stringify(snapshot.machine)]: snapshot } });
+  }
+  refreshUsage(cx, force = true, manual = false) {
+    if (!this.active()) { this.usageScope = null; return; }
+    const machine = this.projects().find(project => project.active)?.machine || null;
+    const hidden = shared('devkits.hidden-usage-profiles') || [];
+    const order = shared('devkits.launcher-order') || [];
+    const scope = JSON.stringify([machine, hidden, order, shared('devkits.profile-revision') || 0]);
+    if (this.usageLoading || (!force && this.usageScope === scope)) return;
+    this.usageScope = scope;
+    this.usageLoading = true; this.publish();
+    // A manual refresh rediscovers profiles and bypasses the provider cache.
+    if (manual) {
+      const { [JSON.stringify(machine)]: _, ...rest } = shared('devkits.agent-cache') || {};
+      setShared('devkits.agent-cache', rest);
+    }
+    cx.spawn(async cx => {
+      try {
+        const agents = await this.cachedAgents(machine);
+        if (!this.active() || (this.projects().find(project => project.active)?.machine || null) !== machine) return;
+        this.usageAgents = agents.filter(agent => !agent.profileKey);
+        if (this.usageMachine !== machine) this.usage = [];
+        this.usageMachine = machine;
+        this.usageError = null;
+        this.publish(); cx.notify();
+        const accounts = launcherChoices(this.usageAgents, order)
+          .filter(choice => choice.agent && !(shared('devkits.hidden-usage-profiles') || []).includes(choice.agent.key) && !machine && usageProvider(choice.agent)).map(choice => choice.agent);
+        // Cached results survive reloads and restarts so providers are queried at most once per interval.
+        const cached = () => shared('devkits.usage-cache') || {};
+        const now = Date.now();
+        // Set up the status line once per app session; the built-in profile chains any status line it already has.
+        this.statusLines ||= new Set();
+        for (const account of accounts.filter(account => usageProvider(account) === 'claude' && !this.statusLines.has(account.key))) {
+          if (!this.active()) return;
+          this.statusLines.add(account.key);
+          try { await ensureClaudeStatusLine(claudeDirectory(account), { chain: account.key === 'claude' }); } catch {}
+        }
+        // Claude usage is a local file, so only provider queries are rate-limited by the cache.
+        const stale = accounts.filter(account => manual || usageProvider(account) === 'claude'
+          || !(now - (cached()[account.key]?.checkedAt || 0) < usageCacheMs));
+        this.usage = accounts.map(account => cached()[account.key]).filter(Boolean);
+        if (stale.length) {
+          if (!this.active()) return;
+          this.publish(); cx.notify();
+          const result = await exec('node', [`${appHome()}/mods/devkits-usage/usage-reader.js`,
+            JSON.stringify(stale.map(account => ({ ...account, provider: usageProvider(account) })))]);
+          if (result.code !== 0) throw new Error('Could not read usage');
+          const next = { ...cached() };
+          for (const entry of JSON.parse(result.stdout)) {
+            const previous = next[entry.key];
+            // Keep the last good windows when a later request fails.
+            next[entry.key] = entry.error && previous?.windows
+              ? { ...previous, error: entry.error, checkedAt: Date.now() } : { ...entry, checkedAt: Date.now() };
+          }
+          setShared('devkits.usage-cache', next);
+          this.usage = accounts.map(account => next[account.key]).filter(Boolean);
+        }
+      } catch { this.usageError = 'Could not read usage'; }
+      finally { this.usageLoading = false; this.publish(); cx.notify(); }
+    });
+  }
+}

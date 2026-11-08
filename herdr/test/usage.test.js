@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { usageWindows, readUsage } from '../mods/devkits/usage-reader.js';
+import { usageWindows, readUsage } from '../mods/devkits-usage/usage-reader.js';
 import { quotaResetLabel } from '../mods/devkits/model.js';
 
 test('resets count down in days/hours or hours/minutes; overdue and absent times stay explicit', () => {
@@ -87,7 +87,7 @@ test('usage reads a saved env launcher through an npm-style shell shim on Window
 });
 
 test('Claude usage comes only from the status line recording in the account directory', async () => {
-  const { claudeUsageWindows, readClaudeUsage, claudeConfigDir } = await import('../mods/devkits/usage-reader.js');
+  const { claudeUsageWindows, readClaudeUsage, claudeConfigDir } = await import('../mods/devkits-usage/usage-reader.js');
   const { record, statusText } = await import('../mods/devkits/claude-statusline.js');
   const { mkdtemp, readFile } = await import('node:fs/promises');
   const { tmpdir } = await import('node:os');
