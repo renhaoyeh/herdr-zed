@@ -45,7 +45,7 @@ const startingThreads = new Set();
 const hidePanels = () => { setShared('devkits.asana', null); };
 // Clear legacy inline-panel state when opening an Asana pop-out.
 const rememberPanel = (id, name) => { if (id) setShared('devkits.project-panels', { ...(shared('devkits.project-panels') || {}), [id]: name || null }); };
-const openCalendar = () => openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: true, width: 0.9, height: 0.86,
+const openCalendar = () => openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: false, width: 0.9, height: 0.86,
   props: { view: 'calendar' } });
 const restorePanel = () => false;
 // Like Zed's dock buttons: close only the side panel, preserving the central document.
