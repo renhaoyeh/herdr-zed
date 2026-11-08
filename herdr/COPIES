@@ -1,12 +1,12 @@
 # Shared components: mods/devkits/components/<file> is the source, copied by sync-shared.js into
 # mods/<mod>/components/<file> for each mod listed. A mod can only import files in its own folder,
 # so each needs its own copy.
-button.js: devkits-simulator devkits-system devkits-asana devkits-mantisbt devkits-tasks devkits-calendar
+button.js: devkits-simulator devkits-system devkits-asana devkits-mantisbt devkits-tasks devkits-calendar devkits-usage
 dropdown-menu.js: devkits-simulator devkits-asana devkits-mantisbt devkits-tasks
 checkbox.js: devkits-system devkits-tasks devkits-calendar
 toggle-group.js: devkits-system
-dialog.js: devkits-system devkits-asana
-icon.js: devkits-system devkits-tasks devkits-calendar
+dialog.js: devkits-system devkits-asana devkits-usage
+icon.js: devkits-system devkits-tasks devkits-calendar devkits-usage
 system-monitor.js: devkits-system
 system-monitor-model.js: devkits-system
 system-monitor-topology.js: devkits-system
@@ -18,5 +18,8 @@ side-panel.js: devkits-tasks
 task-theme.js: devkits-tasks devkits-calendar
 tasks-model.js: devkits-tasks devkits-calendar
 tasks.js: devkits-tasks devkits-calendar
-session-model.js: devkits-tasks devkits-calendar
-session-shell.js: devkits-tasks devkits-calendar
+session-model.js: devkits-tasks devkits-calendar devkits-usage
+session-shell.js: devkits-tasks devkits-calendar devkits-usage
+progress.js: devkits-usage
+usage.js: devkits-usage
+claude-usage-hook.js: devkits-usage
