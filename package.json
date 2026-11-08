@@ -8,5 +8,5 @@
     "sync:shared": "node herdr/sync-shared.js",
     "test": "node --test"
   },
-  "engines": { "node": ">=22" }
+  "engines": { "node": ">=22.13" }
 }
