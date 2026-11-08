@@ -1,5 +1,15 @@
 # Shared components: mods/devkits/components/<file> is the source, copied by sync-shared.js into
 # mods/<mod>/components/<file> for each mod listed. A mod can only import files in its own folder,
 # so each needs its own copy.
-button.js: devkits-simulator
-dropdown-menu.js: devkits-simulator
+button.js: devkits-simulator devkits-system devkits-asana devkits-mantisbt
+dropdown-menu.js: devkits-simulator devkits-asana devkits-mantisbt
+checkbox.js: devkits-system
+toggle-group.js: devkits-system
+dialog.js: devkits-system devkits-asana
+icon.js: devkits-system
+system-monitor.js: devkits-system
+system-monitor-model.js: devkits-system
+system-monitor-topology.js: devkits-system
+task-source.js: devkits-asana devkits-mantisbt
+task-source-model.js: devkits-asana devkits-mantisbt
+source-channel.js: devkits-asana devkits-mantisbt
