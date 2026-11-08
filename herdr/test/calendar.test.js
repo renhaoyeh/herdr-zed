@@ -71,7 +71,7 @@ test('saving and deleting merge current records and reject a stale editor withou
 
 async function ui(memory = {}, target = {}, options = {}) {
   const source = await readFile(new URL('../mods/devkits/calendar.js', import.meta.url), 'utf8');
-  const nodes = new Map(), texts = [], writes = [], overlays = [], controls = [], elements = new WeakMap(); let rendering = false, closed = false;
+  const nodes = new Map(), texts = [], writes = [], overlays = [], controls = [], bindings = [], elements = new WeakMap(); let rendering = false, closed = false;
   const element = () => {
     const data = {};
     const el = new Proxy(data, { get: (_target, key) => (...args) => {
@@ -81,6 +81,9 @@ async function ui(memory = {}, target = {}, options = {}) {
       else if (key === 'on_click') data.click = args[0];
       else if (key === 'on_change') data.change = args[0];
       else if (key === 'on_key_down') data.key = args[0];
+      else if (key === 'on_action') (data.actions ||= {})[args[0]] = args[1];
+      else if (key === 'key_context') data.keyContext = args[0];
+      else if (key === 'on_size_change') data.sizeChange = args[0];
       else if (key === 'on_mouse_down') { data.down ||= {}; data.down[args[0]] = args[1]; }
       else if (key === 'on_mouse_up') { data.up ||= {}; data.up[args[0]] = args[1]; }
       else if (key === 'on_mouse_move') data.move = args[0];
@@ -114,7 +117,7 @@ async function ui(memory = {}, target = {}, options = {}) {
     shared: key => memory[key], setShared: (key, data) => { memory[key] = data; writes.push(key); }, props: () => ({ overlay: 'calendar', ...target }), openOverlay: options => { overlays.push(options); }, closeOverlay: () => { closed = true; }, boardTheme: () => ({}),
     Button: id => element().id(id), Checkbox: id => element().id(id), glyph: element, dayKey, nextDay, localDate, monthDays, weekDays, timelineEvents, timelineMinute, rangeDraft, eventsOnDay, eventTime, eventFromDraft, eventDraft, saveEvent, deleteEvent };
   const Type = new Function(...Object.keys(host), source.replace(/^import .*;\r?\n/gm, '').replace('export default class', 'return class'))(...Object.values(host));
-  const cx = { focus_handle: () => ({ focus() {} }), notify() {}, stop_propagation() {} };
+  const cx = { focus_handle: () => ({ focus() {} }), notify() {}, stop_propagation() {}, bind_keys: entries => bindings.push(...entries) };
   const view = new Type(options); view.init(cx);
   const render = () => {
     controls.length = 0; rendering = true;
@@ -124,7 +127,7 @@ async function ui(memory = {}, target = {}, options = {}) {
         for (const span of state.tokens()) data.token?.({ ...span, line_height: 24, available_width: 300 });
     } finally { rendering = false; }
   };
-  return { view, cx, memory, nodes, texts, writes, overlays, render, elements, closed: () => closed };
+  return { view, cx, memory, nodes, texts, writes, overlays, render, elements, bindings, closed: () => closed };
 }
 
 test('the local calendar creates, edits, persists across views, cancels and deletes through its native controls', async () => {
@@ -443,13 +446,13 @@ test('task picker Enter and Escape affect only the picker; empty results and dis
   const h = await ui({}, { calendarCreate: true }, { tasks: () => tasks });
   const cx = { ...h.cx, stop_propagation: () => { stopped++; } };
   const typeAt = () => { h.view.inputs.title.set_value(''); h.view.inputs.title.events.change(null, cx); h.view.inputs.title.set_value('@'); h.view.inputs.title.events.change(null, cx); h.render(); };
-  typeAt(); h.nodes.get('calendar-task-picker').key({ key: 'down' }, cx); h.render();
-  h.nodes.get('calendar-task-picker').key({ key: 'enter' }, cx);
+  typeAt(); h.nodes.get('calendar-create-dialog').actions['devkits-calendar-mention-down'](null, cx); h.render();
+  h.nodes.get('calendar-create-dialog').actions['devkits-calendar-mention-confirm'](null, cx);
   assert.equal(h.view.inputs.title.value(), '@Review'); assert.equal(h.closed(), false); assert.equal(h.writes.length, 0);
   h.view.mentionSearch.events.submit(null, cx); assert.equal(h.view.inputs.title.tokens().length, 1, 'a native submit following the key event cannot insert twice');
-  typeAt(); h.nodes.get('calendar-task-picker').key({ key: 'escape' }, cx);
+  typeAt(); h.nodes.get('calendar-create-dialog').actions['devkits-calendar-mention-dismiss'](null, cx);
   assert.equal(h.view.mention, null); assert.equal(h.view.composing, true); assert.equal(h.view.inputs.title.value(), '@');
-  typeAt(); h.view.mentionSearch.set_value('missing'); h.render(); h.nodes.get('calendar-task-picker').key({ key: 'enter' }, cx);
+  typeAt(); h.view.mentionSearch.set_value('missing'); h.render(); h.nodes.get('calendar-create-dialog').actions['devkits-calendar-mention-confirm'](null, cx);
   assert.ok(h.texts.includes('No tasks found')); assert.equal(h.view.inputs.title.value(), '@'); assert.equal(h.writes.length, 0);
   h.view.mentionSearch.set_value(''); h.render(); const staleClick = h.nodes.get('calendar-task-option-0').click;
   tasks = []; staleClick(null, cx); assert.equal(h.view.inputs.title.tokens().length, 1, 'only the temporary @ anchor remains'); assert.equal(h.closed(), false);
@@ -492,7 +495,7 @@ test('the picker is anchored to the native @ glyph in both fields and dismissal 
     assert.deepEqual(h.elements.get(popup.children[0]).children, ['@'], 'the trigger is the inline glyph, not the entire field');
     assert.ok(h.nodes.has('calendar-task-picker'));
     input.events.change(null, h.cx); assert.ok(h.view.mention, 'a token-only native change preserves the open picker');
-    h.nodes.get('calendar-task-picker').key({ key: 'escape' }, h.cx);
+    h.nodes.get('calendar-create-dialog').actions['devkits-calendar-mention-dismiss'](null, h.cx);
     assert.equal(input.value(), prefix + '@Review'); assert.deepEqual(input.tokens(), [existing]);
     assert.deepEqual(input.selection, { start: prefix.length + 7, end: prefix.length + 7 });
     assert.equal(h.closed(), false); assert.equal(h.writes.length, 0);
@@ -513,4 +516,47 @@ test('outside dismissal and saving an open picker never retain temporary anchor 
       assert.equal(saved.notes, 'Discuss @'); assert.equal(saved.notesContent, undefined);
     }
   }
+});
+
+test('scoped native input actions move one row at a time, wrap, filter, confirm and dismiss', async () => {
+  const tasks = Array.from({ length: 12 }, (_, index) => mentionTask(`Task ${index + 1}`, `local:${index}`));
+  const h = await ui({}, { calendarCreate: true }, { tasks: () => tasks });
+  h.view.notes.set_value('@'); h.view.notes.events.change(null, h.cx); h.render();
+  assert.deepEqual(h.bindings.map(binding => binding.keystroke), ['up', 'down', 'enter', 'escape']);
+  assert.ok(h.bindings.every(binding => binding.context === 'DevkitsCalendarMention > Input'));
+  assert.equal(h.nodes.get('calendar-create-dialog').keyContext, 'DevkitsCalendarMention');
+  assert.equal(h.nodes.get('calendar-task-picker').key, undefined, 'raw key handlers must not also move the highlight');
+  const press = key => {
+    const action = h.bindings.find(binding => binding.keystroke === key).action;
+    h.nodes.get('calendar-create-dialog').actions[action]({ action }, h.cx); h.render();
+  };
+  press('up'); assert.equal(h.view.mentionIndex, 11);
+  press('down'); assert.equal(h.view.mentionIndex, 0);
+  press('down'); assert.equal(h.view.mentionIndex, 1);
+  h.view.mentionSearch.set_value('Task 12'); h.view.mentionSearch.events.change(null, h.cx); h.render();
+  assert.equal(h.view.mentionIndex, 0);
+  press('enter'); assert.equal(h.view.notes.tokens()[0].token.id, tasks[11].id);
+  assert.equal(h.nodes.get('calendar-create-dialog').keyContext, undefined, 'calendar inputs regain their normal bindings after the picker closes');
+  assert.equal(h.writes.length, 0); assert.equal(h.closed(), false);
+  h.view.notes.set_value(''); h.view.notes.events.change(null, h.cx);
+  h.view.notes.set_value('@'); h.view.notes.events.change(null, h.cx); h.render();
+  press('escape'); assert.equal(h.view.mention, null); assert.equal(h.view.composing, true); assert.equal(h.closed(), false);
+});
+
+test('the search receives focus after its inline popup mounts, once per opening, and obsolete mounts cannot steal focus', async () => {
+  const h = await ui({}, { calendarCreate: true }, { tasks: () => [mentionTask()] });
+  h.view.notes.set_value('Link @'); h.view.notes.events.change(null, h.cx); h.render();
+  const oldAnchor = h.view.mention.anchor, mounted = h.nodes.get(`calendar-task-search-host-${oldAnchor}`).sizeChange;
+  const initialFocus = h.view.mentionSearch.focusCount;
+  mounted({ width: 292, height: 36 }, h.cx); assert.equal(h.view.mentionSearch.focusCount, initialFocus + 1);
+  mounted({ width: 280, height: 36 }, h.cx); assert.equal(h.view.mentionSearch.focusCount, initialFocus + 1);
+  h.view.dismissMention(h.cx); mounted({ width: 292, height: 36 }, h.cx);
+  assert.equal(h.view.mentionSearch.focusCount, initialFocus + 1);
+  h.view.notes.set_value('Link '); h.view.notes.events.change(null, h.cx);
+  h.view.notes.set_value('Link @'); h.view.notes.events.change(null, h.cx); h.render();
+  const nextAnchor = h.view.mention.anchor; assert.notEqual(nextAnchor, oldAnchor);
+  const nextFocus = h.view.mentionSearch.focusCount; mounted({ width: 292, height: 36 }, h.cx);
+  assert.equal(h.view.mentionSearch.focusCount, nextFocus);
+  h.nodes.get(`calendar-task-search-host-${nextAnchor}`).sizeChange({ width: 292, height: 36 }, h.cx);
+  assert.equal(h.view.mentionSearch.focusCount, nextFocus + 1);
 });

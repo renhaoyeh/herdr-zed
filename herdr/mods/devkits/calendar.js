@@ -42,8 +42,16 @@ export default class LocalCalendar {
     this.mentionSearch = InputState.new({ placeholder: 'Search tasks…' });
     this.mentionSearch.on('change', (_event, cx) => { this.mentionIndex = 0; cx.notify(); });
     this.mentionSearch.on('submit', (_event, cx) => {
-      if (this.mention) this.insertMention(this.mentionItems()[this.mentionIndex]?.id, cx);
+      if (this.mention) this.confirmMention(cx);
     });
+    // Input consumes arrow/Enter/Escape actions before raw key handlers run.
+    // Match its context only inside this picker, overriding its editing bindings.
+    cx.bind_keys([
+      { keystroke: 'up', action: 'devkits-calendar-mention-up', context: 'DevkitsCalendarMention > Input' },
+      { keystroke: 'down', action: 'devkits-calendar-mention-down', context: 'DevkitsCalendarMention > Input' },
+      { keystroke: 'enter', action: 'devkits-calendar-mention-confirm', context: 'DevkitsCalendarMention > Input' },
+      { keystroke: 'escape', action: 'devkits-calendar-mention-dismiss', context: 'DevkitsCalendarMention > Input' },
+    ]);
     this.mentionHandle = cx.focus_handle(); this.previousText = {};
     this.creating = Boolean(props()?.calendarCreate);
     this.previewId = props()?.calendarPreview || null;
@@ -204,6 +212,18 @@ export default class LocalCalendar {
     return this.tasks().filter(task => !task.archived && `${task.name} ${task.project.name}`.toLowerCase().includes(query));
   }
 
+  moveMention(delta, cx) {
+    if (!this.mention) return;
+    const count = this.mentionItems().length, index = Math.min(this.mentionIndex, Math.max(0, count - 1));
+    this.mentionIndex = count ? (index + delta + count) % count : 0;
+    cx.notify();
+  }
+
+  confirmMention(cx) {
+    const items = this.mentionItems();
+    this.insertMention(items[Math.min(this.mentionIndex, Math.max(0, items.length - 1))]?.id, cx);
+  }
+
   dismissMention(cx, focus = true) {
     const mention = this.mention; this.mention = null;
     if (mention) {
@@ -252,22 +272,19 @@ export default class LocalCalendar {
   }
 
   mentionMenu(t) {
-    const items = this.mentionItems(), index = Math.min(this.mentionIndex, Math.max(0, items.length - 1));
+    const anchor = this.mention?.anchor, items = this.mentionItems(), index = Math.min(this.mentionIndex, Math.max(0, items.length - 1));
     return v_flex().id('calendar-task-picker').w(300).p(4).rounded(12).border(1).border_color(t.border)
       .bg(t.popover).font_family(t.fontFamily).font_normal().text_color(t.foreground).text_size(13).shadow_md()
       .track_focus(this.mentionHandle).role('list_box').accessibility_label('Link a task')
       .on_mouse_down('left', (_event, cx) => cx.stop_propagation())
       .on_mouse_down_out((_event, cx) => this.dismissMention(cx, false))
-      .on_key_down((event, cx) => {
-        if (event.key === 'escape') this.dismissMention(cx);
-        else if (event.key === 'enter' && !event.modifiers?.platform && !event.modifiers?.control) this.insertMention(items[index]?.id, cx);
-        else if (event.key === 'down') this.mentionIndex = items.length ? (index + 1) % items.length : 0;
-        else if (event.key === 'up') this.mentionIndex = items.length ? (index + items.length - 1) % items.length : 0;
-        else return;
-        cx.stop_propagation(); cx.notify();
-      })
-      .child(Input.new(this.mentionSearch).id('calendar-task-search').accessibility_label('Search tasks')
-        .w_full().h(36).px(10).border(0).border_b(1).border_color(t.border).bg(t.popover))
+      .child(div().id(`calendar-task-search-host-${anchor}`).on_size_change((_size, cx) => {
+        // Inline content mounts during layout, after the initial focus request.
+        if (this.mention?.anchor === anchor && this.focusedMention !== anchor) {
+          this.focusedMention = anchor; this.mentionSearch.focus(); cx.notify();
+        }
+      }).child(Input.new(this.mentionSearch).id('calendar-task-search').accessibility_label('Search tasks')
+        .w_full().h(36).px(10).border(0).border_b(1).border_color(t.border).bg(t.popover)))
       .child(v_flex().max_h(224).overflow_y_scroll()
         .when(!items.length, el => el.child(div().p(12).text_color(t.muted).child('No tasks found')))
         .children(items.map((task, i) => h_flex().id(`calendar-task-option-${i}`).h(40).px(10).gap(8).rounded(8)
@@ -432,15 +449,24 @@ export default class LocalCalendar {
                 .when(row.height >= 36, el => el.child(div().truncate().text_size(10).text_color(t.muted).child(eventTime(row.event, date)))))))))));
   }
 
+  mentionKeyboard(root) {
+    // Register at the owning view, outside the inline token's layout callback.
+    return root.when(Boolean(this.mention), el => el.key_context('DevkitsCalendarMention')
+      .on_action('devkits-calendar-mention-up', (_event, cx) => { cx.stop_propagation(); this.moveMention(-1, cx); })
+      .on_action('devkits-calendar-mention-down', (_event, cx) => { cx.stop_propagation(); this.moveMention(1, cx); })
+      .on_action('devkits-calendar-mention-confirm', (_event, cx) => { cx.stop_propagation(); this.confirmMention(cx); })
+      .on_action('devkits-calendar-mention-dismiss', (_event, cx) => { cx.stop_propagation(); this.dismissMention(cx); }));
+  }
+
   render() {
     const t = boardTheme(), events = Object.values(this.records()), close = () => closeOverlay(props().overlay);
-    if (this.creating) return v_flex().id('calendar-create-dialog').size_full().min_h(0).p(24).rounded(12).border(1).border_color(t.border)
+    if (this.creating) return this.mentionKeyboard(v_flex().id('calendar-create-dialog').size_full().min_h(0).p(24).rounded(12).border(1).border_color(t.border)
       .bg(t.popover).font_family(t.fontFamily).text_color(t.foreground).role('dialog').accessibility_label('New event').track_focus(this.handle)
       .on_key_down((event, cx) => {
         if (event.key === 'escape') { cx.stop_propagation(); this.cancel(cx); }
         else if (event.key === 'enter' && (event.modifiers?.platform || event.modifiers?.control)) { cx.stop_propagation(); this.save(cx); }
-      }).child(this.editor({ ...t, background: t.popover }));
-    return v_flex().id('local-calendar').size_full().min_h(0).rounded(12).overflow_hidden().border(1).border_color(t.border)
+      }).child(this.editor({ ...t, background: t.popover })));
+    return this.mentionKeyboard(v_flex().id('local-calendar').size_full().min_h(0).rounded(12).overflow_hidden().border(1).border_color(t.border)
       .bg(t.background).font_family(t.fontFamily).text_color(t.foreground).role('dialog').accessibility_label('Calendar').track_focus(this.handle)
       .on_key_down((event, cx) => {
         if (event.key === 'escape') { cx.stop_propagation(); if (this.drag) this.cancelRange(cx); else this.composing ? this.cancel(cx) : close(); }
@@ -468,6 +494,6 @@ export default class LocalCalendar {
         .child(v_flex().w(340).flex_none().min_h(0).p(20).border_l(1).border_color(t.border)
           .child(this.composing ? this.editor(t) : this.agenda(t, events))))
       .child(h_flex().h(32).flex_none().px(20).items_center().border_t(1).border_color(t.border)
-        .child(div().text_size(11).text_color(t.muted).child(`${this.view === 'month' ? 'Drag across dates to add an event' : 'Drag to select time · 15-minute steps'} · Local calendar · Times use your computer’s time zone`)));
+        .child(div().text_size(11).text_color(t.muted).child(`${this.view === 'month' ? 'Drag across dates to add an event' : 'Drag to select time · 15-minute steps'} · Local calendar · Times use your computer’s time zone`))));
   }
 }
