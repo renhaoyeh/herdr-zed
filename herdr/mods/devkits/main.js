@@ -6,6 +6,7 @@ import { terminalArgv } from './shell-command.js';
 import AccountLogin, { accountLabel } from './account-login.js';
 import FileViewer, { FileMenu } from './files.js';
 import DiffViewer from './diff.js';
+import { GitResultToast, clearGitToast } from './git-result-toast.js';
 import WorkspaceEditor from './workspace-editor.js';
 import Analytics from './analytics.js';
 import XcodeStorage from './xcode-storage.js';
@@ -60,6 +61,9 @@ const agentLoads = new Map();
 
 export default class Devkits extends View {
   init(_props, cx) {
+    if (props()?.view === 'status') {
+      clearGitToast(); setShared('devkits.git-output-request', null);
+    }
     if (props()?.view === 'task-composer') {
       this.taskComposer = new TaskComposer(); this.taskComposer.init(props(), cx);
       cx.spawn(async cx => { try { await this.cachedAgents(props().project?.machine || null); } catch {} cx.notify(); });
@@ -682,7 +686,7 @@ export default class Devkits extends View {
     const conversation = layoutNode(layout(), 'workspace-view');
     const showing = name => Boolean(editor) && shared('devkits.right-panel') === name;
     // Like Zed: the branch sits beside the project in the header; only a remote project names its machine here.
-    return h_flex().size_full().pr(4).gap(8).items_center().bg(t.background).border_t(1).border_color(t.border)
+    return h_flex().relative().size_full().pr(4).gap(8).items_center().bg(t.background).border_t(1).border_color(t.border)
       .text_size(11).text_color(t.muted)
       .when(Boolean(space?.machine), el => el.child(h_flex().pl(16).gap(8).items_center().child(glyph('terminal', 12)).child(space.machine)))
 
@@ -728,7 +732,8 @@ export default class Devkits extends View {
         .bg(taskMode() ? t.selected : t.background)
         .accessibility_label('Tasks')
         .on_click(() => { if (taskMode()) this.closeBoard(); else this.openBoard(space); })
-        .child(glyph('columns-3', 14)).child('Tasks')));
+        .child(glyph('columns-3', 14)).child('Tasks')))
+      .child(GitResultToast(t, space));
   }
 
   threadRow(thread, t, trunk = null) {
