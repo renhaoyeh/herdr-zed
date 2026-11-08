@@ -10,7 +10,7 @@ export async function ensureClaudeStatusLine(directory, { chain = false } = {}) 
   if (!data || typeof data !== 'object' || Array.isArray(data)) return false;
   const command = `node "${appHome().replace(/\\/g, '/')}/mods/devkits-usage/claude-statusline.js"`;
   const current = data.statusLine;
-  const ours = /\/(?:devkits|devkits-usage)\/claude-statusline\.js"$/.test(String(current?.command || ''));
+  const ours = /\/devkits-usage\/claude-statusline\.js"$/.test(String(current?.command || ''));
   if (ours && current.command === command) return false;
   if (current && !ours) {
     if (!chain || current.type !== 'command' || typeof current.command !== 'string') return false;

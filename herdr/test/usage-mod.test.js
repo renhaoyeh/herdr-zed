@@ -112,23 +112,23 @@ test('expired consumer leases stop automatic quota refreshes and unchanged heart
   client.heartbeat(); await flush(); assert.equal(h.queries.length, 2); assert.deepEqual(h.errors, []);
 });
 
-test('the Claude hook installer migrates the old command without chaining itself or rewriting existing backups', async () => {
-  const previous = { type: 'command', command: 'node "/app/mods/devkits/claude-statusline.js"', padding: 2 };
+test('the configured Claude hook stays idempotent and preserves existing chains and backups', async () => {
+  const previous = { type: 'command', command: 'node "/app/mods/devkits-usage/claude-statusline.js"', padding: 2 };
   const files = { '/profile/settings.json': JSON.stringify({ statusLine: previous }), '/profile/devkits-statusline-chain.json': 'original chain', '/profile/settings.json.devkits-backup': 'original backup' }, written = [];
   const { ensureClaudeStatusLine } = await evaluateNative('../mods/devkits/components/claude-usage-hook.js', {
     appHome: () => '/app', readTextFile: async path => files[path] ?? null,
     writeTextFile: async (path, text, expected) => { assert.equal(files[path] ?? null, expected); files[path] = text; written.push(path); },
   }, 'ensureClaudeStatusLine');
-  assert.equal(await ensureClaudeStatusLine('/profile', { chain: true }), true);
+  assert.equal(await ensureClaudeStatusLine('/profile', { chain: true }), false);
   assert.equal(JSON.parse(files['/profile/settings.json']).statusLine.command, 'node "/app/mods/devkits-usage/claude-statusline.js"');
-  assert.deepEqual(written, ['/profile/settings.json']);
+  assert.deepEqual(written, []);
   assert.equal(files['/profile/devkits-statusline-chain.json'], 'original chain'); assert.equal(files['/profile/settings.json.devkits-backup'], 'original backup');
   assert.equal(await ensureClaudeStatusLine('/profile', { chain: true }), false);
 });
 
-test('the old Claude status-line entry still records usage for an already-running session', async t => {
+test('the Usage mod status-line entry records usage directly', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'devkits-hook-')); t.after(() => rm(directory, { recursive: true, force: true }));
-  const script = fileURLToPath(new URL('../mods/devkits/claude-statusline.js', import.meta.url));
+  const script = fileURLToPath(new URL('../mods/devkits-usage/claude-statusline.js', import.meta.url));
   const result = spawnSync(process.execPath, [script], { env: { ...process.env, CLAUDE_CONFIG_DIR: directory },
     input: JSON.stringify({ rate_limits: { five_hour: { used_percentage: 42 } } }), encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr); assert.equal(result.stdout, '5h 42%');

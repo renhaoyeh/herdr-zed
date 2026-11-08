@@ -88,7 +88,7 @@ test('usage reads a saved env launcher through an npm-style shell shim on Window
 
 test('Claude usage comes only from the status line recording in the account directory', async () => {
   const { claudeUsageWindows, readClaudeUsage, claudeConfigDir } = await import('../mods/devkits-usage/usage-reader.js');
-  const { record, statusText } = await import('../mods/devkits/claude-statusline.js');
+  const { record, statusText } = await import('../mods/devkits-usage/claude-statusline.js');
   const { mkdtemp, readFile } = await import('node:fs/promises');
   const { tmpdir } = await import('node:os');
   assert.deepEqual(claudeUsageWindows({ five_hour: { used_percentage: 13.4, resets_at: 1793939999 },
@@ -115,7 +115,7 @@ test('Claude usage comes only from the status line recording in the account dire
 });
 
 test('a chained status line receives the same input and its output replaces the usage text', async () => {
-  const { chained } = await import('../mods/devkits/claude-statusline.js');
+  const { chained } = await import('../mods/devkits-usage/claude-statusline.js');
   const { mkdtemp, writeFile } = await import('node:fs/promises');
   const { tmpdir } = await import('node:os');
   const directory = await mkdtemp(`${tmpdir()}/claude-chain-`);
