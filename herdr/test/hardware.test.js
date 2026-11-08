@@ -1,7 +1,8 @@
+import { systemDisplayPreferences, systemSidebarHeight } from '../mods/devkits/system-display-model.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { cpuSnapshot, cpuPercent, readHardware, parseGPUs, parseDiskCounters, counterRate, diskRates, coreSnapshots, corePercentages } from '../mods/devkits/hardware-reader.js';
-import { hardwarePreferences, hardwareSidebarHeight, selectedHardwareCores, appendHardwareHistory, hardwareChartPoints, hardwareSensorSummary } from '../mods/devkits/hardware-model.js';
+import { hardwarePreferences, selectedHardwareCores, appendHardwareHistory, hardwareChartPoints, hardwareSensorSummary } from '../mods/devkits/hardware-model.js';
 
 test('CPU uses elapsed busy time across every core, with an initial warmup sample', () => {
   const before = cpuSnapshot([{ times: { user: 30, sys: 10, idle: 60 } }, { times: { user: 20, sys: 10, idle: 70 } }]);
@@ -87,20 +88,22 @@ test('monitor preferences retain module visibility, order and core choices acros
   assert.deepEqual(selectedHardwareCores(hardwarePreferences(), 3), [0, 1, 2]);
   assert.deepEqual(selectedHardwareCores(hardwarePreferences({ cores: [] }), 3), []);
   assert.equal(hardwarePreferences({ interval: -1 }).interval, 3);
-  assert.equal(hardwarePreferences(null).cpuMode, 'total');
+  assert.equal(Object.hasOwn(hardwarePreferences(null), 'cpuMode'), false);
 });
 
-test('monitor placement and saved height tolerate old or invalid preferences and smaller windows', () => {
-  assert.equal(hardwarePreferences().placement, 'sidebar');
-  assert.equal(hardwarePreferences().sidebarHeight, 240);
-  assert.equal(hardwarePreferences({ placement: 'status', sidebarHeight: 380 }).placement, 'status');
-  assert.equal(hardwarePreferences({ placement: 'elsewhere', sidebarHeight: -1 }).sidebarHeight, 96);
-  assert.equal(hardwarePreferences({ placement: 'elsewhere' }).placement, 'sidebar');
-  assert.equal(hardwarePreferences({ sidebarHeight: Infinity }).sidebarHeight, 240);
-  assert.equal(hardwarePreferences({ sidebarHeight: 900 }).sidebarHeight, 600);
-  assert.equal(hardwareSidebarHeight(380, 180), 180);
-  assert.equal(hardwareSidebarHeight(380, 70), 70);
-  assert.equal(hardwareSidebarHeight(380, -20), 32);
+test('the host migrates legacy monitor placement and height without moving monitoring preferences', () => {
+  const defaults = systemDisplayPreferences();
+  assert.equal(defaults.sidebar.visible, true); assert.equal(defaults.status.visible, false);
+  assert.equal(defaults.sidebar.height, 240);
+  const migrated = systemDisplayPreferences(undefined, { placement: 'status', sidebarHeight: 380, style: 'compact', cpuMode: 'cores' });
+  assert.deepEqual(migrated, { sidebar: { visible: false, height: 380, style: 'compact', cpuMode: 'cores' }, status: { visible: true } });
+  const saved = systemDisplayPreferences({ sidebar: { visible: true, style: 'inline' }, status: { visible: true } }, { placement: 'status' });
+  assert.equal(saved.sidebar.visible, true); assert.equal(saved.status.visible, true); assert.equal(saved.sidebar.style, 'inline');
+  assert.equal(systemDisplayPreferences({ sidebar: { height: -1, style: 'invalid' } }).sidebar.height, 96);
+  assert.equal(systemDisplayPreferences({ sidebar: { height: Infinity } }).sidebar.height, 240);
+  assert.equal(systemDisplayPreferences({ sidebar: { height: 900 } }).sidebar.height, 600);
+  assert.equal(systemSidebarHeight(380, 180), 180); assert.equal(systemSidebarHeight(380, 70), 70);
+  for (const key of ['placement', 'sidebarHeight', 'style', 'cpuMode']) assert.equal(Object.hasOwn(hardwarePreferences({ [key]: 'legacy' }), key), false);
 });
 
 test('monitor history uses elapsed time, preserves missing data and bounds memory use', () => {

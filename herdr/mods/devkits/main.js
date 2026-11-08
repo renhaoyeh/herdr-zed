@@ -23,7 +23,8 @@ import { sessionMenu } from './session-menu.js';
 import { agentProfiles } from './agent-profiles.js';
 import { accountActions } from './account-actions.js';
 import { agentUsage } from './usage.js';
-import { hardwareUsage } from './hardware.js';
+import { SystemMonitor } from './system-monitor.js';
+import { SystemDisplay, SystemDisplayMenu, openSystemDetails } from './system-display.js';
 import { RunControls, RunMenu, runApp } from './run-app.js';
 import { BranchMenu } from './branch-menu.js';
 import { ProjectLayout, layoutNode, conversationMaximized, maximizeConversation, openTaskBoard, closeTaskBoard, enforceTaskBoard, taskMode } from './project-layout.js';
@@ -64,7 +65,16 @@ const conversationVisible = project => Boolean(project && shared('devkits.conver
 const agentLoads = new Map();
 
 export default class Devkits extends View {
+  systemMonitor = new SystemMonitor({
+    details: props()?.view === 'hardware-details', page: props()?.page, overlay: props()?.overlay,
+    active: () => this.systemDisplay.active(), openDetails: openSystemDetails,
+  });
+  systemDisplay = new SystemDisplay(this.systemMonitor, props()?.view);
+
   init(_props, cx) {
+    if (props()?.view === 'system-display-menu') {
+      this.systemDisplayMenu = new SystemDisplayMenu(props() || {}); this.systemDisplayMenu.init(cx); return;
+    }
     if (['calendar', 'google-calendar'].includes(props()?.view)) {
       const tasks = () => calendarTasks(this.projects(), shared('devkits.agent-board') || {}, shared('devkits.thread-tasks') || {}, agents(), sessionThreadTitle);
       this.calendar = new LocalCalendar({
@@ -107,17 +117,15 @@ export default class Devkits extends View {
       return;
     }
     if (props()?.view === 'usage-details') cx.timer.every(60000, cx => cx.notify());
-    if (['hardware-details', 'status'].includes(props()?.view)) {
-      this.pollHardware(cx, false);
-      cx.timer.every(1000, cx => this.pollHardware(cx));
+    if (['hardware-details', 'status'].includes(props()?.view) || (!props()?.view && cx)) {
+      this.systemDisplay.init(); this.systemMonitor.init(cx);
+      if (props()?.view === 'hardware-details') return;
     }
     if (!props()?.view && cx) {
       cx.timer.every(1500, cx => observeTaskInput(agents(), terminals(), cx));
       // Shared values survive restarts; discover once for this app session.
       setShared('devkits.agent-cache', {});
       this.refreshUsage(cx);
-      this.pollHardware(cx, false);
-      cx.timer.every(1000, cx => this.pollHardware(cx));
       this.initSkillWatch(cx);
       const activeMachine = this.projects().find(project => project.active)?.machine || null;
       for (const machine of new Set([null, ...spaces().map(space => space.machine || null)])) {
@@ -192,7 +200,7 @@ export default class Devkits extends View {
     if (props()?.view === 'rename-account') this.initRenameAccount();
     this.hovered = null;
     this.hoveredProject = null;
-    if (['close-project', 'remove-account', 'rename-account', 'project-menu', 'project-picker', 'usage-details', 'hardware-details'].includes(props()?.view)) {
+    if (['close-project', 'remove-account', 'rename-account', 'project-menu', 'project-picker', 'usage-details'].includes(props()?.view)) {
       this.handle = cx.focus_handle();
       if (props().view !== 'rename-account') this.handle.focus();
       if (props().view === 'project-picker') this.projectIndex = -1;
@@ -703,7 +711,7 @@ export default class Devkits extends View {
     const conversation = layoutNode(layout(), 'workspace-view');
     const showing = name => Boolean(editor) && shared('devkits.right-panel') === name;
     // Like Zed: the branch sits beside the project in the header; only a remote project names its machine here.
-    return h_flex().relative().size_full().pr(4).gap(8).items_center().bg(t.background).border_t(1).border_color(t.border)
+    return this.systemDisplay.contextMenu(h_flex()).id('devkits-status').relative().size_full().pr(4).gap(8).items_center().bg(t.background).border_t(1).border_color(t.border)
       .text_size(11).text_color(t.muted)
       .when(Boolean(space && conversation), el => el
         .child(ToolbarButton('open-conversation', t, { icon: true, disabled: taskMode(), selected: conversationVisible(space) })
@@ -713,14 +721,14 @@ export default class Devkits extends View {
             this.showConversation(!conversationVisible(space));
           }).child(glyph('agent'))))
       .when(Boolean(space?.machine), el => el.child(h_flex().flex_none().gap(8).items_center().child(glyph('terminal', 12)).child(space.machine)))
-      .child(this.systemStatus(t))
+      .child(this.systemDisplay.renderStatus(t))
       .child(h_flex().id('status-actions').min_w(0).h_full().overflow_x_scroll().items_center().gap(8)
       .child(ToolbarButton('settings', t, { icon: true })
         .accessibility_label('Herdr settings')
         .on_click(() => run('app.settings')).child(glyph('gear')))
       .child(h_flex().id('status-workspace-actions').flex_none().h_full().gap(0)
         .child(ToolbarButton('system-monitor-settings', t)
-          .accessibility_label('System monitor settings').on_click(() => this.openHardware('settings'))
+          .accessibility_label('System monitor settings').on_click(() => this.systemMonitor.open('settings'))
           .child(glyph('chart-column')).child('System'))
         .child(ToolbarButton('open-calendar', t)
           .accessibility_label('Calendar').on_click(openCalendar).child(glyph('calendar')).child('Calendar'))
@@ -888,6 +896,7 @@ export default class Devkits extends View {
 
   render(cx) {
     const t = theme();
+    if (props()?.view === 'system-display-menu') return this.systemDisplayMenu.render(t);
     if (['calendar', 'google-calendar'].includes(props()?.view)) return this.calendar.render();
     if (props()?.view === 'codex-sharing') return this.sharingDialog(t);
     if (props()?.view === 'token-statistics') return this.analytics.render();
@@ -907,7 +916,7 @@ export default class Devkits extends View {
     if (props()?.view === 'run-menu') return this.runMenu.render(t);
     if (props()?.view === 'branch-menu') return this.branchMenu.render(t);
     if (props()?.view === 'usage-details') return this.usageDetails(t);
-    if (props()?.view === 'hardware-details') return this.hardwareDetails(t);
+    if (props()?.view === 'hardware-details') return this.systemMonitor.renderDetails(t);
     if (props()?.view === 'brand') return this.brand(t);
     if (props()?.view === 'pane') return this.paneHeader(t, cx);
     if (props()?.view === 'status') return this.statusBar(t);
@@ -994,14 +1003,7 @@ export default class Devkits extends View {
     for (const { space } of groups) projectBoardTasks(space, all);
     const visible = groups.filter(g => !this.folded.has(g.space.id)).flatMap(g => g.threads.filter(thread => threadVisibleInSidebar(g.space, thread)).flatMap(thread => thread.agents));
     setAgentOrder(visible.map(a => a.address));
-    return Sidebar(t)
-      .when(Boolean(this.hardwareResize), el => el.cursor_row_resize())
-      .on_size_change((size, cx) => {
-        if (this.hardwareSidebarAvailable !== size.height) { this.hardwareSidebarAvailable = size.height; cx.notify(); }
-      })
-      .on_mouse_move((event, cx) => this.resizeHardwareSidebar(event, cx))
-      .on_mouse_up('left', (_event, cx) => this.endHardwareResize(cx))
-      .on_hover((inside, cx) => { if (!inside) this.endHardwareResize(cx); })
+    return this.systemDisplay.sidebarContainer(Sidebar(t))
       .child(this.archiveOpen ? this.archiveList(t) : SidebarContent()
         .children(groups.map(({ space, threads }, index) => SidebarGroup(index > 0, t)
           .child(SidebarGroupLabel(`project-${space.id}`, space.active, t).pr(0)
@@ -1033,10 +1035,8 @@ export default class Devkits extends View {
           .when(!this.folded.has(space.id), el => el
             .children(this.groupedThreads(space, threads, t, live))
             .when(!threads.some(thread => threadVisibleInSidebar(space, thread)) && (space.machine || !projectBoardTasks(space).some(task => !task.archived && (task.source !== 'thread' || task.tabs.length > 0))), el => el.child(h_flex().h(32).flex_none().px(12).items_center().text_size(12).text_color(t.muted).child(threads.length ? 'No active threads' : 'No threads yet')))))))
-      .child(this.accountUsage(t).on_size_change((size, cx) => {
-        if (this.hardwareQuotaHeight !== size.height) { this.hardwareQuotaHeight = size.height; cx.notify(); }
-      }))
-      .child(this.systemUsage(t))
+      .child(this.systemDisplay.reservedSidebarContent(this.accountUsage(t)))
+      .child(this.systemDisplay.renderSidebar(t))
       .child(SidebarFooter(t)
         .child(Button('archived-threads', t, { variant: 'ghost', size: 'icon' })
           .accessibility_label(this.archiveOpen ? 'Show threads' : 'Show thread history')
@@ -1047,4 +1047,4 @@ export default class Devkits extends View {
 }
 
 // Feature views share this view's state and its project, agent and session helpers.
-Object.assign(Devkits.prototype, sessionMenu, agentProfiles, accountActions, agentUsage, hardwareUsage, threadArchive);
+Object.assign(Devkits.prototype, sessionMenu, agentProfiles, accountActions, agentUsage, threadArchive);
