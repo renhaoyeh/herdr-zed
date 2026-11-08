@@ -273,6 +273,7 @@ export class SystemMonitorCore extends SystemClient {
         ...(Number.isFinite(gpu.renderer) || Number.isFinite(gpu.tiler) ? [['Renderer / tiler', `${hardwarePercent(gpu.renderer)} / ${hardwarePercent(gpu.tiler)}`]] : [])]),
         ...(Number.isFinite(temperatures.gpu) ? [['Highest GPU sensor', `${temperatures.gpu.toFixed(1)} °C`]] : [])]
       : id === 'ram' ? [['Total RAM', hardwareBytes(memory?.total)], ['RAM type', memory?.type || 'Not reported'],
+        ['RAM model', memory?.model || 'Not reported'],
         ['Manufacturer', memory?.manufacturer || 'Not reported'], ...(memory?.speed ? [['RAM speed', memory.speed]] : []),
         ['Available', hardwareBytes(memory ? memory.total - memory.used : null)],
         ...[['App RAM', memory?.apps], ['Wired', memory?.wired], ['Compressed', memory?.compressed]].filter(([, value]) => Number.isFinite(value)).map(([label, value]) => [label, hardwareBytes(value)]),

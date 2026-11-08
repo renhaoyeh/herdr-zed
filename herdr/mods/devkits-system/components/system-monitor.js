@@ -102,6 +102,17 @@ function hardwareCoreBars(id, data, config, t, height = 24) {
   }));
 }
 
+function hardwareUsageBar(id, percent, module, t) {
+  const value = Number.isFinite(percent) ? Math.max(0, Math.min(100, percent)) : null;
+  return h_flex().id(id).w(116).flex_none().gap(6).items_center()
+    .accessibility_label(`${hardwareTitle(module)} usage: ${hardwarePercent(value)}`)
+    .child(h_flex().flex_1().h(12).gap(1).children(Array.from({ length: 20 }, (_, index) =>
+      div().id(`${id}-${index}`).flex_1().h_full().relative().bg(t.border)
+        .when(value !== null && value > index * 5, el => el.child(div().id(`${id}-${index}-fill`).absolute().left(0).h_full()
+          .w(`${Math.min(100, (value - index * 5) * 20)}%`).bg(hardwareColors(t)[module]))))))
+    .child(div().flex_none().text_size(10).font_family('Geist Mono').text_color(hardwareColors(t)[module]).child(hardwarePercent(value)));
+}
+
 export class SystemMonitor {
   constructor({ active = () => true, openDetails, receiver, onSnapshot } = {}) {
     this.active = active; this.openDetails = openDetails; this.receiver = receiver; this.onSnapshot = onSnapshot;
@@ -158,23 +169,29 @@ export class SystemMonitor {
       .child(div().flex_1());
   }
 
-  renderWidgets(t, { id: prefix = 'system', style = 'graph', cpuMode = 'total', onWidgetSize } = {}) {
+  renderWidgets(t, { id: prefix = 'system', style = 'compact', cpuMode = 'total', onWidgetSize } = {}) {
     const data = this.hardware, config = hardwareConfig(), history = this.hardwareHistory || [];
     const colors = hardwareColors(t);
     const ids = config.order.filter(id => config.visible[id] && hardwareAvailable(id, data));
     return v_flex().id(`${prefix}-widgets`).w_full().gap(0).children(ids.map(id => {
         const rates = id === 'disk' || id === 'network';
-        const capacityRow = id === 'ram' || id === 'disk' || id === 'gpu';
+        const capacityRow = id === 'ram' || id === 'disk' || id === 'gpu' || id === 'storage';
         const gpu = id === 'gpu' ? primaryHardwareGPU(data) : null;
         const coreMode = id === 'cpu' && cpuMode === 'cores';
+        const usageBar = ['ram', 'gpu', 'storage'].includes(id);
+        const percent = this.hardwareError ? null : id === 'ram' ? data?.memory?.percent : id === 'gpu' ? gpu?.percent : data?.disk?.percent;
         const title = ({ ram: data?.memory?.type ? `RAM · ${data.memory.type}` : 'RAM', disk: data?.disk?.model ? `Disk I/O · ${data.disk.model}` : 'Disk I/O', storage: 'Storage', network: 'Network', battery: 'Battery' })[id] || id.toUpperCase();
-        const capacity = id === 'ram' ? data?.memory?.total : id === 'disk' ? data?.disk?.total : gpu?.memory?.total;
+        const capacity = id === 'ram' ? data?.memory?.total : id === 'disk' || id === 'storage' ? data?.disk?.total : gpu?.memory?.total;
+        const model = id === 'cpu' ? data?.cpuName : id === 'ram'
+          ? [data?.memory?.manufacturer, data?.memory?.model, data?.memory?.speed].filter(Boolean).join(' · ')
+          : id === 'gpu' ? gpu?.name : id === 'storage' ? data?.disk?.model : null;
         const value = this.hardwareError ? 'Unavailable' : !data ? 'Loading…' : id === 'cpu' && data.cpu === null ? 'Sampling…'
           : capacityRow ? `${hardwareBytes(capacity).replace(/\.0(?= )/, '')}${id === 'gpu' && Number.isFinite(capacity)
             ? gpu.memory.type === 'unified' ? ' unified' : gpu.memory.type === 'shared' ? ' shared' : ' VRAM' : ''}` : hardwareValue(id, data);
         const subtitle = coreMode ? `${selectedHardwareCores(config, data?.cores).length} of ${data?.cores || '—'} cores`
-          : id === 'ram' && data?.memory ? `${hardwareBytes(data.memory.used)} used · ${hardwarePercent(data.memory.percent)}`
-          : id === 'gpu' && gpu ? `${gpu.name} · ${hardwarePercent(gpu.percent)}`
+          : id === 'ram' && data?.memory ? `${hardwareBytes(data.memory.used)} used`
+          : id === 'gpu' && gpu ? 'Usage'
+          : id === 'storage' && data?.disk ? `${hardwareBytes(data.disk.used)} used`
           : id === 'disk' ? hardwareValue(id, data) : hardwareSubtitle(id, data);
         const card = Button(`${prefix}-${id}`, t, { variant: 'ghost' }).w_full().h_auto().py(style === 'compact' ? 4 : 6).px(12).flex_col().items_stretch().gap(3)
           .accessibility_label(`${title}: ${value}${capacityRow ? ` total. ${subtitle}` : ''}. Open ${hardwareTitle(id)} details`).on_click(() => this.open(id))
@@ -182,10 +199,13 @@ export class SystemMonitor {
             .child(div().min_w(0).truncate().text_size(11).font_medium().text_color(t.foreground).child(title))
             .child(div().flex_1())
             .child(div().id(`${prefix}-${id}-value`).flex_none().text_size(rates && !capacityRow ? 10 : 12).font_family('Geist Mono').text_color(colors[id]).child(value)))
+          .when(['cpu', 'ram', 'gpu', 'storage'].includes(id), el => el.child(div().id(`${prefix}-${id}-model`).w_full().text_left().truncate().text_size(10).text_color(t.muted)
+            .child(model || (data ? 'Model not reported' : 'Waiting for system data'))))
           .when(style === 'graph' || capacityRow, el => el.child(h_flex().w_full().gap(10).items_center()
             .child(div().id(`${prefix}-${id}-subtitle`).flex_1().min_w(0).text_left().truncate().text_size(10).text_color(t.muted)
               .child(subtitle))
-            .when(style === 'graph', el => el.child(div().w(84).flex_none().child(coreMode ? hardwareCoreBars(`${prefix}-core-bars`, data, config, t, 16)
+            .when(usageBar, el => el.child(hardwareUsageBar(`${prefix}-${id}-bar`, percent, id, t)))
+            .when(!usageBar && style === 'graph', el => el.child(div().w(84).flex_none().child(coreMode ? hardwareCoreBars(`${prefix}-core-bars`, data, config, t, 16)
               : hardwareChart(`${prefix}-chart-${id}`, history, id, t, 16))))))
           .when(style === 'compact' && coreMode, el => el.child(hardwareCoreBars(`${prefix}-core-bars`, data, config, t, 16)));
         return onWidgetSize ? v_flex().id(`${prefix}-${id}-layout`).w_full().h_auto().flex_none()

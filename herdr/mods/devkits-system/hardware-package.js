@@ -5,7 +5,7 @@ const list = value => Array.isArray(value) ? value : [];
 const optional = task => task.catch(() => null);
 const label = value => typeof value === 'string' && value.trim() && !/^(unknown|unspecified|n\/a)$/i.test(value.trim()) ? value.trim() : null;
 const join = values => [...new Set(values.filter(Boolean))].join(' / ') || null;
-const inventoryVersion = 'systeminformation@5.33.19:1';
+const inventoryVersion = 'systeminformation@5.33.19:2';
 
 export function packageMemory(raw, info = {}) {
   if (!(raw?.total > 0) || !Number.isFinite(raw.active) || raw.active < 0) return null;
@@ -17,6 +17,7 @@ export function packageMemory(raw, info = {}) {
 export function packageMemoryInfo(rows) {
   const modules = list(rows).filter(row => row.size > 0);
   return { type: join(modules.map(row => label(row.type))), manufacturer: join(modules.map(row => label(row.manufacturer))),
+    model: join(modules.map(row => label(row.partNum))),
     speed: join(modules.map(row => row.clockSpeed > 0 ? `${row.clockSpeed} MHz` : null)) };
 }
 

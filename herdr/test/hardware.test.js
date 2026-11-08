@@ -106,7 +106,7 @@ test('the host migrates legacy monitor placement and height without moving monit
   const migrated = systemDisplayPreferences(undefined, { placement: 'status', sidebarHeight: 380, style: 'compact', cpuMode: 'cores' });
   assert.deepEqual(migrated, { enabled: true, sidebar: { visible: false, heightMode: 'rows', rows: 6, style: 'compact', cpuMode: 'cores' }, status: { visible: true } });
   const saved = systemDisplayPreferences({ sidebar: { visible: true, style: 'inline' }, status: { visible: true } }, { placement: 'status' });
-  assert.equal(saved.sidebar.visible, true); assert.equal(saved.status.visible, true); assert.equal(saved.sidebar.style, 'inline');
+  assert.equal(saved.sidebar.visible, true); assert.equal(saved.status.visible, true); assert.equal(saved.sidebar.style, 'compact');
   assert.equal(systemDisplayPreferences({ sidebar: { heightMode: 'auto' } }).sidebar.heightMode, 'auto');
   const preset = systemDisplayPreferences({ sidebar: { heightMode: 'fixed', height: 350 } }).sidebar;
   assert.equal(preset.heightMode, 'rows'); assert.equal(preset.rows, 6);
