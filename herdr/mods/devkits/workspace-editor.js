@@ -3,6 +3,7 @@ import { v_flex } from 'gpui-base';
 import { shared, setShared, theme } from 'herdr';
 import FileViewer from './files.js';
 import DiffViewer from './diff.js';
+import { gitToastProject } from './git-result-toast.js';
 import { SidePanelLayout } from './components/side-panel.js';
 
 const editorItemKey = item => item.kind === 'commit' ? `commit:${item.commit.sha}` : item.kind;
@@ -50,6 +51,7 @@ export default class WorkspaceEditor {
     if (this.projectKey === key) return;
     const firstProject = this.projectKey === null;
     this.capturePreview(); this.remember();
+    if (this.projectKey) this.diff.close();
     if (this.projectKey) this.sessions.set(this.projectKey, this.session);
     this.projectKey = key; this.diffItemKey = null; this.restoreQueued = null; this.tabSwitch = null;
     this.legacyRestore = false;
@@ -160,6 +162,14 @@ export default class WorkspaceEditor {
     const files = this.files.render(project, cx, true, false);
     if (!this.session.active && this.legacyRestore) { this.legacyRestore = false; this.gitOpened({ kind: 'changes' }); }
     this.syncTabs();
+    const outputRequest = shared('devkits.git-output-request');
+    if (outputRequest) {
+      setShared('devkits.git-output-request', null);
+      if (outputRequest === gitToastProject(project) && outputRequest === gitToastProject(this.diff.context) && this.diff.pushResult) {
+        this.gitOpened(this.session.git.find(item => editorItemKey(item) === this.diffItemKey) || { kind: 'changes' }, cx);
+        this.diff.openLog(cx);
+      }
+    }
     const active = this.session.active;
     const kind = active && !active.startsWith('file:') ? 'diff' : 'files';
     const diff = kind === 'diff' || dock === 'diff' ? this.diff.render(project, cx, true) : null;

@@ -7,7 +7,8 @@ import { promisify } from 'node:util';
 import { execFile } from 'node:child_process';
 
 async function load(host = {}) {
-  host = { shared: () => undefined, setShared() {}, TextEncoder: undefined, TextDecoder: undefined,
+  const memory = {};
+  host = { shared: key => memory[key], setShared: (key, value) => { memory[key] = value; }, TextEncoder: undefined, TextDecoder: undefined,
     v_virtual_list: (_id, count, _sizes, _key, render) => { render({ start: 0, end: count }); return host.div(); },
     Scrollbar: { vertical: () => host.div() }, ...host };
   const source = await readFile(new URL('../mods/devkits/diff.js', import.meta.url), 'utf8');
@@ -18,8 +19,9 @@ async function load(host = {}) {
   const shell = await readFile(new URL('../mods/devkits/shell.js', import.meta.url), 'utf8');
   const command = await readFile(new URL('../mods/devkits/shell-command.js', import.meta.url), 'utf8');
   const utf8 = await readFile(new URL('../mods/devkits/utf8.js', import.meta.url), 'utf8');
-  return new Function(...Object.keys(host), (utf8 + '\n' + command + '\n' + shell + '\n' + menu + '\n' + history + '\n' + auth + '\n' + sidePanel + '\n' + source).replace(/^import .*;\r?\n/gm, '')
-    .replace('export default class', 'class').replace(/^export /gm, '') + '\nreturn { DiffViewer, DropdownMenu, DropdownMenuState, utf8ByteLength, parseDiff, parseDiffBatches, parseDiffAsync, parseDiffIndex, readDiff, readPushState, pushBranch, gitRemoteAction, affectsDiff, pairLines, changedRanges, changeSections, changeTree, wrapLine, isLockFile };')(...Object.values(host));
+  const toast = await readFile(new URL('../mods/devkits/git-result-toast.js', import.meta.url), 'utf8');
+  return new Function(...Object.keys(host), (utf8 + '\n' + command + '\n' + shell + '\n' + menu + '\n' + history + '\n' + auth + '\n' + sidePanel + '\n' + toast + '\n' + source).replace(/^import .*;\r?\n/gm, '')
+    .replace('export default class', 'class').replace(/^export /gm, '') + '\nreturn { DiffViewer, DropdownMenu, DropdownMenuState, showGitToast, clearGitToast, utf8ByteLength, parseDiff, parseDiffBatches, parseDiffAsync, parseDiffIndex, readDiff, readPushState, pushBranch, gitRemoteAction, affectsDiff, pairLines, changedRanges, changeSections, changeTree, wrapLine, isLockFile };')(...Object.values(host));
 }
 const run = promisify(execFile);
 const indexFor = path => `${'a'.repeat(40)}\0/repo\0:100644 100644 abc def M\0${path}\0` + `1\t1\t${path}\0\0`;
@@ -298,6 +300,7 @@ test('split button menu exposes Git operations, counts and keyboard navigation w
   const nodes = new Map(), actions = [], painted = [];
   const editors = [];
   let accountSettings;
+  const memory = {};
   const tasks = [];
   const element = () => {
     const data = { children: [] };
@@ -315,11 +318,11 @@ test('split button menu exposes Git operations, counts and keyboard navigation w
     } });
     return el;
   };
-  const { DiffViewer } = await load({ div: element, svg: element, v_flex: element, h_flex: element,
+  const { DiffViewer, showGitToast } = await load({ div: element, svg: element, v_flex: element, h_flex: element,
     Button: id => element().id(id), Popup: { new: id => element().id(id) },
     Empty: element, EmptyDescription: element, theme: () => ({}), settings: () => ({}),
-    shared: key => key === 'devkits.git-accounts' ? accountSettings : undefined,
-    setShared: (_key, value) => { accountSettings = value; },
+    shared: key => key === 'devkits.git-accounts' ? accountSettings : memory[key],
+    setShared: (key, value) => { if (key === 'devkits.git-accounts') accountSettings = value; else memory[key] = value; },
     exec: async () => ({ code: 0, stdout: JSON.stringify([{ host: 'github.com', login: 'alice', state: 'success' },
       { host: 'github.com', login: 'bob', state: 'error' }]) }),
     VirtualListScrollHandle: { new: () => ({}) }, Editor: { new: element },
@@ -388,14 +391,15 @@ test('split button menu exposes Git operations, counts and keyboard navigation w
   nodes.get('diff-git-actions-fetch').click({}, cx);
   assert.equal(actions.length, 3);
   view.pushResult = { message: 'fatal: authentication failed\nremote: details', failed: true };
-  view.resultTitle = 'Push failed'; view.toastVisible = true;
+  view.resultTitle = 'Push failed';
+  showGitToast(view.context, view.resultTitle, true);
   painted.length = 0;
   view.render(view.context, cx);
   assert.equal(nodes.get('diff-git-footer').children.length, 1, 'Failures never expand the footer');
-  assert.ok(painted.includes('Push failed'));
+  assert.ok(!painted.includes('Push failed'), 'Git results are rendered outside the diff content');
   assert.ok(!painted.includes(view.pushResult.message), 'Raw Git output stays out of the notification');
-  nodes.get('git-view-log').click({}, cx);
-  assert.equal(view.toastVisible, false);
+  view.openLog(cx);
+  assert.equal(memory['devkits.git-result-toast'], null);
   assert.equal(editors[0].readonly, true);
   assert.equal(editors[0].value, view.pushResult.message);
   view.render(view.context, cx);
@@ -403,9 +407,6 @@ test('split button menu exposes Git operations, counts and keyboard navigation w
   nodes.get('git-output-close').click({}, cx);
   assert.equal(editors[0].released, true);
   assert.equal(view.output, null);
-  view.toastVisible = true; view.resultToast({});
-  nodes.get('git-toast-close').click({}, cx);
-  assert.equal(view.toastVisible, false);
   assert.equal(view.pushResult.failed, true, 'Dismissal retains the result');
   view.pushFooter({});
   nodes.get('diff-git-actions-accounts').click({}, cx);
@@ -449,8 +450,10 @@ test('account reads avoid duplicate requests and ignore results after changing p
 
 test('push prevents duplicate actions, retains errors for retry and isolates project changes', async () => {
   const tasks = [], notices = [], calls = [];
+  const memory = {};
   let complete;
   const { DiffViewer } = await load({ VirtualListScrollHandle: { new: () => ({}) },
+    shared: key => memory[key], setShared: (key, value) => { memory[key] = value; },
     notify: notice => notices.push(notice),
     exec: (cmd, args, options) => {
       if (args.includes('devkits-push-state')) return Promise.resolve({ code: 0, stderr: '',
@@ -476,7 +479,7 @@ test('push prevents duplicate actions, retains errors for retry and isolates pro
   assert.equal(view.pushing, null);
   assert.equal(view.pushState.ahead, 0, 'Counts are refreshed before the button is re-enabled');
   assert.deepEqual(view.pushResult, { message: 'authentication failed', failed: true });
-  assert.equal(view.toastVisible, true);
+  assert.equal(memory['devkits.git-result-toast'].title, 'Push failed');
   assert.equal(view.resultTitle, 'Push failed');
   assert.equal(notices.length, 0, 'The local toast does not duplicate a native notification');
   assert.equal(reloads, 1);

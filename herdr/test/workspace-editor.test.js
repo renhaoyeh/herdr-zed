@@ -2,8 +2,14 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
+async function editorSource() {
+  const sources = await Promise.all(['git-result-toast.js', 'workspace-editor.js']
+    .map(name => readFile(new URL(`../mods/devkits/${name}`, import.meta.url), 'utf8')));
+  return sources.join('\n').replace(/^export (?!default)/gm, '');
+}
+
 test('dock switches preserve the document; choosing a file or diff changes the content independently', async () => {
-  const source = await readFile(new URL('../mods/devkits/workspace-editor.js', import.meta.url), 'utf8');
+  const source = await editorSource();
   const store = { 'devkits.editor-kind': 'files', 'devkits.right-panel': 'files' }, renders = [], bindings = [];
   const element = () => new Proxy({}, { get: (_target, key) => key === 'when'
     ? (condition, callback) => condition ? callback(element()) : element() : () => element() });
@@ -36,7 +42,7 @@ test('dock switches preserve the document; choosing a file or diff changes the c
 });
 
 async function editorHarness(store = {}) {
-  const source = await readFile(new URL('../mods/devkits/workspace-editor.js', import.meta.url), 'utf8');
+  const source = await editorSource();
   const element = () => {
     const el = new Proxy({}, { get: (_target, key) => key === 'when' ? (condition, fn) => { if (condition) fn(el); return el; } : () => el });
     return el;
@@ -66,6 +72,7 @@ async function editorHarness(store = {}) {
     openGraph(cx) { this.graph ||= {}; this.graphMode = true; this.opens.push('graph'); this.onOpen({ kind: 'graph' }, cx); }
     openCommit(commit, cx, preview) { this.graphMode = false; this.history.preview = preview || { commit, files: [] }; this.opens.push(commit.sha); this.onOpen({ kind: 'commit', commit }, cx); }
     showChanges(cx) { this.graphMode = false; this.onOpen({ kind: 'changes' }, cx); }
+    openLog() { this.output = this.pushResult; }
     close() {}
   }
   const Editor = new Function('div', 'v_flex', 'shared', 'setShared', 'theme', 'FileViewer', 'DiffViewer', 'SidePanelLayout',
@@ -77,6 +84,25 @@ async function editorHarness(store = {}) {
 }
 
 const editorCommit = letter => ({ sha: letter.repeat(40), shortSha: letter.repeat(7), subject: `Commit ${letter}`, at: 1700000000 });
+
+test('Git output requests return from a file to the previous Git tab and reject another project', async () => {
+  const { editor, cx, store, drain } = await editorHarness({ 'devkits.right-panel': 'diff' });
+  const project = { id: 'one', folder: '/repo' };
+  editor.render(project, cx);
+  editor.diff.openGraph(cx); editor.render(project, cx); await drain();
+  editor.diff.pushResult = { failed: true, message: 'authentication failed' };
+  editor.files.show('one.js', cx); editor.render(project, cx);
+  store['devkits.git-output-request'] = JSON.stringify(['', '/repo']);
+  editor.render(project, cx);
+  assert.equal(editor.session.active, 'graph');
+  assert.equal(editor.diff.output.message, 'authentication failed');
+  assert.equal(editor.diff.graphMode, true, 'Closing the log can restore the graph');
+  assert.equal(store['devkits.git-output-request'], null);
+  editor.files.activate('one.js', cx);
+  store['devkits.git-output-request'] = JSON.stringify(['', '/another']);
+  editor.render(project, cx);
+  assert.equal(editor.session.active, 'file:one.js');
+});
 
 test('files, Git Graph and multiple commit views share a persistent tab strip and opening a commit preserves the graph', async () => {
   const { editor, cx, store } = await editorHarness({ 'devkits.right-panel': 'diff' });

@@ -11,6 +11,7 @@ import { CommitHistory, readCommitSummary } from './git-history.js';
 import { GitGraph } from './git-graph.js';
 import { SidePanelLayout, SidePanelState } from './components/side-panel.js';
 import { gitAccount, setGitAccount, readGitAccounts, gitAuthArgs } from './git-auth.js';
+import { showGitToast, clearGitToast } from './git-result-toast.js';
 
 const icon = name => svg(`mods/devkits/assets/icons/${name}.svg`).size(12).flex_none();
 // Native virtual lists accept at most 10,000 per-item sizes, including chrome rows.
@@ -473,7 +474,7 @@ export default class DiffViewer {
     this.rowStart = null;
     this.visible = null; this.jump = null;
     this.files = []; this.rowCache = null; this.lockFileCache = null; this.treeCache = null;
-    this.toastTimer?.cancel(); this.toastTimer = null; this.toastVisible = false;
+    this.toastTimer?.cancel(); this.toastTimer = null; clearGitToast(this.context);
     this.output?.release(); this.output = null;
     this.watcher?.cancel(); this.poll?.cancel(); this.queued?.cancel();
     this.queued = null;
@@ -629,7 +630,7 @@ export default class DiffViewer {
     const operation = gitActions.find(item => item.key === action);
     if (!operation) return;
     const context = this.context;
-    this.toastTimer?.cancel(); this.toastTimer = null; this.toastVisible = false;
+    this.toastTimer?.cancel(); this.toastTimer = null; clearGitToast(this.context);
     this.pushing = context; this.operation = operation; this.pushResult = null;
     this.gitMenu.open = false; this.gitMenu.page = null;
     cx.notify();
@@ -653,9 +654,9 @@ export default class DiffViewer {
         if (this.graphMode) this.graph?.load(cx);
         this.pushResult = { message, failed };
         this.resultTitle = `${operation.label} ${failed ? 'failed' : 'completed'}`;
-        this.toastVisible = true;
+        showGitToast(context, this.resultTitle, failed);
         if (!failed) this.toastTimer = cx.timer.after(5000, cx => {
-          this.toastVisible = false; this.toastTimer = null; cx.notify();
+          clearGitToast(context); this.toastTimer = null; cx.notify();
         });
         this.reload(cx);
       } else notify({ title: `${operation.label} ${failed ? 'failed' : 'completed'}`, body: context.name || context.folder, level: failed ? 'error' : 'success' });
@@ -693,7 +694,7 @@ export default class DiffViewer {
     this.outputTitle = this.resultTitle;
     this.output = EditorState.new({ readonly: true, soft_wrap: true,
       value: this.pushResult.message, font_family: settings().font_family, font_size: 13 });
-    this.toastVisible = false;
+    clearGitToast(this.context);
     cx.notify();
   }
 
@@ -705,19 +706,6 @@ export default class DiffViewer {
           .accessibility_label('Close Git output').child(icon('close'))
           .on_click((_event, cx) => { this.output.release(); this.output = null; cx.notify(); })))
       .child(Editor.new(this.output).flex_1().min_h(0));
-  }
-
-  resultToast(t) {
-    return h_flex().id('git-result-toast').absolute().bottom(48).right(12).max_w(480)
-      .px(12).py(8).gap(8).items_center().bg(t.chrome).border(1).border_color(t.border)
-      .child(icon(this.pushResult.failed ? 'circle-alert' : 'circle-check')
-        .text_color(this.pushResult.failed ? t.destructive || t.foreground : t.muted))
-      .child(div().min_w(0).text_size(12).child(this.resultTitle))
-      .when(this.pushResult.failed, el => el.child(Button('git-view-log', t, { variant: 'secondary' }).h(26).px(8)
-        .child('View Log').on_click((_event, cx) => this.openLog(cx))))
-      .child(Button('git-toast-close', t, { variant: 'ghost', size: 'icon-sm' })
-        .accessibility_label('Dismiss Git notification').child(icon('close'))
-        .on_click((_event, cx) => { this.toastVisible = false; cx.notify(); }));
   }
 
   pushFooter(t) {
@@ -1208,10 +1196,10 @@ export default class DiffViewer {
   render(project, cx, parts = false) {
     if (this.context?.id !== project?.id || this.context?.folder !== project?.folder || this.context?.machine !== project?.machine) this.refresh(project, cx);
     this.nativeBranch = project?.branch || null;
-    if (this.graphMode) {
+    if (this.graphMode && !this.output) {
       const t = theme();
       const body = div().id('diff-viewer').relative().size_full().min_h(0).bg(t.background).text_color(t.foreground)
-        .child(this.graph.render(t, this.managedTabs)).when(this.toastVisible, el => el.child(this.resultToast(t)));
+        .child(this.graph.render(t, this.managedTabs));
       if (parts) return { content: body, panel: this.panel(t) };
       return div().size_full().child(SidePanelLayout('diff-split', this.sidePanel, body, this.panel(t)));
     }
@@ -1273,7 +1261,7 @@ export default class DiffViewer {
             .child(EmptyDescription(t).text_size(13).child(preview?.pending ? 'Loading commit…' : this.rowJob ? 'Loading changes…' : !this.displayFiles.length && (preview?.files || this.files).length ? 'All changed files are hidden by Hide lock files' : preview ? this.history.previewError ? 'Commit changes unavailable' : 'No file changes in this commit' : this.error ? 'Changes unavailable' : this.loaded ? 'No uncommitted changes' : 'Loading changes…'))
             .when(!preview && Boolean(this.error), el => el.child(EmptyDescription(t).child(this.error))));
     const body = div().id('diff-viewer').relative().size_full().min_h(0).bg(t.background).text_color(t.foreground)
-      .child(content).when(this.toastVisible, el => el.child(this.resultToast(t)));
+      .child(content);
     if (parts) return { content: body, panel: this.panel(t) };
     return div().size_full().child(SidePanelLayout('diff-split', this.sidePanel, body, this.panel(t)));
   }
