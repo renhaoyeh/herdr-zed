@@ -191,7 +191,11 @@ export default class AgentBoard {
         }
       })
       .hover(el => el.bg(this.selected === task.gid ? t.cardSelected : t.cardHover)).on_click((_e, cx) => {
-        if (this.suppressClick === task.gid) { this.suppressClick = null; return; }
+        // Stopping this click can also prevent the lane from receiving the release.
+        const dragging = this.drag?.active;
+        this.drop(project, task.status, cx);
+        cx.stop_propagation();
+        if (dragging || this.suppressClick === task.gid) { this.suppressClick = null; return; }
         this.show(task, project, cx);
       })
       .child(h_flex().gap(6).items_center().text_size(10).text_color(t.muted)
@@ -207,6 +211,11 @@ export default class AgentBoard {
         .when(task.status === 'waiting', el => el.child(glyph('clock', 12).text_color('#b39af5'))));
     };
     const columns = h_flex().id('agent-board-columns').flex_1().h_full().min_w(0).min_h(0).overflow_x_scrollbar().px(8).gap(12)
+      .on_click((_event, cx) => {
+        if (this.suppressClick) { this.suppressClick = null; return; }
+        if (!this.selected) return;
+        this.selected = null; this.currentTask = null; this.selection = null; cx.notify();
+      })
       .children(boardStatuses.map(status => {
         const rows = visible.filter(task => task.status === status.key);
         const canDrop = this.drag?.active && ['todo', 'done', 'fail'].includes(status.key)
@@ -220,7 +229,9 @@ export default class AgentBoard {
             .child(icon(status.key)).child(status.label).child(div().text_color(t.muted).font_normal().child(String(rows.length)))
             .child(div().flex_1())
             .when(!this.archived && status.key === 'todo', el => el.child(button(`board-add-${status.key}`, t, { size: 'icon' })
-              .accessibility_label(`Create task in ${status.label}`).on_click(() => this.compose(project, null, status.key)).child(glyph('plus', 14)))))
+              .accessibility_label(`Create task in ${status.label}`).on_click((_event, cx) => {
+                cx.stop_propagation(); this.compose(project, null, status.key);
+              }).child(glyph('plus', 14)))))
           .child(v_flex().id(`board-column-${status.key}`).flex_1().min_h(0).overflow_y_scrollbar().px(8).gap(8).pb(24).children(rows.map(card)));
       }));
     const tab = (id, label, active, action) => button(id, t).h(28).px(10).rounded(999).border(1)
