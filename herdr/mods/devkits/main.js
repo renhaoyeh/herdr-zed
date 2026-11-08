@@ -1,7 +1,7 @@
 import { View, div, svg, image } from 'gpui-kit';
 import { v_flex, h_flex } from 'gpui-base';
 import { agents, spaces, panes, theme, run, props, window, openOverlay, closeOverlay, setAgentOrder, layout, settings, pickFolder, shared, setShared, knownAgents, notify, appHome, readTextFile, nextCommand, terminals } from 'herdr';
-import { projectGroups, projectCatalog, folderKey, launcherChoices, isAccountLauncher, launcherArgv, sessionArgv, sessionKind, resolveThreadProfiles, threadProfile, threadProgram, archivable, rulesArgv, childTerminals, terminalLabel, terminalWorking, settingsKey } from './model.js';
+import { projectGroups, projectCatalog, folderKey, launcherChoices, isAccountLauncher, launcherArgv, sessionArgv, sessionKind, threadProfile, threadProgram, archivable, rulesArgv, childTerminals, terminalLabel, terminalWorking, settingsKey } from './model.js';
 import { terminalArgv } from './shell-command.js';
 import AccountLogin, { accountLabel } from './account-login.js';
 import FileViewer, { FileMenu } from './files.js';
@@ -9,16 +9,8 @@ import DiffViewer from './diff.js';
 import { GitResultToast, clearGitToast } from './git-result-toast.js';
 import WorkspaceEditor from './workspace-editor.js';
 import Analytics from './analytics.js';
-import LocalCalendar from './calendar.js';
-import { calendarTasks } from './calendar-tasks.js';
 import XcodeStorage from './xcode-storage.js';
-import AgentBoard from './agent-board.js';
-import { observeTaskInput } from './agent-task-evidence.js';
-import TaskComposer, { openTaskComposer } from './task-composer.js';
-import { rememberBoardTask, threadBoardStatus, projectBoardTasks, setTaskArchived, threadTaskArchived, threadVisibleInSidebar, threadBoardTask, sessionThreadTitle } from './agent-board-state.js';
-import { boardStatuses, canStartTask, taskActions } from './agent-board-model.js';
-import { TaskSources } from './task-sources.js';
-import { taskPrompt } from './task-prompt.js';
+import { TaskHost, openTaskComposer, requestTaskOpen, requestTaskSource, requestTaskStart, projectBoardTasks, threadBoardStatus, threadTaskArchived, threadVisibleInSidebar, threadBoardTask, taskLinkForTab, sessionThreadTitle, taskActions, boardStatuses } from './components/tasks.js';
 import { sessionMenu } from './session-menu.js';
 import { agentProfiles } from './agent-profiles.js';
 import { accountActions } from './account-actions.js';
@@ -45,7 +37,7 @@ const startingThreads = new Set();
 const hidePanels = () => { setShared('devkits.asana', null); };
 // Clear legacy inline-panel state when opening an Asana pop-out.
 const rememberPanel = (id, name) => { if (id) setShared('devkits.project-panels', { ...(shared('devkits.project-panels') || {}), [id]: name || null }); };
-const openCalendar = () => openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: false, width: 0.9, height: 0.86,
+const openCalendar = () => openOverlay({ mod: 'devkits-calendar', kind: 'dialog', frame: 'none', modal: false, width: 0.9, height: 0.86,
   props: { view: 'calendar' } });
 const restorePanel = () => false;
 // Like Zed's dock buttons: close only the side panel, preserving the central document.
@@ -63,30 +55,20 @@ export default class Devkits extends View {
     active: () => this.systemDisplay.active(), openDetails: openSystemDetails,
   });
   systemDisplay = new SystemDisplay(this.systemMonitor, props()?.view);
-  taskSources = new TaskSources((project, snapshot) => openTaskComposer(project, null, 'todo', snapshot));
+  taskHost = new TaskHost((event, cx) => this.taskNavigation(event, cx));
 
   init(_props, cx) {
     if (props()?.view === 'system-display-menu') {
       this.systemDisplayMenu = new SystemDisplayMenu(props() || {}); this.systemDisplayMenu.init(cx); return;
     }
-    if (['calendar', 'google-calendar'].includes(props()?.view)) {
-      const tasks = () => calendarTasks(this.projects(), shared('devkits.agent-board') || {}, shared('devkits.thread-tasks') || {}, agents(), sessionThreadTitle);
-      this.calendar = new LocalCalendar({
-        tasks,
-        openTask: id => {
-          const task = tasks().find(task => task.id === id);
-          if (!task) return false;
-          this.openTask(task.project.id, task); return true;
-        },
-      }); this.calendar.init(cx); return;
+    if (['calendar', 'google-calendar', 'task-composer'].includes(props()?.view)) {
+      const target = props(); closeOverlay(target.overlay);
+      openOverlay({ mod: target.view === 'task-composer' ? 'devkits-tasks' : 'devkits-calendar', kind: 'dialog', frame: 'none',
+        modal: target.view === 'task-composer', width: target.view === 'task-composer' ? 760 : 0.9, height: target.view === 'task-composer' ? 400 : 0.86,
+        props: { ...target, overlay: undefined } }); return;
     }
     if (props()?.view === 'status') {
       clearGitToast(); setShared('devkits.git-output-request', null);
-    }
-    if (props()?.view === 'task-composer') {
-      this.taskComposer = new TaskComposer(); this.taskComposer.init(props(), cx);
-      cx.spawn(async cx => { try { await this.cachedAgents(props().project?.machine || null); } catch {} cx.notify(); });
-      return;
     }
     if (props()?.view === 'pane') { this.threadMenu = new DropdownMenuState(cx); return; }
     if (props()?.view === 'codex-sharing') { this.initCodexSharing(cx); return; }
@@ -116,7 +98,7 @@ export default class Devkits extends View {
       if (props()?.view === 'hardware-details') { closeOverlay(props().overlay); openSystemDetails(props()?.page); return; }
     }
     if (!props()?.view && cx) {
-      cx.timer.every(1500, cx => observeTaskInput(agents(), terminals(), cx));
+      this.taskHost.init(cx);
       // Shared values survive restarts; discover once for this app session.
       setShared('devkits.agent-cache', {});
       this.refreshUsage(cx);
@@ -158,9 +140,7 @@ export default class Devkits extends View {
       }
     });
     if (props()?.view === 'editor') {
-      this.taskSources.init(cx);
       this.editor = new WorkspaceEditor(); this.editor.init(cx); this.files = this.editor.files;
-      this.agentBoard = new AgentBoard(); this.agentBoard.init(cx);
       cx.spawn(async cx => { try { await this.cachedAgents(null); } catch {} cx.notify(); });
       cx.spawn(async cx => {
         for (;;) {
@@ -202,7 +182,7 @@ export default class Devkits extends View {
     }
     if (['asana', 'mantisbt'].includes(props()?.view) && props()?.overlay) {
       const target = props(), project = target.project || this.projects().find(project => project.active);
-      this.taskSources.open(project, target.view); if (target.overlay) closeOverlay(target.overlay); return;
+      requestTaskSource(project, target.view); if (target.overlay) closeOverlay(target.overlay); return;
     }
     if (['launcher', 'manage-launchers', 'agent-profile-editor'].includes(props()?.view)) this.initSessionMenu(cx);
   }
@@ -446,15 +426,7 @@ export default class Devkits extends View {
       notify({ title: 'Agent configuration is unavailable', body: 'Choose another agent configuration.' });
       return;
     }
-    const task = target.task;
-    if (task) {
-      const project = this.projects().find(item => item.id === target.space || (!item.machine && folderKey(item.folder) === folderKey(target.folder))) || { folder: target.folder, tabs: [] };
-      const current = projectBoardTasks(project, agents()).find(item => item.gid === task.gid);
-      if (current && !taskActions(current).canStart) {
-        notify({ title: 'Task is not ready to start', body: 'Move this task to Todo before starting a new session.' });
-        return;
-      }
-    }
+    if (target.task) { requestTaskStart(agent, target, options); return; }
     let argv;
     // A choice made for this session wins; otherwise the profile's own default model and effort apply.
     const profile = shared('devkits.profile-sessions')?.[settingsKey(agent)] || {};
@@ -472,19 +444,9 @@ export default class Devkits extends View {
       try { rules = await sessionRules(); } catch {}
       argv = rulesArgv(agent, argv, rules, config?.instructions);
     }
-    // A local task may be deleted while its launch rules are being read.
-    if (task?.source === 'local') {
-      const project = this.projects().find(item => item.id === target.space || (!item.machine && folderKey(item.folder) === folderKey(target.folder)));
-      if (!project || !canStartTask(projectBoardTasks(project, agents()).find(item => item.gid === task.gid))) return;
-    }
-    if (task) argv = [...argv, taskPrompt(task)];
-    // Closing the launcher destroys its async context; finish reading rules first.
     if (target.overlay) closeOverlay(target.overlay);
-    if (task) {
-      rememberBoardTask({ folder: target.folder }, task, { status: 'todo', manual: false, seenWorking: false, agentKey: agent.key, agentName: agent.name });
-    }
     this.closeBoard();
-    this.openThread(target, task?.name || agent?.name, argv, agent?.key, task ? { gid: task.gid, name: task.name, folder: target.folder, ...(task.source ? { source: task.source } : {}) } : null);
+    this.openThread(target, agent?.name, argv, agent?.key, null);
     if (agent?.key) {
       const project = spaces().find(space => space.id === target.space);
       const key = JSON.stringify([project?.machine || '', folderKey(target.folder) || target.space]);
@@ -518,47 +480,24 @@ export default class Devkits extends View {
 
   closeBoard() { closeTaskBoard(); }
 
-  taskAssignees(project) {
-    const available = this.availableAgents(shared('devkits.agent-cache')?.[JSON.stringify(project?.machine || null)] || [], project?.machine);
-    const hidden = shared('devkits.hidden-launchers') || [];
-    return launcherChoices(available, shared('devkits.launcher-order') || [])
-      .filter(choice => choice.agent && choice.agent.installed !== false && !hidden.includes(choice.key))
-      .map(choice => ({ ...choice.agent, name: isAccountLauncher(choice.agent) ? accountLabel(choice.name) : choice.name }));
-  }
 
-  boardPanel(project, cx) {
-    const launchers = this.taskAssignees(project);
-    return this.agentBoard.render(project, agents(), launchers, {
-      asana: () => this.taskSources.open(project),
-      mantisbt: () => this.taskSources.open(project, 'mantisbt'),
-      archive: (task, eventCx) => {
-        const currentProject = this.projects().find(item => item.id === project.id) || project;
-        const current = projectBoardTasks(currentProject, agents()).find(item => item.gid === task.gid);
-        if (!taskActions(current).canArchive) return;
-        task = current;
-        if (!task.tabs.length) { setTaskArchived(project, task, true); return; }
-        const thread = projectGroups([project], agents(), {}, sessionThreadTitle).flatMap(group => group.threads).find(thread => task.tabs.some(tab => tab.id === thread.tab.id));
-        if (thread) eventCx.spawn(async cx => { await this.archiveThread(thread); cx.notify(); });
-      },
-      restore: task => {
-        const entry = (shared('devkits.archived-threads') || []).find(entry => entry.id === task.archiveId);
-        if (entry) this.restoreThread(entry);
-        else setTaskArchived(project, task, false);
-      },
-      close: () => this.closeBoard(),
-      thread: id => {
-        this.selectProject(project);
-        run('tab.select', { id });
-        this.showConversation(true, { ...project, tabs: [{ id, active: true }] });
-      },
-      start: (agent, task, options, eventCx) => eventCx.spawn(async cx => {
-        const currentProject = this.projects().find(item => item.id === project.id) || project;
-        if (!canStartTask(projectBoardTasks(currentProject, agents()).find(item => item.gid === task.gid))) return;
-        try { await this.startThread(agent, { space: project.pending ? null : project.id, folder: project.folder, projectName: project.name, task }, options); }
-        catch (error) { notify({ title: 'Could not start session', body: error.message, level: 'error' }); }
-        cx.notify();
-      }),
-    }, cx);
+
+
+
+  taskNavigation(event, cx) {
+    if (event.type === 'task') {
+      const project = this.projects().find(project => project.id === event.project.id || project.machine === event.project.machine && folderKey(project.folder) === folderKey(event.project.folder));
+      if (!project) return;
+      this.openBoard(project); if (event.gid) setShared('devkits.board-focus', event.gid);
+    } else if (event.type === 'close') this.closeBoard();
+    else if (event.type === 'close-overlay') closeOverlay(event.overlay);
+    else if (event.type === 'project') this.selectProject(event.project);
+    else if (event.type === 'thread') {
+      this.selectProject(event.project); if (event.tab) run('tab.select', { id: event.tab });
+      this.showConversation(true, { ...event.project, ...(event.tab ? { tabs: [{ id: event.tab, active: true }] } : {}) });
+    } else if (event.type === 'launch') this.openThread(event.target, event.name, event.argv, event.profile, event.task);
+    else if (event.type === 'archive-thread') cx.spawn(async cx => { await this.archiveThread(event.thread); cx.notify(); });
+    else if (event.type === 'restore-thread') this.restoreThread(event.entry);
   }
 
   groupedThreads(space, threads, t, live) {
@@ -572,7 +511,7 @@ export default class Devkits extends View {
       return [h_flex().h(26).flex_none().px(12).gap(6).items_center().text_size(10).text_color(t.muted)
         .child(glyph(status.icon, 12).text_color(status.color)).child(status.label).child(String(rows.length + cards.length)),
         ...cards.map(task => SidebarMenuButton(`board-task-${space.id}-${task.gid}`, false, t)
-          .on_click(() => { this.openBoard(space); setShared('devkits.board-focus', task.gid); })
+          .on_click(() => requestTaskOpen(space, task.gid))
           .child(glyph(status.icon, 14).text_color(status.color))
           .child(div().min_w(0).truncate().text_size(13).child(task.name))),
         ...rows.map(thread => this.renderThreadGroup(thread, t, live))];
@@ -581,10 +520,8 @@ export default class Devkits extends View {
 
   async close() {
     this.systemMonitor.close();
-    this.calendar?.close?.();
     this.closeSkillWatch();
     this.sharingPoll?.cancel();
-    this.taskComposer?.saveDraft();
     if (this.editor) this.editor.close();
     else this.files?.close();
     this.diff?.close();
@@ -639,8 +576,8 @@ export default class Devkits extends View {
     const profile = !secondary && thread?.agent ? threadProfile(thread.tab, this.availableAgents(shared('devkits.agent-cache')?.[JSON.stringify(machine)] || [], machine),
       shared('devkits.thread-profiles') || {}) : null;
     const title = secondary ? p.title || 'Terminal' : thread?.tab.name === '__devkits_default_terminal__' && !thread.agent ? 'Terminal' : thread?.title || p.title || 'Terminal';
-    const link = secondary ? null : shared('devkits.thread-tasks')?.[p.tab];
     const project = this.projects().find(project => project.id === thread?.space);
+    const link = secondary ? null : taskLinkForTab(p.tab, project);
     const maximized = conversationMaximized(project);
     this.threadMenu ??= new DropdownMenuState();
     const actions = [{ key: 'close', label: secondary ? 'Close terminal' : 'Close thread' }];
@@ -683,7 +620,7 @@ export default class Devkits extends View {
   openTask(spaceId, task) {
     const project = this.projects().find(project => project.id === spaceId);
     if (!project) return;
-    this.openBoard(project); setShared('devkits.board-focus', task.gid);
+    requestTaskOpen(project, task.gid);
   }
 
   statusBar(t) {
@@ -880,17 +817,15 @@ export default class Devkits extends View {
   render(cx) {
     const t = theme();
     if (props()?.view === 'system-display-menu') return this.systemDisplayMenu.render(t);
-    if (['calendar', 'google-calendar'].includes(props()?.view)) return this.calendar.render();
+    if (['calendar', 'google-calendar', 'task-composer'].includes(props()?.view)) return div();
     if (props()?.view === 'codex-sharing') return this.sharingDialog(t);
     if (props()?.view === 'token-statistics') return this.analytics.render();
     if (props()?.view === 'xcode-storage') return this.xcodeStorage.render();
     if (props()?.view === 'codex-permissions') return div();
     if (props()?.view === 'file-menu') return this.fileMenu.render();
-    if (props()?.view === 'task-composer') return this.taskComposer.render(this.taskAssignees(props().project));
     if (props()?.view === 'editor') {
       const project = this.projects().find(project => project.active);
-      return project && taskMode()
-        ? this.boardPanel(project, cx) : this.editor.render(project, cx);
+      return this.editor.render(project, cx);
     }
     if (props()?.view === 'files') return this.files.render(this.projects().find(project => project.active), cx);
     if (props()?.view === 'diff') return this.diff.render(this.projects().find(project => project.active), cx);
@@ -959,15 +894,6 @@ export default class Devkits extends View {
       if (tab) { defaults[space.id] = tab.id; defaultsChanged = true; }
     }
     if (defaultsChanged) setShared('devkits.default-terminals', defaults);
-    if (shared('devkits.pending-profiles')?.length) {
-      const resolved = resolveThreadProfiles(native, shared('devkits.pending-profiles'), shared('devkits.thread-profiles') || {},
-        Date.now(), shared('devkits.thread-tasks') || {});
-      if (resolved.pending.length !== shared('devkits.pending-profiles').length) {
-        setShared('devkits.thread-profiles', resolved.profiles);
-        setShared('devkits.thread-tasks', resolved.tasks);
-        setShared('devkits.pending-profiles', resolved.pending);
-      }
-    }
     // A split created in the otherwise hidden default shell is user-visible work too.
     const sidebarDefaults = Object.fromEntries(Object.entries(defaults)
       .filter(([, tab]) => modelPanes.filter(pane => pane.tab === tab).length < 2));
@@ -975,14 +901,11 @@ export default class Devkits extends View {
     for (const group of groups) for (const thread of group.threads)
       if (thread.tab.id === defaults[group.space.id] && !thread.agent) thread.title = 'Terminal';
     const live = terminals();
-    observeTaskInput(all, live, cx);
     const openTabs = new Set(groups.flatMap(group => group.threads.map(thread => thread.tab.id)));
     for (const tab of this.archiveChecks?.keys() || []) if (!openTabs.has(tab)) {
       this.archiveChecks.delete(tab); this.closeOnlyThreads?.delete(tab);
     }
     for (const { threads } of groups) for (const thread of threads) this.prepareThreadArchive(thread, cx);
-    // Observe progress even while a project's rows are collapsed or the board is closed.
-    for (const { space } of groups) projectBoardTasks(space, all);
     const visible = groups.filter(g => !this.folded.has(g.space.id)).flatMap(g => g.threads.filter(thread => threadVisibleInSidebar(g.space, thread)).flatMap(thread => thread.agents));
     setAgentOrder(visible.map(a => a.address));
     return this.systemDisplay.sidebarContainer(Sidebar(t))

@@ -13,9 +13,9 @@ async function load(host = {}) {
   Object.assign(host, await evaluateNative('../mods/devkits-asana/connection.js', host, 'readAsanaToken, saveAsanaToken'));
   Object.assign(host, await evaluateNative('../mods/devkits-asana/source.js', host, 'asanaSource'));
   Object.assign(host, await evaluateNative('../mods/devkits/components/task-source-model.js', host, 'filterTasks, sourceTaskSnapshot, relativeTime, previewWidthAt, statusKind, avatarColor, initials, dueLabel, sourcePathKey'));
-  Object.assign(host, await evaluateNative('../mods/devkits/task-prompt.js', host, 'taskPrompt'));
+  Object.assign(host, await evaluateNative('../mods/devkits-tasks/task-prompt.js', host, 'taskPrompt'));
   Object.assign(host, await evaluateNative('../mods/devkits/components/task-source.js', host, 'TaskSourceController, TaskSourceProjectPicker'));
-  Object.assign(host, await evaluateNative('../mods/devkits/task-session.js', host, 'TaskSession'));
+  Object.assign(host, await evaluateNative('../mods/devkits-tasks/task-session.js', host, 'TaskSession'));
   Object.assign(host, await evaluateNative('../mods/devkits-asana/ui.js', host, 'AsanaPanel, AsanaProjectPicker, asanaTheme'));
   return { ...host, taskSourceOptions: (_source, target) => sourceOptions(host, 'asana', target) };
 }

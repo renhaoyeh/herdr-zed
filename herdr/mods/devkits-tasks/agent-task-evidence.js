@@ -1,5 +1,5 @@
 import { shared, setShared, hc, exec, readTextFile, home, appHome } from 'herdr';
-import { agentCommand } from './model.js';
+import { agentCommand } from './components/session-model.js';
 
 const inputProbes = new Map();
 const INPUT_EVIDENCE = 'devkits.task-input-evidence';
@@ -33,7 +33,7 @@ async function locateTaskFile(agent, services) {
 export async function probeTaskState(agent, previous = {}, services = { hc, exec, readTextFile, home, appHome }) {
   const file = previous.file || await locateTaskFile(agent, services);
   if (!file) return { hasInput: null, needsInput: false };
-  const result = await services.exec('node', [`${services.appHome()}/mods/devkits/agent-task-events.cjs`, file,
+  const result = await services.exec('node', [`${services.appHome()}/mods/devkits-tasks/agent-task-events.cjs`, file,
     agent.app === 'codex' ? 'codex' : 'claude', JSON.stringify(previous.file === file ? previous.cursor || {} : {})]);
   if (result.code) return { hasInput: previous.hasInput ?? null, needsInput: Boolean(previous.needsInput), file, cursor: previous.cursor };
   return { ...JSON.parse(result.stdout), file };

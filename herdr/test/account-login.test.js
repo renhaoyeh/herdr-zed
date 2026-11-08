@@ -10,7 +10,7 @@ import { join } from 'node:path';
 async function load(host = {}) {
   host = { launcherLabel, window: () => ({ platform: 'macos' }), ...host };
   const source = await readFile(new URL('../mods/devkits/account-login.js', import.meta.url), 'utf8');
-  const helpers = await Promise.all(['shell-command'].map(name => readFile(new URL(`../mods/devkits/${name}.js`, import.meta.url), 'utf8')));
+  const helpers = await Promise.all(['components/session-shell'].map(name => readFile(new URL(`../mods/devkits/${name}.js`, import.meta.url), 'utf8')));
   const factory = new Function('View', ...Object.keys(host), [...helpers, source].join('\n').replace(/^import .*;\r?\n/gm, '')
     .replace('export default class', 'class').replace(/^export /gm, '') + '\nreturn { AccountLogin, accountProfile, registerAccount, removeAccountProfile, renameAccountProfile, ensureClaudeStatusLine };');
   return factory(class {}, ...Object.values(host));

@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { agentCommand } from '../mods/devkits/model.js';
 
 async function evidenceHost() {
-  const source = await readFile(new URL('../mods/devkits/agent-task-evidence.js', import.meta.url), 'utf8');
+  const source = await readFile(new URL('../mods/devkits-tasks/agent-task-evidence.js', import.meta.url), 'utf8');
   const store = {}, requests = [], tasks = [];
   let hasMessage = false, fileExists = true, pid = 42;
   const services = {

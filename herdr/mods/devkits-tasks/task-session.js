@@ -1,7 +1,7 @@
 import { div } from 'gpui-kit';
 import { h_flex } from 'gpui-base';
 import { shared, setShared, home, readTextFile } from 'herdr';
-import { effortLabel, claudeModels, claudeEfforts, codexHome, codexModels, isClaudeLauncher, isCodexLauncher, sessionKind, shownOptions, orderedOptions, settingsKey, launcherOption } from './model.js';
+import { effortLabel, claudeModels, claudeEfforts, codexHome, codexModels, isClaudeLauncher, isCodexLauncher, sessionKind, shownOptions, orderedOptions, settingsKey, launcherOption } from './components/session-model.js';
 import { Select, SelectState } from './components/select.js';
 import { Button } from './components/button.js';
 import { glyph } from './components/icon.js';

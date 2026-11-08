@@ -1,5 +1,5 @@
 import { shared, setShared, openOverlay, notify, appHome, exec } from 'herdr';
-import { folderKey } from './model.js';
+import { folderKey } from './components/session-model.js';
 import { createSourceChannel, sourceChannels, consumeSourceEvents, closeSourceChannel } from './components/source-channel.js';
 
 // Devkits is a consumer of independently running source mods; no provider/UI imports are needed here.
@@ -11,12 +11,12 @@ export class TaskSources {
     const context = { id: project.id, folder: project.folder, name: project.name, machine: project.machine || null };
     const key = JSON.stringify(['', folderKey(project.folder)]);
     const binding = shared(`devkits.${source}-projects`)?.[key] || null;
-    const channel = createSourceChannel({ receiver: 'devkits', source, context, binding });
+    const channel = createSourceChannel({ receiver: 'devkits-tasks', source, context, binding });
     return openOverlay({ mod: `devkits-${source}`, kind: 'dialog', modal: true, frame: 'none', width: 0.9, height: 0.86,
       props: { channel, context, stateKey: `devkits.${source}`, importLabel: 'Import into Tasks' } });
   }
   poll(cx) {
-    for (const [channel, entry] of sourceChannels('devkits')) {
+    for (const [channel, entry] of [...sourceChannels('devkits-tasks'), ...sourceChannels('devkits')]) {
       const { context, source } = entry.request;
       for (const event of consumeSourceEvents(channel)) {
         if (event.type === 'binding') {

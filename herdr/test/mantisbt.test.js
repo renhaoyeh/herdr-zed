@@ -32,7 +32,7 @@ async function load(options = {}) {
   Object.assign(host, await evaluateNative('../mods/devkits-mantisbt/source.js', host, 'mantisSource'));
   Object.assign(host, await evaluateNative('../mods/devkits/components/task-source-model.js', host, 'filterTasks, sourceTaskSnapshot'));
   Object.assign(host, await evaluateNative('../mods/devkits/components/task-source.js', host, 'TaskSourceController, TaskSourceProjectPicker'));
-  Object.assign(host, await evaluateNative('../mods/devkits/task-prompt.js', host, 'taskPrompt'));
+  Object.assign(host, await evaluateNative('../mods/devkits-tasks/task-prompt.js', host, 'taskPrompt'));
   Object.assign(host, await evaluateNative('../mods/devkits-mantisbt/ui.js', host, 'MantisPanel, MantisProjectPicker, mantisTheme, issueNumber, statusColor'));
   return { ...host, taskSourceOptions: (_source, target) => sourceOptions(host, 'mantisbt', target), memory, files, writes, closed };
 

@@ -1,5 +1,5 @@
 import { shared, setShared, terminals } from 'herdr';
-import { folderKey, threadTitle, configuredAgents } from './model.js';
+import { folderKey, threadTitle, configuredAgents } from './components/session-model.js';
 import { withTaskInputEvidence } from './agent-task-evidence.js';
 import { boardKey, boardTasks, taskStatus, threadTaskId, agentsWithTurns, reconcileBoardRecords, taskActions } from './agent-board-model.js';
 

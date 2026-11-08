@@ -1,22 +1,5 @@
-import { folderKey } from './model.js';
-import { boardKey, boardTasks } from './agent-board-model.js';
-
-export const taskTokenId = (project, gid) => JSON.stringify(['task', project.machine || '', folderKey(project.folder), gid]);
-
-// Read the same task inventory as Tasks without reconciling or writing board state.
-export function calendarTasks(projects, records, links, agents, titleFor) {
-  return projects.filter(project => !project.machine && project.folder).flatMap(project =>
-    boardTasks(project, [], records[boardKey(project)] || {}, links, project.tabs || [], agents, titleFor)
-      .map(task => ({ ...task, project, id: taskTokenId(project, task.gid) })));
-}
-
-export function taskTokenRef(id) {
-  try {
-    const [kind, machine, folder, gid] = JSON.parse(id);
-    return kind === 'task' && [machine, folder, gid].every(value => typeof value === 'string') && folder && gid
-      ? { machine, folder, gid } : null;
-  } catch { return null; }
-}
+import { taskTokenId, taskTokenRef } from './components/tasks-model.js';
+export { taskTokenId, taskTokenRef };
 
 // Retain only intact native tokens and shift their UTF-16 offsets when trimming.
 export function calendarContent(content) {

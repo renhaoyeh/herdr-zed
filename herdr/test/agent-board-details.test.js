@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 async function details() {
-  const source = await readFile(new URL('../mods/devkits/agent-board-details.js', import.meta.url), 'utf8');
+  const source = await readFile(new URL('../mods/devkits-tasks/agent-board-details.js', import.meta.url), 'utf8');
   return new Function(source.replace(/^import .*;\r?\n/gm, '').replace(/^export /gm, '') + '\nreturn { readTaskOutput, outputMarkdown };')();
 }
 

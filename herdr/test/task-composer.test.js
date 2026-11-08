@@ -2,10 +2,10 @@ import { test } from 'node:test';
 import { launcherOption } from '../mods/devkits/model.js';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { boardKey, liveVersion, taskActions } from '../mods/devkits/agent-board-model.js';
+import { boardKey, liveVersion, taskActions } from '../mods/devkits-tasks/agent-board-model.js';
 
 async function composer(options = {}) {
-  const source = await readFile(new URL('../mods/devkits/task-composer.js', import.meta.url), 'utf8');
+  const source = await readFile(new URL('../mods/devkits-tasks/task-composer.js', import.meta.url), 'utf8');
   const memory = {}, closed = [], tasks = [], currentTasks = [];
   const state = { new: () => ({ value: () => '', set_value(value) { this.value = () => value; }, set_auto_grow() {}, on() {}, focus() {} }) };
   const host = { InputState: state, TextareaState: state, SelectState: class {}, launcherOption, boardKey, liveVersion, taskActions, liveAgents: () => [], projectBoardTasks: () => currentTasks,

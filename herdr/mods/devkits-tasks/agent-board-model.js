@@ -1,12 +1,8 @@
-import { folderKey, threadTitle } from './model.js';
+import { folderKey, threadTitle } from './components/session-model.js';
 
-export const boardStatuses = [
-  { key: 'todo', label: 'Todo', icon: 'circle', color: '#96969f' },
-  { key: 'doing', label: 'Doing', icon: 'circle-half', color: '#e5b454' },
-  { key: 'waiting', label: 'Needs your input', icon: 'clock', color: '#b39af5' },
-  { key: 'done', label: 'Done', icon: 'circle-check', color: '#6b80ef' },
-  { key: 'fail', label: 'Fail', icon: 'circle-alert', color: '#e57878' },
-];
+import { boardStatuses } from './components/tasks-model.js';
+export { boardStatuses };
+
 export const boardPriorities = [
   { key: 'none', label: 'No priority', icon: 'priority-none' },
   { key: 'urgent', label: 'Urgent', icon: 'priority-urgent' },

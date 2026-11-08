@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { evaluateNative } from './source-harness.js';
-import { boardKey, taskActions } from '../mods/devkits/agent-board-model.js';
+import { boardKey, taskActions } from '../mods/devkits-tasks/agent-board-model.js';
 
 const storage = () => {
   const values = new Map();
@@ -19,7 +19,7 @@ for (const provider of ['asana', 'mantisbt']) test(`${provider} runs across modu
   const channelNames = 'createSourceChannel, sourceChannel, sourceChannels, publishSourceEvent, consumeSourceEvents, closeSourceChannel, sourceModuleOptions';
   const host = { ...base, folderKey: value => value.replace(/\/+$/, ''), notify: message => assert.fail(message.body) };
   Object.assign(host, await evaluateNative('../mods/devkits/components/source-channel.js', host, channelNames));
-  const { TaskSources } = await evaluateNative('../mods/devkits/task-sources.js', host, 'TaskSources');
+  const { TaskSources } = await evaluateNative('../mods/devkits-tasks/task-sources.js', host, 'TaskSources');
   const project = { id: 'original', name: 'Original', folder: '/original' };
   const consumer = new TaskSources((context, snapshot) => drafts.push({ context, snapshot }));
   consumer.open(project, provider);
@@ -47,11 +47,11 @@ for (const provider of ['asana', 'mantisbt']) test(`${provider} runs across modu
   assert.equal(drafts[0].snapshot.source, provider);
   assert.equal(JSON.stringify(drafts).includes('private'), false, 'Credentials and arbitrary UI/connection fields never cross the import boundary');
   assert.deepEqual(memory[`devkits.${provider}-projects`]['["","/original"]'], binding);
-  assert.equal(host.sourceChannels('devkits').length, 0);
+  assert.equal(host.sourceChannels('devkits-tasks').length, 0);
   const composerHost = { ...base, boardKey, taskActions, liveAgents: () => [], InputState: input, TextareaState: input, SelectState: class {},
     createLocalTask: (_project, name, notes, fields) => { const result = { gid: 'local:1', source: 'local', name, notes, ...fields }; tasks.push(result); return result; },
   };
-  const { TaskComposer } = await evaluateNative('../mods/devkits/task-composer.js', composerHost, 'TaskComposer');
+  const { TaskComposer } = await evaluateNative('../mods/devkits-tasks/task-composer.js', composerHost, 'TaskComposer');
   const composer = new TaskComposer(); composer.init({ project: drafts[0].context, importTask: drafts[0].snapshot, overlay: 'composer' }, cx);
   assert.equal(tasks.length, 0);
   composer.title.set_value('My title'); composer.description.set_value('Edited instructions'); composer.submit([]);
@@ -67,7 +67,7 @@ test('closing a source window consumes its request without importing, while othe
     openOverlay: spec => overlays.push(spec), notify: message => assert.fail(message.body) };
   Object.assign(host, await evaluateNative('../mods/devkits/components/source-channel.js', host,
     'createSourceChannel, sourceChannels, consumeSourceEvents, closeSourceChannel, publishSourceEvent'));
-  const { TaskSources } = await evaluateNative('../mods/devkits/task-sources.js', host, 'TaskSources');
+  const { TaskSources } = await evaluateNative('../mods/devkits-tasks/task-sources.js', host, 'TaskSources');
   const consumer = new TaskSources((project, task) => imported.push([project.folder, task.gid]));
   consumer.open({ id: 'a', folder: '/a' }, 'asana'); consumer.open({ id: 'b', folder: '/b' }, 'asana');
   host.publishSourceEvent(overlays[0].props.channel, { type: 'close' });

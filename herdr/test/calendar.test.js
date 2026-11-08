@@ -3,8 +3,11 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { dayKey, nextDay, localDate, monthDays, weekDays, timelineEvents, timelineMinute, rangeDraft, eventsOnDay, eventTime, eventFromDraft, eventDraft, saveEvent, deleteEvent } from '../mods/devkits/calendar-model.js';
-import { calendarTasks, calendarContent, taskTokenId, taskTokenRef, mentionTrigger } from '../mods/devkits/calendar-tasks.js';
+import { dayKey, nextDay, localDate, monthDays, weekDays, timelineEvents, timelineMinute, rangeDraft, eventsOnDay, eventTime, eventFromDraft, eventDraft, saveEvent, deleteEvent } from '../mods/devkits-calendar/calendar-model.js';
+import { calendarContent, taskTokenId, taskTokenRef, mentionTrigger } from '../mods/devkits-calendar/calendar-tasks.js';
+
+import { taskIndex } from '../mods/devkits/components/tasks-model.js';
+import { boardTasks } from '../mods/devkits-tasks/agent-board-model.js';
 
 const draft = { title: 'Plan the next task', notes: 'Details', startDate: '2026-11-08', endDate: '2026-11-08', startTime: '09:00', endTime: '10:00', allDay: false };
 
@@ -49,7 +52,7 @@ test('cross-midnight events appear on each overlapping day and timed events sort
 });
 
 test('date-time validation rejects nonexistent DST times and keeps all-day dates across DST', async () => {
-  const model = new URL('../mods/devkits/calendar-model.js', import.meta.url).href;
+  const model = new URL('../mods/devkits-calendar/calendar-model.js', import.meta.url).href;
   const script = `import assert from 'node:assert/strict'; import {eventFromDraft,eventsOnDay,localDate} from ${JSON.stringify(model)};
     const draft = {title:'DST',startDate:'2026-03-08',endDate:'2026-03-08',startTime:'02:30',endTime:'04:00'};
     assert.throws(() => eventFromDraft(draft,'one','r'), /unavailable/);
@@ -70,7 +73,7 @@ test('saving and deleting merge current records and reject a stale editor withou
 });
 
 async function ui(memory = {}, target = {}, options = {}) {
-  const source = await readFile(new URL('../mods/devkits/calendar.js', import.meta.url), 'utf8');
+  const source = await readFile(new URL('../mods/devkits-calendar/calendar.js', import.meta.url), 'utf8');
   const nodes = new Map(), texts = [], writes = [], overlays = [], controls = [], bindings = [], elements = new WeakMap(); let rendering = false, closed = false;
   const element = () => {
     const data = {};
@@ -396,7 +399,8 @@ test('calendar task inventory uses project-scoped IDs and includes saved, import
     '["","/work/other"]': { one: { gid: 'one', source: 'asana', name: 'Fix login' } } };
   const links = { imported: { gid: 'imported', source: 'mantisbt', name: 'Imported', folder: project.folder } };
   const before = JSON.stringify({ records, links });
-  const tasks = calendarTasks([project, other, remote], records, links, [{ tab: 'thread1', status: 'working' }]);
+  const snapshot = { projects: Object.fromEntries([project, other, remote].map(project => [JSON.stringify([project.machine || '', project.folder]), { project, tasks: boardTasks(project, [], records[JSON.stringify(['', project.folder])] || {}, links, project.tabs || [], [{ tab: 'thread1', status: 'working' }]) }])) };
+  const tasks = taskIndex(snapshot);
   assert.equal(tasks.length, 5); assert.equal(JSON.stringify({ records, links }), before);
   assert.equal(tasks.find(task => task.gid === 'thread:thread1').status, 'doing');
   assert.equal(tasks.find(task => task.gid === 'old').archived, true, 'retain existing archived references for navigation');

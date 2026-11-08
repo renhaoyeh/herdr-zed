@@ -1,11 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import * as board from '../mods/devkits/agent-board-model.js';
+import * as board from '../mods/devkits-tasks/agent-board-model.js';
 import { folderKey, threadTitle, configuredAgents } from '../mods/devkits/model.js';
 
 async function state(memory = {}) {
-  const source = await readFile(new URL('../mods/devkits/agent-board-state.js', import.meta.url), 'utf8');
+  const source = await readFile(new URL('../mods/devkits-tasks/agent-board-state.js', import.meta.url), 'utf8');
   const host = { ...board, folderKey, threadTitle, configuredAgents, terminals: () => [], withTaskInputEvidence: agents => agents,
     shared: key => memory[key], setShared: (key, value) => { memory[key] = structuredClone(value); } };
   const methods = new Function(...Object.keys(host), source.replace(/^import .*;\r?\n/gm, '').replace(/^export /gm, '')

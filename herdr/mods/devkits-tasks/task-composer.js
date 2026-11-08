@@ -1,16 +1,16 @@
 import { div } from 'gpui-kit';
 import { h_flex, v_flex, InputState, Input, TextareaState, Textarea } from 'gpui-base';
 import { shared, setShared, closeOverlay, openOverlay, agents as liveAgents } from 'herdr';
-import { boardTheme } from './board-theme.js';
+import { boardTheme } from './components/task-theme.js';
 import { boardKey, boardPriorityOptions, taskActions } from './agent-board-model.js';
-import { launcherOption } from './model.js';
+import { launcherOption } from './components/session-model.js';
 import { createLocalTask, rememberBoardTask, projectBoardTasks } from './agent-board-state.js';
 import { Select, SelectState } from './components/select.js';
 import { Button } from './components/button.js';
 import { glyph } from './components/icon.js';
 
 export function openTaskComposer(project, task = null, status = 'todo', importTask = null, parent = null) {
-  return openOverlay({ mod: 'devkits', kind: 'dialog', modal: true, frame: 'none', width: 760, height: 400,
+  return openOverlay({ mod: 'devkits-tasks', kind: 'dialog', modal: true, frame: 'none', width: 760, height: 400,
     props: { view: 'task-composer', project, task, status, importTask, parent } });
 }
 

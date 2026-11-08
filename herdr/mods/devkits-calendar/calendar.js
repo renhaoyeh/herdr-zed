@@ -1,7 +1,7 @@
 import { div } from 'gpui-kit';
 import { h_flex, v_flex, InputState, Input, TextareaState, Textarea, Popup } from 'gpui-base';
 import { shared, setShared, props, openOverlay, closeOverlay } from 'herdr';
-import { boardTheme } from './board-theme.js';
+import { boardTheme } from './components/task-theme.js';
 import { Button } from './components/button.js';
 import { Checkbox } from './components/checkbox.js';
 import { glyph } from './components/icon.js';
@@ -101,7 +101,7 @@ export default class LocalCalendar {
     if (!event && !this.creating) {
       this.cancelRange(cx);
       try {
-        openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: false, width: 560, height: 480,
+        openOverlay({ mod: 'devkits-calendar', kind: 'dialog', frame: 'none', modal: false, width: 560, height: 480,
           props: { view: 'calendar', calendarCreate: true, calendarPreview: previewId,
             draft: { startDate: this.selected, endDate: this.selected, ...initial } } });
       } catch (error) { clearPreview(previewId); throw error; }
@@ -251,7 +251,9 @@ export default class LocalCalendar {
 
   visitTask(id, cx) {
     if (this.creating) return;
-    if (this.openTask(id)) closeOverlay(props().overlay);
+    const opened = this.openTask(id);
+    if (opened === null) return; // The Tasks owner is validating this navigation request.
+    if (opened) closeOverlay(props().overlay);
     else { this.error = 'This task is no longer available in your projects.'; cx.notify(); }
   }
 

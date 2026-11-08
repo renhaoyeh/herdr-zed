@@ -4,7 +4,7 @@ import { shared, setShared, agents as currentAgents, spaces as currentSpaces } f
 import { SourceTaskReader } from './task-sources.js';
 import { TaskSession } from './task-session.js';
 import { boardStatuses, boardKey, liveVersion, boardPriorityOptions, boardPriorities, canStartTask, taskActions, taskManualStatusOptions, taskChildren, canAddSubtask } from './agent-board-model.js';
-import { launcherLabel, launcherOption } from './model.js';
+import { launcherLabel, launcherOption } from './components/session-model.js';
 import { rememberBoardTask, projectBoardTasks, boardRecords, deleteLocalTask } from './agent-board-state.js';
 import { readTaskOutput, taskIdentifier, outputMarkdown } from './agent-board-details.js';
 import { glyph, AgentIcon } from './components/icon.js';
@@ -12,8 +12,8 @@ import { Button } from './components/button.js';
 import { Select, SelectState } from './components/select.js';
 import { SidePanelLayout, SidePanelState } from './components/side-panel.js';
 
-export { boardTheme } from './board-theme.js';
-import { boardTheme } from './board-theme.js';
+export { boardTheme } from './components/task-theme.js';
+import { boardTheme } from './components/task-theme.js';
 import { openTaskComposer } from './task-composer.js';
 const button = (id, t, options = {}) => Button(id, t, { variant: 'ghost', ...options });
 const sourceName = task => task.mantisbt ? 'MantisBT' : task.asana ? 'Asana' : task.source === 'local' ? 'Local task' : task.source === 'thread' ? 'Agent thread' : 'Asana';
