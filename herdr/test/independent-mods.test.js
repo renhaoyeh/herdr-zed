@@ -126,5 +126,10 @@ test('SYSTEM samples in its service only and broadcasts snapshots to isolated mo
   client.close(); details.close(); await flush(); now += 10000;
   for (const tick of serviceCx.timer.callbacks.slice().reverse()) tick(serviceCx); await flush();
   assert.equal(commands.length, 1, 'Closing all consumers stops service sampling');
+  const history = service.monitor.hardwareHistory;
+  clientHost.run('devkits-system.reset'); await flush();
+  assert.deepEqual(sharedWrites, [['devkits.system-monitor', providerHost.hardwarePreferences()]]);
+  assert.equal(service.monitor.hardwareHistory, history, 'Reset preserves warm readings and history');
+  assert.equal(commands.length, 1, 'Reset does not start a reader');
   assert.deepEqual(errors, []);
 });

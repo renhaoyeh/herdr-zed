@@ -1,21 +1,23 @@
 export const hardwareModules = [
   { id: 'cpu', name: 'CPU', description: 'Total usage or selected logical cores' },
-  { id: 'gpu', name: 'GPU', description: 'Graphics processor usage' },
   { id: 'ram', name: 'RAM', description: 'Used RAM and pressure' },
-  { id: 'disk', name: 'Disk activity', description: 'Physical disk read and write speeds' },
-  { id: 'network', name: 'Network', description: 'Download and upload speeds' },
+  { id: 'gpu', name: 'GPU', description: 'Graphics processor usage' },
   { id: 'storage', name: 'Storage', description: 'System volume capacity and free space' },
+  { id: 'network', name: 'Network', description: 'Download and upload speeds' },
+  { id: 'disk', name: 'Disk activity', description: 'Physical disk read and write speeds' },
   { id: 'battery', name: 'Battery', description: 'Charge level and power source, when present' },
   { id: 'sensors', name: 'Sensors', description: 'Optional CPU/GPU/SSD temperatures, fans and power' },
 ];
 
 export function hardwarePreferences(saved = {}) {
   const ids = hardwareModules.map(module => module.id);
+  const savedOrder = Array.isArray(saved?.order) ? saved.order : [];
+  const order = savedOrder.join(',') === 'cpu,gpu,ram,disk,network,storage,battery,sensors' ? ids : savedOrder;
   return {
-    visible: Object.fromEntries(ids.map(id => [id, typeof saved?.visible?.[id] === 'boolean' ? saved.visible[id] : !['storage', 'sensors'].includes(id)])),
-    order: [...new Set([...(Array.isArray(saved?.order) ? saved.order.filter(id => ids.includes(id)) : []), ...ids])],
+    visible: Object.fromEntries(ids.map(id => [id, typeof saved?.visible?.[id] === 'boolean' ? saved.visible[id] : ['cpu', 'ram', 'gpu', 'storage'].includes(id)])),
+    order: [...new Set([...order.filter(id => ids.includes(id)), ...ids])],
     interval: [1, 3, 5, 10].includes(saved?.interval) ? saved.interval : 3,
-    cpuGraph: ['total', 'logical', 'groups'].includes(saved?.cpuGraph) ? saved.cpuGraph : 'logical',
+    cpuGraph: ['total', 'logical', 'groups'].includes(saved?.cpuGraph) ? saved.cpuGraph : 'groups',
     cores: Array.isArray(saved?.cores) ? [...new Set(saved.cores.filter(id => Number.isInteger(id) && id >= 0))] : null,
   };
 }

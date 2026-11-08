@@ -1,6 +1,7 @@
 import { View, div } from 'gpui-kit';
 import { props, theme, openOverlay, run, nextCommand } from 'herdr';
 import { SystemMonitorCore } from './monitor.js';
+import { hardwarePreferences } from './components/system-monitor-model.js';
 import { SystemMonitor, systemClientPrefix, systemSnapshotPrefix, systemCommand, systemMessage } from './components/system-monitor.js';
 export default class SystemMod extends View {
   init(_props, cx) {
@@ -14,7 +15,9 @@ export default class SystemMod extends View {
       this.monitor.init(cx);
       cx.spawn(async cx => {
         for (;;) {
-          const client = systemMessage(await nextCommand(), systemClientPrefix);
+          const command = await nextCommand();
+          if (command === 'reset') { this.monitor.saveHardwarePreference(hardwarePreferences(), cx); continue; }
+          const client = systemMessage(command, systemClientPrefix);
           if (!client?.id || !client.receiver) continue;
           const previous = this.clients.get(client.id);
           if (client.active) this.clients.set(client.id, { receiver: client.receiver, until: Date.now() + 5000 });
