@@ -64,3 +64,34 @@ test('common hardware comes from the package, caches inventory and keeps one act
   assert.equal(partial.memory, null);
   assert.equal(partial.disk.model, 'Fixture SSD');
 });
+
+test('storage attachment changes refresh disk mapping without refreshing CPU and RAM inventory', async () => {
+  const calls = [];
+  const rows = {
+    mem: { total: 1000, active: 100 }, battery: {}, networkInterfaceDefault: null,
+    fsSize: [{ fs: 'C:', mount: 'C:', type: 'NTFS', size: 10000, available: 3000 }],
+    cpu: { brand: 'CPU' }, memLayout: [], graphics: {},
+    blockDevices: [{ name: 'C:', mount: 'C:', device: 'disk0' }],
+    diskLayout: [{ device: 'disk0', name: 'System SSD', size: 10000 }],
+  };
+  const provider = Object.fromEntries(Object.keys(rows).map(key => [key, async () => { calls.push(key); return rows[key]; }]));
+  const first = await readPackageHardware({}, provider, 'C:');
+  rows.fsSize.push({ fs: 'D:', mount: 'D:', type: 'NTFS', size: 5000, available: 1000 });
+  rows.blockDevices.push({ name: 'D:', mount: 'D:', device: 'disk1' });
+  rows.diskLayout.push({ device: 'disk1', name: 'External SSD', size: 5000 });
+  const attached = await readPackageHardware({ packageInventory: first.inventory }, provider, 'C:');
+  assert.equal(attached.storage.drives.length, 2);
+  assert.equal(attached.storage.volumes.length, 2);
+  assert.equal(calls.filter(key => key === 'blockDevices').length, 2);
+  assert.equal(calls.filter(key => key === 'cpu').length, 1);
+  assert.equal(calls.filter(key => key === 'memLayout').length, 1);
+  rows.fsSize.pop(); rows.blockDevices.pop(); rows.diskLayout.pop();
+  const detached = await readPackageHardware({ packageInventory: attached.inventory }, provider, 'C:');
+  assert.equal(detached.storage.drives.length, 1);
+  assert.equal(detached.storage.volumes.length, 1);
+  rows.fsSize = null;
+  const unavailable = await readPackageHardware({ packageInventory: detached.inventory }, provider, 'C:');
+  assert.equal(unavailable.storage.available, false);
+  assert.equal(unavailable.storage.drives.length, 1, 'A failed capacity query preserves known inventory');
+  assert.equal(calls.filter(key => key === 'blockDevices').length, 3);
+});

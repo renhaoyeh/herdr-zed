@@ -7,6 +7,7 @@ import { macTopology } from './components/system-monitor-topology.js';
 import { readWindowsHardware, windowsReadings } from './hardware-windows.js';
 import { readMacSensors } from './hardware-sensors.js';
 import { readPackageHardware } from './hardware-package.js';
+import { storageIORates } from './hardware-storage.js';
 
 const run = promisify(execFile);
 const command = async (bin, args) => (await run(bin, args, { timeout: 1500, maxBuffer: 4 * 1024 * 1024,
@@ -66,7 +67,8 @@ export function parseDiskCounters(text) {
     const id = /IOBlockStorageDriver[^\n]*id (0x[\da-f]+)/i.exec(block)?.[1];
     const read = Number(/"Bytes \(Read\)"=(\d+)/.exec(block)?.[1]);
     const write = Number(/"Bytes \(Write\)"=(\d+)/.exec(block)?.[1]);
-    if (id && Number.isFinite(read) && Number.isFinite(write)) disks[id] = { read, write };
+    const device = /"BSD Name"\s*=\s*"(disk\d+)"/.exec(block)?.[1];
+    if (id && Number.isFinite(read) && Number.isFinite(write)) disks[id] = { read, write, ...(device ? { device } : {}) };
   }
   return Object.keys(disks).length ? disks : null;
 }
@@ -104,7 +106,8 @@ export async function readHardware(previous = null, options = {}) {
     const network = common.network ? { ...common.network, rates: previous?.network?.name === common.network.name
       ? counterRate(previous.network, common.network, common.network.at - previous.network.at, ['received', 'sent']) : null } : null;
     return { ...result, sample: { ...sample, ...result.sample, network: sample.network, topology: result.topology },
-      memory: common.memory, battery: common.battery, network,
+      memory: common.memory, battery: common.battery, network, storage: common.storage,
+      diskIO: storageIORates(common.storage.drives, previous?.disks, result.sample.disks),
       gpus: result.gpus.length ? result.gpus : common.inventory.gpus,
       disk: common.disk ? { ...common.disk, rates: result.diskRates } : null,
       sensorStatus: options.sensors ? result.sensors.length ? null : 'No supported sensor provider returned readings. Windows sensor availability depends on hardware and drivers.' : 'Enable Sensors in Settings to collect temperature, fan and power readings.',
@@ -146,7 +149,8 @@ export async function readHardware(previous = null, options = {}) {
   }) : common.inventory.gpus;
   return { sample, cpu: cpuPercent(previous, sample), cpuName: processors[0]?.model || cpu?.name || 'CPU', cores: processors.length,
     coreUsage: corePercentages(previous?.perCore, sample.perCore), topology: sample.topology,
-    load: loadavg(), memory: common.memory, gpus,
+    load: loadavg(), memory: common.memory, gpus, storage: common.storage,
+    diskIO: storageIORates(common.storage.drives, previous?.disks, sample.disks, seconds),
     disk: common.disk ? { ...common.disk, rates: diskRates(previous?.disks, sample.disks, seconds) } : null,
     network, battery: common.battery, ...sensorData, platform, updatedAt: Date.now() };
 }

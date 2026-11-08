@@ -98,7 +98,7 @@ test('SYSTEM samples in its service only and broadcasts snapshots to isolated mo
   const exports = 'SystemMonitor, systemClientPrefix, systemSnapshotPrefix, systemCommand, systemMessage, hardwareColors, hardwareAvailable, hardwareTitle, primaryHardwareGPU, hardwareValue, hardwareSubtitle, hardwareChart';
   const providerHost = endpoint('devkits-system');
   Object.assign(providerHost, await evaluateNative('../mods/devkits/components/system-monitor-model.js', providerHost,
-    'hardwareModules, hardwarePreferences, selectedHardwareCores, hardwareBytes, hardwarePercent, hardwareSpeed, hardwarePower, hardwarePoint, hardwareSensorSummary, appendHardwareHistory, hardwareChartPoints'));
+    'hardwareModules, hardwarePreferences, selectedHardwareCores, hardwareBytes, hardwarePercent, hardwareSpeed, hardwarePower, hardwarePoint, hardwareSensorSummary, appendHardwareHistory, hardwareChartPoints, hardwareChartScale, hardwareDisplayItems, hardwareDisplayHistory'));
   Object.assign(providerHost, await evaluateNative('../mods/devkits/components/system-monitor-topology.js', providerHost, 'processorLabel, topologyGroups, topologyLabel'));
   Object.assign(providerHost, await evaluateNative('../mods/devkits/components/system-monitor.js', providerHost, exports));
   providerHost.SystemClient = providerHost.SystemMonitor;

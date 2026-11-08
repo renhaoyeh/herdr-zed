@@ -2,7 +2,7 @@ import { systemDisplayPreferences, systemSidebarHeight } from '../mods/devkits/s
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { cpuSnapshot, cpuPercent, readHardware, parseGPUs, parseDiskCounters, counterRate, diskRates, coreSnapshots, corePercentages } from '../mods/devkits-system/hardware-reader.js';
-import { hardwarePreferences, selectedHardwareCores, appendHardwareHistory, hardwareChartPoints, hardwareChartScale, hardwareSensorSummary } from '../mods/devkits-system/components/system-monitor-model.js';
+import { hardwarePreferences, selectedHardwareCores, appendHardwareHistory, hardwareChartPoints, hardwareChartScale, hardwareSensorSummary, hardwareDisplayItems, hardwareDisplayHistory, hardwarePoint } from '../mods/devkits-system/components/system-monitor-model.js';
 
 test('CPU uses elapsed busy time across every core, with an initial warmup sample', () => {
   const before = cpuSnapshot([{ times: { user: 30, sys: 10, idle: 60 } }, { times: { user: 20, sys: 10, idle: 70 } }]);
@@ -160,6 +160,36 @@ test('chart scales preserve percentage units and use only recent finite readings
   assert.equal(hardwareChartScale(history, ['sensor:cpu', 'sensor:gpu'], 'sensors', 200000), 110);
   assert.equal(hardwareChartScale([], ['sensor:cpu'], 'sensors', 200000), 100);
   assert.equal(hardwareChartScale(history, ['cpu'], 'cpu', 200000), 100);
+});
+
+test('selected volume and I/O cards keep separate values, identities and history without substituting missing devices', () => {
+  const config = hardwarePreferences({ order: ['storage', 'disk', 'sensors'],
+    visible: { cpu: false, ram: false, gpu: false, disk: true, sensors: true },
+    storageVolumes: ['volume:c', 'volume:d'], ioDisks: ['drive:b'], temperatureGroups: ['gpu'] });
+  const data = { updatedAt: 100000, disk: { percent: 20, rates: { read: 999, write: 999 } },
+    storage: { drives: [{ id: 'drive:a', model: 'A' }], pools: [], volumes: [
+      { id: 'volume:c', mount: 'C:', driveIds: ['drive:a'], total: 1000, used: 200, free: 800, percent: 20 },
+      { id: 'volume:d', mount: 'D:', driveIds: ['drive:a'], total: 1000, used: 800, free: 200, percent: 80 },
+    ] }, diskIO: [{ id: 'drive:b', model: 'B', rates: { read: 42, write: 24 } }],
+    sensors: [{ name: 'CPU', type: 'Temperature', value: 70 }, { name: 'GPU', type: 'Temperature', value: 40 }] };
+  const items = hardwareDisplayItems(data, config);
+  assert.equal(items.length, 4);
+  assert.equal(new Set(items.map(item => item.key)).size, 4);
+  assert.equal(items[1].data.disk.percent, 80);
+  assert.equal(items[2].data.disk.rates.read, 42);
+  assert.deepEqual(hardwareSensorSummary(items[3].data), { gpu: 40 });
+  const history = [hardwarePoint(data)];
+  assert.equal(hardwareDisplayHistory(history, items[1])[0].storage, 80);
+  assert.equal(hardwareDisplayHistory(history, items[2])[0].read, 42);
+  assert.equal(hardwareDisplayHistory([{ at: 1, storage: 20, read: 999 }], items[1])[0].storage, null);
+  assert.equal(hardwareDisplayHistory(history, items[3])[0]['sensor:cpu'], null);
+  data.storage.volumes[1] = { ...data.storage.volumes[1], id: 'volume:replacement' };
+  const missing = hardwareDisplayItems(data, config)[1];
+  assert.equal(missing.data.disk.percent, null);
+  assert.equal(missing.label, 'Storage · Unavailable volume');
+  assert.equal(data.disk.percent, 20);
+  assert.equal(hardwarePreferences().storageVolumes, null);
+  assert.equal(hardwarePreferences().ioDisks, null);
 });
 
 test('macOS SMC probe returns typed read-only readings or an explicit capability status', { skip: process.platform !== 'darwin' }, async () => {

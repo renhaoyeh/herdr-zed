@@ -6,7 +6,7 @@ import { Checkbox } from './components/checkbox.js';
 import { ToggleGroup, ToggleGroupItem } from './components/toggle-group.js';
 import { DialogContent, DialogTitle, DialogDescription, DialogFooter } from './components/dialog.js';
 import { glyph } from './components/icon.js';
-import { hardwareModules, hardwarePreferences, selectedHardwareCores, hardwareBytes, hardwarePercent, hardwareSpeed, hardwarePower, hardwarePoint, hardwareSensorSummary, appendHardwareHistory, hardwareChartPoints } from './components/system-monitor-model.js';
+import { hardwareModules, hardwarePreferences, selectedHardwareCores, hardwareBytes, hardwarePercent, hardwareSpeed, hardwarePower, hardwarePoint, hardwareSensorSummary, appendHardwareHistory, hardwareChartPoints, hardwareDisplayItems, hardwareDisplayHistory } from './components/system-monitor-model.js';
 import { topologyGroups, topologyLabel, processorLabel } from './components/system-monitor-topology.js';
 import { SystemMonitor as SystemClient, hardwareColors, hardwareAvailable, hardwareTitle, primaryHardwareGPU, hardwareValue, hardwareSubtitle, hardwareChart } from './components/system-monitor.js';
 const moveOption = (keys, key, target) => { const from = keys.indexOf(key), to = keys.indexOf(target); if (from < 0 || to < 0 || from === to) return keys; const next = [...keys]; next.splice(to, 0, next.splice(from, 1)[0]); return next; };
@@ -35,7 +35,7 @@ export class SystemMonitorCore extends SystemClient {
   snapshot() {
     const config = hardwareConfig();
     return { data: this.hardware, history: this.hardwareHistory || [], error: Boolean(this.hardwareError), updatedAt: this.hardwareCheckedAt,
-      widgets: config.order.filter(id => config.visible[id] && hardwareAvailable(id, this.hardware)) };
+      widgets: hardwareDisplayItems(this.hardware, config).map(item => item.key) };
   }
 
   init(cx) {
@@ -182,29 +182,35 @@ export class SystemMonitorCore extends SystemClient {
         .child(DialogDescription(t).child('Choose what to show and drag the handles to reorder. Changes save automatically.')))
       .child(h_flex().w_full().gap(24).items_start()
         .child(v_flex().flex_1().min_w(0).gap(16)
-          .child(div().text_size(11).font_medium().text_color(t.muted).child('WIDGETS')).child(widgets))
+          .child(div().text_size(11).font_medium().text_color(t.muted).child('WIDGETS')).child(widgets)
+          .child(DialogDescription(t).child('Choose individual volumes, disks and temperatures on their detail pages.'))
+          .children([['storage', 'Choose Storage volumes'], ['disk', 'Choose Disk I/O'], ['sensors', 'Choose temperatures']].map(([page, label]) =>
+            Button(`hardware-choose-${page}`, t, { variant: 'outline' }).justify_start().child(label)
+              .on_click((_event, cx) => { this.hardwarePage = page; cx.notify(); }))))
         .child(display));
   }
 
-  hardwareMetricCard(id, t, large = false) {
-    const data = this.hardware, history = this.hardwareHistory || [], color = hardwareColors(t)[id];
+  hardwareMetricCard(id, t, large = false, item = null) {
+    const data = item ? item.data : this.hardware, history = hardwareDisplayHistory(this.hardwareHistory || [], item), color = hardwareColors(t)[id];
     const rates = id === 'disk' || id === 'network';
     const rateKeys = id === 'disk' ? ['read', 'write'] : ['received', 'sent'];
     const rateData = id === 'disk' ? data?.disk?.rates : data?.network?.rates;
     const summary = hardwareSensorSummary(data);
     const temperature = id === 'cpu' ? summary.cpu : id === 'gpu' ? summary.gpu : null;
-    const legend = rates ? (id === 'disk' ? ['Read', 'Write'] : ['Download', 'Upload']) : id === 'sensors' ? ['CPU', 'GPU', 'SSD'] : [];
-    const legendColors = id === 'sensors' ? [hardwareColors(t).cpu, hardwareColors(t).gpu, hardwareColors(t).storage] : [color, t.ansi5 || t.blocked];
-    return v_flex().id(`hardware-detail-${id}`).flex_1().flex_basis(0).min_w(0).h_auto().p(16).gap(10).border(1).border_color(t.border)
+    const legend = rates ? (id === 'disk' ? ['Read', 'Write'] : ['Download', 'Upload']) : id === 'sensors' ? Object.keys(summary).map(key => key.toUpperCase()) : [];
+    const legendColors = id === 'sensors' ? Object.keys(summary).map(key => hardwareColors(t)[key === 'ssd' ? 'storage' : key]) : [color, t.ansi5 || t.blocked];
+    return v_flex().id(`hardware-detail-${item?.key || id}`).flex_1().flex_basis(0).min_w(0).h_auto().p(16).gap(10).border(1).border_color(t.border)
       .when(!large, el => el.h(260))
       .child(h_flex().h(18).flex_none().items_center().gap(8)
-        .child(div().flex_1().text_size(12).font_semibold().child(hardwareTitle(id)))
+        .child(div().flex_1().text_size(12).font_semibold().child(item?.label || hardwareTitle(id)))
         .when(Number.isFinite(temperature), el => el.child(div().text_size(11).text_color(t.muted).child(`${temperature.toFixed(1)} °C sensor`)))
         .when(id === 'ram' && Boolean(data?.memory?.pressure), el => el.child(div().text_size(10)
           .text_color(data.memory.pressure === 'Critical' ? t.ansi1 : data.memory.pressure === 'Warning' ? t.blocked : t.working).child(data.memory.pressure))))
       .when(!rates && id !== 'sensors', el => el.child(div().h(44).flex_none().text_size(large ? 38 : 28).line_height(1.1).font_family('Geist Mono').text_color(color)
         .child(this.hardwareError ? 'Unavailable' : hardwareValue(id, data))))
-      .when(id === 'sensors', el => el.child(h_flex().h(44).flex_none().gap(12).children(Object.entries(summary).map(([key, value], index) =>
+      .when(id === 'sensors', el => el.child(h_flex().h(44).flex_none().gap(12)
+        .when(!Object.keys(summary).length, el => el.child(DialogDescription(t).child('No temperatures selected')))
+        .children(Object.entries(summary).map(([key, value], index) =>
         v_flex().id(`hardware-sensor-summary-${key}`).flex_1().min_w(0).gap(3)
           .child(div().text_size(10).text_color(t.muted).child(key.toUpperCase()))
           .child(div().text_size(large ? 24 : 18).font_family('Geist Mono').text_color(legendColors[index])
@@ -284,6 +290,7 @@ export class SystemMonitorCore extends SystemClient {
 
   hardwareModuleDetails(id, t) {
     if (id === 'sensors') return this.hardwareSensorDetails(t);
+    if (id === 'storage' && this.hardware?.storage) return this.hardwareStorageDetails(t);
     const data = this.hardware, memory = data?.memory, disk = data?.disk, network = data?.network, battery = data?.battery;
     const temperatures = hardwareSensorSummary(data);
     const entries = id === 'cpu' ? [['Processor', data?.cpuName], ['Sockets', data?.topology?.sockets], ['Physical cores', data?.topology?.physical], ['Logical processors', data?.cores],
@@ -303,13 +310,14 @@ export class SystemMonitorCore extends SystemClient {
         ['Available', hardwareBytes(memory ? memory.total - memory.used : null)],
         ...[['App RAM', memory?.apps], ['Wired', memory?.wired], ['Compressed', memory?.compressed]].filter(([, value]) => Number.isFinite(value)).map(([label, value]) => [label, hardwareBytes(value)]),
         [data?.platform === 'win32' ? 'Page file used / total' : 'Swap used / total', memory?.swap ? `${hardwareBytes(memory.swap.used)} / ${hardwareBytes(memory.swap.total)}` : null]]
-      : id === 'disk' ? [['System disk model', disk?.model || 'Not reported'], ...(disk?.type ? [['Drive type', disk.type]] : []),
-        ...(disk?.protocol ? [['Connection', disk.protocol]] : []), ['System volume capacity', hardwareBytes(disk?.total)], ['Read speed', hardwareSpeed(disk?.rates?.read)], ['Write speed', hardwareSpeed(disk?.rates?.write)], ['Scope', 'All physical disks · disk images excluded']]
+      : id === 'disk' ? [['Scope', 'All physical disks · disk images excluded'], ['Detected disks', data?.storage?.drives.length ?? null],
+        ['Read speed', hardwareSpeed(disk?.rates?.read)], ['Write speed', hardwareSpeed(disk?.rates?.write)]]
       : id === 'storage' ? [['System disk model', disk?.model || 'Not reported'], ['Used', hardwareBytes(disk?.used)], ['Available', hardwareBytes(disk?.free)], ['Total', hardwareBytes(disk?.total)]]
       : id === 'network' ? [['Active interface', network?.name], ['Received since interface started', hardwareBytes(network?.received)], ['Sent since interface started', hardwareBytes(network?.sent)]]
       : [['Power source', hardwarePower(battery)], ['Health', hardwarePercent(battery?.health)], ['Cycles', battery?.cycles], ['Battery temperature', Number.isFinite(battery?.temperature) ? `${battery.temperature.toFixed(1)} °C` : null]];
     const gpu = primaryHardwareGPU(data), stacked = (this.hardwareWidth || 1400) < 1050;
     const chart = v_flex().flex_1().min_w(0).gap(16)
+      .when(id === 'disk', el => el.child(this.hardwareDiskDisplay(t)))
       .child(id === 'cpu' ? this.hardwareCPUCharts(t) : this.hardwareMetricCard(id, t, true))
       .when(id === 'ram', el => el.child(this.hardwareCapacity('ram', 'RAM capacity', memory?.used, memory?.total, t)))
       .when(id === 'storage', el => el.child(this.hardwareCapacity('storage', 'System volume', disk?.used, disk?.total, t)))
@@ -327,6 +335,113 @@ export class SystemMonitorCore extends SystemClient {
           .child(div().flex_1().min_w(0).text_size(11).text_right().child(value === null || value === undefined ? 'Unavailable' : String(value))))));
   }
 
+  hardwareStorageVolume(volume, t) {
+    const name = [volume.mount, volume.label, volume.system ? 'System' : null].filter(Boolean).join(' · ');
+    const config = hardwareConfig(), selected = config.storageVolumes === null ? volume.system : config.storageVolumes.includes(volume.id);
+    const control = () => Checkbox(`hardware-display-${volume.id}`, selected, t).text_size(11).child('Show in main panel')
+      .on_change((checked, cx) => this.selectStorageVolume(volume.id, checked, cx));
+    if (!volume.poolId) return this.hardwareCapacity('storage', name, volume.used, volume.total, t)
+      .id(`hardware-storage-${volume.id}`).border(0).px(14).py(12)
+      .child(div().text_size(10).text_color(t.muted).child(volume.type || 'File system not reported'))
+      .child(control());
+    return h_flex().id(`hardware-storage-${volume.id}`).w_full().px(14).py(12).gap(16).items_start()
+      .child(v_flex().flex_1().min_w(0).gap(4)
+        .child(div().text_size(12).child(name))
+        .child(div().text_size(10).text_color(t.muted).child(`${volume.type || 'APFS'} · Shares pool capacity`))
+        .child(control()))
+      .child(div().flex_none().text_size(12).font_family('Geist Mono').child(`${hardwareBytes(volume.used)} used`));
+  }
+
+  selectStorageVolume(id, checked, cx) {
+    const config = hardwareConfig(), volumes = this.hardware?.storage?.volumes || [];
+    if (checked && !volumes.some(volume => volume.id === id)) { cx.notify(); return; }
+    const selected = config.storageVolumes ?? volumes.filter(volume => volume.system).map(volume => volume.id);
+    const storageVolumes = checked ? [...new Set([...selected, id])] : selected.filter(key => key !== id);
+    this.saveHardwarePreference({ storageVolumes, visible: { ...config.visible, storage: storageVolumes.length > 0 } }, cx);
+  }
+
+  hardwareDiskDisplay(t) {
+    const config = hardwareConfig(), available = this.hardware?.diskIO || [];
+    const disks = [...available, ...(config.ioDisks || []).filter(id => !available.some(disk => disk.id === id))
+      .map(id => ({ id, model: 'Unavailable selected disk', supported: false }))];
+    return v_flex().id('hardware-disk-display').w_full().max_w(560).p(14).gap(10).border(1).border_color(t.border)
+      .child(div().text_size(12).font_semibold().child('Show in main panel'))
+      .child(Checkbox('hardware-disk-combined', config.ioDisks === null, t).text_size(11).child('All physical disks combined')
+        .on_change((checked, cx) => this.saveHardwarePreference({ ioDisks: checked ? null : [],
+          visible: { ...hardwareConfig().visible, disk: checked } }, cx)))
+      .children(disks.map(disk => Checkbox(`hardware-display-io-${disk.id}`, Boolean(config.ioDisks?.includes(disk.id)), t).text_size(11)
+        .disabled(disk.supported === false && !config.ioDisks?.includes(disk.id))
+        .child(`${disk.model || disk.device}${disk.supported === false ? ' · Per-disk rates unavailable' : ''}`)
+        .on_change((checked, cx) => {
+          if (checked && !this.hardware?.diskIO?.some(row => row.id === disk.id && row.supported !== false)) { cx.notify(); return; }
+          const current = hardwareConfig(), selected = current.ioDisks || [];
+          const ioDisks = checked ? [...new Set([...selected, disk.id])] : selected.filter(id => id !== disk.id);
+          this.saveHardwarePreference({ ioDisks, visible: { ...current.visible, disk: ioDisks.length > 0 } }, cx);
+        })));
+  }
+
+  hardwareStoragePool(pool, storage, t) {
+    return v_flex().id(`hardware-storage-pool-${pool.id}`).w_full().flex_none()
+      .child(this.hardwareCapacity('storage', `APFS shared pool · ${pool.device}`, pool.used, pool.total, t)
+        .id(`hardware-storage-pool-capacity-${pool.id}`).border(0).px(14).py(12))
+      .children(storage.volumes.filter(volume => volume.poolId === pool.id).map(volume => this.hardwareStorageVolume(volume, t)));
+  }
+
+  hardwareStorageDrive(drive, storage, t) {
+    const volumes = storage.volumes.filter(volume => !volume.poolId && volume.driveIds.length === 1 && volume.driveIds[0] === drive.id);
+    const pools = storage.pools.filter(pool => pool.driveIds.length === 1 && pool.driveIds[0] === drive.id);
+    const shared = storage.volumes.some(volume => volume.driveIds.length > 1 && volume.driveIds.includes(drive.id));
+    const system = storage.volumes.some(volume => volume.system && volume.driveIds.includes(drive.id));
+    return v_flex().id(`hardware-storage-drive-${drive.id}`).w_full().max_w(560).self_start().flex_none().border(1).border_color(t.border)
+      .child(v_flex().px(14).py(12).gap(6).border_b(1).border_color(t.border)
+        .child(h_flex().gap(16).items_start()
+          .child(div().flex_1().min_w(0).text_size(13).font_semibold().child(drive.model || drive.device))
+          .child(div().flex_none().text_size(12).font_family('Geist Mono').child(hardwareBytes(drive.total))))
+        .child(div().text_size(10).text_color(t.muted).child([drive.device, drive.type, drive.protocol, system ? 'System disk' : null].filter(Boolean).join(' · '))))
+      .children(volumes.map(volume => this.hardwareStorageVolume(volume, t)))
+      .children(pools.map(pool => this.hardwareStoragePool(pool, storage, t)))
+      .when(!volumes.length && !pools.length, el => el.child(div().p(14).text_size(11).text_color(t.muted)
+        .child(storage.available === false ? 'Volume readings unavailable' : shared ? 'Volumes are listed under shared storage below.' : 'No mounted volumes')));
+  }
+
+  hardwareStorageDetails(t) {
+    const data = this.hardware, storage = data.storage, stacked = (this.hardwareWidth || 1400) < 1050;
+    const systemOwners = new Set(storage.volumes.filter(volume => volume.system).flatMap(volume => volume.driveIds));
+    const drives = [...storage.drives].sort((a, b) => Number(systemOwners.has(b.id)) - Number(systemOwners.has(a.id)) || a.device.localeCompare(b.device));
+    const sharedPools = storage.pools.filter(pool => pool.driveIds.length !== 1);
+    const otherVolumes = storage.volumes.filter(volume => !volume.poolId && volume.driveIds.length !== 1);
+    const columns = (this.hardwareWidth || 1400) >= 1300 ? 2 : 1;
+    const summary = [['Physical disks', drives.length], ['Mounted volumes', storage.volumes.length],
+      ['System volume', data.disk?.mount || 'Unavailable'], ['Capacity readings', storage.available === false ? 'Unavailable' : 'Read only']];
+    return v_flex().id('hardware-module-storage').w_full().flex_none().gap(20)
+      .child(h_flex().w_full().gap(20).items_start().when(stacked, el => el.flex_col().items_stretch())
+        .child(v_flex().flex_1().min_w(0).gap(8)
+          .child(div().text_size(12).font_semibold().child('System volume history'))
+          .child(this.hardwareMetricCard('storage', t)))
+        .child(v_flex().when(stacked, el => el.w_full().max_w(560)).when(!stacked, el => el.w(280)).flex_none().border(1).border_color(t.border)
+          .child(div().px(14).py(12).text_size(12).font_semibold().child('Storage information'))
+          .children(summary.map(([label, value]) => h_flex().px(14).py(11).gap(12).justify_between().border_t(1).border_color(t.border).text_size(11)
+            .child(div().text_color(t.muted).child(label)).child(String(value))))))
+      .child(Button('hardware-storage-system-default', t, { variant: 'outline' }).self_start().child('Use system volume in main panel')
+        .on_click((_event, cx) => { const config = hardwareConfig(); this.saveHardwarePreference({ storageVolumes: null, visible: { ...config.visible, storage: true } }, cx); }))
+      .children((hardwareConfig().storageVolumes || []).filter(id => !storage.volumes.some(volume => volume.id === id)).map(id =>
+        Checkbox(`hardware-display-${id}`, true, t).text_size(11).child('Unavailable selected volume · Show in main panel')
+          .on_change((checked, cx) => this.selectStorageVolume(id, checked, cx))))
+      .child(v_flex().gap(4).flex_none()
+        .child(div().text_size(13).font_semibold().child('Physical disks'))
+        .child(DialogDescription(t).child('Mounted volumes are grouped by their physical disk. Physical capacity includes space outside those volumes.')))
+      .when(!drives.length, el => el.child(DialogDescription(t).child('Physical disk information is unavailable.')))
+      .children(Array.from({ length: Math.ceil(drives.length / columns) }, (_, index) => h_flex().w_full().max_w(1140).self_start().flex_none().gap(20).items_start()
+        .children(drives.slice(index * columns, index * columns + columns).map(drive =>
+          v_flex().flex_1().flex_basis(0).min_w(0).child(this.hardwareStorageDrive(drive, storage, t))))
+        .when(columns === 2 && index * columns + 1 >= drives.length, el => el.child(div().flex_1().flex_basis(0).min_w(0)))))
+      .when(sharedPools.length > 0 || otherVolumes.length > 0, el => el.child(v_flex().w_full().max_w(560).self_start().flex_none().gap(10)
+        .child(div().text_size(13).font_semibold().child('Shared or unmapped volumes'))
+        .child(DialogDescription(t).child('These volumes have multiple physical disks, or their physical mapping is not reported.'))
+        .children(sharedPools.map(pool => this.hardwareStoragePool(pool, storage, t)))
+        .children(otherVolumes.map(volume => this.hardwareStorageVolume(volume, t)))));
+  }
+
   hardwareSensorDetails(t) {
     const data = this.hardware, summary = hardwareSensorSummary(data), stacked = (this.hardwareWidth || 1400) < 1050;
     return v_flex().id('hardware-module-sensors').flex_none().gap(20)
@@ -338,7 +453,13 @@ export class SystemMonitorCore extends SystemClient {
           .children(Object.entries(summary).map(([key, value]) => v_flex().id(`hardware-sensor-availability-${key}`).p(12).gap(4).border(1).border_color(t.border)
             .child(h_flex().justify_between().gap(8).text_size(12)
               .child(`${key.toUpperCase()} temperature`).child(Number.isFinite(value) ? `${value.toFixed(1)} °C` : 'Unavailable'))
-            .when(!Number.isFinite(value), el => el.child(div().text_size(11).text_color(t.muted).child('Not reported by the current sensor providers.')))))
+            .when(!Number.isFinite(value), el => el.child(div().text_size(11).text_color(t.muted).child('Not reported by the current sensor providers.')))
+            .child(Checkbox(`hardware-display-temperature-${key}`, hardwareConfig().temperatureGroups.includes(key), t).text_size(11).child('Show in main panel')
+              .on_change((checked, cx) => {
+                const config = hardwareConfig(), selected = config.temperatureGroups;
+                const temperatureGroups = checked ? [...new Set([...selected, key])] : selected.filter(id => id !== key);
+                this.saveHardwarePreference({ temperatureGroups, visible: { ...config.visible, sensors: temperatureGroups.length > 0 } }, cx);
+              }))))
           .when(data?.platform === 'win32' && summary.cpu === null, el => el.child(DialogDescription(t)
             .child('Windows CPU temperature requires an active LibreHardwareMonitor WMI provider. NVIDIA driver readings cover the GPU only.')))
           .child(DialogDescription(t).child('Temperature points measure thermal zones. They do not correspond one-to-one with CPU cores.'))
@@ -366,7 +487,7 @@ export class SystemMonitorCore extends SystemClient {
     const ids = config.order.filter(id => hardwareAvailable(id, data));
     const nav = [{ id: 'overview', name: 'Overview' }, ...ids.map(id => ({ id, name: hardwareTitle(id) })), { id: 'settings', name: 'Settings' }];
     const selected = nav.some(item => item.id === page) ? page : 'overview';
-    const visible = config.order.filter(id => config.visible[id] && hardwareAvailable(id, data));
+    const visible = hardwareDisplayItems(data, config);
     const columns = (this.hardwareWidth || 1400) >= 1100 ? 3 : 2;
     return DialogContent('hardware-details', t).track_focus(this.handle).gap(16)
       .on_size_change((size, cx) => { if (this.hardwareWidth !== size.width) { this.hardwareWidth = size.width; cx.notify(); } })
@@ -389,7 +510,7 @@ export class SystemMonitorCore extends SystemClient {
           .when(selected === 'overview', el => el
             .when(!visible.length, el => el.child(DialogDescription(t).child('No widgets selected. Choose what to display in Settings.')))
             .children(Array.from({ length: Math.ceil(visible.length / columns) }, (_, row) => h_flex().flex_none().items_stretch().gap(16)
-              .children(visible.slice(row * columns, row * columns + columns).map(id => this.hardwareMetricCard(id, t)))
+              .children(visible.slice(row * columns, row * columns + columns).map(item => this.hardwareMetricCard(item.module, t, false, item)))
               .children(Array.from({ length: Math.max(0, columns - visible.slice(row * columns, row * columns + columns).length) }, () => div().flex_1().flex_basis(0).min_w(0))))))
           .when(selected !== 'settings' && selected !== 'overview', el => el.child(this.hardwareModuleDetails(selected, t)))))
       .child(DialogFooter().flex_none()

@@ -3,7 +3,7 @@ import { div, svg, PathBuilder } from 'gpui-kit';
 import { h_flex, v_flex } from 'gpui-base';
 import { shared, openOverlay, run, nextCommand } from 'herdr';
 import { Button } from './button.js';
-import { hardwareModules, hardwarePreferences, selectedHardwareCores, hardwareBytes, hardwarePercent, hardwareSpeed, hardwarePower, hardwareSensorSummary, hardwarePoint, hardwareChartPoints, hardwareChartScale } from './system-monitor-model.js';
+import { hardwareModules, hardwarePreferences, selectedHardwareCores, hardwareBytes, hardwarePercent, hardwareSpeed, hardwarePower, hardwareSensorSummary, hardwarePoint, hardwareChartPoints, hardwareChartScale, hardwareDisplayItems, hardwareDisplayHistory } from './system-monitor-model.js';
 import { processorLabel } from './system-monitor-topology.js';
 const hardwareConfig = () => hardwarePreferences(shared('devkits.system-monitor'));
 export const systemClientPrefix = 'system-client:';
@@ -25,6 +25,7 @@ const hardwareStatusValue = (id, data) => {
   if (id === 'disk') return `R${hardwareShortSpeed(data.disk?.rates?.read)} W${hardwareShortSpeed(data.disk?.rates?.write)}`;
   if (id === 'network') return `↓${hardwareShortSpeed(data.network?.rates?.received)} ↑${hardwareShortSpeed(data.network?.rates?.sent)}`;
   if (id === 'sensors') {
+    if (data.displayTemperatureGroups?.length === 0) return 'No temperatures selected';
     const summary = hardwareSensorSummary(data), value = summary.cpu ?? summary.gpu ?? summary.ssd;
     return Number.isFinite(value) ? `${Math.round(value)}°C` : '—';
   }
@@ -45,10 +46,11 @@ const hardwareSubtitle = (id, data) => {
   if (id === 'cpu') return `${data.cpuName || 'CPU'} · ${data.cores || '—'} logical processors`;
   if (id === 'gpu') return [...new Set(data.gpus?.map(gpu => gpu.name))].join(' · ') || 'Not available';
   if (id === 'ram') return data.memory ? `${hardwareBytes(data.memory.used)} / ${hardwareBytes(data.memory.total)}${data.memory.pressure ? ` · ${data.memory.pressure}` : ''}` : 'Unavailable';
-  if (id === 'storage') return data.disk ? `${hardwareBytes(data.disk.free)} available of ${hardwareBytes(data.disk.total)}` : 'Unavailable';
+  if (id === 'storage') return data.disk ? `${data.disk.mount ? `${data.disk.mount} · ` : ''}${hardwareBytes(data.disk.free)} available of ${hardwareBytes(data.disk.total)}` : 'Unavailable';
   if (id === 'disk') return 'Read / write · physical disks';
   if (id === 'network') return `${data.network?.name || 'No active interface'} · download / upload`;
   if (id === 'sensors') {
+    if (data.displayTemperatureGroups?.length === 0) return 'No temperatures selected';
     const summary = hardwareSensorSummary(data);
     return [['CPU', summary.cpu], ['GPU', summary.gpu], ['SSD', summary.ssd]].filter(([, value]) => Number.isFinite(value))
       .map(([label, value]) => `${label} ${Math.round(value)}°`).join(' · ')
@@ -161,7 +163,7 @@ export class SystemMonitor {
   snapshot() {
     const config = hardwareConfig();
     return { data: this.hardware, history: this.hardwareHistory || [], error: Boolean(this.hardwareError), updatedAt: this.hardwareCheckedAt,
-      widgets: config.order.filter(id => config.visible[id] && hardwareAvailable(id, this.hardware)) };
+      widgets: hardwareDisplayItems(this.hardware, config).map(item => item.key) };
   }
   open(page = 'overview') {
     if (this.openDetails) return this.openDetails(page);
@@ -170,36 +172,43 @@ export class SystemMonitor {
   renderInline(t, { id = 'system-inline' } = {}) {
     const root = h_flex().id(id).flex_1().min_w(0).h_full().items_center().gap(2);
     const config = hardwareConfig();
-    const data = this.hardware, ids = config.order.filter(id => config.visible[id] && hardwareAvailable(id, data));
+    const items = hardwareDisplayItems(this.hardware, config);
     const prefix = id;
     const labels = { cpu: 'CPU', gpu: 'GPU', ram: 'RAM', disk: 'I/O', network: '', storage: 'Disk', battery: 'BAT', sensors: 'TEMP' };
     return root.accessibility_label('System monitor')
       .child(h_flex().id(`${id}-metrics`).min_w(0).h_full().overflow_x_scroll().items_center()
-        .children(ids.map(id => Button(`${prefix}-${id}`, t, { variant: 'ghost' }).h_full().px(6).gap(4).text_size(11)
+        .children(items.map(item => {
+          const id = item.module, data = item.data, label = item.target ? item.label : labels[id];
+          return Button(`${prefix}-${item.key}`, t, { variant: 'ghost' }).h_full().px(6).gap(4).text_size(11)
           .accessibility_label(`${hardwareTitle(id)}: ${hardwareValue(id, data)}. Open details`)
           .on_click(() => this.open(id))
-          .when(Boolean(labels[id]), el => el.child(div().text_color(t.muted).child(labels[id])))
-          .child(div().font_family('Geist Mono').text_color(t.foreground).child(hardwareStatusValue(id, data))))))
+          .when(Boolean(label), el => el.child(div().text_color(t.muted).child(label)))
+          .child(div().font_family('Geist Mono').text_color(t.foreground).child(hardwareStatusValue(id, data)));
+        })))
       .child(div().flex_1());
   }
 
   renderWidgets(t, { id: prefix = 'system', style = 'compact', cpuMode = 'total', onWidgetSize } = {}) {
-    const data = this.hardware, config = hardwareConfig(), history = this.hardwareHistory || [];
+    const config = hardwareConfig(), basePrefix = prefix;
     const colors = hardwareColors(t);
-    const ids = config.order.filter(id => config.visible[id] && hardwareAvailable(id, data));
-    return v_flex().id(`${prefix}-widgets`).w_full().gap(0).children(ids.map(id => {
+    const items = hardwareDisplayItems(this.hardware, config);
+    return v_flex().id(`${prefix}-widgets`).w_full().gap(0).children(items.map(item => {
+        const id = item.module, data = item.data, prefix = item.target ? `${basePrefix}-${encodeURIComponent(item.target)}` : basePrefix;
+        const history = hardwareDisplayHistory(this.hardwareHistory || [], item);
         const rates = id === 'disk' || id === 'network';
-        const capacityRow = id === 'ram' || id === 'disk' || id === 'gpu' || id === 'storage';
+        const capacityRow = id === 'ram' || (id === 'disk' && (!data?.storage || item.target)) || id === 'gpu' || id === 'storage';
         const gpu = id === 'gpu' ? primaryHardwareGPU(data) : null;
         const coreMode = id === 'cpu' && cpuMode === 'cores';
         const usageBar = ['cpu', 'ram', 'gpu', 'storage', 'battery'].includes(id);
         const percent = this.hardwareError ? null : id === 'cpu' ? data?.cpu : id === 'ram' ? data?.memory?.percent : id === 'gpu' ? gpu?.percent
           : id === 'battery' ? data?.battery?.percent : data?.disk?.percent;
-        const title = ({ ram: data?.memory?.type ? `RAM · ${data.memory.type}` : 'RAM', disk: 'Disk I/O' })[id] || hardwareTitle(id);
+        const title = item.label || ({ ram: data?.memory?.type ? `RAM · ${data.memory.type}` : 'RAM', disk: 'Disk I/O',
+          storage: data?.storage?.drives?.length ? `Storage · ${data.storage.drives.length} ${data.storage.drives.length === 1 ? 'disk' : 'disks'}` : 'Storage' })[id] || hardwareTitle(id);
         const capacity = id === 'ram' ? data?.memory?.total : id === 'disk' || id === 'storage' ? data?.disk?.total : gpu?.memory?.total;
         const model = id === 'cpu' ? data?.cpuName : id === 'ram'
           ? [data?.memory?.manufacturer, data?.memory?.model, data?.memory?.speed].filter(Boolean).join(' · ')
-          : id === 'gpu' ? gpu?.name : id === 'storage' || id === 'disk' ? data?.disk?.model
+          : id === 'gpu' ? gpu?.name : id === 'storage' ? [data?.disk?.mount, data?.disk?.model].filter(Boolean).join(' · ')
+          : id === 'disk' ? data?.disk?.model
           : id === 'network' ? data?.network?.name || 'No active interface'
           : id === 'battery' ? hardwarePower(data?.battery)
           : id === 'sensors' ? [...new Set((data?.sensors || []).map(sensor => sensor.source).filter(Boolean))].join(' · ') || data?.sensorStatus || 'No sensor provider' : null;
@@ -236,6 +245,7 @@ export class SystemMonitor {
                 .accessibility_label(`${key.toUpperCase()} temperature: ${Number.isFinite(temperature) ? `${Math.round(temperature)} °C` : 'Unavailable'}`)
                 .child(div().text_color(t.muted).child(key.toUpperCase()))
                 .child(div().text_color(hardwareColors(t)[key === 'ssd' ? 'storage' : key]).child(Number.isFinite(temperature) ? `${Math.round(temperature)}°C` : '—')))))
+            .when(id === 'sensors' && data?.displayTemperatureGroups?.length === 0, el => el.child(div().text_size(10).text_color(t.muted).child('No temperatures selected')))
             .when(usageBar, el => el.child(hardwareUsageBar(`${prefix}-${id}-bar`, percent, id, t, coreMode
               ? hardwareCoreBars(`${prefix}-core-bars`, data, config, t, 12).flex_1().flex_basis(0).min_w(0) : null)))
             .when(rates, el => el.child(div().id(`${prefix}-${id}-sparkline`).w(116).h(12).flex_none()
@@ -243,7 +253,7 @@ export class SystemMonitor {
             .when(!usageBar && !rates && style === 'graph', el => el.child(div().w(84).flex_none().child(coreMode ? hardwareCoreBars(`${prefix}-core-bars`, data, config, t, 16)
               : hardwareChart(`${prefix}-chart-${id}`, history, id, t, 16)))));
         return onWidgetSize ? v_flex().id(`${prefix}-${style}-${cpuMode}-${id}-layout`).w_full().h_auto().flex_none()
-          .on_size_change((size, cx) => onWidgetSize(id, size, cx)).child(card) : card;
+          .on_size_change((size, cx) => onWidgetSize(item.key, size, cx)).child(card) : card;
       }));
   }
 
