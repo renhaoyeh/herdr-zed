@@ -183,10 +183,8 @@ export class SystemMonitorCore extends SystemClient {
       .child(h_flex().w_full().gap(24).items_start()
         .child(v_flex().flex_1().min_w(0).gap(16)
           .child(div().text_size(11).font_medium().text_color(t.muted).child('WIDGETS')).child(widgets)
-          .child(DialogDescription(t).child('Choose individual volumes, disks and temperatures on their detail pages.'))
-          .children([['storage', 'Choose Storage volumes'], ['disk', 'Choose Disk I/O'], ['sensors', 'Choose temperatures']].map(([page, label]) =>
-            Button(`hardware-choose-${page}`, t, { variant: 'outline' }).justify_start().child(label)
-              .on_click((_event, cx) => { this.hardwarePage = page; cx.notify(); }))))
+          .child(Button('hardware-choose-overview', t, { variant: 'outline' }).justify_start().child('Choose volumes, disks and temperatures in Overview')
+            .on_click((_event, cx) => { this.hardwarePage = 'overview'; cx.notify(); })))
         .child(display));
   }
 
@@ -317,7 +315,6 @@ export class SystemMonitorCore extends SystemClient {
       : [['Power source', hardwarePower(battery)], ['Health', hardwarePercent(battery?.health)], ['Cycles', battery?.cycles], ['Battery temperature', Number.isFinite(battery?.temperature) ? `${battery.temperature.toFixed(1)} °C` : null]];
     const gpu = primaryHardwareGPU(data), stacked = (this.hardwareWidth || 1400) < 1050;
     const chart = v_flex().flex_1().min_w(0).gap(16)
-      .when(id === 'disk', el => el.child(this.hardwareDiskDisplay(t)))
       .child(id === 'cpu' ? this.hardwareCPUCharts(t) : this.hardwareMetricCard(id, t, true))
       .when(id === 'ram', el => el.child(this.hardwareCapacity('ram', 'RAM capacity', memory?.used, memory?.total, t)))
       .when(id === 'storage', el => el.child(this.hardwareCapacity('storage', 'System volume', disk?.used, disk?.total, t)))
@@ -337,18 +334,13 @@ export class SystemMonitorCore extends SystemClient {
 
   hardwareStorageVolume(volume, t) {
     const name = [volume.mount, volume.label, volume.system ? 'System' : null].filter(Boolean).join(' · ');
-    const config = hardwareConfig(), selected = config.storageVolumes === null ? volume.system : config.storageVolumes.includes(volume.id);
-    const control = () => Checkbox(`hardware-display-${volume.id}`, selected, t).text_size(11).child('Show in main panel')
-      .on_change((checked, cx) => this.selectStorageVolume(volume.id, checked, cx));
     if (!volume.poolId) return this.hardwareCapacity('storage', name, volume.used, volume.total, t)
       .id(`hardware-storage-${volume.id}`).border(0).px(14).py(12)
-      .child(div().text_size(10).text_color(t.muted).child(volume.type || 'File system not reported'))
-      .child(control());
+      .child(div().text_size(10).text_color(t.muted).child(volume.type || 'File system not reported'));
     return h_flex().id(`hardware-storage-${volume.id}`).w_full().px(14).py(12).gap(16).items_start()
       .child(v_flex().flex_1().min_w(0).gap(4)
         .child(div().text_size(12).child(name))
-        .child(div().text_size(10).text_color(t.muted).child(`${volume.type || 'APFS'} · Shares pool capacity`))
-        .child(control()))
+        .child(div().text_size(10).text_color(t.muted).child(`${volume.type || 'APFS'} · Shares pool capacity`)))
       .child(div().flex_none().text_size(12).font_family('Geist Mono').child(`${hardwareBytes(volume.used)} used`));
   }
 
@@ -360,12 +352,42 @@ export class SystemMonitorCore extends SystemClient {
     this.saveHardwarePreference({ storageVolumes, visible: { ...config.visible, storage: storageVolumes.length > 0 } }, cx);
   }
 
+  hardwareOverviewDisplay(t) {
+    const config = hardwareConfig(), available = this.hardware?.storage?.volumes || [];
+    const volumes = [...available, ...(config.storageVolumes || []).filter(id => !available.some(volume => volume.id === id))
+      .map(id => ({ id, unavailable: true }))];
+    const storage = v_flex().id('hardware-storage-display').w_full().max_w(560).p(14).gap(10).border(1).border_color(t.border)
+      .child(div().text_size(12).font_semibold().child('Storage volumes'))
+      .child(Button('hardware-storage-system-default', t, { variant: 'outline' }).self_start().child('Use system volume')
+        .on_click((_event, cx) => { const current = hardwareConfig(); this.saveHardwarePreference({ storageVolumes: null, visible: { ...current.visible, storage: true } }, cx); }))
+      .when(!volumes.length, el => el.child(DialogDescription(t).child('Volume readings unavailable.')))
+      .children(volumes.map(volume => Checkbox(`hardware-display-${volume.id}`,
+        config.storageVolumes === null ? Boolean(volume.system) : config.storageVolumes.includes(volume.id), t).text_size(11)
+        .child(volume.unavailable ? 'Unavailable selected volume' : [volume.mount, volume.label, volume.system ? 'System' : null].filter(Boolean).join(' · '))
+        .on_change((checked, cx) => this.selectStorageVolume(volume.id, checked, cx))));
+    const temperatures = v_flex().id('hardware-temperature-display').w_full().max_w(560).p(14).gap(10).border(1).border_color(t.border)
+      .child(div().text_size(12).font_semibold().child('Temperatures'))
+      .children(['cpu', 'gpu', 'ssd'].map(key => Checkbox(`hardware-display-temperature-${key}`, config.temperatureGroups.includes(key), t).text_size(11)
+        .child(`${key.toUpperCase()} temperature`)
+        .on_change((checked, cx) => {
+          const current = hardwareConfig(), selected = current.temperatureGroups;
+          const temperatureGroups = checked ? [...new Set([...selected, key])] : selected.filter(id => id !== key);
+          this.saveHardwarePreference({ temperatureGroups, visible: { ...current.visible, sensors: temperatureGroups.length > 0 } }, cx);
+        })));
+    return v_flex().id('hardware-overview-display').flex_none().gap(12)
+      .child(div().text_size(13).font_semibold().child('Show in main panel'))
+      .child(DialogDescription(t).child('Choose volumes, physical disk activity and temperatures. Changes save automatically.'))
+      .child(h_flex().w_full().gap(16).items_start()
+        .when((this.hardwareWidth || 1400) < 1100, el => el.flex_col().items_stretch())
+        .children([storage, this.hardwareDiskDisplay(t), temperatures].map(group => v_flex().flex_1().min_w(0).child(group))));
+  }
+
   hardwareDiskDisplay(t) {
     const config = hardwareConfig(), available = this.hardware?.diskIO || [];
     const disks = [...available, ...(config.ioDisks || []).filter(id => !available.some(disk => disk.id === id))
       .map(id => ({ id, model: 'Unavailable selected disk', supported: false }))];
     return v_flex().id('hardware-disk-display').w_full().max_w(560).p(14).gap(10).border(1).border_color(t.border)
-      .child(div().text_size(12).font_semibold().child('Show in main panel'))
+      .child(div().text_size(12).font_semibold().child('Disk activity'))
       .child(Checkbox('hardware-disk-combined', config.ioDisks === null, t).text_size(11).child('All physical disks combined')
         .on_change((checked, cx) => this.saveHardwarePreference({ ioDisks: checked ? null : [],
           visible: { ...hardwareConfig().visible, disk: checked } }, cx)))
@@ -422,11 +444,6 @@ export class SystemMonitorCore extends SystemClient {
           .child(div().px(14).py(12).text_size(12).font_semibold().child('Storage information'))
           .children(summary.map(([label, value]) => h_flex().px(14).py(11).gap(12).justify_between().border_t(1).border_color(t.border).text_size(11)
             .child(div().text_color(t.muted).child(label)).child(String(value))))))
-      .child(Button('hardware-storage-system-default', t, { variant: 'outline' }).self_start().child('Use system volume in main panel')
-        .on_click((_event, cx) => { const config = hardwareConfig(); this.saveHardwarePreference({ storageVolumes: null, visible: { ...config.visible, storage: true } }, cx); }))
-      .children((hardwareConfig().storageVolumes || []).filter(id => !storage.volumes.some(volume => volume.id === id)).map(id =>
-        Checkbox(`hardware-display-${id}`, true, t).text_size(11).child('Unavailable selected volume · Show in main panel')
-          .on_change((checked, cx) => this.selectStorageVolume(id, checked, cx))))
       .child(v_flex().gap(4).flex_none()
         .child(div().text_size(13).font_semibold().child('Physical disks'))
         .child(DialogDescription(t).child('Mounted volumes are grouped by their physical disk. Physical capacity includes space outside those volumes.')))
@@ -453,13 +470,7 @@ export class SystemMonitorCore extends SystemClient {
           .children(Object.entries(summary).map(([key, value]) => v_flex().id(`hardware-sensor-availability-${key}`).p(12).gap(4).border(1).border_color(t.border)
             .child(h_flex().justify_between().gap(8).text_size(12)
               .child(`${key.toUpperCase()} temperature`).child(Number.isFinite(value) ? `${value.toFixed(1)} °C` : 'Unavailable'))
-            .when(!Number.isFinite(value), el => el.child(div().text_size(11).text_color(t.muted).child('Not reported by the current sensor providers.')))
-            .child(Checkbox(`hardware-display-temperature-${key}`, hardwareConfig().temperatureGroups.includes(key), t).text_size(11).child('Show in main panel')
-              .on_change((checked, cx) => {
-                const config = hardwareConfig(), selected = config.temperatureGroups;
-                const temperatureGroups = checked ? [...new Set([...selected, key])] : selected.filter(id => id !== key);
-                this.saveHardwarePreference({ temperatureGroups, visible: { ...config.visible, sensors: temperatureGroups.length > 0 } }, cx);
-              }))))
+            .when(!Number.isFinite(value), el => el.child(div().text_size(11).text_color(t.muted).child('Not reported by the current sensor providers.')))))
           .when(data?.platform === 'win32' && summary.cpu === null, el => el.child(DialogDescription(t)
             .child('Windows CPU temperature requires an active LibreHardwareMonitor WMI provider. NVIDIA driver readings cover the GPU only.')))
           .child(DialogDescription(t).child('Temperature points measure thermal zones. They do not correspond one-to-one with CPU cores.'))
@@ -511,7 +522,8 @@ export class SystemMonitorCore extends SystemClient {
             .when(!visible.length, el => el.child(DialogDescription(t).child('No widgets selected. Choose what to display in Settings.')))
             .children(Array.from({ length: Math.ceil(visible.length / columns) }, (_, row) => h_flex().flex_none().items_stretch().gap(16)
               .children(visible.slice(row * columns, row * columns + columns).map(item => this.hardwareMetricCard(item.module, t, false, item)))
-              .children(Array.from({ length: Math.max(0, columns - visible.slice(row * columns, row * columns + columns).length) }, () => div().flex_1().flex_basis(0).min_w(0))))))
+              .children(Array.from({ length: Math.max(0, columns - visible.slice(row * columns, row * columns + columns).length) }, () => div().flex_1().flex_basis(0).min_w(0)))))
+            .child(this.hardwareOverviewDisplay(t)))
           .when(selected !== 'settings' && selected !== 'overview', el => el.child(this.hardwareModuleDetails(selected, t)))))
       .child(DialogFooter().flex_none()
         .child(div().flex_1().self_center().text_size(10).text_color(t.muted)
