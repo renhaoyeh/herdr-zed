@@ -158,7 +158,7 @@ export class SystemMonitor {
       .child(div().flex_1());
   }
 
-  renderWidgets(t, { id: prefix = 'system', style = 'graph', cpuMode = 'total' } = {}) {
+  renderWidgets(t, { id: prefix = 'system', style = 'graph', cpuMode = 'total', onWidgetSize } = {}) {
     const data = this.hardware, config = hardwareConfig(), history = this.hardwareHistory || [];
     const colors = hardwareColors(t);
     const ids = config.order.filter(id => config.visible[id] && hardwareAvailable(id, data));
@@ -176,7 +176,7 @@ export class SystemMonitor {
           : id === 'ram' && data?.memory ? `${hardwareBytes(data.memory.used)} used · ${hardwarePercent(data.memory.percent)}`
           : id === 'gpu' && gpu ? `${gpu.name} · ${hardwarePercent(gpu.percent)}`
           : id === 'disk' ? hardwareValue(id, data) : hardwareSubtitle(id, data);
-        return Button(`${prefix}-${id}`, t, { variant: 'ghost' }).w_full().h_auto().py(style === 'compact' ? 4 : 6).px(12).flex_col().items_stretch().gap(3)
+        const card = Button(`${prefix}-${id}`, t, { variant: 'ghost' }).w_full().h_auto().py(style === 'compact' ? 4 : 6).px(12).flex_col().items_stretch().gap(3)
           .accessibility_label(`${title}: ${value}${capacityRow ? ` total. ${subtitle}` : ''}. Open ${hardwareTitle(id)} details`).on_click(() => this.open(id))
           .child(h_flex().w_full().items_center().gap(8)
             .child(div().min_w(0).truncate().text_size(11).font_medium().text_color(t.foreground).child(title))
@@ -188,6 +188,8 @@ export class SystemMonitor {
             .when(style === 'graph', el => el.child(div().w(84).flex_none().child(coreMode ? hardwareCoreBars(`${prefix}-core-bars`, data, config, t, 16)
               : hardwareChart(`${prefix}-chart-${id}`, history, id, t, 16))))))
           .when(style === 'compact' && coreMode, el => el.child(hardwareCoreBars(`${prefix}-core-bars`, data, config, t, 16)));
+        return onWidgetSize ? v_flex().id(`${prefix}-${id}-layout`).w_full().h_auto().flex_none()
+          .on_size_change((size, cx) => onWidgetSize(id, size, cx)).child(card) : card;
       }));
   }
 

@@ -16,6 +16,7 @@ import { accountActions } from './account-actions.js';
 import { UsageClient } from './components/usage.js';
 import { SystemMonitor } from './components/system-monitor.js';
 import { SystemDisplay, SystemDisplayMenu, openSystemDetails } from './system-display.js';
+import { InterfaceSettings, openInterfaceSettings } from './ui-settings.js';
 import { RunControls, RunMenu, runApp } from './run-app.js';
 import { BranchMenu } from './branch-menu.js';
 import { ProjectLayout, layoutNode, conversationMaximized, maximizeConversation, openTaskBoard, closeTaskBoard, enforceTaskBoard, taskMode } from './project-layout.js';
@@ -59,6 +60,9 @@ export default class Devkits extends View {
   taskHost = new TaskHost((event, cx) => this.taskNavigation(event, cx));
 
   init(_props, cx) {
+    if (props()?.view === 'ui-settings') {
+      this.interfaceSettings = new InterfaceSettings(); this.interfaceSettings.init(cx); return;
+    }
     if (props()?.view === 'system-display-menu') {
       this.systemDisplayMenu = new SystemDisplayMenu(props() || {}); this.systemDisplayMenu.init(cx); return;
     }
@@ -126,6 +130,7 @@ export default class Devkits extends View {
         if (command === 'new-task') { const project = this.projects().find(project => project.active); if (project) openTaskComposer(project); }
         if (command === 'calendar') openCalendar();
         if (command === 'run') await runApp();
+        if (command === 'ui-settings') openInterfaceSettings();
         if (command === 'new-thread') await this.repeatThread(cx);
         if (command === 'reveal-conversation') this.showConversation(true);
         if (command === 'close-board') this.closeBoard();
@@ -650,7 +655,7 @@ export default class Devkits extends View {
       .child(this.systemDisplay.renderStatus(t))
       .child(h_flex().id('status-actions').min_w(0).h_full().overflow_x_scroll().items_center().gap(8)
       .child(h_flex().id('status-workspace-actions').flex_none().h_full().gap(0)
-        .child(this.systemDisplay.contextMenu(ToolbarButton('system-monitor-settings', t))
+        .child(this.systemDisplay.contextMenu(ToolbarButton('system-monitor-settings', t), 'status')
           .accessibility_label('System monitor settings').on_click(() => this.systemMonitor.open('settings'))
           .child(glyph('chart-column')).child('System'))
         .child(ToolbarButton('open-calendar', t)
@@ -819,6 +824,7 @@ export default class Devkits extends View {
 
   render(cx) {
     const t = theme();
+    if (props()?.view === 'ui-settings') return this.interfaceSettings.render(t);
     if (props()?.view === 'system-display-menu') return this.systemDisplayMenu.render(t);
     if (['calendar', 'google-calendar', 'task-composer'].includes(props()?.view)) return div();
     if (props()?.view === 'codex-sharing') return this.sharingDialog(t);
@@ -948,7 +954,10 @@ export default class Devkits extends View {
           .accessibility_label(this.archiveOpen ? 'Show threads' : 'Show thread history')
           .h_full().rounded(0).bg(this.archiveOpen ? t.selected : t.chrome)
           .on_click((_event, cx) => { this.archiveOpen = !this.archiveOpen; cx.notify(); }).child(glyph('clock')))
-        .child(div().flex_1()));
+        .child(div().flex_1())
+        .child(Button('open-interface-settings', t, { variant: 'ghost' }).h_full().px(8).gap(6)
+          .accessibility_label('Interface settings').on_click(() => openInterfaceSettings())
+          .child(glyph('settings')).child('Interface settings')));
   }
 }
 

@@ -94,16 +94,29 @@ test('monitor preferences retain module visibility, order and core choices acros
 test('the host migrates legacy monitor placement and height without moving monitoring preferences', () => {
   const defaults = systemDisplayPreferences();
   assert.equal(defaults.sidebar.visible, true); assert.equal(defaults.status.visible, false);
-  assert.equal(defaults.sidebar.height, 240);
+  assert.equal(defaults.sidebar.heightMode, 'rows');
+  assert.equal(defaults.sidebar.rows, 4);
   const migrated = systemDisplayPreferences(undefined, { placement: 'status', sidebarHeight: 380, style: 'compact', cpuMode: 'cores' });
-  assert.deepEqual(migrated, { sidebar: { visible: false, height: 380, style: 'compact', cpuMode: 'cores' }, status: { visible: true } });
+  assert.deepEqual(migrated, { enabled: true, sidebar: { visible: false, heightMode: 'rows', rows: 4, style: 'compact', cpuMode: 'cores' }, status: { visible: true } });
   const saved = systemDisplayPreferences({ sidebar: { visible: true, style: 'inline' }, status: { visible: true } }, { placement: 'status' });
   assert.equal(saved.sidebar.visible, true); assert.equal(saved.status.visible, true); assert.equal(saved.sidebar.style, 'inline');
-  assert.equal(systemDisplayPreferences({ sidebar: { height: -1, style: 'invalid' } }).sidebar.height, 96);
-  assert.equal(systemDisplayPreferences({ sidebar: { height: Infinity } }).sidebar.height, 240);
-  assert.equal(systemDisplayPreferences({ sidebar: { height: 900 } }).sidebar.height, 600);
+  assert.equal(systemDisplayPreferences({ sidebar: { heightMode: 'auto' } }).sidebar.heightMode, 'auto');
+  const preset = systemDisplayPreferences({ sidebar: { heightMode: 'fixed', height: 350 } }).sidebar;
+  assert.equal(preset.heightMode, 'rows'); assert.equal(preset.rows, 4);
+  assert.equal(Object.hasOwn(preset, 'height'), false);
   assert.equal(systemSidebarHeight(380, 180), 180); assert.equal(systemSidebarHeight(380, 70), 70);
   for (const key of ['placement', 'sidebarHeight', 'style', 'cpuMode']) assert.equal(Object.hasOwn(hardwarePreferences({ [key]: 'legacy' }), key), false);
+});
+
+test('System display visibility preserves its locations and migrates previously hidden mounts', () => {
+  const hidden = systemDisplayPreferences({ sidebar: { visible: false }, status: { visible: false } });
+  assert.equal(hidden.enabled, false);
+  const disabled = systemDisplayPreferences({ enabled: false, sidebar: { visible: true, style: 'compact' }, status: { visible: true } });
+  assert.equal(disabled.enabled, false);
+  assert.equal(disabled.sidebar.visible, true);
+  assert.equal(disabled.status.visible, true);
+  assert.equal(disabled.sidebar.style, 'compact');
+  assert.equal(systemDisplayPreferences({ ...disabled, enabled: true }).enabled, true);
 });
 
 test('monitor history uses elapsed time, preserves missing data and bounds memory use', () => {
