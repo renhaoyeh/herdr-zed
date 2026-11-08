@@ -73,3 +73,12 @@ export function hardwareChartPoints(history, key, now, maximum) {
   }
   return points;
 }
+
+export function hardwareChartScale(history, keys, module, now) {
+  if (module !== 'disk' && module !== 'network' && module !== 'sensors') return 100;
+  const values = history.filter(point => point.at >= now - 180000 && point.at <= now)
+    .flatMap(point => keys.map(key => point[key])).filter(value => Number.isFinite(value) && value >= 0);
+  const peak = Math.max(module === 'sensors' ? 100 : 1024, ...values);
+  if (module === 'sensors') return Math.ceil(peak / 10) * 10;
+  return 2 ** Math.ceil(Math.log2(peak));
+}

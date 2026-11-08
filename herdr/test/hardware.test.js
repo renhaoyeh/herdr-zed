@@ -2,7 +2,7 @@ import { systemDisplayPreferences, systemSidebarHeight } from '../mods/devkits/s
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { cpuSnapshot, cpuPercent, readHardware, parseGPUs, parseDiskCounters, counterRate, diskRates, coreSnapshots, corePercentages } from '../mods/devkits-system/hardware-reader.js';
-import { hardwarePreferences, selectedHardwareCores, appendHardwareHistory, hardwareChartPoints, hardwareSensorSummary } from '../mods/devkits-system/components/system-monitor-model.js';
+import { hardwarePreferences, selectedHardwareCores, appendHardwareHistory, hardwareChartPoints, hardwareChartScale, hardwareSensorSummary } from '../mods/devkits-system/components/system-monitor-model.js';
 
 test('CPU uses elapsed busy time across every core, with an initial warmup sample', () => {
   const before = cpuSnapshot([{ times: { user: 30, sys: 10, idle: 60 } }, { times: { user: 20, sys: 10, idle: 70 } }]);
@@ -148,6 +148,18 @@ test('sensor summaries identify CPU/GPU/SSD independently and never substitute b
   ];
   assert.deepEqual(hardwareSensorSummary({ sensors }), { cpu: 70, gpu: 55, ssd: 42 });
   assert.deepEqual(hardwareSensorSummary({ sensors: sensors.slice(-1) }), { cpu: null, gpu: null, ssd: null });
+});
+
+test('chart scales preserve percentage units and use only recent finite readings for rates and temperatures', () => {
+  const history = [{ at: 0, read: 2 ** 40, 'sensor:gpu': 145 },
+    { at: 195000, read: 1500, write: null, 'sensor:gpu': 47 },
+    { at: 200000, read: NaN, write: 0, 'sensor:gpu': 106 },
+    { at: 300000, read: 2 ** 40, 'sensor:gpu': 145 }];
+  assert.equal(hardwareChartScale(history, ['read', 'write'], 'disk', 200000), 2048);
+  assert.equal(hardwareChartScale([], ['received', 'sent'], 'network', 200000), 1024);
+  assert.equal(hardwareChartScale(history, ['sensor:cpu', 'sensor:gpu'], 'sensors', 200000), 110);
+  assert.equal(hardwareChartScale([], ['sensor:cpu'], 'sensors', 200000), 100);
+  assert.equal(hardwareChartScale(history, ['cpu'], 'cpu', 200000), 100);
 });
 
 test('macOS SMC probe returns typed read-only readings or an explicit capability status', { skip: process.platform !== 'darwin' }, async () => {

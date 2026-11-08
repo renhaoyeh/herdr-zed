@@ -193,21 +193,46 @@ export class SystemMonitorCore extends SystemClient {
     const rateData = id === 'disk' ? data?.disk?.rates : data?.network?.rates;
     const summary = hardwareSensorSummary(data);
     const temperature = id === 'cpu' ? summary.cpu : id === 'gpu' ? summary.gpu : null;
-    const sensorKey = summary.cpu !== null ? 'sensor:cpu' : summary.gpu !== null ? 'sensor:gpu' : 'sensor:ssd';
-    return v_flex().id(`hardware-detail-${id}`).flex_1().flex_basis(0).min_w(0).h_auto().p(16).gap(12).border(1).border_color(t.border)
-      .child(h_flex().items_center().gap(8)
+    const legend = rates ? (id === 'disk' ? ['Read', 'Write'] : ['Download', 'Upload']) : id === 'sensors' ? ['CPU', 'GPU', 'SSD'] : [];
+    const legendColors = id === 'sensors' ? [hardwareColors(t).cpu, hardwareColors(t).gpu, hardwareColors(t).storage] : [color, t.ansi5 || t.blocked];
+    return v_flex().id(`hardware-detail-${id}`).flex_1().flex_basis(0).min_w(0).h_auto().p(16).gap(10).border(1).border_color(t.border)
+      .when(!large, el => el.h(260))
+      .child(h_flex().h(18).flex_none().items_center().gap(8)
         .child(div().flex_1().text_size(12).font_semibold().child(hardwareTitle(id)))
-        .when(Number.isFinite(temperature), el => el.child(div().text_size(11).text_color(t.muted).child(`${temperature.toFixed(1)} °C peak`)))
+        .when(Number.isFinite(temperature), el => el.child(div().text_size(11).text_color(t.muted).child(`${temperature.toFixed(1)} °C sensor`)))
         .when(id === 'ram' && Boolean(data?.memory?.pressure), el => el.child(div().text_size(10)
           .text_color(data.memory.pressure === 'Critical' ? t.ansi1 : data.memory.pressure === 'Warning' ? t.blocked : t.working).child(data.memory.pressure))))
-      .when(!rates, el => el.child(div().h(44).flex_none().text_size(large ? 38 : 28).line_height(1.1).font_family('Geist Mono').text_color(color)
+      .when(!rates && id !== 'sensors', el => el.child(div().h(44).flex_none().text_size(large ? 38 : 28).line_height(1.1).font_family('Geist Mono').text_color(color)
         .child(this.hardwareError ? 'Unavailable' : hardwareValue(id, data))))
+      .when(id === 'sensors', el => el.child(h_flex().h(44).flex_none().gap(12).children(Object.entries(summary).map(([key, value], index) =>
+        v_flex().id(`hardware-sensor-summary-${key}`).flex_1().min_w(0).gap(3)
+          .child(div().text_size(10).text_color(t.muted).child(key.toUpperCase()))
+          .child(div().text_size(large ? 24 : 18).font_family('Geist Mono').text_color(legendColors[index])
+            .child(Number.isFinite(value) ? `${value.toFixed(1)} °C` : '—'))))))
       .when(rates, el => el.child(h_flex().h(44).flex_none().gap(16).items_start().children(rateKeys.map((key, index) => v_flex().flex_1().min_w(0).gap(4)
         .child(div().text_size(10).text_color(t.muted).child((id === 'disk' ? ['READ', 'WRITE'] : ['DOWNLOAD', 'UPLOAD'])[index]))
         .child(div().text_size(large ? 22 : 17).font_family('Geist Mono').text_color(index ? t.ansi5 || t.blocked : color).child(hardwareSpeed(rateData?.[key])))))))
-      .child(hardwareChart(`hardware-chart-${id}`, history, id, t, large ? 180 : 64, id === 'sensors' ? sensorKey : null))
-      .child(h_flex().justify_between().text_size(10).text_color(t.muted).child('3 min ago').child('Now'))
-      .child(div().text_size(11).text_color(t.muted).truncate().child(hardwareSubtitle(id, data)));
+      .child(h_flex().h(14).flex_none().gap(12).items_center()
+        .when(!legend.length, el => el.child(div().text_size(10).text_color(t.muted).child(id === 'storage' || id === 'ram' ? 'Capacity used' : id === 'battery' ? 'Charge level' : 'Utilization')))
+        .children(legend.map((label, index) => h_flex().gap(4).items_center()
+          .child(div().w(10).h(2).bg(legendColors[index]))
+          .child(div().text_size(10).text_color(t.muted).child(label)))))
+      .child(hardwareChart(`hardware-chart-${id}`, history, id, t, large ? 200 : 64))
+      .child(h_flex().h(14).flex_none().justify_between().text_size(10).line_height('14px').text_color(t.muted).child('3 min ago').child('90 sec').child('Now'))
+      .child(div().h(16).flex_none().text_size(11).line_height('16px').text_color(t.muted).truncate().child(hardwareSubtitle(id, data)));
+  }
+
+  hardwareCapacity(id, label, used, total, t) {
+    const available = Number.isFinite(used) && used >= 0 && Number.isFinite(total) && total > 0 && used <= total;
+    return v_flex().id(`hardware-capacity-${id}`).w_full().max_w(560).self_start().flex_none().p(16).gap(10).border(1).border_color(t.border)
+      .accessibility_label(`${label}: ${available ? `${hardwareBytes(used)} used of ${hardwareBytes(total)}` : 'Unavailable'}`)
+      .child(h_flex().gap(12).justify_between().items_center()
+        .child(div().text_size(11).text_color(t.muted).child(label))
+        .child(div().text_size(12).font_family('Geist Mono').child(available ? `${hardwareBytes(used)} / ${hardwareBytes(total)}` : 'Unavailable')))
+      .child(div().w_full().h(8).relative().bg(t.border).overflow_hidden()
+        .when(available, el => el.child(div().h_full().w(`${used / total * 100}%`).bg(hardwareColors(t)[id === 'gpu-shared' ? 'gpu' : id]))))
+      .when(available, el => el.child(h_flex().justify_between().text_size(10).text_color(t.muted)
+        .child(`${hardwareBytes(used)} used`).child(`${hardwareBytes(total - used)} available`)));
   }
 
   hardwareCPUCharts(t) {
@@ -264,7 +289,7 @@ export class SystemMonitorCore extends SystemClient {
     const entries = id === 'cpu' ? [['Processor', data?.cpuName], ['Sockets', data?.topology?.sockets], ['Physical cores', data?.topology?.physical], ['Logical processors', data?.cores],
       ...(Number.isFinite(temperatures.cpu) ? [['Highest CPU sensor', `${temperatures.cpu.toFixed(1)} °C`]] : []),
       ...(data?.load ? [['Load · 1 / 5 / 15 min', data.load.map(value => value.toFixed(2)).join(' / ')]] : [])]
-      : id === 'gpu' ? [...(data?.gpus || []).flatMap(gpu => [[gpu.name, hardwarePercent(gpu.percent)],
+      : id === 'gpu' ? [...(data?.gpus || []).flatMap((gpu, index) => [[`GPU ${index} · ${gpu.name}`, hardwarePercent(gpu.percent)],
         ['Memory type', gpu.memory?.type === 'unified' ? 'Unified · shared with CPU' : gpu.memory?.type === 'shared' ? 'Shared system memory' : gpu.memory?.type === 'dedicated' ? 'Dedicated VRAM' : 'Not reported'],
         ['Memory capacity', hardwareBytes(gpu.memory?.total)],
         ...(Number.isFinite(gpu.memory?.used) ? [['GPU memory in use', hardwareBytes(gpu.memory.used)]] : []),
@@ -283,36 +308,54 @@ export class SystemMonitorCore extends SystemClient {
       : id === 'storage' ? [['System disk model', disk?.model || 'Not reported'], ['Used', hardwareBytes(disk?.used)], ['Available', hardwareBytes(disk?.free)], ['Total', hardwareBytes(disk?.total)]]
       : id === 'network' ? [['Active interface', network?.name], ['Received since interface started', hardwareBytes(network?.received)], ['Sent since interface started', hardwareBytes(network?.sent)]]
       : [['Power source', hardwarePower(battery)], ['Health', hardwarePercent(battery?.health)], ['Cycles', battery?.cycles], ['Battery temperature', Number.isFinite(battery?.temperature) ? `${battery.temperature.toFixed(1)} °C` : null]];
+    const gpu = primaryHardwareGPU(data), stacked = (this.hardwareWidth || 1400) < 1050;
     const chart = v_flex().flex_1().min_w(0).gap(16)
-      .child(id === 'cpu' ? this.hardwareCPUCharts(t) : this.hardwareMetricCard(id, t, true));
+      .child(id === 'cpu' ? this.hardwareCPUCharts(t) : this.hardwareMetricCard(id, t, true))
+      .when(id === 'ram', el => el.child(this.hardwareCapacity('ram', 'RAM capacity', memory?.used, memory?.total, t)))
+      .when(id === 'storage', el => el.child(this.hardwareCapacity('storage', 'System volume', disk?.used, disk?.total, t)))
+      .when(id === 'gpu', el => el
+        .child(this.hardwareCapacity('gpu', gpu?.memory?.type === 'unified' ? 'GPU use of unified memory' : gpu?.memory?.type === 'shared' ? 'Shared GPU memory' : 'Dedicated GPU memory', gpu?.memory?.used, gpu?.memory?.total, t))
+        .when(gpu?.memory?.type === 'dedicated' && gpu.memory.sharedTotal > 0, el => el
+          .child(this.hardwareCapacity('gpu-shared', 'Shared GPU memory', gpu.memory.sharedUsed, gpu.memory.sharedTotal, t))));
     return h_flex().id(`hardware-module-${id}`).w_full().items_start().flex_none().gap(20)
+      .when(stacked, el => el.flex_col().items_stretch())
       .child(chart)
-      .child(v_flex().w(300).flex_none().border(1).border_color(t.border).children(entries.map(([label, value], index) =>
-        h_flex().px(16).py(11).gap(16).items_start().when(index > 0, el => el.border_t(1).border_color(t.border))
-          .child(div().flex_1().text_size(12).text_color(t.muted).child(label))
-          .child(div().max_w(320).text_size(12).text_right().child(value === null || value === undefined ? 'Unavailable' : String(value))))));
+      .child(v_flex().when(stacked, el => el.w_full().max_w(560).self_start()).when(!stacked, el => el.w(280)).flex_none().border(1).border_color(t.border)
+        .child(div().px(16).py(12).text_size(12).font_semibold().child(`${hardwareTitle(id)} information`))
+        .children(entries.map(([label, value]) => h_flex().px(16).py(11).gap(16).items_start().border_t(1).border_color(t.border)
+          .child(div().flex_1().min_w(0).text_size(11).text_color(t.muted).child(label))
+          .child(div().flex_1().min_w(0).text_size(11).text_right().child(value === null || value === undefined ? 'Unavailable' : String(value))))));
   }
 
   hardwareSensorDetails(t) {
-    const data = this.hardware;
+    const data = this.hardware, summary = hardwareSensorSummary(data), stacked = (this.hardwareWidth || 1400) < 1050;
     return v_flex().id('hardware-module-sensors').flex_none().gap(20)
       .child(h_flex().items_start().gap(20)
+        .when(stacked, el => el.flex_col().items_stretch())
         .child(this.hardwareMetricCard('sensors', t, true))
-        .child(v_flex().w(300).flex_none().gap(12)
+        .child(v_flex().when(stacked, el => el.w_full()).when(!stacked, el => el.w(280)).flex_none().gap(12)
           .child(div().text_size(13).font_semibold().child('Hardware sensors'))
+          .children(Object.entries(summary).map(([key, value]) => v_flex().id(`hardware-sensor-availability-${key}`).p(12).gap(4).border(1).border_color(t.border)
+            .child(h_flex().justify_between().gap(8).text_size(12)
+              .child(`${key.toUpperCase()} temperature`).child(Number.isFinite(value) ? `${value.toFixed(1)} °C` : 'Unavailable'))
+            .when(!Number.isFinite(value), el => el.child(div().text_size(11).text_color(t.muted).child('Not reported by the current sensor providers.')))))
+          .when(data?.platform === 'win32' && summary.cpu === null, el => el.child(DialogDescription(t)
+            .child('Windows CPU temperature requires an active LibreHardwareMonitor WMI provider. NVIDIA driver readings cover the GPU only.')))
           .child(DialogDescription(t).child('Temperature points measure thermal zones. They do not correspond one-to-one with CPU cores.'))
           .when(Boolean(data?.sensorStatus), el => el.child(DialogDescription(t).child(data.sensorStatus)))
           .when(!hardwareConfig().visible.sensors, el => el.child(Button('hardware-enable-sensors', t, { variant: 'secondary' }).child('Enable sensors')
             .on_click((_event, cx) => { this.saveHardwarePreference({ visible: { ...hardwareConfig().visible, sensors: true } }, cx); })))))
       .children(['Temperature', 'Fan', 'Power'].flatMap(type => {
         const rows = (data?.sensors || []).filter(row => row.type === type);
-        return rows.length ? [v_flex().flex_none().gap(10)
+        return rows.length ? [v_flex().w_full().max_w(880).self_start().flex_none().gap(10)
           .child(div().text_size(12).font_semibold().child(type === 'Fan' ? 'Fans' : type === 'Power' ? 'Power' : 'Temperatures'))
-          .child(v_flex().border(1).border_color(t.border).children(rows.map((row, index) => h_flex().min_h(36).px(12).gap(16).items_center()
-            .when(index > 0, el => el.border_t(1).border_color(t.border))
+          .child(v_flex().border(1).border_color(t.border)
+            .child(h_flex().min_h(30).px(12).gap(16).items_center().text_size(10).text_color(t.muted)
+              .child(div().flex_1().child('Sensor')).child(div().w(100).text_right().child('Current')).child(div().w(140).text_right().child('Source')))
+            .children(rows.map((row, index) => h_flex().min_h(40).px(12).gap(16).items_center().border_t(1).border_color(t.border)
             .accessibility_label(`${row.name}: ${row.value} ${row.unit}. ${row.source}. ${row.id}`)
             .child(div().flex_1().min_w(0).text_size(12).child(row.name))
-            .child(div().w(130).text_right().font_family('Geist Mono').text_size(12).child(`${row.value.toFixed(1)} ${row.unit}`))
+            .child(div().w(100).text_right().font_family('Geist Mono').text_size(12).child(`${row.value.toFixed(1)} ${row.unit}`))
             .child(div().w(140).text_right().text_size(10).text_color(t.muted).child(row.source)))))] : [];
       }));
   }
