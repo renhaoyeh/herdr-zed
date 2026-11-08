@@ -88,7 +88,7 @@ export default class Devkits extends View {
       return;
     }
     if (props()?.view === 'usage-details') cx.timer.every(60000, cx => cx.notify());
-    if (props()?.view === 'hardware-details') {
+    if (['hardware-details', 'status'].includes(props()?.view)) {
       this.pollHardware(cx, false);
       cx.timer.every(1000, cx => this.pollHardware(cx));
     }
@@ -694,7 +694,7 @@ export default class Devkits extends View {
             hidePanels(); rememberPanel(space.id, null);
             this.showConversation(!conversationVisible(space));
           }).child(glyph('agent'))))
-      .child(div().flex_1())
+      .child(this.systemStatus(t))
       .child(Button('settings', t, { variant: 'ghost', size: 'icon' }).h_full()
         .accessibility_label('Herdr settings')
         .on_click(() => run('app.settings')).child(glyph('gear')))
@@ -722,6 +722,8 @@ export default class Devkits extends View {
           .accessibility_label(showing('files') ? 'Hide files' : 'Show files')
           .on_click(() => toggleEditor(editor, 'files'))
           .child(glyph('folder'))))
+      .child(Button('system-monitor-settings', t, { variant: 'ghost' }).h_full().px(8).text_size(11)
+        .accessibility_label('System monitor settings').on_click(() => this.openHardware('settings')).child('System'))
       .when(Boolean(space), el => el.child(Button('open-tasks', t, { variant: 'ghost' }).h_full().rounded(0).px(10).gap(6)
         .bg(taskMode() ? t.selected : t.background)
         .accessibility_label('Tasks')
@@ -972,6 +974,13 @@ export default class Devkits extends View {
     const visible = groups.filter(g => !this.folded.has(g.space.id)).flatMap(g => g.threads.filter(thread => threadVisibleInSidebar(g.space, thread)).flatMap(thread => thread.agents));
     setAgentOrder(visible.map(a => a.address));
     return Sidebar(t)
+      .when(Boolean(this.hardwareResize), el => el.cursor_row_resize())
+      .on_size_change((size, cx) => {
+        if (this.hardwareSidebarAvailable !== size.height) { this.hardwareSidebarAvailable = size.height; cx.notify(); }
+      })
+      .on_mouse_move((event, cx) => this.resizeHardwareSidebar(event, cx))
+      .on_mouse_up('left', (_event, cx) => this.endHardwareResize(cx))
+      .on_hover((inside, cx) => { if (!inside) this.endHardwareResize(cx); })
       .child(this.archiveOpen ? this.archiveList(t) : SidebarContent()
         .children(groups.map(({ space, threads }, index) => SidebarGroup(index > 0, t)
           .child(SidebarGroupLabel(`project-${space.id}`, space.active, t).pr(0)
@@ -1003,7 +1012,9 @@ export default class Devkits extends View {
           .when(!this.folded.has(space.id), el => el
             .children(this.groupedThreads(space, threads, t, live))
             .when(!threads.some(thread => threadVisibleInSidebar(space, thread)) && (space.machine || !projectBoardTasks(space).some(task => !task.archived && (task.source !== 'thread' || task.tabs.length > 0))), el => el.child(h_flex().h(32).flex_none().px(12).items_center().text_size(12).text_color(t.muted).child(threads.length ? 'No active threads' : 'No threads yet')))))))
-      .child(this.accountUsage(t))
+      .child(this.accountUsage(t).on_size_change((size, cx) => {
+        if (this.hardwareQuotaHeight !== size.height) { this.hardwareQuotaHeight = size.height; cx.notify(); }
+      }))
       .child(this.systemUsage(t))
       .child(SidebarFooter(t)
         .child(Button('archived-threads', t, { variant: 'ghost', size: 'icon' })
