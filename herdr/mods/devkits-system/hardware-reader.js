@@ -3,7 +3,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { macTopology } from './hardware-topology.js';
+import { macTopology } from './components/system-monitor-topology.js';
 import { readWindowsHardware, windowsReadings } from './hardware-windows.js';
 import { readMacSensors } from './hardware-sensors.js';
 import { readPackageHardware } from './hardware-package.js';

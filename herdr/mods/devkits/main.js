@@ -17,13 +17,13 @@ import { observeTaskInput } from './agent-task-evidence.js';
 import TaskComposer, { openTaskComposer } from './task-composer.js';
 import { rememberBoardTask, threadBoardStatus, projectBoardTasks, setTaskArchived, threadTaskArchived, threadVisibleInSidebar, threadBoardTask, sessionThreadTitle } from './agent-board-state.js';
 import { boardStatuses, canStartTask, taskActions } from './agent-board-model.js';
-import AsanaPanel, { AsanaProjectPicker, taskPrompt } from './asana.js';
-import MantisPanel, { MantisProjectPicker } from './mantisbt.js';
+import { TaskSources } from './task-sources.js';
+import { taskPrompt } from './task-prompt.js';
 import { sessionMenu } from './session-menu.js';
 import { agentProfiles } from './agent-profiles.js';
 import { accountActions } from './account-actions.js';
 import { agentUsage } from './usage.js';
-import { SystemMonitor } from './system-monitor.js';
+import { SystemMonitor } from './components/system-monitor.js';
 import { SystemDisplay, SystemDisplayMenu, openSystemDetails } from './system-display.js';
 import { RunControls, RunMenu, runApp } from './run-app.js';
 import { BranchMenu } from './branch-menu.js';
@@ -45,12 +45,6 @@ const startingThreads = new Set();
 const hidePanels = () => { setShared('devkits.asana', null); };
 // Clear legacy inline-panel state when opening an Asana pop-out.
 const rememberPanel = (id, name) => { if (id) setShared('devkits.project-panels', { ...(shared('devkits.project-panels') || {}), [id]: name || null }); };
-const openAsana = (project, source = 'asana') => {
-  hidePanels();
-  rememberPanel(project.id, null);
-  return openOverlay({ mod: 'devkits', kind: 'dialog', modal: true, frame: 'none',
-    width: 0.9, height: 0.86, props: { view: source, project } });
-};
 const openCalendar = () => openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: true, width: 0.9, height: 0.86,
   props: { view: 'calendar' } });
 const restorePanel = () => false;
@@ -65,11 +59,11 @@ const conversationVisible = project => Boolean(project && shared('devkits.conver
 const agentLoads = new Map();
 
 export default class Devkits extends View {
-  systemMonitor = new SystemMonitor({
-    details: props()?.view === 'hardware-details', page: props()?.page, overlay: props()?.overlay,
+  systemMonitor = new SystemMonitor({ receiver: 'devkits',
     active: () => this.systemDisplay.active(), openDetails: openSystemDetails,
   });
   systemDisplay = new SystemDisplay(this.systemMonitor, props()?.view);
+  taskSources = new TaskSources((project, snapshot) => openTaskComposer(project, null, 'todo', snapshot));
 
   init(_props, cx) {
     if (props()?.view === 'system-display-menu') {
@@ -119,7 +113,7 @@ export default class Devkits extends View {
     if (props()?.view === 'usage-details') cx.timer.every(60000, cx => cx.notify());
     if (['hardware-details', 'status'].includes(props()?.view) || (!props()?.view && cx)) {
       this.systemDisplay.init(); this.systemMonitor.init(cx);
-      if (props()?.view === 'hardware-details') return;
+      if (props()?.view === 'hardware-details') { closeOverlay(props().overlay); openSystemDetails(props()?.page); return; }
     }
     if (!props()?.view && cx) {
       cx.timer.every(1500, cx => observeTaskInput(agents(), terminals(), cx));
@@ -164,6 +158,7 @@ export default class Devkits extends View {
       }
     });
     if (props()?.view === 'editor') {
+      this.taskSources.init(cx);
       this.editor = new WorkspaceEditor(); this.editor.init(cx); this.files = this.editor.files;
       this.agentBoard = new AgentBoard(); this.agentBoard.init(cx);
       cx.spawn(async cx => { try { await this.cachedAgents(null); } catch {} cx.notify(); });
@@ -205,15 +200,9 @@ export default class Devkits extends View {
       if (props().view !== 'rename-account') this.handle.focus();
       if (props().view === 'project-picker') this.projectIndex = -1;
     }
-    if (['asana-projects', 'mantisbt-projects'].includes(props()?.view)) {
-      this.asanaProjects = props().view === 'mantisbt-projects' ? new MantisProjectPicker() : new AsanaProjectPicker();
-      this.asanaProjects.init(props(), cx);
-      return;
-    }
-    if (['asana', 'mantisbt'].includes(props()?.view)) {
-      this.asana = props().view === 'mantisbt' ? new MantisPanel() : new AsanaPanel();
-      this.asana.init(cx);
-      return;
+    if (['asana', 'mantisbt'].includes(props()?.view) && props()?.overlay) {
+      const target = props(), project = target.project || this.projects().find(project => project.active);
+      this.taskSources.open(project, target.view); if (target.overlay) closeOverlay(target.overlay); return;
     }
     if (['launcher', 'manage-launchers', 'agent-profile-editor'].includes(props()?.view)) this.initSessionMenu(cx);
   }
@@ -520,13 +509,6 @@ export default class Devkits extends View {
     else run('space.new', { name: target.projectName, folder: target.folder, machine: '', ...(argv ? { tab: name, argv } : {}) });
   }
 
-  // Asana only picks a source. Review its content in the normal task composer.
-  asanaPanel(cx) {
-    const project = props().project || this.projects().find(project => project.active);
-    return this.asana.render(project,
-      task => { closeOverlay(props().overlay); openTaskComposer(project, null, 'todo', task); },
-      () => closeOverlay(props().overlay), cx);
-  }
 
   openBoard(project) {
     maximizeConversation(null, false);
@@ -547,8 +529,8 @@ export default class Devkits extends View {
   boardPanel(project, cx) {
     const launchers = this.taskAssignees(project);
     return this.agentBoard.render(project, agents(), launchers, {
-      asana: () => openAsana(project),
-      mantisbt: () => openAsana(project, 'mantisbt'),
+      asana: () => this.taskSources.open(project),
+      mantisbt: () => this.taskSources.open(project, 'mantisbt'),
       archive: (task, eventCx) => {
         const currentProject = this.projects().find(item => item.id === project.id) || project;
         const current = projectBoardTasks(currentProject, agents()).find(item => item.gid === task.gid);
@@ -598,6 +580,7 @@ export default class Devkits extends View {
   }
 
   async close() {
+    this.systemMonitor.close();
     this.calendar?.close?.();
     this.closeSkillWatch();
     this.sharingPoll?.cancel();
@@ -711,7 +694,7 @@ export default class Devkits extends View {
     const conversation = layoutNode(layout(), 'workspace-view');
     const showing = name => Boolean(editor) && shared('devkits.right-panel') === name;
     // Like Zed: the branch sits beside the project in the header; only a remote project names its machine here.
-    return this.systemDisplay.contextMenu(h_flex()).id('devkits-status').relative().size_full().pr(4).gap(8).items_center().bg(t.background).border_t(1).border_color(t.border)
+    return this.systemDisplay.contextMenu(h_flex()).id('devkits-status').relative().size_full().pr(4).gap(8).items_center().bg(t.background)
       .text_size(11).text_color(t.muted)
       .when(Boolean(space && conversation), el => el
         .child(ToolbarButton('open-conversation', t, { icon: true, disabled: taskMode(), selected: conversationVisible(space) })
@@ -916,13 +899,12 @@ export default class Devkits extends View {
     if (props()?.view === 'run-menu') return this.runMenu.render(t);
     if (props()?.view === 'branch-menu') return this.branchMenu.render(t);
     if (props()?.view === 'usage-details') return this.usageDetails(t);
-    if (props()?.view === 'hardware-details') return this.systemMonitor.renderDetails(t);
+    if (props()?.view === 'hardware-details') return div();
     if (props()?.view === 'brand') return this.brand(t);
     if (props()?.view === 'pane') return this.paneHeader(t, cx);
     if (props()?.view === 'status') return this.statusBar(t);
     if (props()?.view === 'launcher') return this.launcher(t);
-    if (['asana', 'mantisbt'].includes(props()?.view)) return this.asanaPanel(cx);
-    if (['asana-projects', 'mantisbt-projects'].includes(props()?.view)) return this.asanaProjects.render();
+    if (['asana', 'mantisbt', 'asana-projects', 'mantisbt-projects'].includes(props()?.view)) return div();
     if (props()?.view === 'manage-launchers') return this.manageLaunchers(t);
     if (props()?.view === 'agent-profile-editor') return this.agentProfileEditor(t);
     if (props()?.view === 'remove-account') return this.removeAccountPrompt(t);
@@ -960,13 +942,13 @@ export default class Devkits extends View {
       || selectedTab.name === '__devkits_default_terminal__')
       && !all.some(agent => agent.space === chosen.id && agent.tab === selectedTab.id)
       && modelPanes.filter(pane => pane.tab === selectedTab.id).length < 2;
-    const content = chosen && shared('devkits.asana') === chosen.id ? 'asana' : chosen?.pending || defaultSelected ? 'project-empty' : 'main';
+    const content = chosen?.pending || defaultSelected ? 'project-empty' : 'main';
     if (!taskMode() && this.shownContent !== content) {
       this.shownContent = content;
       run('layout.select', { stack: 'workspace-view', child: content });
     }
     const conversation = layoutNode(layout(), 'workspace-view');
-    const showConversation = !taskMode() && (content === 'asana' || conversationVisible(chosen));
+    const showConversation = !taskMode() && conversationVisible(chosen);
     if (conversation && conversation.hidden === showConversation)
       run(showConversation ? 'layout.show' : 'layout.hide', { id: 'workspace-view' });
     const defaults = { ...(shared('devkits.default-terminals') || {}) };

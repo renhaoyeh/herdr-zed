@@ -1,18 +1,25 @@
+import { evaluateNative, sourceOptions } from './source-harness.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { claudeModels, claudeEfforts, codexHome, codexModels, isClaudeLauncher, isCodexLauncher, sessionArgv, sessionKind, shownOptions, mergeModels, orderedOptions, moveOption, effortLabel, sessionChoices, settingsKey, launcherOption } from '../mods/devkits/model.js';
+import { claudeModels, claudeEfforts, codexHome, codexModels, isClaudeLauncher, isCodexLauncher, sessionArgv, sessionKind, shownOptions, mergeModels, orderedOptions, moveOption, effortLabel, sessionChoices, settingsKey, launcherOption, folderKey } from '../mods/devkits/model.js';
 
 const names = ['asanaTheme', 'AsanaPanel', 'AsanaProjectPicker', 'previewWidthAt', 'avatarColor', 'statusKind', 'initials', 'dueLabel', 'searchProjects', 'projectTasksPage', 'myProjectTasks', 'projectWorkspace', 'openSubtasks', 'taskDetails', 'taskComments', 'relativeTime',
   'filterTasks', 'taskPrompt', 'readAsanaToken', 'saveAsanaToken'];
 async function load(host = {}) {
-  const source = await readFile(new URL('../mods/devkits/asana.js', import.meta.url), 'utf8');
-  host = { fetch: () => assert.fail('unexpected request'), Button: () => {}, claudeModels, claudeEfforts, codexHome, codexModels, isClaudeLauncher, isCodexLauncher, sessionKind, shownOptions, orderedOptions, effortLabel, settingsKey, launcherOption,
-    home: () => '/home', Select: () => element(), SelectState: class {}, ...host };
-  return new Function(...Object.keys(host), source.replace(/^import .*;\r?\n/gm, '')
-    .replace('export default class', 'class').replace(/^export /gm, '')
-    + `\nreturn { ${names.join(', ')} };`)(...Object.values(host));
+  host = { fetch: () => assert.fail('unexpected request'), Button: () => {}, claudeModels, claudeEfforts, codexHome, codexModels, isClaudeLauncher, isCodexLauncher, sessionKind, shownOptions, orderedOptions, effortLabel, settingsKey, launcherOption, folderKey,
+    glyph: () => element(), home: () => '/home', shared: () => null, setShared() {}, closeOverlay() {}, Select: () => element(), SelectState: class {}, ...host };
+  Object.assign(host, await evaluateNative('../mods/devkits-asana/api.js', host, 'searchProjects, projectTasksPage, myProjectTasks, projectWorkspace, openSubtasks, taskDetails, taskComments'));
+  Object.assign(host, await evaluateNative('../mods/devkits-asana/connection.js', host, 'readAsanaToken, saveAsanaToken'));
+  Object.assign(host, await evaluateNative('../mods/devkits-asana/source.js', host, 'asanaSource'));
+  Object.assign(host, await evaluateNative('../mods/devkits/components/task-source-model.js', host, 'filterTasks, sourceTaskSnapshot, relativeTime, previewWidthAt, statusKind, avatarColor, initials, dueLabel, sourcePathKey'));
+  Object.assign(host, await evaluateNative('../mods/devkits/task-prompt.js', host, 'taskPrompt'));
+  Object.assign(host, await evaluateNative('../mods/devkits/components/task-source.js', host, 'TaskSourceController, TaskSourceProjectPicker'));
+  Object.assign(host, await evaluateNative('../mods/devkits/task-session.js', host, 'TaskSession'));
+  Object.assign(host, await evaluateNative('../mods/devkits-asana/ui.js', host, 'AsanaPanel, AsanaProjectPicker, asanaTheme'));
+  return { ...host, taskSourceOptions: (_source, target) => sourceOptions(host, 'asana', target) };
 }
+
 const reply = (status, body) => ({ status, ok: status < 400, json: async () => body });
 
 test('project search covers every workspace through typeahead with the typed query', async () => {
@@ -132,11 +139,11 @@ test('Mine loads only my tasks; All loads a page when shown and more on request;
   const memory = { 'devkits.asana-projects': { '["","/Code/api"]': { gid: 'p1', name: 'API' } } }, urls = [];
   const tasks = [{ gid: 't1', name: 'Fix login', me: true, projects: ['p1'], subs: ['s1'] }, { gid: 't2', name: 'Other', projects: ['p1'] },
     { gid: 't3', name: 'Nobody', projects: ['p1'] }, { gid: 't4', name: 'Elsewhere', me: true, projects: ['p2'] }];
-  const { AsanaPanel } = await load({ ...ui, shared: key => memory[key], setShared: (key, value) => { memory[key] = value; },
+  const { AsanaPanel, taskSourceOptions } = await load({ ...ui, shared: key => memory[key], setShared: (key, value) => { memory[key] = value; },
     folderKey: path => path.replace(/\/+$/, ''), appHome: () => '/herdr', readTextFile: async () => '{"token":"secret"}', fetch: asana(tasks, urls) });
   const { cx, settle } = harness();
-  const panel = new AsanaPanel(); panel.init(cx);
-  const render = async () => { panel.render({ folder: '/Code/api/' }, () => assert.fail('nothing starts on preview'), () => {}, cx); await settle(); };
+  const panel = new AsanaPanel(taskSourceOptions('asana')); panel.init(cx);
+  const render = async () => { panel.render({ folder: '/Code/api/' }, cx); await settle(); };
   await render(); await render();
   assert.equal(panel.tab, 'mine');
   assert.deepEqual(panel.rows().map(row => row.task.gid), ['t1']);
@@ -161,21 +168,21 @@ test('Mine loads only my tasks; All loads a page when shown and more on request;
 
 test('an unbound project loads nothing until a project is chosen from the dropdown, which remembers it and its workspace', async () => {
   const memory = {}, closed = [], urls = [];
-  const { AsanaPanel, AsanaProjectPicker } = await load({ ...ui, shared: key => memory[key], setShared: (key, value) => { memory[key] = value; },
+  const { AsanaPanel, AsanaProjectPicker, taskSourceOptions } = await load({ ...ui, shared: key => memory[key], setShared: (key, value) => { memory[key] = value; },
     folderKey: path => path, appHome: () => '/herdr', readTextFile: async () => '{"token":"secret"}', closeOverlay: id => closed.push(id),
     fetch: asana([{ gid: 'w1', name: 'Mine', me: true, projects: ['p9'] }], urls) });
   const { cx, settle } = harness();
-  const panel = new AsanaPanel(); panel.init(cx);
-  panel.render({ folder: '/Code/web' }, () => {}, () => {}, cx); await settle();
-  panel.render({ folder: '/Code/web' }, () => {}, () => {}, cx); await settle();
+  const panel = new AsanaPanel(taskSourceOptions('asana')); panel.init(cx);
+  panel.render({ folder: '/Code/web' }, cx); await settle();
+  panel.render({ folder: '/Code/web' }, cx); await settle();
   assert.deepEqual(panel.rows(), []);
   assert.equal(urls.length, 0);
-  const picker = new AsanaProjectPicker(); picker.init({ folder: '/Code/web', overlay: 'menu' }, cx); await settle();
+  const picker = new AsanaProjectPicker(taskSourceOptions('asana', { folder: '/Code/web', overlay: 'menu' })); picker.init({ folder: '/Code/web', overlay: 'menu' }, cx); await settle();
   assert.deepEqual(picker.projects.map(project => project.gid), ['p9']);
   picker.choose(picker.projects[0]);
   assert.deepEqual(memory['devkits.asana-projects'], { '["","/Code/web"]': { gid: 'p9', name: 'Web', workspace: 'w' } });
   assert.deepEqual(closed, ['menu']);
-  panel.render({ folder: '/Code/web' }, () => {}, () => {}, cx); await settle();
+  panel.render({ folder: '/Code/web' }, cx); await settle();
   assert.equal(panel.loadedGid, 'p9');
   assert.deepEqual(panel.rows().map(row => row.task.gid), ['w1']);
   assert.ok(!urls.some(url => url.includes('opt_fields=workspace.gid')));
@@ -212,12 +219,12 @@ test('each assignee keeps one avatar color', async () => {
 
 test('switching Devkits projects keeps each project’s tasks, selection and preview without reloading', async () => {
   const memory = { 'devkits.asana-projects': { '["","/a"]': { gid: 'pa', name: 'A', workspace: 'w' }, '["","/b"]': { gid: 'pb', name: 'B', workspace: 'w' } } }, urls = [];
-  const { AsanaPanel } = await load({ ...ui, shared: key => memory[key], setShared: (key, value) => { memory[key] = value; },
+  const { AsanaPanel, taskSourceOptions } = await load({ ...ui, shared: key => memory[key], setShared: (key, value) => { memory[key] = value; },
     folderKey: path => path, appHome: () => '/herdr', readTextFile: async () => '{"token":"secret"}',
     fetch: asana([{ gid: 'a1', name: 'A task', me: true, projects: ['pa'] }, { gid: 'b1', name: 'B task', me: true, projects: ['pb'] }], urls) });
   const { cx, settle } = harness();
-  const panel = new AsanaPanel(); panel.init(cx);
-  const show = async folder => { panel.render({ folder }, () => {}, () => {}, cx); await settle(); panel.render({ folder }, () => {}, () => {}, cx); await settle(); };
+  const panel = new AsanaPanel(taskSourceOptions('asana')); panel.init(cx);
+  const show = async folder => { panel.render({ folder }, cx); await settle(); panel.render({ folder }, cx); await settle(); };
   await show('/a');
   panel.show(panel.mine[0], cx); await settle();
   await show('/b');
@@ -293,39 +300,39 @@ test('model and effort overrides replace conflicting launcher flags and preserve
   assert.deepEqual(sessionArgv(claude, command, { effort: 'high' }), ['claude', '--effort', 'high', '--model', 'opus', '--permission-mode', 'plan']);
 });
 
-test('Asana names and applies profile defaults, narrows efforts to the effective model and drops incompatible inherited effort', async () => {
+test('Tasks names and applies profile defaults, narrows efforts to the effective model and drops incompatible inherited effort', async () => {
   const memory = { 'devkits.profile-sessions': { codex: { model: 'a', effort: 'high' } } };
   const picks = new Map(); let click, started;
   const button = new Proxy({}, { get: (_target, key) => (...args) => { if (key === 'on_click') click = args[0]; return button; } });
-  const { AsanaPanel } = await load({ ...ui, shared: key => memory[key],
+  const { TaskSession } = await load({ ...ui, shared: key => memory[key],
     Select: (id, state, value, options) => { picks.set(id, { value, options }); return element(); }, Button: () => button });
-  const panel = new AsanaPanel(); panel.init({ focus_handle: () => ({ focus() {} }) });
+  const panel = new TaskSession(); panel.init({ focus_handle: () => ({ focus() {} }) });
   panel.codexModels.set('/home/.codex', [{ key: 'a', label: 'A', efforts: ['low', 'high'] }, { key: 'b', label: 'B', efforts: ['low'] }]);
   const agents = [{ key: 'codex', name: 'Codex', run: ['codex'], icon: 'icons/codex.svg', tint: false }];
   const render = () => panel.launchRow({ gid: 'task' }, agents, (_agent, _task, options) => { started = options; }, {});
   render();
   assert.deepEqual(panel.session(agents).efforts, ['low', 'high']);
-  assert.equal(picks.get('asana-agent').options[0].label, 'Default account');
-  assert.equal(picks.get('asana-agent').options[0].icon, 'icons/codex.svg');
-  assert.equal(picks.get('asana-agent').options[0].iconTint, false);
-  assert.equal(picks.get('asana-model').options[0].label, 'Default (A)');
-  assert.equal(picks.get('asana-effort').options[0].label, 'Default (High)');
+  assert.equal(picks.get('task-session-agent').options[0].label, 'Default account');
+  assert.equal(picks.get('task-session-agent').options[0].icon, 'icons/codex.svg');
+  assert.equal(picks.get('task-session-agent').options[0].iconTint, false);
+  assert.equal(picks.get('task-session-model').options[0].label, 'Default (A)');
+  assert.equal(picks.get('task-session-effort').options[0].label, 'Default (High)');
   click(); assert.deepEqual(started, { model: 'a', effort: 'high' });
   memory['devkits.asana-session'] = { agent: 'codex', model: 'b' };
   render(); click(); assert.deepEqual(started, { model: 'b', effort: null });
-  assert.equal(picks.get('asana-effort').options[0].label, 'Default');
+  assert.equal(picks.get('task-session-effort').options[0].label, 'Default');
   memory['devkits.asana-session'] = {};
   memory['devkits.session-options'] = { codex: { models: ['a'], efforts: ['high'] } };
   render(); click(); assert.deepEqual(started, { model: null, effort: null });
-  assert.equal(picks.get('asana-model').options[0].label, 'Default');
+  assert.equal(picks.get('task-session-model').options[0].label, 'Default');
   assert.deepEqual(panel.session(agents).efforts, ['low']);
 });
 
 test('the composer remembers the agent and drops a model or effort the new agent lacks', async () => {
   const memory = { 'devkits.asana-session': { agent: 'codex', model: 'opus', effort: 'max' } };
-  const { AsanaPanel } = await load({ ...ui, shared: key => memory[key], setShared: (key, value) => { memory[key] = value; },
+  const { TaskSession } = await load({ ...ui, shared: key => memory[key], setShared: (key, value) => { memory[key] = value; },
     readTextFile: async () => JSON.stringify({ models: [{ slug: 'gpt-6-luna', visibility: 'list', supported_reasoning_levels: [{ effort: 'high' }] }] }) });
-  const panel = new AsanaPanel(); panel.init({ focus_handle: () => ({ focus() {} }) });
+  const panel = new TaskSession(); panel.init({ focus_handle: () => ({ focus() {} }) });
   const agents = [{ key: 'claude', name: 'Claude', run: ['claude'] }, { key: 'codex', name: 'Codex', run: ['codex'] }];
   const pending = [];
   panel.cx = { notify() {}, spawn: task => { pending.push(task(panel.cx)); } };
@@ -344,16 +351,16 @@ test('the composer remembers the agent and drops a model or effort the new agent
 test('a thread’s Asana link opens its task in the preview once, for the matching project only', async () => {
   const memory = { 'devkits.asana-projects': { '["","/a"]': { gid: 'pa', name: 'A', workspace: 'w' } },
     'devkits.asana-focus': { folder: '/a/', gid: 'a2' } };
-  const { AsanaPanel } = await load({ ...ui, shared: key => memory[key], setShared: (key, value) => { memory[key] = value; },
+  const { AsanaPanel, taskSourceOptions } = await load({ ...ui, shared: key => memory[key], setShared: (key, value) => { memory[key] = value; },
     folderKey: path => path.replace(/\/+$/, ''), appHome: () => '/herdr', readTextFile: async () => '{"token":"secret"}',
     fetch: asana([{ gid: 'a1', name: 'One', me: true, projects: ['pa'] }, { gid: 'a2', name: 'Two', projects: ['pa'] }]) });
   const { cx, settle } = harness();
-  const panel = new AsanaPanel(); panel.init(cx);
-  panel.render({ folder: '/b' }, () => {}, () => {}, cx); await settle();
-  panel.render({ folder: '/b' }, () => {}, () => {}, cx); await settle();
+  const panel = new AsanaPanel(taskSourceOptions('asana')); panel.init(cx);
+  panel.render({ folder: '/b' }, cx); await settle();
+  panel.render({ folder: '/b' }, cx); await settle();
   assert.ok(memory['devkits.asana-focus']);
-  panel.render({ folder: '/a' }, () => {}, () => {}, cx); await settle();
-  panel.render({ folder: '/a' }, () => {}, () => {}, cx); await settle();
+  panel.render({ folder: '/a' }, cx); await settle();
+  panel.render({ folder: '/a' }, cx); await settle();
   assert.equal(memory['devkits.asana-focus'], null);
   assert.equal(panel.selected, 'a2');
   assert.equal(panel.detail.name, 'Two');
@@ -365,9 +372,9 @@ test('hidden models and efforts leave the composer, while new Codex models still
   assert.deepEqual(shownOptions(['low', 'high'], ['low']), ['high']);
   const memory = { 'devkits.session-options': { claude: { models: ['haiku'], efforts: ['low', 'max'] }, codex: { models: ['old'] } },
     'devkits.asana-session': { agent: 'claude', model: 'haiku', effort: 'max' } };
-  const { AsanaPanel } = await load({ ...ui, shared: key => memory[key], setShared: (key, value) => { memory[key] = value; },
+  const { TaskSession } = await load({ ...ui, shared: key => memory[key], setShared: (key, value) => { memory[key] = value; },
     readTextFile: async () => JSON.stringify({ models: [{ slug: 'old', visibility: 'list' }, { slug: 'new', visibility: 'list', supported_reasoning_levels: [{ effort: 'high' }] }] }) });
-  const panel = new AsanaPanel(); panel.init({ focus_handle: () => ({ focus() {} }) });
+  const panel = new TaskSession(); panel.init({ focus_handle: () => ({ focus() {} }) });
   const agents = [{ key: 'claude', name: 'Claude', run: ['claude'] }, { key: 'codex', name: 'Codex', run: ['codex'] }];
   const claude = panel.session(agents);
   assert.deepEqual(claude.models.map(model => model.key), ['fable', 'opus', 'sonnet']);
@@ -389,8 +396,8 @@ test('models follow the dragged order, new ones keep theirs after it, and the co
   assert.deepEqual(moveOption(['a', 'b', 'c'], 'a', 'c'), ['b', 'c', 'a']);
   assert.deepEqual(moveOption(['a', 'b'], 'x', 'a'), ['a', 'b']);
   const memory = { 'devkits.session-options': { claude: { order: ['haiku', 'opus'], models: ['sonnet'] } } };
-  const { AsanaPanel } = await load({ ...ui, shared: key => memory[key], setShared: (key, value) => { memory[key] = value; } });
-  const panel = new AsanaPanel(); panel.init({ focus_handle: () => ({ focus() {} }) });
+  const { TaskSession } = await load({ ...ui, shared: key => memory[key], setShared: (key, value) => { memory[key] = value; } });
+  const panel = new TaskSession(); panel.init({ focus_handle: () => ({ focus() {} }) });
   assert.deepEqual(panel.session([{ key: 'claude', name: 'Claude', run: ['claude'] }]).models.map(model => model.key), ['haiku', 'opus', 'fable']);
 });
 
@@ -421,11 +428,11 @@ test('Asana owns its colors in both modes regardless of the host accent and surf
 test('token settings replaces credentials, clears caches and disconnects without losing bindings or bookmarks', async () => {
   let file = '{"token":"old"}', draft = 'new';
   const memory = { 'devkits.asana-projects': { project: 'p1' }, 'devkits.asana-saved': { project: ['t1'] } };
-  const { AsanaPanel, readAsanaToken } = await load({ ...ui, appHome: () => '/herdr',
+  const { AsanaPanel, readAsanaToken, taskSourceOptions } = await load({ ...ui, appHome: () => '/herdr',
     shared: key => memory[key], readTextFile: async () => file,
     writeTextFile: async (_path, text) => { file = text; } });
   const { cx, settle } = harness();
-  const panel = new AsanaPanel(); panel.init(cx);
+  const panel = new AsanaPanel(taskSourceOptions('asana')); panel.init(cx);
   panel.tokenInput = { value: () => draft, set_value: value => { draft = value; } };
   panel.token = 'old'; panel.needsToken = false; panel.settingsOpen = true;
   panel.states = new Map([['/a', { mine: ['stale'] }]]);
@@ -447,10 +454,10 @@ test('token settings replaces credentials, clears caches and disconnects without
 });
 
 test('failed token updates keep the current connection and allow retrying', async () => {
-  const { AsanaPanel } = await load({ ...ui, appHome: () => '/herdr', shared: () => null,
+  const { AsanaPanel, taskSourceOptions } = await load({ ...ui, appHome: () => '/herdr', shared: () => null,
     readTextFile: async () => '{"token":"old"}', writeTextFile: async () => { throw new Error('Cannot save'); } });
   const { cx, settle } = harness();
-  const panel = new AsanaPanel(); panel.init(cx);
+  const panel = new AsanaPanel(taskSourceOptions('asana')); panel.init(cx);
   panel.tokenInput = { value: () => 'replacement' };
   panel.token = 'old'; panel.needsToken = false; panel.settingsOpen = true;
   panel.saveToken(cx); await settle();
@@ -463,12 +470,12 @@ test('failed token updates keep the current connection and allow retrying', asyn
 
 test('settings populates the saved token in a masked input and unchanged Save keeps the connection', async () => {
   let draft = '', masked = false;
-  const { AsanaPanel } = await load({ ...ui, shared: () => null,
+  const { AsanaPanel, taskSourceOptions } = await load({ ...ui, shared: () => null,
     InputState: { new: () => ({ on() {}, value: () => draft, set_value: value => { draft = value; },
       set_masked: value => { masked = value; } }) },
     writeTextFile: () => assert.fail('unchanged token must not be written') });
   const { cx } = harness();
-  const panel = new AsanaPanel(); panel.init(cx);
+  const panel = new AsanaPanel(taskSourceOptions('asana')); panel.init(cx);
   panel.token = 'saved-secret'; panel.needsToken = false;
   const tasks = [{ gid: 't1' }]; panel.mine = tasks;
   panel.openSettings(cx);
@@ -483,9 +490,9 @@ test('settings populates the saved token in a masked input and unchanged Save ke
 });
 
 test('Copy copies the current token value while empty fields leave the clipboard alone', async () => {
-  const { AsanaPanel } = await load({ ...ui, shared: () => null });
+  const { AsanaPanel, taskSourceOptions } = await load({ ...ui, shared: () => null });
   const { cx } = harness();
-  const panel = new AsanaPanel(); panel.init(cx);
+  const panel = new AsanaPanel(taskSourceOptions('asana')); panel.init(cx);
   let value = 'actual-secret'; const copied = [];
   panel.tokenInput = { value: () => value };
   cx.write_to_clipboard = text => copied.push(text);
@@ -514,9 +521,9 @@ test('Asana preview only imports source content and has no agent, model, effort 
     return proxy;
   };
   const imported = [];
-  const { AsanaPanel } = await load({ ...ui, div: node, v_flex: node, h_flex: node, svg: node, Button: node,
+  const { AsanaPanel, taskSourceOptions } = await load({ ...ui, div: node, v_flex: node, h_flex: node, svg: node, Button: node,
     shared: () => null, folderKey: path => path });
-  const panel = new AsanaPanel(); panel.init({ focus_handle: () => ({}) });
+  const panel = new AsanaPanel(taskSourceOptions('asana')); panel.init({ focus_handle: () => ({}) });
   panel.folder = '/project'; panel.selected = 'a1';
   panel.detail = { gid: 'a1', name: 'Source', notes: 'Description', comments: [{ author: 'Amy', text: 'Context' }] };
   panel.session = () => assert.fail('source preview must not read model or agent settings');
@@ -543,13 +550,13 @@ test('legacy Saved selection falls back to Mine without reading or changing book
     'devkits.agent-board': { '["","/project"]': { existing: { gid: 'existing', source: 'local', status: 'todo' } } } };
   const originalBookmarks = structuredClone(memory['devkits.asana-saved']), originalTasks = structuredClone(memory['devkits.agent-board']);
   const reads = [], urls = [];
-  const { AsanaPanel } = await load({ ...ui, folderKey: path => path, appHome: () => '/herdr',
+  const { AsanaPanel, taskSourceOptions } = await load({ ...ui, folderKey: path => path, appHome: () => '/herdr',
     shared: key => { reads.push(key); return memory[key]; }, setShared: (key, value) => { memory[key] = value; },
     readTextFile: async () => '{"token":"secret"}', fetch: asana([{ gid: 'a1', name: 'Mine', me: true, projects: ['p1'] }], urls) });
-  const panel = new AsanaPanel(), { cx, settle } = harness(); panel.init(cx);
+  const panel = new AsanaPanel(taskSourceOptions('asana')), { cx, settle } = harness(); panel.init(cx);
   assert.equal(panel.tab, 'mine');
-  panel.render({ folder: '/project' }, () => {}, () => {}, cx); await settle();
-  panel.render({ folder: '/project' }, () => {}, () => {}, cx); await settle();
+  panel.render({ folder: '/project' }, cx); await settle();
+  panel.render({ folder: '/project' }, cx); await settle();
   assert.deepEqual(panel.rows().map(row => row.task.gid), ['a1']);
   assert.ok(!reads.includes('devkits.asana-saved')); assert.ok(!urls.some(url => url.includes('/tasks/legacy')));
   assert.deepEqual(memory['devkits.asana-saved'], originalBookmarks); assert.deepEqual(memory['devkits.agent-board'], originalTasks);
@@ -557,14 +564,14 @@ test('legacy Saved selection falls back to Mine without reading or changing book
 
 test('reselecting an Asana issue reuses its pending read and loaded details and comments', async () => {
   const urls = []; let release;
-  const { AsanaPanel } = await load({ ...ui, folderKey: path => path, shared: () => null,
+  const { AsanaPanel, taskSourceOptions } = await load({ ...ui, folderKey: path => path, shared: () => null,
     fetch: async url => {
       urls.push(url);
       if (url.includes('/stories?')) return reply(200, { data: [] });
       if (url.includes('/tasks/a?')) await new Promise(resolve => { release = resolve; });
       return reply(200, { data: { name: url.includes('/tasks/a?') ? 'A' : 'B', notes: 'Description' } });
     } });
-  const { cx, settle } = harness(), panel = new AsanaPanel(); panel.init(cx); panel.folder = '/a'; panel.token = 'secret';
+  const { cx, settle } = harness(), panel = new AsanaPanel(taskSourceOptions('asana')); panel.init(cx); panel.folder = '/a'; panel.token = 'secret';
   panel.show({ gid: 'a' }, cx); const pending = panel.detailRequest;
   panel.show({ gid: 'a' }, cx); panel.show({ gid: 'a' }, cx);
   assert.equal(urls.length, 1); assert.equal(panel.detailRequest, pending);
@@ -578,13 +585,13 @@ test('reselecting an Asana issue reuses its pending read and loaded details and 
 
 test('failed Asana reads can be retried and obsolete responses cannot replace a newer selection', async () => {
   let fail = true; const pending = [];
-  const { AsanaPanel } = await load({ ...ui, folderKey: path => path, shared: () => null,
+  const { AsanaPanel, taskSourceOptions } = await load({ ...ui, folderKey: path => path, shared: () => null,
     fetch: async url => {
       if (url.includes('/stories?')) return reply(200, { data: [] });
       if (fail) { fail = false; return reply(500, { errors: [{ message: 'Offline' }] }); }
       return new Promise(resolve => pending.push(resolve));
     } });
-  const { cx, settle } = harness(), panel = new AsanaPanel(); panel.init(cx); panel.folder = '/a'; panel.token = 'secret';
+  const { cx, settle } = harness(), panel = new AsanaPanel(taskSourceOptions('asana')); panel.init(cx); panel.folder = '/a'; panel.token = 'secret';
   panel.show({ gid: 'same' }, cx); await settle();
   assert.equal(panel.detailError, 'Offline'); assert.equal(panel.detailRequest, null);
   panel.show({ gid: 'same' }, cx);

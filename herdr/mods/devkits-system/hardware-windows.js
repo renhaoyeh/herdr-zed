@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { windowsTopology } from './hardware-topology.js';
+import { windowsTopology } from './components/system-monitor-topology.js';
 
 const execute = promisify(execFile);
 const list = value => Array.isArray(value) ? value : value ? [value] : [];

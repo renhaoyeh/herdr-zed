@@ -1,3 +1,4 @@
+import { evaluateNative, sourceOptions } from './source-harness.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
@@ -26,13 +27,15 @@ async function load(options = {}) {
     fetch: () => assert.fail('Unexpected network request'),
     readTextFile: async path => files[path] ?? null,
     writeTextFile: async (path, text, expected) => { writes.push({ path, expected }); files[path] = text; }, ...options };
-  const evaluate = (source, names) => new Function(...Object.keys(host), source.replace(/^import .*;\r?\n/gm, '')
-    .replace('export default class', 'class').replace(/^export /gm, '') + `\nreturn { ${names} };`)(...Object.values(host));
-  Object.assign(host, evaluate(await readFile(new URL('../mods/devkits/asana.js', import.meta.url), 'utf8'), 'AsanaPanel, AsanaProjectPicker, taskPrompt'));
-  Object.assign(host, evaluate(await readFile(new URL('../mods/devkits/mantisbt-ui.js', import.meta.url), 'utf8'), 'MantisUI, MantisProjectMenu, mantisTheme, issueNumber, statusColor'));
-  const api = evaluate(await readFile(new URL('../mods/devkits/mantisbt.js', import.meta.url), 'utf8'),
-    'MantisPanel, MantisProjectPicker, normalizeUrl, searchProjects, projectTasksPage, myProjectTasks, taskDetails, taskComments, openSubtasks, validateConnection, readMantisConnection, saveMantisConnection');
-  return { ...api, AsanaPanel: host.AsanaPanel, taskPrompt: host.taskPrompt, memory, files, writes, closed };
+  Object.assign(host, await evaluateNative('../mods/devkits-mantisbt/api.js', host, 'normalizeUrl, searchProjects, projectTasksPage, myProjectTasks, taskDetails, taskComments, openSubtasks, validateConnection'));
+  Object.assign(host, await evaluateNative('../mods/devkits-mantisbt/connection.js', host, 'readMantisConnection, saveMantisConnection'));
+  Object.assign(host, await evaluateNative('../mods/devkits-mantisbt/source.js', host, 'mantisSource'));
+  Object.assign(host, await evaluateNative('../mods/devkits/components/task-source-model.js', host, 'filterTasks, sourceTaskSnapshot'));
+  Object.assign(host, await evaluateNative('../mods/devkits/components/task-source.js', host, 'TaskSourceController, TaskSourceProjectPicker'));
+  Object.assign(host, await evaluateNative('../mods/devkits/task-prompt.js', host, 'taskPrompt'));
+  Object.assign(host, await evaluateNative('../mods/devkits-mantisbt/ui.js', host, 'MantisPanel, MantisProjectPicker, mantisTheme, issueNumber, statusColor'));
+  return { ...host, taskSourceOptions: (_source, target) => sourceOptions(host, 'mantisbt', target), memory, files, writes, closed };
+
 }
 const harness = () => {
   const pending = [], cx = { notify() {}, focus_handle: () => ({ focus() {} }), spawn: work => { pending.push(work(cx)); } };
@@ -144,14 +147,14 @@ test('MantisBT retains connection and import behavior while using its own issue 
     if (url.endsWith('/projects')) return reply(200, { projects: [{ id: 1, name: 'Demo' }] });
     return reply(200, { issues: [issue(1, { description: 'Read-only import', notes: [{ id: 1, text: 'Keep this comment' }] })] });
   } });
-  const { MantisPanel, AsanaPanel, MantisProjectPicker, memory, files, writes, taskPrompt } = context;
+  const { MantisPanel, TaskSourceController, MantisProjectPicker, memory, files, writes, taskPrompt, taskSourceOptions } = context;
   files['/herdr/data/devkits/mantisbt.json'] = JSON.stringify(connection);
   memory['devkits.asana-projects'] = { other: { gid: '1', name: 'Asana' } };
-  const { cx, settle } = harness(), panel = new MantisPanel(); panel.init(cx);
-  assert.ok(panel instanceof AsanaPanel); assert.equal(panel.tokenInput.masked, true);
-  const project = { folder: '/app' }, render = () => panel.render(project, () => {}, () => {}, cx);
+  const { cx, settle } = harness(), panel = new MantisPanel(taskSourceOptions('mantisbt')); panel.init(cx);
+  assert.ok(panel instanceof TaskSourceController); assert.equal(panel.tokenInput.masked, true);
+  const project = { folder: '/app' }, render = () => panel.render(project, cx);
   render(); await settle(); render(); assert.equal(urls.length, 0);
-  const picker = new MantisProjectPicker(); picker.init({ folder: '/app', overlay: 'picker' }, cx); await settle();
+  const picker = new MantisProjectPicker(taskSourceOptions('mantisbt', { folder: '/app', overlay: 'picker' })); picker.init({ folder: '/app', overlay: 'picker' }, cx); await settle();
   picker.choose(picker.projects[0]); render(); await settle();
   assert.equal(panel.rows()[0].task.name, 'Issue 1');
   assert.ok(urls.some(url => url.includes('filter_id=assigned')));
@@ -166,8 +169,8 @@ test('MantisBT retains connection and import behavior while using its own issue 
 });
 
 test('MantisBT searches issue numbers and metadata, combines status filtering, and invalidates a detail read when returning to the list', async () => {
-  const { MantisPanel, memory } = await load(), { cx } = harness();
-  const panel = new MantisPanel(); panel.init(cx);
+  const { MantisPanel, memory, taskSourceOptions } = await load(), { cx } = harness();
+  const panel = new MantisPanel(taskSourceOptions('mantisbt')); panel.init(cx);
   panel.mine = [
     { gid: '1', name: 'Email form', category: 'Accounts', section: 'confirmed', assignee: 'Amy' },
     { gid: '2', name: 'Search API', category: 'Backend', section: 'new', assignee: 'Rick' },
@@ -204,10 +207,10 @@ test('MantisBT table and detail metadata use the values supplied by the tracker'
 });
 
 test('connection validation failures retain the previous credentials and project bindings', async () => {
-  const { MantisPanel, files, writes, memory } = await load({ fetch: async () => reply(401, null) });
+  const { MantisPanel, files, writes, memory, taskSourceOptions } = await load({ fetch: async () => reply(401, null) });
   files['/herdr/data/devkits/mantisbt.json'] = JSON.stringify(connection);
   memory['devkits.mantisbt-projects'] = { saved: { gid: '1', name: 'Demo', server: connection.url } };
-  const { cx, settle } = harness(), panel = new MantisPanel(); panel.init(cx); panel.open({ folder: '/app' }, cx); await settle();
+  const { cx, settle } = harness(), panel = new MantisPanel(taskSourceOptions('mantisbt')); panel.init(cx); panel.open({ folder: '/app' }, cx); await settle();
   panel.openSettings(cx); panel.serverInput.set_value('https://another.test'); panel.tokenInput.set_value('invalid');
   panel.saveToken(cx); await settle();
   assert.equal(panel.token, 'secret'); assert.equal(panel.server, connection.url); assert.equal(panel.tokenBusy, false);

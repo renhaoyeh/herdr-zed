@@ -1,7 +1,8 @@
 import { div } from 'gpui-kit';
 import { h_flex, v_flex, InputState, Input, TextareaState, Textarea, TextView } from 'gpui-base';
 import { shared, setShared, agents as currentAgents, spaces as currentSpaces } from 'herdr';
-import AsanaPanel, { readAsanaToken } from './asana.js';
+import { SourceTaskReader } from './task-sources.js';
+import { TaskSession } from './task-session.js';
 import { boardStatuses, boardKey, liveVersion, boardPriorityOptions, boardPriorities, canStartTask, taskActions, taskManualStatusOptions, taskChildren, canAddSubtask } from './agent-board-model.js';
 import { launcherLabel, launcherOption } from './model.js';
 import { rememberBoardTask, projectBoardTasks, boardRecords, deleteLocalTask } from './agent-board-state.js';
@@ -33,7 +34,8 @@ export default class AgentBoard {
         if (task) this.title.set_value(task.name);
       }
     });
-    this.detail = new AsanaPanel(); this.detail.init(cx);
+    this.detail = new SourceTaskReader(); this.detail.init(cx);
+    this.session = new TaskSession(); this.session.init(cx);
     this.detailPanel = new SidePanelState(() => shared('devkits.task-detail-width') ?? 500,
       width => setShared('devkits.task-detail-width', width),
       { minWidth: 360, maxWidth: 880, defaultWidth: 500, minContentWidth: 320, label: 'Resize task details' });
@@ -144,17 +146,7 @@ export default class AgentBoard {
     if (task.agentKey) setShared('devkits.asana-session', { ...(shared('devkits.asana-session') || {}), agent: task.agentKey });
     this.loadOutput(task, project, cx);
     if (task.source === 'local' || task.source === 'thread') { cx.notify(); return; }
-    const folder = project.folder;
-    cx.spawn(async cx => {
-      try {
-        const token = await readAsanaToken();
-        if (this.selection !== selection || this.selected !== task.gid || this.folder !== folder) return;
-        this.detail.token = token;
-        if (token) this.detail.show(task, cx);
-        else this.detail.detailError = 'Connect Asana to read this task’s description.';
-      } catch (error) { if (this.selection === selection && this.selected === task.gid && this.folder === folder) this.detail.detailError = error.message; }
-      cx.notify();
-    });
+    this.detail.show(task, cx); cx.notify();
   }
   render(project, agents, launchers, actions, cx) {
     this.project = project;
@@ -312,10 +304,7 @@ export default class AgentBoard {
     const priorityValue = policy.canEdit
       ? Select('board-task-priority', this.prioritySelect, task.priority || 'none', boardPriorityOptions(t), 'Priority', setPriority, t, { width: 190 })
       : h_flex().gap(8).items_center().child(glyph(priority.icon, 14).text_color(t.muted)).child(priority.label);
-    this.detail.cx = cx;
-    let launchRow;
-    try { if (detail && canStartTask(task)) launchRow = this.detail.launchRow(detail, launchers, actions.start, t); }
-    finally { this.detail.cx = null; }
+    const launchRow = detail && canStartTask(task) ? this.session.render(detail, launchers, actions.start, t, cx) : null;
     const property = (label, value) => h_flex().min_h(28).gap(12).items_center().text_size(13)
       .child(div().w(74).flex_none().text_color(t.muted).child(label))
       .child(h_flex().min_w(0).flex_1().items_center().child(value));

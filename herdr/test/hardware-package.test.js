@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { packageMemory, packageMemoryInfo, packageBattery, packageDiskInfo, readPackageHardware } from '../mods/devkits/hardware-package.js';
+import { packageMemory, packageMemoryInfo, packageBattery, packageDiskInfo, readPackageHardware } from '../mods/devkits-system/hardware-package.js';
 
 test('package RAM uses active memory rather than cache-inclusive used memory and preserves reported module types', () => {
   const info = packageMemoryInfo([{ size: 24 * 1024 ** 3, type: 'LPDDR5', manufacturer: 'Micron Technology Inc.', clockSpeed: null },

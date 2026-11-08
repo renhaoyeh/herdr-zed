@@ -1,8 +1,8 @@
 import { systemDisplayPreferences, systemSidebarHeight } from '../mods/devkits/system-display-model.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { cpuSnapshot, cpuPercent, readHardware, parseGPUs, parseDiskCounters, counterRate, diskRates, coreSnapshots, corePercentages } from '../mods/devkits/hardware-reader.js';
-import { hardwarePreferences, selectedHardwareCores, appendHardwareHistory, hardwareChartPoints, hardwareSensorSummary } from '../mods/devkits/hardware-model.js';
+import { cpuSnapshot, cpuPercent, readHardware, parseGPUs, parseDiskCounters, counterRate, diskRates, coreSnapshots, corePercentages } from '../mods/devkits-system/hardware-reader.js';
+import { hardwarePreferences, selectedHardwareCores, appendHardwareHistory, hardwareChartPoints, hardwareSensorSummary } from '../mods/devkits-system/components/system-monitor-model.js';
 
 test('CPU uses elapsed busy time across every core, with an initial warmup sample', () => {
   const before = cpuSnapshot([{ times: { user: 30, sys: 10, idle: 60 } }, { times: { user: 20, sys: 10, idle: 70 } }]);
@@ -131,7 +131,7 @@ test('sensor summaries identify CPU/GPU/SSD independently and never substitute b
 });
 
 test('macOS SMC probe returns typed read-only readings or an explicit capability status', { skip: process.platform !== 'darwin' }, async () => {
-  const { readMacSensors } = await import('../mods/devkits/hardware-sensors.js');
+  const { readMacSensors } = await import('../mods/devkits-system/hardware-sensors.js');
   const result = await readMacSensors();
   assert.ok(Array.isArray(result.sensors));
   if (!result.sensors.length) assert.equal(typeof result.sensorStatus, 'string');
