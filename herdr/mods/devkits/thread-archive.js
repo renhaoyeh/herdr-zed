@@ -1,6 +1,6 @@
 import { div, svg, image } from 'gpui-kit';
 import { h_flex } from 'gpui-base';
-import { shared, setShared, run, notify, hc, exec, readTextFile, home, terminals } from 'herdr';
+import { shared, setShared, run, notify, hc, exec, readTextFile, home, terminals, appHome, window } from 'herdr';
 import { archivable, agentCommand, commandKind, resumeArgv, codexSessionId, archivedAge, folderKey } from './model.js';
 import { taskActions, threadBoardTask, taskLinkForTab, setTaskArchived, boardRecords } from './components/tasks.js';
 import { Button } from './components/button.js';
@@ -12,6 +12,16 @@ const archived = () => shared('devkits.archived-threads') || [];
 
 // The conversation a running Claude or Codex terminal shows, or null before it has one.
 async function sessionId(kind, command, pid) {
+  if (window()?.platform === 'windows') {
+    const prefix = kind === 'codex' ? 'CODEX_HOME=' : 'CLAUDE_CONFIG_DIR=';
+    const directory = command.find(arg => arg.startsWith(prefix))?.slice(prefix.length) || `${home()}/.${kind}`;
+    const result = await exec('node', [`${appHome()}/mods/devkits/components/agent-session-windows.js`, String(pid), kind, directory]);
+    if (result.code) return null;
+    const file = JSON.parse(result.stdout).file;
+    if (typeof file !== 'string') return null;
+    return kind === 'codex' ? codexSessionId(file.replace(/\\/g, '/'))
+      : file.match(/(?:^|[/\\])([0-9a-f-]{36})\.jsonl$/i)?.[1] || null;
+  }
   if (kind === 'claude') {
     const dir = command.find(arg => arg.startsWith('CLAUDE_CONFIG_DIR='))?.slice(18) || `${home()}/.claude`;
     const id = JSON.parse(await readTextFile(`${dir}/sessions/${pid}.json`) || '{}').sessionId;
@@ -101,7 +111,7 @@ export const threadArchive = {
         if (this.threadBusy(thread)) return;
         if (kind === 'codex' && !id) {
           (this.closeOnlyThreads ||= new Set()).add(tab);
-          notify({ title: 'Archive unavailable', body: 'No open Codex rollout file was found. Use Close thread to end this session without adding it to the archive.' });
+          notify({ title: 'Archive unavailable', body: 'No resumable Codex conversation was found. Use Close thread to end this session without adding it to the archive.' });
           return;
         }
         if (id) {
