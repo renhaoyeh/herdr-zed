@@ -1,13 +1,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile, mkdtemp, writeFile, rm, rename } from 'node:fs/promises';
+import { readFile, mkdtemp, mkdir, writeFile, rm, rename } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { execFile } from 'node:child_process';
 
 async function load(host = {}) {
-  host = { shared: () => undefined, setShared() {}, ...host };
+  host = { shared: () => undefined, setShared() {}, TextEncoder: undefined, TextDecoder: undefined,
+    v_virtual_list: (_id, count, _sizes, _key, render) => { render({ start: 0, end: count }); return host.div(); },
+    Scrollbar: { vertical: () => host.div() }, ...host };
   const source = await readFile(new URL('../mods/devkits/diff.js', import.meta.url), 'utf8');
   const sidePanel = await readFile(new URL('../mods/devkits/components/side-panel.js', import.meta.url), 'utf8');
   const menu = await readFile(new URL('../mods/devkits/components/dropdown-menu.js', import.meta.url), 'utf8');
@@ -15,10 +17,12 @@ async function load(host = {}) {
   const auth = await readFile(new URL('../mods/devkits/git-auth.js', import.meta.url), 'utf8');
   const shell = await readFile(new URL('../mods/devkits/shell.js', import.meta.url), 'utf8');
   const command = await readFile(new URL('../mods/devkits/shell-command.js', import.meta.url), 'utf8');
-  return new Function(...Object.keys(host), (command + '\n' + shell + '\n' + menu + '\n' + history + '\n' + auth + '\n' + sidePanel + '\n' + source).replace(/^import .*;\r?\n/gm, '')
-    .replace('export default class', 'class').replace(/^export /gm, '') + '\nreturn { DiffViewer, DropdownMenu, DropdownMenuState, parseDiff, readDiff, readPushState, pushBranch, gitRemoteAction, affectsDiff, pairLines, changedRanges, changeSections, changeTree, wrapLine, isLockFile };')(...Object.values(host));
+  const utf8 = await readFile(new URL('../mods/devkits/utf8.js', import.meta.url), 'utf8');
+  return new Function(...Object.keys(host), (utf8 + '\n' + command + '\n' + shell + '\n' + menu + '\n' + history + '\n' + auth + '\n' + sidePanel + '\n' + source).replace(/^import .*;\r?\n/gm, '')
+    .replace('export default class', 'class').replace(/^export /gm, '') + '\nreturn { DiffViewer, DropdownMenu, DropdownMenuState, utf8ByteLength, parseDiff, parseDiffBatches, parseDiffAsync, parseDiffIndex, readDiff, readPushState, pushBranch, gitRemoteAction, affectsDiff, pairLines, changedRanges, changeSections, changeTree, wrapLine, isLockFile };')(...Object.values(host));
 }
 const run = promisify(execFile);
+const indexFor = path => `${'a'.repeat(40)}\0/repo\0:100644 100644 abc def M\0${path}\0` + `1\t1\t${path}\0\0`;
 
 test('lockfile preference filters working changes and history without discarding Git data', async () => {
   const memory = {};
@@ -303,7 +307,7 @@ test('split button menu exposes Git operations, counts and keyboard navigation w
         if (key === 'id') nodes.set(args[0], data);
         if (key === 'child') { data.children.push(args[0]); if (typeof args[0] === 'string') painted.push(args[0]); }
         if (key === 'children') data.children.push(...args[0]);
-        if (key === 'on_click') data.click = args[0];
+        if (key === 'on_click' || key === 'on_item_click') data.click = args[0];
         if (key === 'on_key_down') data.key = args[0];
         if (key === 'on_open_change') data.openChange = args[0];
         return el;
@@ -325,6 +329,8 @@ test('split button menu exposes Git operations, counts and keyboard navigation w
   view.context = { id: 'project', folder: '/project', branch: 'native/main' };
   view.render(view.context, cx);
   assert.ok(painted.includes('Loading changes…'));
+  assert.ok(painted.includes('Changes'));
+  assert.ok(!painted.includes('Changes (0)'), 'Do not report zero files before reading the index');
   assert.ok(painted.includes('native/main'), 'Native branch is shown before the Git reads finish');
   view.render({ ...view.context, branch: 'native/next' }, cx);
   assert.ok(painted.includes('native/next'), 'Branch follows the same live project data as the status bar');
@@ -526,6 +532,11 @@ test('reads tracked, untracked, renamed and deleted changes against HEAD in one 
   assert.equal(truncated, false);
   assert.deepEqual(files.map(file => [file.path, file.status, file.added, file.removed, file.untracked]),
     [['a.txt', 'modified', 1, 1, false], ['drop.txt', 'deleted', 0, 1, false], ['moved.txt', 'renamed', 0, 0, false], ['新檔 $(touch X).txt', 'added', 1, 0, true]]);
+  const subfolder = join(folder, 'nested');
+  await mkdir(subfolder);
+  const nested = await readDiff(subfolder.replaceAll('\\', '/'), 'box');
+  assert.deepEqual(nested.files.map(file => [file.path, file.hunks]), files.map(file => [file.path, file.hunks]),
+    'Projects inside a repository resolve tracked and untracked paths from the Git root');
   await assert.rejects(readDiff(tmpdir().replaceAll('\\', '/'), 'box'), /Not a Git repository/);
 });
 
@@ -816,7 +827,7 @@ test('List and Tree menu choices persist and preserve selection, collapsed folde
       if (key === 'when') return (condition, render) => { if (condition) render(el); return el; };
       return (...args) => {
         if (key === 'id') nodes.set(args[0], data);
-        if (key === 'on_click') data.click = args[0];
+        if (key === 'on_click' || key === 'on_item_click') data.click = args[0];
         return el;
       };
     } });
@@ -826,7 +837,8 @@ test('List and Tree menu choices persist and preserve selection, collapsed folde
     Button: id => element().id(id), Popup: { new: id => element().id(id) },
     TreeItem: (id, depth, selected) => { treeRows.push({ id, depth, selected }); return element().id(id); },
     TreeItemIcon: element, TreeItemLabel: element, GitStatusColor: {},
-    v_virtual_list: element, Scrollbar: { vertical: element }, theme: () => ({}), settings: () => ({}),
+    v_virtual_list: (id, count, _sizes, _key, render) => { render({ start: 0, end: count }); return element().id(id); },
+    Scrollbar: { vertical: element }, theme: () => ({}), settings: () => ({}),
     VirtualListScrollHandle: { new: () => ({ scroll_to_item: (...args) => scrolled.push(args) }) },
     shared: key => memory[key], setShared: (key, value) => { memory[key] = value; } });
   const cx = { notify() {}, stop_propagation() {}, focus_handle: () => ({ focus() {} }) };
@@ -858,7 +870,7 @@ test('List and Tree menu choices persist and preserve selection, collapsed folde
     { id: 'diff-tree-src/deep/a.js', depth: 1, selected: true },
     { id: 'diff-tree-new/b.js', depth: 1, selected: false },
   ]);
-  nodes.get('diff-tree-new/b.js').click({}, cx);
+  nodes.get('diff-files-list').click('file:new/b.js', cx);
   assert.equal(view.selected, 'new/b.js');
   assert.ok(scrolled.length > 0);
   const reopened = new DiffViewer(); reopened.init(cx);
@@ -878,7 +890,7 @@ test('reloads keep the shown diff and skip repainting until git diff output chan
   let text = ['diff --git a/a b/a', '--- a/a', '+++ b/a', '@@ -1 +1 @@', '-x', '+y'].join(String.fromCharCode(10));
   const { DiffViewer } = await load({ shared: () => undefined, setShared() {},
     VirtualListScrollHandle: { new: () => ({ scroll_to_item() {} }) },
-    exec: async () => ({ code: 0, stdout: text, stderr: '' }) });
+    exec: async (_cmd, args) => ({ code: 0, stdout: args.includes('devkits-diff-index') ? indexFor('a') : args.includes('devkits-diff-file') ? text : '', stderr: '' }) });
   const tasks = [];
   let notified = 0;
   const cx = { notify() { notified++; }, spawn(fn) { tasks.push(fn(cx)); } };
@@ -886,14 +898,14 @@ test('reloads keep the shown diff and skip repainting until git diff output chan
   const view = new DiffViewer(); view.init(); view.context = { folder: '/p' };
   view.reload(cx); await drain();
   const files = view.files;
-  assert.equal(notified, 1);
+  assert.equal(notified, 2, 'Publish the file index before the first patch finishes');
   view.reload(cx); await drain();
   assert.equal(view.files, files);
-  assert.equal(notified, 1);
+  assert.equal(notified, 2);
   text += String.fromCharCode(10) + '+z';
   view.reload(cx); await drain();
   assert.notEqual(view.files, files);
-  assert.equal(notified, 2);
+  assert.equal(notified, 3);
 });
 
 test('project initialization yields before watchers, Git reads and History notifications', async () => {
@@ -939,7 +951,7 @@ test('loaded diff text preserves row rendering in unified and split views', asyn
   const { DiffViewer } = await load({ div: element, svg: element, h_flex: element, v_flex: element,
     GitStatusColor: { added: '#27a657', deleted: '#e06c76' },
     shared: key => memory[key], setShared: (key, value) => { memory[key] = value; },
-    VirtualListScrollHandle: { new: () => ({}) }, exec: async () => ({ code: 0, stdout: text }) });
+    VirtualListScrollHandle: { new: () => ({}) }, exec: async (_cmd, args) => ({ code: 0, stdout: args.includes('devkits-diff-index') ? indexFor('a.js') : args.includes('devkits-diff-file') ? text : '' }) });
   const tasks = [], cx = { notify() {}, sleep: async () => {}, spawn(fn) { tasks.push(fn(cx)); } };
   const view = new DiffViewer(); view.init(); view.observe = () => {};
   view.refresh({ id: 'project', folder: '/project' }, cx);
@@ -1062,4 +1074,199 @@ test('Git Graph entry is in the latest-commit row below Git actions and absent f
   assert.ok(panel.items.indexOf(nodes.get('git-actions')) < panel.items.indexOf(nodes.get('git-latest-commit')));
   nodes.clear(); view.panelTab = 'history'; view.history.render = element; view.panel({});
   assert.equal(nodes.has('git-open-graph'), false);
+});
+
+test('patch parsing yields and bounds allocations before a million short lines or oversized tab expansion', async () => {
+  const { parseDiffBatches, parseDiff } = await load();
+  const patch = 'diff --git a/large b/large\n--- /dev/null\n+++ b/large\n@@ -0,0 +1,1000000 @@\n' + '+\n'.repeat(1000000);
+  let slices = 0;
+  const source = { length: patch.length, indexOf: (...args) => patch.indexOf(...args),
+    slice: (...args) => { slices++; return patch.slice(...args); }, split() { assert.fail('Do not split the entire patch'); } };
+  const parser = parseDiffBatches(source);
+  let next, batches = 0;
+  do { next = parser.next(); batches++; } while (!next.done);
+  assert.equal(next.value[0].hunks[0].lines.length, 10000);
+  assert.equal(next.value.truncated, true);
+  assert.ok(batches > 70);
+  assert.ok(slices < 10100, 'Stop scanning as soon as the source-row budget is exhausted');
+  const long = parseDiff('diff --git a/tabs b/tabs\n--- /dev/null\n+++ b/tabs\n@@ -0,0 +1 @@\n+' + '\t'.repeat(2000000));
+  assert.ok(long[0].hunks[0].lines[0].text.length < 2010);
+  const headers = parseDiff('diff --git a/a b/a\n' + '@@ -0,0 +0,0 @@\n'.repeat(100000));
+  assert.equal(headers.truncated, true);
+  assert.ok(headers[0].hunks.length < 10000, 'Empty hunks have an allocation budget too');
+});
+
+test('NUL-delimited change metadata preserves unusual paths, rename pairs, binary and untracked files', async () => {
+  const { parseDiffIndex } = await load();
+  const base = 'b'.repeat(40), old = 'old\tname\n.txt', path = 'new\tname\n.txt';
+  const index = parseDiffIndex(`${base}\0/repo\0:100644 100644 abc def R100\0${old}\0${path}\0`
+    + ':100644 100644 abc def M\0binary\0' + `2\t3\t\0${old}\0${path}\0-\t-\tbinary\0\0新檔 $(literal)\0`);
+  assert.equal(index.base, base); assert.equal(index.truncated, false);
+  assert.deepEqual(index.files.map(file => [file.path, file.oldPath, file.status, file.added, file.removed, file.binary, file.untracked]),
+    [['binary', 'binary', 'modified', 0, 0, true, false], [path, old, 'renamed', 2, 3, false, false],
+      ['新檔 $(literal)', null, 'added', 0, 0, false, true]]);
+  assert.throws(() => parseDiffIndex('bad revision\0'), /revision/);
+});
+
+test('ordered file loads publish small batches, skip hidden lockfiles and stop immediately when obsolete', async () => {
+  const calls = [], progress = [], paths = ['a', 'b', 'c', 'd', 'e', 'yarn.lock'];
+  let cancelled = false, yields = 0;
+  const index = 'a'.repeat(40) + '\0/repo\0' + paths.map(path => `:100644 100644 abc def M\0${path}\0`).join('')
+    + paths.map(path => `1\t1\t${path}\0`).join('') + '\0';
+  const { readDiff } = await load({ exec: async (_cmd, args) => {
+    if (args.includes('devkits-diff-index')) return { code: 0, stdout: index };
+    const path = args[6]; calls.push(path);
+    return { code: 0, stdout: `diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n@@ -1 +1 @@\n-old\n+new\n` };
+  } });
+  const options = { yield: async () => { yields++; }, cancelled: () => cancelled,
+    include: file => file.path !== 'yarn.lock', progress: files => progress.push(files.filter(file => !file.deferred).length) };
+  const first = await readDiff('/repo', null, options);
+  assert.deepEqual(calls, paths.slice(0, 5)); assert.deepEqual(progress, [4]);
+  assert.ok(yields > 10); assert.equal(first.truncated, false);
+  assert.equal(first.files.at(-1).deferred, true);
+  const unchanged = await readDiff('/repo', null, { ...options, previous: first.files });
+  assert.equal(unchanged.files, first.files, 'Reuse unchanged parsed buffers and filtered metadata');
+  calls.length = 0; cancelled = true;
+  assert.equal(await readDiff('/repo', null, options), null);
+  assert.deepEqual(calls, [], 'Do not start any per-file read for an abandoned project');
+});
+
+test('Git caps short-line and huge-line responses before transfer and can prioritize a later file', async t => {
+  const folder = await mkdtemp(join(tmpdir(), 'devkits-large-diff-'));
+  t.after(() => rm(folder, { recursive: true, force: true }));
+  await run('git', ['init', '-q', folder]);
+  await writeFile(join(folder, 'a-short'), 'x\n'.repeat(200000));
+  await writeFile(join(folder, 'z-small'), 'last\n');
+  const responses = [];
+  const { readDiff } = await load({ exec: async (cmd, args) => {
+    const result = await run(cmd, args, { maxBuffer: 5 * 1024 * 1024 });
+    if (args.includes('devkits-diff-file')) responses.push({ path: args[6], bytes: Buffer.byteLength(result.stdout), lines: result.stdout.split('\n').length });
+    return { code: 0, ...result };
+  } });
+  const path = folder.replaceAll('\\', '/');
+  const first = await readDiff(path);
+  assert.equal(first.truncated, true);
+  assert.equal(first.files[0].hunks[0].lines.length, 10000);
+  assert.equal(first.files[1].deferred, true);
+  assert.ok(responses[0].lines < 10100);
+  const later = await readDiff(path, null, { priority: 'z-small' });
+  assert.equal(later.files[1].deferred, false);
+  assert.equal(later.files[1].hunks[0].lines[0].text, 'last');
+  await rm(join(folder, 'a-short'));
+  await writeFile(join(folder, 'huge-line'), 'x'.repeat(5000000));
+  responses.length = 0;
+  const huge = await readDiff(path);
+  assert.equal(huge.truncated, true);
+  assert.ok(responses.every(response => response.bytes <= 4000001));
+  assert.ok(huge.files.find(file => file.path === 'huge-line').hunks[0].lines[0].text.length < 2010);
+});
+
+test('failed refreshes retain the last successful diff and closing releases its row snapshots', async () => {
+  let failed = false;
+  const { DiffViewer } = await load({ VirtualListScrollHandle: { new: () => ({}) }, exec: async (_cmd, args) => {
+    if (failed) throw new Error('Read failed');
+    return { code: 0, stdout: args.includes('devkits-diff-index') ? indexFor('a') : args.includes('devkits-diff-file')
+      ? 'diff --git a/a b/a\n--- a/a\n+++ b/a\n@@ -1 +1 @@\n-old\n+new\n' : '' };
+  } });
+  const tasks = [], cx = { notify() {}, sleep: async () => {}, spawn(fn) { tasks.push(fn(cx)); } };
+  const drain = async () => { while (tasks.length) await Promise.all(tasks.splice(0)); };
+  const view = new DiffViewer(); view.init(); view.context = { folder: '/repo' };
+  view.reload(cx); await drain(); const files = view.files, rows = view.rows();
+  failed = true; view.reload(cx); await drain();
+  assert.equal(view.files, files); assert.equal(view.rows(), rows); assert.match(view.error, /Read failed/);
+  view.visibleRows = rows; view.visible = { rows: rows.rows, start: 0 };
+  view.close();
+  assert.deepEqual(view.files, []); assert.equal(view.rowCache, null);
+  assert.equal(view.visibleRows, null); assert.equal(view.visible, null); assert.equal(view.treeCache, null);
+});
+
+test('large Changes panels build native elements only for visible files and dispatch through the list', async () => {
+  let list, painting = false, painted = 0;
+  const nodes = new Map();
+  const element = () => {
+    const proxy = new Proxy({}, { get(_target, key) {
+      if (painting && key.startsWith('on_')) assert.fail('Deferred rows must not retain input callbacks');
+      if (key === 'when') return (condition, fn) => { if (condition) fn(proxy); return proxy; };
+      return (...args) => { if (key === 'id') nodes.set(args[0], proxy); return proxy; };
+    } }); return proxy;
+  };
+  const { DiffViewer } = await load({ div: element, svg: element, v_flex: element, h_flex: element,
+    Button: element, Popup: { new: element }, TreeItem: () => { painted++; return element(); },
+    TreeItemIcon: element, TreeItemLabel: element, GitStatusColor: {}, Scrollbar: { vertical: element },
+    VirtualListScrollHandle: { new: () => ({}) },
+    v_virtual_list: (id, count, sizes, key, render) => { list = { id, count, sizes, key, render }; return element(); } });
+  const view = new DiffViewer(); view.init(); view.pushFooter = element;
+  view.files = Array.from({ length: 12000 }, (_, i) => ({ path: `src/${i}.js`, added: 1, removed: 1, status: 'modified', hunks: [] }));
+  view.panel({});
+  assert.equal(painted, 0); assert.equal(list.id, 'diff-files-list');
+  assert.equal(list.count, 12002); assert.equal(list.sizes, 28);
+  painting = true;
+  assert.equal(list.render({ start: 10000, end: 10020 }).length, 20);
+  assert.equal(painted, 20);
+  assert.ok(list.key(10000).startsWith('file:src/'));
+});
+
+test('selecting a file beyond the visual-row cap brings its header and contents into the preview', async () => {
+  const { DiffViewer } = await load({ VirtualListScrollHandle: { new: () => ({ scroll_to_item() {} }) } });
+  const view = new DiffViewer(); view.init();
+  view.files = [
+    { path: 'first', hunks: [{ lines: Array(10000).fill({ type: 'add', new: 1, text: 'x' }) }] },
+    { path: 'last', hunks: [{ lines: [{ type: 'add', new: 1, text: 'last line' }] }] },
+  ];
+  assert.ok(!view.rows().rows.some(row => row.key === 'file:last'));
+  view.reveal('last', { notify() {} });
+  assert.equal(view.rows().rows[0].key, 'file:last');
+  assert.equal(view.rows().rows[1].line.text, 'last line');
+  assert.equal(view.rows().limited, true);
+});
+
+test('async parser cancellation and clearing a pending row build cannot republish stale buffers', async () => {
+  const { DiffViewer, parseDiffAsync } = await load();
+  let sleeps = 0;
+  const patch = 'diff --git a/a b/a\n--- a/a\n+++ b/a\n@@ -0,0 +1,10000 @@\n' + '+x\n'.repeat(10000);
+  const parsed = await parseDiffAsync(patch, { sleep: async () => { sleeps++; } }, () => sleeps > 2);
+  assert.equal(parsed, null); assert.equal(sleeps, 3);
+  const waits = [], tasks = [], cx = { notify() {}, sleep: () => new Promise(resolve => waits.push(resolve)),
+    spawn(fn) { tasks.push(fn(cx)); return { cancel() {} }; } };
+  const view = new DiffViewer(); view.collapsed = new Set();
+  view.files = [{ path: 'old', hunks: [{ lines: [{ type: 'add', text: 'old' }] }] }];
+  view.rows(cx); view.files = [];
+  assert.equal(view.rows(cx).rows.length, 0);
+  waits.splice(0).forEach(resolve => resolve()); await Promise.all(tasks);
+  assert.equal(view.rowCache.rows.length, 0); assert.equal(view.visibleRows.rows.length, 0);
+  assert.equal(view.rowJob, null);
+});
+
+test('UTF-8 budgets and Git quoted paths work without browser encoding globals', async () => {
+  const { utf8ByteLength, parseDiff } = await load();
+  for (const text of ['', 'ASCII\t\n', '中文é', '🙂e\u0301', '\ud800x\udc00', 'a' + '🙂'.repeat(10000)]) {
+    assert.equal(await utf8ByteLength(text), Buffer.byteLength(text));
+  }
+  let pauses = 0;
+  await utf8ByteLength('a' + '🙂'.repeat(10000), async () => { pauses++; });
+  assert.ok(pauses >= 3, 'Surrogate pairs crossing chunk boundaries must still yield');
+  const quoted = String.raw`"b/\344\270\255\346\226\207.txt"`;
+  const files = parseDiff(`diff --git a/name b/name\n--- a/name\n+++ ${quoted}\n@@ -1 +1 @@\n-old\n+new\n`);
+  assert.equal(files[0].path, '中文.txt');
+});
+
+test('the Changes index appears before a blocked first patch or branch-state read finishes', async () => {
+  let finishPatch, finishState, notices = 0;
+  const { DiffViewer } = await load({ VirtualListScrollHandle: { new: () => ({}) }, exec: async (_cmd, args) => {
+    if (args.includes('devkits-diff-index')) return { code: 0, stdout: indexFor('a') };
+    if (args.includes('devkits-diff-file')) return new Promise(resolve => { finishPatch = resolve; });
+    return new Promise(resolve => { finishState = resolve; });
+  } });
+  const tasks = [], cx = { notify() { notices++; }, sleep: async () => {}, spawn(fn) { tasks.push(fn(cx)); } };
+  const view = new DiffViewer(); view.init(); view.context = { folder: '/repo' };
+  view.reload(cx);
+  for (let turn = 0; turn < 100 && !finishPatch; turn++) await Promise.resolve();
+  assert.equal(typeof finishPatch, 'function'); assert.equal(typeof finishState, 'function');
+  assert.equal(view.indexLoaded, true); assert.equal(view.loaded, undefined);
+  assert.deepEqual(view.files.map(file => file.path), ['a']);
+  assert.equal(view.files[0].deferred, true); assert.equal(notices, 1);
+  finishPatch({ code: 0, stdout: 'diff --git a/a b/a\n--- a/a\n+++ b/a\n@@ -1 +1 @@\n-old\n+new\n' });
+  finishState({ code: 0, stdout: '' });
+  await Promise.all(tasks);
+  assert.equal(view.files[0].deferred, false); assert.equal(view.loaded, true);
 });

@@ -2,6 +2,7 @@ import { div } from 'gpui-kit';
 import { v_flex, h_flex, v_virtual_list, Scrollbar, VirtualListScrollHandle } from 'gpui-base';
 import { exec } from 'herdr';
 import { execShell } from './shell.js';
+import { utf8ByteLength } from './utf8.js';
 import { Button } from './components/button.js';
 
 const PAGE = 50, LIMIT = 4000000;
@@ -43,13 +44,17 @@ export async function readCommitSummary(folder, on, sha) {
 }
 
 /** Root commits compare to the empty tree; merge commits compare to their first parent. */
-export async function readCommitPatch(folder, on, sha) {
+export async function readCommitPatch(folder, on, sha, options = {}) {
   if (!validSha(sha)) throw new Error('Invalid commit.');
-  const result = await exec('git', ['-C', folder, '-c', 'core.quotepath=false', '-c', 'log.showSignature=false',
-    '--no-pager', 'show', '--format=', '--no-color', '--no-ext-diff', '--no-textconv', '--find-renames',
-    '--diff-merges=first-parent', '--root', '-U3', sha, '--'], { on });
-  if (result.code !== 0) throw new Error(result.stderr.trim() || 'Cannot read commit changes.');
-  return { text: result.stdout.slice(0, LIMIT), truncated: result.stdout.length >= LIMIT };
+  // Enforce the cap in the child process. Slicing stdout after exec has already
+  // copied the entire commit into both the host and the script heap.
+  const result = await execShell(['-c', 'cd "$1" || exit 2; '
+    + 'git cat-file -e "$2^{commit}" || exit; '
+    + 'git -c core.quotepath=false -c log.showSignature=false --no-pager show --format= '
+    + '--no-color --no-ext-diff --no-textconv --find-renames --diff-merges=first-parent --root -U3 "$2" -- '
+    + '| head -c "$3"', 'devkits-commit-diff', folder, sha, String(LIMIT + 1)], { on });
+  if (result.code !== 0 || !result.stdout && result.stderr?.trim()) throw new Error(result.stderr.trim() || 'Cannot read commit changes.');
+  return { text: result.stdout.slice(0, LIMIT), truncated: await utf8ByteLength(result.stdout, options.yield) > LIMIT };
 }
 
 export function commitAge(at, now = Date.now()) {
@@ -116,9 +121,11 @@ export class CommitHistory {
     this.pending = commit.sha; this.previewError = null; cx.notify();
     cx.spawn(async cx => {
       try {
-        const patch = await readCommitPatch(context.folder, context.machine, commit.sha);
+        const patch = await readCommitPatch(context.folder, context.machine, commit.sha, { yield: () => cx.sleep?.(0) });
         if (this.version !== version || this.selection !== selection) return;
-        this.preview = { commit, files: this.parsePreview(patch.text), truncated: patch.truncated };
+        const files = await this.parsePreview(patch.text, cx, () => this.version !== version || this.selection !== selection);
+        if (this.version !== version || this.selection !== selection) return;
+        this.preview = { commit, files, truncated: patch.truncated || Boolean(files?.truncated) };
       } catch (error) {
         if (this.version === version && this.selection === selection) this.previewError = String(error.message || error);
       } finally {

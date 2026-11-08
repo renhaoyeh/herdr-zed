@@ -8,10 +8,12 @@ import { execFile } from 'node:child_process';
 
 const run = promisify(execFile);
 async function load(host = {}) {
+  host = { TextEncoder: undefined, TextDecoder: undefined, ...host };
   const source = await readFile(new URL('../mods/devkits/git-history.js', import.meta.url), 'utf8');
   const shell = await readFile(new URL('../mods/devkits/shell.js', import.meta.url), 'utf8');
   const command = await readFile(new URL('../mods/devkits/shell-command.js', import.meta.url), 'utf8');
-  return new Function(...Object.keys(host), (command + '\n' + shell + '\n' + source).replace(/^import .*;\r?\n/gm, '').replace(/^export /gm, '')
+  const utf8 = await readFile(new URL('../mods/devkits/utf8.js', import.meta.url), 'utf8');
+  return new Function(...Object.keys(host), (utf8 + '\n' + command + '\n' + shell + '\n' + source).replace(/^import .*;\r?\n/gm, '').replace(/^export /gm, '')
     + '\nreturn { CommitHistory, parseCommitHistory, readCommitHistory, readCommitPatch, readCommitSummary, commitAge };')(...Object.values(host));
 }
 const record = (sha, subject) => [sha, sha.slice(0, 7), '作者 Name', '1700000000', `${subject}\n\nBody | $(literal)\n`].join('\0') + '\0';
@@ -19,6 +21,46 @@ const clock = () => {
   const tasks = [], cx = { notify() {}, spawn(fn) { tasks.push(fn(cx)); } };
   return { cx, async drain() { while (tasks.length) await Promise.all(tasks.splice(0)); } };
 };
+
+test('large commit patches are capped in the child process and missing commits still report errors', async t => {
+  const folder = await mkdtemp(join(tmpdir(), 'devkits-large-commit-'));
+  t.after(() => rm(folder, { recursive: true, force: true }));
+  await run('git', ['init', '-q', folder]);
+  await writeFile(join(folder, 'large'), 'x'.repeat(5000000));
+  await run('git', ['-C', folder, 'add', '.']);
+  await run('git', ['-C', folder, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'large']);
+  const sha = (await run('git', ['-C', folder, 'rev-parse', 'HEAD'])).stdout.trim();
+  let transferred = 0;
+  const { readCommitPatch } = await load({ exec: async (cmd, args) => {
+    try {
+      const result = await run(cmd, args, { maxBuffer: 5 * 1024 * 1024 });
+      transferred = Buffer.byteLength(result.stdout);
+      return { code: 0, ...result };
+    } catch (error) { if (typeof error.code !== 'number') throw error; return { code: error.code, stdout: error.stdout, stderr: error.stderr }; }
+  } });
+  const patch = await readCommitPatch(folder.replaceAll('\\', '/'), null, sha);
+  assert.equal(transferred, 4000001); assert.equal(patch.text.length, 4000000); assert.equal(patch.truncated, true);
+  await assert.rejects(readCommitPatch(folder.replaceAll('\\', '/'), null, 'f'.repeat(40)), /Not a valid|bad object|invalid object/i);
+});
+
+test('a selection changed while parsing cannot publish the earlier commit preview', async () => {
+  const pending = [], parsers = [], a = { sha: 'a'.repeat(40) }, b = { sha: 'b'.repeat(40) };
+  const { CommitHistory } = await load({ VirtualListScrollHandle: { new: () => ({}) },
+    exec: () => new Promise(resolve => pending.push(resolve)) });
+  const { cx, drain } = clock();
+  const history = new CommitHistory(cx, text => new Promise(resolve => parsers.push({ text, resolve })));
+  history.reset({ folder: '/repo' }); history.select(a, cx);
+  pending.shift()({ code: 0, stdout: 'old patch' });
+  while (!parsers.length) await Promise.resolve();
+  history.select(b, cx);
+  parsers.shift().resolve(['old parsed files']);
+  pending.shift()({ code: 0, stdout: 'new patch' });
+  while (!parsers.length) await Promise.resolve();
+  parsers.shift().resolve(['new parsed files']);
+  await drain();
+  assert.equal(history.preview.commit.sha, b.sha);
+  assert.deepEqual(history.preview.files, ['new parsed files']);
+});
 
 test('history pages are anchored to a revision and previews handle root and merge commits', async t => {
   const folder = await mkdtemp(join(tmpdir(), "devkits history ' $(x)"));
