@@ -277,14 +277,16 @@ export const sessionMenu = {
       cx.notify();
     };
     const cancelDrag = cx => {
-      if (!this.dragKey && !this.modelDrag) return;
-      this.dragKey = null; this.dropKey = null; this.modelDrag = null; this.modelDrop = null; cx.notify();
+      if (!this.dragKey && !this.modelDrag && !this.hardwareDrag) return;
+      this.dragKey = null; this.dropKey = null; this.modelDrag = null; this.modelDrop = null;
+      this.hardwareDrag = null; this.hardwareDrop = null; cx.notify();
     };
     // Like Cursor's and Zed's settings, one page per subject in a left list; Claude and Codex each get their own.
     // What every agent shares comes first, then each provider's own page.
     const pages = [{ id: 'agents', label: 'Agents', icon: glyph('terminal') },
       { id: 'rules', label: 'Rules', icon: glyph('book-open') },
       ...(local ? [{ id: 'usage', label: 'Usage', icon: glyph('chart-column') }] : []),
+      { id: 'system', label: 'System', icon: glyph('settings') },
       ...(local ? ['claude', 'codex'].filter(kind => choices.some(choice => sessionKind(choice.agent) === kind))
         .map(kind => ({ id: kind, label: kind === 'claude' ? 'Claude' : 'Codex',
           icon: AgentIcon(choices.find(choice => choice.agent?.key === kind)?.agent || { icon: null }, t).size(14) })) : []),
@@ -295,7 +297,7 @@ export const sessionMenu = {
       .on_hover((inside, cx) => { if (!inside) cancelDrag(cx); })
       .track_focus(this.handle).on_key_down((event, cx) => {
         if (event.key === 'escape') {
-          if (this.dragKey || this.modelDrag) cancelDrag(cx); else done();
+          if (this.dragKey || this.modelDrag || this.hardwareDrag) cancelDrag(cx); else done();
           cx.stop_propagation(); return;
         }
         if (page !== 'agents') return;
@@ -320,6 +322,7 @@ export const sessionMenu = {
             .child(this.agentsPage(choices, hidden, local, toggle, move, cancelDrag, t)))
           .when(page === 'claude' || page === 'codex', el => el.child(this.providerPage(page, t)))
           .when(page === 'usage', el => el.child(this.usageProfilesPage(choices, t)))
+          .when(page === 'system', el => el.child(this.hardwareSettings(t)))
           .when(page === 'agent-profiles', el => el.child(this.agentProfilesPage(t)))
           .when(page === 'rules', el => el.child(DialogDescription(t).flex_none().child(this.rulesPreview.description()))
             .child(this.rulesPreview.body(t)))))

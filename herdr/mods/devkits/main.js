@@ -19,6 +19,7 @@ import { sessionMenu } from './session-menu.js';
 import { agentProfiles } from './agent-profiles.js';
 import { accountActions } from './account-actions.js';
 import { agentUsage } from './usage.js';
+import { hardwareUsage } from './hardware.js';
 import { RunControls, RunMenu, runApp } from './run-app.js';
 import { BranchMenu } from './branch-menu.js';
 import { ProjectLayout, layoutNode, conversationMaximized, maximizeConversation, openTaskBoard, closeTaskBoard, enforceTaskBoard, taskMode } from './project-layout.js';
@@ -86,11 +87,17 @@ export default class Devkits extends View {
       return;
     }
     if (props()?.view === 'usage-details') cx.timer.every(60000, cx => cx.notify());
+    if (props()?.view === 'hardware-details') {
+      this.pollHardware(cx, false);
+      cx.timer.every(1000, cx => this.pollHardware(cx));
+    }
     if (!props()?.view && cx) {
       cx.timer.every(1500, cx => observeTaskInput(agents(), terminals(), cx));
       // Shared values survive restarts; discover once for this app session.
       setShared('devkits.agent-cache', {});
       this.refreshUsage(cx);
+      this.pollHardware(cx, false);
+      cx.timer.every(1000, cx => this.pollHardware(cx));
       this.initSkillWatch(cx);
       const activeMachine = this.projects().find(project => project.active)?.machine || null;
       for (const machine of new Set([null, ...spaces().map(space => space.machine || null)])) {
@@ -164,7 +171,7 @@ export default class Devkits extends View {
     if (props()?.view === 'rename-account') this.initRenameAccount();
     this.hovered = null;
     this.hoveredProject = null;
-    if (['close-project', 'remove-account', 'rename-account', 'project-menu', 'project-picker', 'usage-details'].includes(props()?.view)) {
+    if (['close-project', 'remove-account', 'rename-account', 'project-menu', 'project-picker', 'usage-details', 'hardware-details'].includes(props()?.view)) {
       this.handle = cx.focus_handle();
       if (props().view !== 'rename-account') this.handle.focus();
       if (props().view === 'project-picker') this.projectIndex = -1;
@@ -875,6 +882,7 @@ export default class Devkits extends View {
     if (props()?.view === 'run-menu') return this.runMenu.render(t);
     if (props()?.view === 'branch-menu') return this.branchMenu.render(t);
     if (props()?.view === 'usage-details') return this.usageDetails(t);
+    if (props()?.view === 'hardware-details') return this.hardwareDetails(t);
     if (props()?.view === 'brand') return this.brand(t);
     if (props()?.view === 'pane') return this.paneHeader(t, cx);
     if (props()?.view === 'status') return this.statusBar(t);
@@ -994,6 +1002,7 @@ export default class Devkits extends View {
             .children(this.groupedThreads(space, threads, t, live))
             .when(!threads.some(thread => threadVisibleInSidebar(space, thread)) && (space.machine || !projectBoardTasks(space).some(task => !task.archived && (task.source !== 'thread' || task.tabs.length > 0))), el => el.child(h_flex().h(32).flex_none().px(12).items_center().text_size(12).text_color(t.muted).child(threads.length ? 'No active threads' : 'No threads yet')))))))
       .child(this.accountUsage(t))
+      .child(this.systemUsage(t))
       .child(SidebarFooter(t)
         .child(Button('archived-threads', t, { variant: 'ghost', size: 'icon' })
           .accessibility_label(this.archiveOpen ? 'Show threads' : 'Show thread history')
@@ -1004,4 +1013,4 @@ export default class Devkits extends View {
 }
 
 // Feature views share this view's state and its project, agent and session helpers.
-Object.assign(Devkits.prototype, sessionMenu, agentProfiles, accountActions, agentUsage, threadArchive);
+Object.assign(Devkits.prototype, sessionMenu, agentProfiles, accountActions, agentUsage, hardwareUsage, threadArchive);
