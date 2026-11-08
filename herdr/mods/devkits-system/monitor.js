@@ -149,7 +149,7 @@ export class SystemMonitorCore extends SystemClient {
               .child(div().text_size(12).text_color(t.foreground).child(module.name))
               .child(div().text_size(10).text_color(t.muted).child(id === 'battery' && data && !data.battery ? 'No battery detected · appears when available' : module.description))));
       }));
-    const display = v_flex().flex_1().min_w(0).gap(16)
+    const display = v_flex().id('hardware-monitoring-settings').flex_1().min_w(0).gap(16)
       .child(div().text_size(11).font_medium().text_color(t.muted).child('MONITORING'))
       .child(v_flex().flex_none().px(12).border(1).border_color(t.border)
         .child(choices('interval', 'Update every', [[1, '1s'], [3, '3s'], [5, '5s'], [10, '10s']], config.interval, 'interval')))
@@ -170,7 +170,8 @@ export class SystemMonitorCore extends SystemClient {
                 const selected = selectedHardwareCores(hardwareConfig(), data.cores);
                 this.saveHardwarePreference({ cores: checked ? [...new Set([...selected, index])] : selected.filter(core => core !== index) }, cx);
               });
-          })))));
+          })))))
+      .child(this.hardwareDisplaySettings(t));
     return v_flex().id('hardware-settings').flex_1().min_h(0).overflow_y_scroll().gap(20)
       .on_mouse_up('left', (_event, cx) => this.cancelHardwareDrag(cx))
       .on_hover((inside, cx) => { if (!inside) this.cancelHardwareDrag(cx); })
@@ -182,9 +183,7 @@ export class SystemMonitorCore extends SystemClient {
         .child(DialogDescription(t).child('Choose what to show and drag the handles to reorder. Changes save automatically.')))
       .child(h_flex().w_full().gap(24).items_start()
         .child(v_flex().flex_1().min_w(0).gap(16)
-          .child(div().text_size(11).font_medium().text_color(t.muted).child('WIDGETS')).child(widgets)
-          .child(Button('hardware-choose-overview', t, { variant: 'outline' }).justify_start().child('Choose volumes, disks and temperatures in Overview')
-            .on_click((_event, cx) => { this.hardwarePage = 'overview'; cx.notify(); })))
+          .child(div().text_size(11).font_medium().text_color(t.muted).child('WIDGETS')).child(widgets))
         .child(display));
   }
 
@@ -352,7 +351,7 @@ export class SystemMonitorCore extends SystemClient {
     this.saveHardwarePreference({ storageVolumes, visible: { ...config.visible, storage: storageVolumes.length > 0 } }, cx);
   }
 
-  hardwareOverviewDisplay(t) {
+  hardwareDisplaySettings(t) {
     const config = hardwareConfig(), available = this.hardware?.storage?.volumes || [];
     const volumes = [...available, ...(config.storageVolumes || []).filter(id => !available.some(volume => volume.id === id))
       .map(id => ({ id, unavailable: true }))];
@@ -374,12 +373,10 @@ export class SystemMonitorCore extends SystemClient {
           const temperatureGroups = checked ? [...new Set([...selected, key])] : selected.filter(id => id !== key);
           this.saveHardwarePreference({ temperatureGroups, visible: { ...current.visible, sensors: temperatureGroups.length > 0 } }, cx);
         })));
-    return v_flex().id('hardware-overview-display').flex_none().gap(12)
+    return v_flex().id('hardware-display-settings').w_full().flex_none().gap(12)
       .child(div().text_size(13).font_semibold().child('Show in main panel'))
       .child(DialogDescription(t).child('Choose volumes, physical disk activity and temperatures. Changes save automatically.'))
-      .child(h_flex().w_full().gap(16).items_start()
-        .when((this.hardwareWidth || 1400) < 1100, el => el.flex_col().items_stretch())
-        .children([storage, this.hardwareDiskDisplay(t), temperatures].map(group => v_flex().flex_1().min_w(0).child(group))));
+      .children([storage, this.hardwareDiskDisplay(t), temperatures].map(group => group.flex_none()));
   }
 
   hardwareDiskDisplay(t) {
@@ -522,8 +519,7 @@ export class SystemMonitorCore extends SystemClient {
             .when(!visible.length, el => el.child(DialogDescription(t).child('No widgets selected. Choose what to display in Settings.')))
             .children(Array.from({ length: Math.ceil(visible.length / columns) }, (_, row) => h_flex().flex_none().items_stretch().gap(16)
               .children(visible.slice(row * columns, row * columns + columns).map(item => this.hardwareMetricCard(item.module, t, false, item)))
-              .children(Array.from({ length: Math.max(0, columns - visible.slice(row * columns, row * columns + columns).length) }, () => div().flex_1().flex_basis(0).min_w(0)))))
-            .child(this.hardwareOverviewDisplay(t)))
+              .children(Array.from({ length: Math.max(0, columns - visible.slice(row * columns, row * columns + columns).length) }, () => div().flex_1().flex_basis(0).min_w(0))))))
           .when(selected !== 'settings' && selected !== 'overview', el => el.child(this.hardwareModuleDetails(selected, t)))))
       .child(DialogFooter().flex_none()
         .child(div().flex_1().self_center().text_size(10).text_color(t.muted)
