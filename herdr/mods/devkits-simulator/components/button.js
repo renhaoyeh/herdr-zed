@@ -34,3 +34,14 @@ export function Button(id, t, { variant = 'default', size = 'sm' } = {}) {
       if (event.key === 'enter' || event.key === 'space') cx.stop_propagation();
     });
 }
+
+// Bar actions share one target size and keep their selected state on hover.
+export function ToolbarButton(id, t, { icon = false, selected = false, disabled = false } = {}) {
+  return Button(id, t, { variant: 'ghost', size: icon ? 'icon' : 'sm' })
+    .h_full().rounded(0).font_family('Geist').text_size(12).gap(6)
+    .when(icon, el => el.w(32)).when(!icon, el => el.px(8))
+    .disabled(disabled).opacity(disabled ? 0.4 : 1)
+    .bg(selected ? t.selected : t.background)
+    .text_color(selected ? t.foreground : t.muted)
+    .hover(el => el.bg(selected ? t.selected : t.hover).text_color(t.foreground));
+}

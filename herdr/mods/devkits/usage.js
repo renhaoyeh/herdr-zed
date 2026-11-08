@@ -20,6 +20,7 @@ const claudeDirectory = agent => agent.run.find(arg => arg.startsWith('CLAUDE_CO
 // projects and cachedAgents.
 export const agentUsage = {
   refreshUsage(cx, force = true, manual = false) {
+    if (shared('devkits.usage-visible') === false) { this.usageScope = null; return; }
     const machine = this.projects().find(project => project.active)?.machine || null;
     const hidden = shared('devkits.hidden-usage-profiles') || [];
     const order = shared('devkits.launcher-order') || [];
@@ -35,6 +36,7 @@ export const agentUsage = {
     cx.spawn(async cx => {
       try {
         const agents = await this.cachedAgents(machine);
+        if (shared('devkits.usage-visible') === false) return;
         this.usageAgents = agents.filter(agent => !agent.profileKey);
         if (this.usageMachine !== machine) this.usage = [];
         this.usageMachine = machine;
@@ -56,6 +58,7 @@ export const agentUsage = {
           || !(now - (cached()[account.key]?.checkedAt || 0) < usageCacheMs));
         this.usage = accounts.map(account => cached()[account.key]).filter(Boolean);
         if (stale.length) {
+          if (shared('devkits.usage-visible') === false) return;
           cx.notify();
           const result = await exec('node', [`${appHome()}/mods/devkits/usage-reader.js`,
             JSON.stringify(stale.map(account => ({ ...account, provider: usageProvider(account) })))]);
@@ -109,6 +112,7 @@ export const agentUsage = {
   },
 
   accountUsage(t) {
+    if (shared('devkits.usage-visible') === false) return div().h(0).flex_none();
     const space = this.projects().find(s => s.active);
     const choices = launcherChoices(this.usageMachine === (space?.machine || null) ? this.usageAgents || [] : [],
       shared('devkits.launcher-order') || [])

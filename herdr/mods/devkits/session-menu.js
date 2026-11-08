@@ -331,6 +331,13 @@ export const sessionMenu = {
     const profiles = choices.filter(choice => choice.agent && !choice.agent.profileKey);
     const hidden = shared('devkits.hidden-usage-profiles') || [];
     return v_flex().id('usage-profile-settings').flex_1().min_h(0).overflow_y_scroll().gap(8)
+      .child(h_flex().flex_none().min_h(48).px(12).py(8).gap(16).items_center().border(1).border_color(t.border)
+        .child(v_flex().flex_1().min_w(0).gap(4)
+          .child(div().text_size(13).text_color(t.foreground).child('Show Usage in sidebar'))
+          .child(DialogDescription(t).child('Hide the Usage section and pause quota refreshes. Your account selections are kept.')))
+        .child(Switch('usage-visible', shared('devkits.usage-visible') !== false, t)
+          .accessibility_label('Show Usage in sidebar')
+          .on_change((visible, cx) => { setShared('devkits.usage-visible', visible); cx.notify(); })))
       .child(DialogDescription(t).flex_none().child('Choose which accounts appear in Usage and can be used to add agent profiles. Agents using the same account share its quota.'))
       .children([1, 2].filter(group => profiles.some(choice => choice.group === group)).map(group => v_flex().flex_none().gap(4)
         .child(DropdownMenuLabel(t).px(0).mt(8).child(launcherSections[group].toUpperCase()))

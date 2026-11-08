@@ -30,7 +30,7 @@ import { ProjectLayout, layoutNode, conversationMaximized, maximizeConversation,
 import { threadArchive } from './thread-archive.js';
 import { sessionRules, ensureRules } from './global-rules.js';
 import { DropdownMenu, DropdownMenuState, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from './components/dropdown-menu.js';
-import { Button } from './components/button.js';
+import { Button, ToolbarButton } from './components/button.js';
 import { AlertDialogContent, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from './components/alert-dialog.js';
 import { Sidebar, SidebarContent, SidebarGroup, SidebarGroupLabel, SidebarMenuButton, SidebarTreeMenuButton, SidebarFooter } from './components/sidebar.js';
 
@@ -705,53 +705,49 @@ export default class Devkits extends View {
     // Like Zed: the branch sits beside the project in the header; only a remote project names its machine here.
     return h_flex().relative().size_full().pr(4).gap(8).items_center().bg(t.background).border_t(1).border_color(t.border)
       .text_size(11).text_color(t.muted)
-      .when(Boolean(space?.machine), el => el.child(h_flex().pl(16).gap(8).items_center().child(glyph('terminal', 12)).child(space.machine)))
-
       .when(Boolean(space && conversation), el => el
-        .child(Button('open-conversation', t, { variant: 'ghost', size: 'icon' }).disabled(taskMode()).h_full().rounded(0)
-          .bg(conversationVisible(space) ? t.selected : t.background)
+        .child(ToolbarButton('open-conversation', t, { icon: true, disabled: taskMode(), selected: conversationVisible(space) })
           .accessibility_label(conversationVisible(space) ? 'Hide conversation' : 'Show conversation')
           .on_click(() => {
             hidePanels(); rememberPanel(space.id, null);
             this.showConversation(!conversationVisible(space));
           }).child(glyph('agent'))))
+      .when(Boolean(space?.machine), el => el.child(h_flex().flex_none().gap(8).items_center().child(glyph('terminal', 12)).child(space.machine)))
       .child(this.systemStatus(t))
-      .child(Button('settings', t, { variant: 'ghost', size: 'icon' }).h_full()
+      .child(h_flex().id('status-actions').min_w(0).h_full().overflow_x_scroll().items_center().gap(8)
+      .child(ToolbarButton('settings', t, { icon: true })
         .accessibility_label('Herdr settings')
         .on_click(() => run('app.settings')).child(glyph('gear')))
-      .when(Boolean(simulator), el => el
-        .child(Button('open-simulator', t, { variant: 'ghost', size: 'icon' }).disabled(taskMode())
-          .h_full().rounded(0)
-          .bg(simulator.hidden ? t.background : t.selected)
-          .accessibility_label(simulator.hidden ? 'Show simulator' : 'Hide simulator')
-          .on_click(() => {
-            const maximized = Boolean(shared('devkits.conversation-maximized'));
-            maximizeConversation(null, false);
-            run(maximized ? 'layout.show' : 'layout.toggle', { id: 'simulator' });
-          })
-          .child(glyph('smartphone'))))
-      .when(Boolean(space), el => el
-        .child(Button('open-diff', t, { variant: 'ghost', size: 'icon' }).disabled(taskMode())
-          .h_full().rounded(0)
-          .bg(showing('diff') ? t.selected : t.background)
-          .accessibility_label(showing('diff') ? 'Hide changes' : 'Show changes')
-          .on_click(() => toggleEditor(editor, 'diff'))
-          .child(glyph('git-compare')))
-        .child(Button('open-files', t, { variant: 'ghost', size: 'icon' }).disabled(taskMode())
-          .h_full().rounded(0)
-          .bg(showing('files') ? t.selected : t.background)
-          .accessibility_label(showing('files') ? 'Hide files' : 'Show files')
-          .on_click(() => toggleEditor(editor, 'files'))
-          .child(glyph('folder'))))
-      .child(Button('system-monitor-settings', t, { variant: 'ghost' }).h_full().px(8).text_size(11)
-        .accessibility_label('System monitor settings').on_click(() => this.openHardware('settings')).child('System'))
-      .child(Button('open-calendar', t, { variant: 'ghost', size: 'icon' }).h_full().rounded(0)
-        .accessibility_label('Calendar').on_click(openCalendar).child(glyph('calendar')))
-      .when(Boolean(space), el => el.child(Button('open-tasks', t, { variant: 'ghost' }).h_full().rounded(0).px(10).gap(6)
-        .bg(taskMode() ? t.selected : t.background)
-        .accessibility_label('Tasks')
-        .on_click(() => { if (taskMode()) this.closeBoard(); else this.openBoard(space); })
-        .child(glyph('columns-3', 14)).child('Tasks')))
+      .child(h_flex().id('status-workspace-actions').flex_none().h_full().gap(0)
+        .child(ToolbarButton('system-monitor-settings', t)
+          .accessibility_label('System monitor settings').on_click(() => this.openHardware('settings'))
+          .child(glyph('chart-column')).child('System'))
+        .child(ToolbarButton('open-calendar', t)
+          .accessibility_label('Calendar').on_click(openCalendar).child(glyph('calendar')).child('Calendar'))
+        .when(Boolean(space), el => el.child(ToolbarButton('open-tasks', t, { selected: taskMode() })
+          .accessibility_label('Tasks')
+          .on_click(() => { if (taskMode()) this.closeBoard(); else this.openBoard(space); })
+          .child(glyph('columns-3')).child('Tasks'))))
+      .when(Boolean(space || simulator), el => el
+        .child(div().w(1).h(16).flex_none().bg(t.border))
+        .child(h_flex().id('status-panel-actions').flex_none().h_full().gap(0)
+          .when(Boolean(simulator), el => el
+            .child(ToolbarButton('open-simulator', t, { icon: true, disabled: taskMode(), selected: !simulator.hidden })
+              .accessibility_label(simulator.hidden ? 'Show simulator' : 'Hide simulator')
+              .on_click(() => {
+                const maximized = Boolean(shared('devkits.conversation-maximized'));
+                maximizeConversation(null, false);
+                run(maximized ? 'layout.show' : 'layout.toggle', { id: 'simulator' });
+              }).child(glyph('smartphone'))))
+          .when(Boolean(space), el => el
+            .child(ToolbarButton('open-diff', t, { icon: true, disabled: taskMode(), selected: showing('diff') })
+              .accessibility_label(showing('diff') ? 'Hide changes' : 'Show changes')
+              .on_click(() => toggleEditor(editor, 'diff'))
+              .child(glyph('git-compare')))
+            .child(ToolbarButton('open-files', t, { icon: true, disabled: taskMode(), selected: showing('files') })
+              .accessibility_label(showing('files') ? 'Hide files' : 'Show files')
+              .on_click(() => toggleEditor(editor, 'files'))
+              .child(glyph('folder')))))))
       .child(GitResultToast(t, space));
   }
 
