@@ -142,7 +142,7 @@ export class ProjectLayout {
     }
     target.dock = saved.dock !== undefined ? saved.dock : saved.editor?.hidden ? null : saved.editor?.active || 'files';
     setShared('devkits.right-panel', target.dock);
-    target.widths = saved.widths || [280, null];
+    target.widths = WIDTHS.map((_name, index) => (saved.widths || [280, null])[index] ?? null);
     this.restoring = target;
     WIDTHS.forEach((name, index) => { if ((shared(name) ?? null) !== target.widths[index]) setShared(name, target.widths[index]); });
   }

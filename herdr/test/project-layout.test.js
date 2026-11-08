@@ -60,6 +60,17 @@ test('a closed dock survives reload without hiding the central editor and stays 
   assert.equal(root.children[0].hidden, false);
 });
 
+test('legacy MantisBT side-preview widths do not block restoring the full-page interface', async () => {
+  const { Controller, store } = await host(), state = new Controller();
+  store['devkits.project-layouts'] = { '["","/a"]': { dock: 'files', widths: [310, 620, 700] } };
+  state.sync(a); state.sync(a);
+  assert.equal(state.restoring, null);
+  assert.deepEqual(store['devkits.project-layouts']['["","/a"]'].widths, [310, 620]);
+  state.sync(b); state.sync(b);
+  state.sync(a); state.sync(a);
+  assert.equal(store['devkits.asana-preview-width'], 620);
+});
+
 test('layouts without simulator blocks never create one', async () => {
   const { Controller, root, calls } = await host();
   root.children = root.children.filter(node => node.id !== 'simulator');
