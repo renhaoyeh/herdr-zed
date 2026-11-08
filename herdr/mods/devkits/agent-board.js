@@ -2,7 +2,7 @@ import { div } from 'gpui-kit';
 import { h_flex, v_flex, InputState, Input, TextareaState, Textarea, TextView } from 'gpui-base';
 import { shared, setShared, agents as currentAgents, spaces as currentSpaces } from 'herdr';
 import AsanaPanel, { readAsanaToken } from './asana.js';
-import { boardStatuses, boardKey, liveVersion, boardPriorityOptions, boardPriorities, canStartTask, taskActions, taskManualStatusOptions } from './agent-board-model.js';
+import { boardStatuses, boardKey, liveVersion, boardPriorityOptions, boardPriorities, canStartTask, taskActions, taskManualStatusOptions, taskChildren, canAddSubtask } from './agent-board-model.js';
 import { launcherLabel, launcherOption } from './model.js';
 import { rememberBoardTask, projectBoardTasks, boardRecords, deleteLocalTask } from './agent-board-state.js';
 import { readTaskOutput, taskIdentifier, outputMarkdown } from './agent-board-details.js';
@@ -54,6 +54,16 @@ export default class AgentBoard {
   }
   compose(project, task = null, status = 'todo') {
     openTaskComposer(project, task, status);
+  }
+  composeSubtask(project, gid, cx) {
+    const parent = this.latestTask(project, gid);
+    if (!canAddSubtask(parent)) { this.relatedError = 'The parent task is unavailable or archived.'; cx.notify(); return; }
+    openTaskComposer(project, null, 'todo', null, parent);
+  }
+  showRelated(project, gid, cx) {
+    const task = this.latestTask(project, gid);
+    if (!task) { this.relatedError = 'This task is no longer available.'; cx.notify(); return; }
+    this.archived = Boolean(task.archived); this.show(task, project, cx);
   }
   latestTask(project, gid) {
     const current = currentSpaces().find(item => item.id === project.id) || (project.pending ? project : null);
@@ -126,6 +136,7 @@ export default class AgentBoard {
     if (this.selected === task.gid && this.selection?.key === key && !this.detail.detailError) return;
     const selection = { key };
     this.selection = selection;
+    this.relatedError = null;
     this.selected = task.gid; this.currentTask = task;
     this.detail.selected = null; this.detail.detail = null; this.detail.detailError = null;
     this.detail.detailRequest = null;
@@ -166,7 +177,9 @@ export default class AgentBoard {
     this.currentTask = selected || null;
     this.syncEditor(selected?.source === 'local' && taskActions(selected).canEdit ? selected : null, project);
     const icon = key => { const s = boardStatuses.find(s => s.key === key); return glyph(s.icon, 14).text_color(s.color); };
-    const card = task => v_flex().id(`board-card-${task.gid}`).flex_none().p(12).gap(8).rounded(8).border(1)
+    const card = task => {
+      const children = taskChildren(tasks, task.gid), completed = children.filter(child => child.status === 'done').length;
+      return v_flex().id(`board-card-${task.gid}`).flex_none().p(12).gap(8).rounded(8).border(1)
       .border_color(this.selected === task.gid ? t.cardSelectedBorder : t.cardBorder)
       .bg(this.selected === task.gid ? t.cardSelected : t.card).text_size(13).cursor_default()
       .opacity(this.drag?.active && this.drag.gid === task.gid ? 0.4 : 1)
@@ -185,9 +198,14 @@ export default class AgentBoard {
         .child(taskIdentifier(task)).child(div().flex_1())
         .when(Boolean(task.priority && task.priority !== 'none'), el => el.child(glyph(boardPriorities.find(priority => priority.key === task.priority)?.icon || 'priority-none', 14).text_color(task.priority === 'urgent' ? '#e4a45c' : t.muted).accessibility_label(`${task.priority} priority`))))
       .child(div().text_size(13).font_medium().child(task.name))
+      .when(Boolean(task.parentTask), el => el.child(h_flex().gap(5).items_center().min_w(0).text_size(11).text_color(t.muted)
+        .child(glyph('list-tree', 12)).child(div().min_w(0).truncate().child(task.parentTask.name))))
       .child(h_flex().gap(6).items_center().text_size(11).text_color(t.muted)
         .child(this.assignment(task, launchers, t, 12).flex_1())
+        .when(children.length > 0, el => el.child(h_flex().gap(4).items_center().accessibility_label(`${completed} of ${children.length} subtasks done`)
+          .child(glyph('list-tree', 12)).child(`${completed}/${children.length}`)))
         .when(task.status === 'waiting', el => el.child(glyph('clock', 12).text_color('#b39af5'))));
+    };
     const columns = h_flex().id('agent-board-columns').flex_1().h_full().min_w(0).min_h(0).overflow_x_scrollbar().px(8).gap(12)
       .children(boardStatuses.map(status => {
         const rows = visible.filter(task => task.status === status.key);
@@ -233,10 +251,31 @@ export default class AgentBoard {
         .child(Input.new(this.search).id('board-search').accessibility_label('Search tasks').w(180).h(28).px(10)
           .rounded(999).bg(t.control).border(1).border_color(t.controlBorder).text_size(12)))
       .child(h_flex().flex_1().min_w(0).min_h(0).child(selected
-        ? SidePanelLayout('board-detail-split', this.detailPanel, columns, this.preview(selected, project, launchers, actions, t, cx))
+        ? SidePanelLayout('board-detail-split', this.detailPanel, columns, this.preview(selected, project, launchers, actions, t, cx, tasks))
         : columns));
   }
-  preview(task, project, launchers, actions, t, cx) {
+  subtasks(task, tasks, project, t) {
+    const children = taskChildren(tasks, task.gid), completed = children.filter(child => child.status === 'done').length;
+    return v_flex().id('board-subtasks').gap(8)
+      .child(h_flex().gap(8).items_center().text_size(12)
+        .child(div().font_medium().child('Subtasks')).child(div().text_color(t.muted).child(`${completed}/${children.length}`))
+        .child(div().flex_1())
+        .when(canAddSubtask(task), el => el.child(button('board-add-subtask', t).pl(8).pr(10)
+          .on_click((_event, cx) => this.composeSubtask(project, task.gid, cx))
+          .child(glyph('plus', 14)).child('Add subtask'))))
+      .when(!children.length, el => el.child(div().text_size(12).text_color(t.muted).child('No subtasks yet')))
+      .children(children.map(child => {
+        const status = boardStatuses.find(status => status.key === child.status) || boardStatuses[0];
+        return button(`board-subtask-${child.gid}`, t).w_full().h(36).px(8).gap(8).rounded(6).justify_start()
+          .accessibility_label(`${child.name}, ${status.label}${child.archived ? ', archived' : ''}`)
+          .on_click((_event, cx) => this.showRelated(project, child.gid, cx))
+          .child(glyph(status.icon, 14).text_color(status.color))
+          .child(div().flex_1().min_w(0).truncate().text_size(13).text_color(t.foreground).child(child.name))
+          .when(Boolean(child.archived), el => el.child(div().text_size(10).text_color(t.muted).child('Archived')))
+          .child(glyph('chevron-right', 12));
+      }));
+  }
+  preview(task, project, launchers, actions, t, cx, tasks = []) {
     const origin = task.mantisbt || task.asana;
     const detail = task.source === 'local' || task.source === 'thread' ? { ...task, notes: task.notes || '', comments: origin?.comments || [] } : this.detail.detail;
     const output = this.outputs.get(`${project.folder}:${task.gid}`) || {};
@@ -280,6 +319,10 @@ export default class AgentBoard {
         .child(v_flex().gap(4)
           .child(property('Status', statusValue))
           .child(property('Agent', assignment))
+          .when(Boolean(task.parentId), el => el.child(property('Parent', task.parentTask
+            ? button('board-parent-task', t).max_w(260).on_click((_event, cx) => this.showRelated(project, task.parentId, cx))
+              .child(glyph('list-tree', 13)).child(div().min_w(0).truncate().child(task.parentTask.name))
+            : 'Unavailable task')))
           .child(property('Project', project.name)).child(property('Source', origin?.url
             ? button('board-asana-source', t).on_click((_e, cx) => cx.open_url(origin.url))
               .child(glyph('external-link', 14)).child(sourceName(task)) : sourceName(task)))
@@ -294,6 +337,8 @@ export default class AgentBoard {
         .when(!editable && Boolean(detail?.notes), el => el.child(v_flex().gap(10)
           .child(div().text_size(12).font_medium().child('Description'))
           .child(TextView.markdown(`board-description-${task.gid}`, detail.notes).selectable(true).scrollable(false).w_full().text_size(13))))
+        .child(this.subtasks(task, tasks, project, t))
+        .when(Boolean(this.relatedError), el => el.child(div().id('board-related-error').text_size(12).text_color(t.destructive).child(this.relatedError)))
         .when(task.tabs.length > 0, el => el.children(task.tabs.map(tab => button(`board-thread-${tab.id}`, t, { variant: 'secondary' }).h(28)
           .on_click(() => actions.thread(tab.id)).child(task.status === 'waiting' ? 'Respond to agent' : 'Open conversation').child(glyph('external-link', 12)))))
         .when(task.agents.length > 0 || Boolean(text), el => el.child(v_flex().gap(12)

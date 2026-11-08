@@ -598,3 +598,11 @@ test('failed Asana reads can be retried and obsolete responses cannot replace a 
   pending[1](reply(200, { data: { name: 'Obsolete other issue' } }));
   await settle(); assert.equal(panel.detail.name, 'Newest');
 });
+
+test('local subtask execution prompts resolve the local parent separately from imported source context', async () => {
+  const { taskPrompt } = await load();
+  const prompt = taskPrompt({ source: 'local', name: 'Add tests', notes: 'Test instructions',
+    parentTask: { gid: 'parent', name: 'Ship release' }, asana: { parent: { name: 'External parent' }, comments: [] } });
+  assert.match(prompt, /Parent task: Ship release/); assert.match(prompt, /It is a subtask of: External parent/);
+  assert.match(prompt, /Description:\nTest instructions/);
+});

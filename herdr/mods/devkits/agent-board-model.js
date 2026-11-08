@@ -78,7 +78,7 @@ export function boardTasks(project, saved = [], records = {}, links = {}, thread
     tasks.set(gid, { ...tasks.get(gid), gid, source: 'thread', threadId: thread.id,
       name: titleFor(thread, members.find(agent => agent.focused) || members[0], project) });
   }
-  return [...tasks.values()].map(task => {
+  const result = [...tasks.values()].map(task => {
     const tabs = threads.filter(thread => task.threadId === thread.id || (links[thread.id]?.gid === task.gid
       && folderKey(links[thread.id]?.folder) === folderKey(project.folder)));
     const live = agents.filter(agent => tabs.some(tab => tab.id === agent.tab));
@@ -86,7 +86,18 @@ export function boardTasks(project, saved = [], records = {}, links = {}, thread
   // A closed empty launcher is not a durable task. Keep explicit archives and
   // real task history, and never hide an empty thread while its native tab exists.
   }).filter(task => task.source !== 'thread' || task.hasInput !== false || task.tabs.length > 0 || task.archived);
+  const byId = new Map(result.map(task => [task.gid, task]));
+  return result.map(task => {
+    const { parentTask: _snapshot, ...current } = task;
+    if (!task.parentId) return current;
+    const parent = byId.get(task.parentId);
+    return { ...current, parentTask: parent && parent.gid !== task.gid
+      ? { gid: parent.gid, name: parent.name, status: parent.status, archived: Boolean(parent.archived) } : null };
+  });
 }
+
+export const taskChildren = (tasks, gid) => tasks.filter(task => task.parentId === gid && task.gid !== gid);
+export const canAddSubtask = task => Boolean(task && !task.archived);
 
 // Every task control uses this policy, including event-time checks. Runtime activity
 // wins over manual metadata; assigning a label never grants permission to act on a busy agent.

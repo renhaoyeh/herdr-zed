@@ -37,11 +37,16 @@ export function threadBoardStatus(project, thread) {
 }
 
 
-export function createLocalTask(project, name, notes = '', options = {}) {
+export function createLocalTask(project, name, notes = '', options = {}, agents = []) {
   const title = name.trim();
   if (!title) return null;
+  const parentId = options.parentId || null;
+  if (parentId) {
+    const parent = projectBoardTasks(project, agents).find(task => task.gid === parentId);
+    if (!parent || parent.archived) throw new Error('The parent task is unavailable or archived.');
+  }
   const task = { gid: `local:${Date.now()}:${Math.random().toString(36).slice(2, 10)}`, name: title,
-    notes: notes.trim(), source: 'local', status: 'todo' };
+    notes: notes.trim(), source: 'local', status: 'todo', ...(parentId ? { parentId } : {}) };
   rememberBoardTask(project, task, { status: 'todo', manual: false, ...options });
   return task;
 }
@@ -58,14 +63,19 @@ export function deleteLocalTask(project, gid, agents = []) {
   if ((shared('devkits.pending-profiles') || []).some(entry => matches(entry.task) && Date.now() - entry.at < 60000)) return false;
   const all = shared('devkits.agent-board') || {}, records = { ...boardRecords(project) };
   delete records[gid];
+  // Removing a parent keeps every child, its progress and its conversation.
+  const detach = value => value?.parentId === gid ? { ...value, parentId: null } : value;
+  for (const [id, record] of Object.entries(records)) records[id] = detach(record);
   setShared('devkits.agent-board', { ...all, [boardKey(project)]: records });
   const links = shared('devkits.thread-tasks') || {};
-  if (Object.values(links).some(matches))
-    setShared('devkits.thread-tasks', Object.fromEntries(Object.entries(links).filter(([_tab, link]) => !matches(link))));
+  const nextLinks = Object.fromEntries(Object.entries(links).filter(([_tab, link]) => !matches(link))
+    .map(([tab, link]) => [tab, folderKey(link.folder) === folderKey(project.folder) ? detach(link) : link]));
+  if (JSON.stringify(nextLinks) !== JSON.stringify(links)) setShared('devkits.thread-tasks', nextLinks);
   const archived = shared('devkits.archived-threads') || [];
   const attached = entry => folderKey(entry.folder) === folderKey(project.folder) && (entry.task?.gid === gid || entry.boardTask?.gid === gid);
-  if (archived.some(attached))
-    setShared('devkits.archived-threads', archived.map(entry => attached(entry) ? { ...entry, task: null, boardTask: null } : entry));
+  const nextArchived = archived.map(entry => attached(entry) ? { ...entry, task: null, boardTask: null }
+    : folderKey(entry.folder) === folderKey(project.folder) ? { ...entry, task: detach(entry.task), boardTask: detach(entry.boardTask) } : entry);
+  if (JSON.stringify(nextArchived) !== JSON.stringify(archived)) setShared('devkits.archived-threads', nextArchived);
   return true;
 }
 export function threadBoardTask(project, thread) {

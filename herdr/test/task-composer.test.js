@@ -114,3 +114,30 @@ test('MantisBT imports preserve source context offline and isolate drafts from A
   assert.equal(tasks[0].notes, 'Edited description'); assert.equal(tasks[0].status, 'todo'); assert.equal(tasks[0].asana, undefined);
   assert.deepEqual(tasks[0].mantisbt, { gid: '1', name: source.name, url: source.url, server: source.server, parent: source.parent, comments: source.comments });
 });
+
+test('subtask composers isolate drafts by parent and create independent Todos with the chosen parent and agent', async () => {
+  const parent = { gid: 'local:parent', source: 'local', name: 'Parent', status: 'doing' };
+  const h = await composer({ parent }); h.currentTasks.push(parent);
+  const key = boardKey(h.view.project);
+  h.memory['devkits.task-drafts'] = { [key]: { name: 'Manual draft' } };
+  h.view.title.set_value('Child'); h.view.description.set_value('Child instructions'); h.view.agent = 'codex'; h.view.dismiss();
+  assert.equal(h.memory['devkits.task-drafts'][key].name, 'Manual draft');
+  const reopened = new h.Composer(); reopened.init(h.view.options, { focus_handle: () => ({}) });
+  assert.equal(reopened.title.value(), 'Child'); assert.equal(reopened.description.value(), 'Child instructions');
+  const other = new h.Composer(); other.init({ ...h.view.options, parent: { ...parent, gid: 'local:other' } }, { focus_handle: () => ({}) });
+  assert.equal(other.title.value(), '');
+  reopened.submit([{ key: 'codex', name: 'Codex' }]);
+  assert.equal(h.tasks.length, 1); assert.equal(h.tasks[0].parentId, parent.gid);
+  assert.equal(h.tasks[0].agentKey, 'codex'); assert.equal(h.tasks[0].status, 'todo');
+  assert.equal(h.memory['devkits.task-drafts'][key].name, 'Manual draft');
+});
+
+test('a subtask composer cannot submit after its parent is archived or deleted', async () => {
+  for (const change of ['archived', 'deleted']) {
+    const parent = { gid: 'local:parent', source: 'local', name: 'Parent', status: 'todo' };
+    const h = await composer({ parent }); h.currentTasks.push(parent); h.view.title.set_value('Child');
+    if (change === 'archived') parent.archived = true; else h.currentTasks.length = 0;
+    h.view.submit([]);
+    assert.deepEqual(h.tasks, []); assert.deepEqual(h.closed, []); assert.match(h.view.error, /parent task.*unavailable or archived/);
+  }
+});
