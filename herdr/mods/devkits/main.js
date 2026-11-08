@@ -535,30 +535,35 @@ export default class Devkits extends View {
     const root = layout(), sidebar = root?.children?.find(node => node.id === 'sidebar');
     const inset = win?.platform === 'macos' && !win.fullscreen && sidebar?.hidden
       ? (root.traffic_lights[0] + 64) / settings().zoom : 12;
-    // Controls fill the header's height; the project switcher and window buttons sit flush with its edges.
+    // Equal columns keep Run centered independently of project names and window controls.
     return h_flex().size_full().pl(inset - 12).items_center().bg(t.background).text_size(13)
       .border_b(1).border_color(t.border)
-      .child(DropdownMenuTrigger(h_flex().id('project-switcher').h_full().pl(10).pr(6).gap(6).items_center().rounded(0)
-        .text_color(t.foreground).font_medium().hover(el => el.bg(t.hover)).cursor_pointer(), 280,
-        (_cx, at) => openOverlay({ mod: 'devkits', kind: 'popup', frame: 'none', width: 280, at,
-          props: { view: 'project-picker' } }), 'start', { x: 8, y: 9 }) // Clear of the header's 1px bottom border
-        .child(div().max_w(220).truncate().child(space?.name || 'Open project'))
-        .child(glyph('chevron-down', 12).text_color(t.muted)))
-      // Like Zed, the branch opens a list of the project's branches; it only shows them for now.
-      .when(Boolean(space?.branch), el => el.child(DropdownMenuTrigger(h_flex().id('branch-switcher').h_full().px(8).gap(4).items_center().rounded(0)
-        .text_size(12).text_color(t.muted).hover(el => el.bg(t.hover)).cursor_pointer().accessibility_label(`Branches of ${space.name}`), 320,
-        (_cx, at) => openOverlay({ mod: 'devkits', kind: 'popup', frame: 'none', width: 320, at,
-          props: { view: 'branch-menu', folder: space.folder, machine: space.machine || null, branch: space.branch } }), 'start', { x: 8, y: 9 })
-        .child(glyph('branch', 12)).child(div().max_w(200).truncate().child(space.branch))))
-      .child(div().flex_1())
-      .when(Boolean(space), el => el.child(RunControls(t)))
-      .when(Boolean(win?.buttons), el => el
-        .child(Button('minimize', t, { variant: 'ghost', size: 'icon' }).h_full().w(32).accessibility_label('Minimize')
-          .on_click(() => run('window.minimize')).child(glyph('minus')))
-        .child(Button('maximize', t, { variant: 'ghost', size: 'icon' }).h_full().w(32).accessibility_label('Maximize / restore')
-          .on_click(() => run('window.maximize')).child(glyph('square')))
-        .child(Button('close-window', t, { variant: 'ghost', size: 'icon' }).h_full().w(32).accessibility_label('Close window')
-          .on_click(() => run('window.close')).child(glyph('close'))));
+      .child(h_flex().flex_1().min_w(0).h_full().items_center().overflow_hidden()
+        .child(DropdownMenuTrigger(h_flex().id('project-switcher').min_w(0).h_full().pl(10).pr(6).gap(6).items_center().rounded(0)
+          .text_color(t.foreground).font_medium().hover(el => el.bg(t.hover)).cursor_pointer(), 280,
+          (_cx, at) => openOverlay({ mod: 'devkits', kind: 'popup', frame: 'none', width: 280, at,
+            props: { view: 'project-picker' } }), 'start', { x: 8, y: 9 }) // Clear of the header's 1px bottom border
+          .child(div().min_w(0).max_w(220).truncate().child(space?.name || 'Open project'))
+          .child(glyph('chevron-down', 12).text_color(t.muted)))
+        // Like Zed, the branch opens a list of the project's branches; it only shows them for now.
+        .when(Boolean(space?.branch), el => el.child(DropdownMenuTrigger(h_flex().id('branch-switcher').min_w(0).h_full().px(8).gap(4).items_center().rounded(0)
+          .text_size(12).text_color(t.muted).hover(el => el.bg(t.hover)).cursor_pointer().accessibility_label(`Branches of ${space.name}`), 320,
+          (_cx, at) => openOverlay({ mod: 'devkits', kind: 'popup', frame: 'none', width: 320, at,
+            props: { view: 'branch-menu', folder: space.folder, machine: space.machine || null, branch: space.branch } }), 'start', { x: 8, y: 9 })
+          .child(glyph('branch', 12)).child(div().min_w(0).max_w(200).truncate().child(space.branch)))))
+      .child(h_flex().flex_1().min_w(0).h_full().items_center().justify_center()
+        .when(Boolean(space), el => el.child(RunControls(t))))
+      .child(h_flex().flex_1().min_w(0).h_full().items_center().justify_end()
+        .child(ToolbarButton('settings', t, { icon: true })
+          .accessibility_label('Herdr settings')
+          .on_click(() => run('app.settings')).child(glyph('gear')))
+        .when(Boolean(win?.buttons), el => el
+          .child(Button('minimize', t, { variant: 'ghost', size: 'icon' }).h_full().w(32).accessibility_label('Minimize')
+            .on_click(() => run('window.minimize')).child(glyph('minus')))
+          .child(Button('maximize', t, { variant: 'ghost', size: 'icon' }).h_full().w(32).accessibility_label('Maximize / restore')
+            .on_click(() => run('window.maximize')).child(glyph('square')))
+          .child(Button('close-window', t, { variant: 'ghost', size: 'icon' }).h_full().w(32).accessibility_label('Close window')
+            .on_click(() => run('window.close')).child(glyph('close')))));
   }
 
   brand(t) {
@@ -644,9 +649,6 @@ export default class Devkits extends View {
       .when(Boolean(space?.machine), el => el.child(h_flex().flex_none().gap(8).items_center().child(glyph('terminal', 12)).child(space.machine)))
       .child(this.systemDisplay.renderStatus(t))
       .child(h_flex().id('status-actions').min_w(0).h_full().overflow_x_scroll().items_center().gap(8)
-      .child(ToolbarButton('settings', t, { icon: true })
-        .accessibility_label('Herdr settings')
-        .on_click(() => run('app.settings')).child(glyph('gear')))
       .child(h_flex().id('status-workspace-actions').flex_none().h_full().gap(0)
         .child(this.systemDisplay.contextMenu(ToolbarButton('system-monitor-settings', t))
           .accessibility_label('System monitor settings').on_click(() => this.systemMonitor.open('settings'))
