@@ -98,3 +98,19 @@ test('canceled Asana import drafts preserve extra instructions separately from m
   reopened.submit([]);
   assert.equal(memory['devkits.task-drafts'][key].name, 'Manual draft');
 });
+
+test('MantisBT imports preserve source context offline and isolate drafts from Asana and other servers', async () => {
+  const source = { source: 'mantisbt', gid: '1', server: 'https://mantis.test', name: 'Fix form', notes: 'Source description',
+    url: 'https://mantis.test/view.php?id=1', parent: { name: 'Parent' }, comments: [{ author: 'Amy', text: 'Use v2' }] };
+  const { view, tasks, Composer } = await composer({ importTask: source });
+  view.description.set_value('Edited description'); view.dismiss();
+  const reopen = importTask => { const composer = new Composer(); composer.init({ ...view.options, importTask }, { focus_handle: () => ({}) }); return composer; };
+  const draft = reopen(source); assert.equal(draft.description.value(), 'Edited description');
+  assert.equal(reopen({ ...source, server: 'https://other.test' }).description.value(), 'Source description');
+  assert.equal(reopen({ gid: '1', name: 'Asana', notes: 'Asana notes' }).description.value(), 'Asana notes');
+  assert.equal(tasks.length, 0);
+  draft.submit([]);
+  assert.equal(tasks[0].source, undefined); // createLocalTask owns the local source.
+  assert.equal(tasks[0].notes, 'Edited description'); assert.equal(tasks[0].status, 'todo'); assert.equal(tasks[0].asana, undefined);
+  assert.deepEqual(tasks[0].mantisbt, { gid: '1', name: source.name, url: source.url, server: source.server, parent: source.parent, comments: source.comments });
+});

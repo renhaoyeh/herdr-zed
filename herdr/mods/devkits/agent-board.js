@@ -15,7 +15,7 @@ export { boardTheme } from './board-theme.js';
 import { boardTheme } from './board-theme.js';
 import { openTaskComposer } from './task-composer.js';
 const button = (id, t, options = {}) => Button(id, t, { variant: 'ghost', ...options });
-const sourceName = task => task.asana ? 'Asana' : task.source === 'local' ? 'Local task' : task.source === 'thread' ? 'Agent thread' : 'Asana';
+const sourceName = task => task.mantisbt ? 'MantisBT' : task.asana ? 'Asana' : task.source === 'local' ? 'Local task' : task.source === 'thread' ? 'Agent thread' : 'Asana';
 
 export default class AgentBoard {
   init(cx) {
@@ -223,6 +223,7 @@ export default class AgentBoard {
         .child(div().text_color(t.muted).child('/')).child(div().truncate().text_color(t.muted).child(project.name))
         .child(div().flex_1())
         .child(button('board-asana', t).h(28).on_click(actions.asana).child('Import from Asana'))
+        .child(button('board-mantisbt', t).h(28).on_click(actions.mantisbt).child('Import from MantisBT'))
         .child(button('board-new-task', t).pl(8).pr(10)
           .on_click(() => this.compose(project)).child(glyph('plus', 14)).child('New task')))
       .child(h_flex().h(44).flex_none().px(8).gap(4).items_center().text_size(12)
@@ -236,7 +237,8 @@ export default class AgentBoard {
         : columns));
   }
   preview(task, project, launchers, actions, t, cx) {
-    const detail = task.source === 'local' || task.source === 'thread' ? { ...task, notes: task.notes || '', comments: task.asana?.comments || [] } : this.detail.detail;
+    const origin = task.mantisbt || task.asana;
+    const detail = task.source === 'local' || task.source === 'thread' ? { ...task, notes: task.notes || '', comments: origin?.comments || [] } : this.detail.detail;
     const output = this.outputs.get(`${project.folder}:${task.gid}`) || {};
     const text = output.text || task.lastOutput;
     const policy = taskActions(task);
@@ -278,9 +280,9 @@ export default class AgentBoard {
         .child(v_flex().gap(4)
           .child(property('Status', statusValue))
           .child(property('Agent', assignment))
-          .child(property('Project', project.name)).child(property('Source', task.asana?.url
-            ? button('board-asana-source', t).on_click((_e, cx) => cx.open_url(task.asana.url))
-              .child(glyph('external-link', 14)).child('Asana') : sourceName(task)))
+          .child(property('Project', project.name)).child(property('Source', origin?.url
+            ? button('board-asana-source', t).on_click((_e, cx) => cx.open_url(origin.url))
+              .child(glyph('external-link', 14)).child(sourceName(task)) : sourceName(task)))
           .child(property('Priority', priorityValue)))
         .when(task.status === 'waiting', el => el.child(div().text_size(12).text_color('#b39af5').child('The agent needs your reply or approval.')))
         .when(Boolean(this.detail.detailError), el => el.child(div().text_size(12).text_color(t.destructive).child(this.detail.detailError)))

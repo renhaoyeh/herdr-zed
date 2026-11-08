@@ -15,6 +15,7 @@ import TaskComposer, { openTaskComposer } from './task-composer.js';
 import { rememberBoardTask, threadBoardStatus, projectBoardTasks, setTaskArchived, threadTaskArchived, threadVisibleInSidebar, threadBoardTask, sessionThreadTitle } from './agent-board-state.js';
 import { boardStatuses, canStartTask, taskActions } from './agent-board-model.js';
 import AsanaPanel, { AsanaProjectPicker, taskPrompt } from './asana.js';
+import MantisPanel, { MantisProjectPicker } from './mantisbt.js';
 import { sessionMenu } from './session-menu.js';
 import { agentProfiles } from './agent-profiles.js';
 import { accountActions } from './account-actions.js';
@@ -40,11 +41,11 @@ const startingThreads = new Set();
 const hidePanels = () => { setShared('devkits.asana', null); };
 // Clear legacy inline-panel state when opening an Asana pop-out.
 const rememberPanel = (id, name) => { if (id) setShared('devkits.project-panels', { ...(shared('devkits.project-panels') || {}), [id]: name || null }); };
-const openAsana = project => {
+const openAsana = (project, source = 'asana') => {
   hidePanels();
   rememberPanel(project.id, null);
   return openOverlay({ mod: 'devkits', kind: 'dialog', modal: true, frame: 'none',
-    width: 0.9, height: 0.86, props: { view: 'asana', project } });
+    width: 0.9, height: 0.86, props: { view: source, project } });
 };
 const restorePanel = () => false;
 // Like Zed's dock buttons: close only the side panel, preserving the central document.
@@ -176,13 +177,13 @@ export default class Devkits extends View {
       if (props().view !== 'rename-account') this.handle.focus();
       if (props().view === 'project-picker') this.projectIndex = -1;
     }
-    if (props()?.view === 'asana-projects') {
-      this.asanaProjects = new AsanaProjectPicker();
+    if (['asana-projects', 'mantisbt-projects'].includes(props()?.view)) {
+      this.asanaProjects = props().view === 'mantisbt-projects' ? new MantisProjectPicker() : new AsanaProjectPicker();
       this.asanaProjects.init(props(), cx);
       return;
     }
-    if (props()?.view === 'asana') {
-      this.asana = new AsanaPanel();
+    if (['asana', 'mantisbt'].includes(props()?.view)) {
+      this.asana = props().view === 'mantisbt' ? new MantisPanel() : new AsanaPanel();
       this.asana.init(cx);
       return;
     }
@@ -519,6 +520,7 @@ export default class Devkits extends View {
     const launchers = this.taskAssignees(project);
     return this.agentBoard.render(project, agents(), launchers, {
       asana: () => openAsana(project),
+      mantisbt: () => openAsana(project, 'mantisbt'),
       archive: (task, eventCx) => {
         const currentProject = this.projects().find(item => item.id === project.id) || project;
         const current = projectBoardTasks(currentProject, agents()).find(item => item.gid === task.gid);
@@ -887,8 +889,8 @@ export default class Devkits extends View {
     if (props()?.view === 'pane') return this.paneHeader(t, cx);
     if (props()?.view === 'status') return this.statusBar(t);
     if (props()?.view === 'launcher') return this.launcher(t);
-    if (props()?.view === 'asana') return this.asanaPanel(cx);
-    if (props()?.view === 'asana-projects') return this.asanaProjects.render();
+    if (['asana', 'mantisbt'].includes(props()?.view)) return this.asanaPanel(cx);
+    if (['asana-projects', 'mantisbt-projects'].includes(props()?.view)) return this.asanaProjects.render();
     if (props()?.view === 'manage-launchers') return this.manageLaunchers(t);
     if (props()?.view === 'agent-profile-editor') return this.agentProfileEditor(t);
     if (props()?.view === 'remove-account') return this.removeAccountPrompt(t);

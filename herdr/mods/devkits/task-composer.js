@@ -18,12 +18,15 @@ export default class TaskComposer {
   init(options, cx) {
     this.options = options; this.project = options.project; this.task = options.task;
     const source = options.importTask;
-    this.draftKey = boardKey(this.project) + (source ? `:asana:${source.gid}` : '');
+    const sourceKey = source?.source === 'mantisbt' ? 'mantisbt' : 'asana';
+    this.draftKey = boardKey(this.project) + (source ? `:${sourceKey}:${sourceKey === 'mantisbt' ? `${source.server}:` : ''}${source.gid}` : '');
     const draft = this.task || shared('devkits.task-drafts')?.[this.draftKey] || (source ? {
       name: source.name, notes: source.notes || '',
-      asana: { gid: source.gid, name: source.name, url: source.url, parent: source.parent, comments: source.comments || [] },
+      [sourceKey]: { gid: source.gid, name: source.name, url: source.url, parent: source.parent, comments: source.comments || [],
+        ...(sourceKey === 'mantisbt' ? { server: source.server } : {}) },
     } : {});
     this.asana = draft.asana || null;
+    this.mantisbt = draft.mantisbt || null;
     this.title = InputState.new({ placeholder: 'Task title', value: draft.name || '' });
     this.title.set_value(draft.name || '');
     this.description = TextareaState.new({ placeholder: 'Add description…' });
@@ -38,7 +41,7 @@ export default class TaskComposer {
     const drafts = shared('devkits.task-drafts') || {};
     setShared('devkits.task-drafts', { ...drafts, [this.draftKey]: {
       name: this.title.value(), notes: this.description.value(), status: this.status, agentKey: this.agent, priority: this.priority,
-      ...(this.asana ? { asana: this.asana } : {}) } });
+      ...(this.asana ? { asana: this.asana } : {}), ...(this.mantisbt ? { mantisbt: this.mantisbt } : {}) } });
   }
   dismiss() { this.saveDraft(); closeOverlay(this.options.overlay); }
   editable() {
@@ -51,7 +54,7 @@ export default class TaskComposer {
     const assignment = agents.find(agent => agent.key === this.agent);
     const fields = { agentKey: assignment?.key || null, agentName: assignment?.name || null, priority: this.priority,
       status: 'todo', manual: this.task ? Boolean(this.task.manual) : false,
-      ...(this.asana ? { asana: this.asana } : {}) };
+      ...(this.asana ? { asana: this.asana } : {}), ...(this.mantisbt ? { mantisbt: this.mantisbt } : {}) };
     let task;
     if (this.task) {
       task = { ...this.task, name: this.title.value().trim(), notes: this.description.value().trim() };
@@ -75,7 +78,7 @@ export default class TaskComposer {
       .child(h_flex().h(52).flex_none().px(24).gap(10).items_center().text_size(12).text_color(t.muted)
         .child(h_flex().h(24).px(8).gap(6).items_center().rounded(999).border(1).border_color(t.controlBorder).bg(t.control)
           .child(glyph('folder', 12)).child(this.project.name))
-        .child(glyph('chevron-right', 12)).child(this.task ? 'Edit task' : this.asana ? 'Import from Asana' : 'New task').child(div().flex_1())
+        .child(glyph('chevron-right', 12)).child(this.task ? 'Edit task' : this.mantisbt ? 'Import from MantisBT' : this.asana ? 'Import from Asana' : 'New task').child(div().flex_1())
         .child(Button('composer-close', t, { variant: 'ghost', size: 'icon' }).accessibility_label('Close task composer')
           .on_click(() => this.dismiss()).child(glyph('close', 14))))
       .child(v_flex().id('composer-content').flex_1().min_h(0).overflow_y_scrollbar().px(24).gap(14)
