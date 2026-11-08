@@ -211,8 +211,8 @@ export default class AsanaPanel extends TaskSourceController {
   connect(t, close) {
     const back = cx => { this.settingsOpen = false; this.tokenInput.set_value(''); this.error = null; cx.notify(); };
     return v_flex().flex_1().max_w(560).p(32).gap(16)
-      .child(h_flex().child(asanaButton('asana-settings-back', t, { variant: 'ghost' }).gap(6).disabled(this.tokenBusy)
-        .on_click((_event, cx) => this.token ? back(cx) : close()).child(glyph('chevron-right', 14)).child(this.token ? 'Back to tasks' : 'Close')))
+      .when(Boolean(this.token), el => el.child(h_flex().child(asanaButton('asana-settings-back', t, { variant: 'ghost' }).gap(6).disabled(this.tokenBusy)
+        .on_click((_event, cx) => back(cx)).child(glyph('chevron-left', 14)).child('Back to tasks'))))
       .child(div().text_size(24).font_semibold().child(`${this.source.name} settings`))
       .when(Boolean(this.source.server), el => el
         .child(div().text_size(14).font_medium().child('Server URL'))
