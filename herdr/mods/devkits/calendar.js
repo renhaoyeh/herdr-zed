@@ -108,7 +108,7 @@ export default class LocalCalendar {
       return;
     }
     this.editing = event?.id || null; this.revision = event?.revision || null; this.composing = true; this.error = null; this.titleError = false;
-    const draft = event ? eventDraft(event) : { title: 'New event', notes: '', startDate: this.selected, endDate: this.selected, startTime: '09:00', endTime: '10:00', allDay: false, ...initial };
+    const draft = event ? eventDraft(event) : { title: '', notes: '', startDate: this.selected, endDate: this.selected, startTime: '09:00', endTime: '10:00', allDay: false, ...initial };
     this.mention = null;
     for (const [key, input] of Object.entries(this.inputs)) input.set_value(key === 'title' ? draft.titleContent || draft.title : draft[key]);
     this.notes.set_value(draft.notesContent || draft.notes || ''); this.allDay = draft.allDay;
@@ -298,6 +298,7 @@ export default class LocalCalendar {
   }
 
   editor(t) {
+    const titleBlank = !this.inputs.title.value().trim();
     const field = (key, label) => v_flex().flex_1().min_w(0).gap(6)
       .child(div().text_size(11).text_color(t.muted).child(label))
       .child(Input.new(this.inputs[key]).id(`calendar-input-${key}`).accessibility_label(label).w_full().h(32).px(8).text_size(12)
@@ -311,7 +312,7 @@ export default class LocalCalendar {
         .child(v_flex().gap(4)
           .child(this.mentionField('title', Input.new(this.inputs.title).id('calendar-input-title').accessibility_label('Event title (required)').w_full().h(36).text_size(20).font_semibold().bg(t.background).border(0)
             .when(Boolean(this.titleError), el => el.border_b(1).border_color(t.destructive)), t))
-          .when(!this.inputs.title.value().trim(), el => el.child(div().id('calendar-title-hint').text_size(12).text_color(this.titleError ? t.destructive : t.muted)
+          .when(titleBlank, el => el.child(div().id('calendar-title-hint').text_size(12).text_color(this.titleError ? t.destructive : t.muted)
             .child('Enter an event title.'))))
         .child(Checkbox('calendar-all-day', Boolean(this.allDay), t).text_size(12).child('All day')
           .on_change((checked, cx) => { this.allDay = checked; this.error = null; cx.notify(); }))
@@ -325,7 +326,8 @@ export default class LocalCalendar {
         .when(Boolean(this.editing), el => el.child(Button('calendar-delete', t, { variant: 'ghost' }).text_color(t.destructive).child('Delete event').on_click((_event, cx) => this.remove(cx))))
         .child(div().flex_1())
         .child(Button('calendar-cancel', t, { variant: 'outline' }).child('Cancel').on_click((_event, cx) => this.cancel(cx)))
-        .child(Button('calendar-save', t).child(this.editing ? 'Save' : 'Create event').on_click((_event, cx) => this.save(cx))));
+        .child(Button('calendar-save', t).disabled(titleBlank).when(titleBlank, el => el.opacity(0.45))
+          .child(this.editing ? 'Save' : 'Create event').on_click((_event, cx) => this.save(cx))));
   }
 
   agenda(t, events) {

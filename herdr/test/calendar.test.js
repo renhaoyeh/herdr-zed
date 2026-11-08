@@ -337,12 +337,12 @@ test('All day uses native change events, hides/restores time inputs and saves th
   assert.equal(new Date(editor.view.records()[saved.id].start).getHours(), 9);
 });
 
-test('blank titles have a visible hint; Create and keyboard submission focus the required title without saving', async () => {
+test('blank titles disable Create with a visible hint; keyboard submission validates and typing enables Create', async () => {
   const h = await ui({}, { calendarCreate: true }); h.view.inputs.title.set_value(''); h.render();
   assert.ok(h.nodes.has('calendar-title-hint')); assert.ok(h.texts.includes('Enter an event title.'));
-  assert.notEqual(h.nodes.get('calendar-save').disabled, true, 'Create must respond with validation instead of silently disabling');
+  assert.equal(h.nodes.get('calendar-save').disabled, true);
   const focused = h.view.inputs.title.focusCount;
-  h.nodes.get('calendar-save').click(null, h.cx);
+  h.view.save(h.cx);
   assert.equal(h.view.titleError, true); assert.equal(h.view.inputs.title.focusCount, focused + 1);
   assert.equal(h.closed(), false); assert.deepEqual(h.view.records(), {});
   h.view.inputs.title.set_value('   '); h.view.inputs.title.events.change(null, h.cx);
@@ -352,11 +352,12 @@ test('blank titles have a visible hint; Create and keyboard submission focus the
   h.view.inputs.title.set_value('Planning'); h.view.inputs.title.events.change(null, h.cx);
   assert.equal(h.view.titleError, false); assert.equal(h.view.error, null);
   h.nodes.clear(); h.render(); assert.equal(h.nodes.has('calendar-title-hint'), false);
+  assert.equal(h.nodes.get('calendar-save').disabled, false);
   h.nodes.get('calendar-save').click(null, h.cx);
   assert.equal(Object.values(h.view.records())[0].title, 'Planning'); assert.equal(h.closed(), true);
 });
 
-test('new events default to New event and can be created immediately from both New event and a dragged range', async () => {
+test('new events and dragged ranges require an entered title while existing names and supplied drafts are preserved', async () => {
   for (const dragged of [false, true]) {
     const h = await ui({ 'devkits.calendar-view': 'day' });
     h.view.choose(localDate('2026-11-08'), h.cx, true); h.render();
@@ -365,16 +366,23 @@ test('new events default to New event and can be created immediately from both N
       column.down.left(pointer(9), h.cx); column.move(pointer(10.5), h.cx); column.up.left(pointer(10.5), h.cx);
     } else h.nodes.get('calendar-new').click(null, h.cx);
     const form = await ui(h.memory, h.overlays[0].props); form.render();
-    assert.equal(form.view.inputs.title.value(), 'New event'); assert.equal(form.nodes.has('calendar-title-hint'), false);
+    assert.equal(form.view.inputs.title.value(), ''); assert.equal(form.nodes.has('calendar-title-hint'), true);
+    assert.equal(form.nodes.get('calendar-save').disabled, true);
+    form.view.save(form.cx); assert.deepEqual(form.view.records(), {}); assert.equal(form.closed(), false);
+    if (dragged) assert.ok(h.view.selectedRange(), 'required-title validation keeps the selected range');
+    form.view.inputs.title.set_value('Planning'); form.view.inputs.title.events.change(null, form.cx); form.render();
+    assert.equal(form.nodes.get('calendar-save').disabled, false);
     form.nodes.get('calendar-save').click(null, form.cx);
     const [saved] = Object.values(h.view.records());
-    assert.equal(saved.title, 'New event'); assert.equal(form.closed(), true);
+    assert.equal(saved.title, 'Planning'); assert.equal(form.closed(), true);
     if (dragged) { assert.equal(new Date(saved.end).getMinutes(), 30); assert.equal(h.view.selectedRange(), null); }
     const editor = await ui(h.memory); editor.view.edit(saved, editor.cx);
     editor.view.inputs.title.set_value('My plan'); editor.view.save(editor.cx);
     assert.equal(editor.view.records()[saved.id].title, 'My plan');
     editor.view.edit(editor.view.records()[saved.id], editor.cx); assert.equal(editor.view.inputs.title.value(), 'My plan');
   }
+  const supplied = await ui({}, { calendarCreate: true, draft: { ...draft, title: 'Supplied title' } }); supplied.render();
+  assert.equal(supplied.view.inputs.title.value(), 'Supplied title'); assert.equal(supplied.nodes.get('calendar-save').disabled, false);
 });
 
 const mentionProject = { id: 'p1', folder: '/work/app', name: 'App', tabs: [] };
@@ -424,7 +432,7 @@ test('native task tokens persist with trimmed UTF-16 ranges and cannot survive r
 test('typing @ searches tasks across projects, inserts an atomic token and persists it through event editing', async () => {
   const task = mentionTask(), other = mentionTask('Fix login', 'local:one', { ...mentionProject, folder: '/work/other', name: 'Other' });
   const options = { tasks: () => [task, other, { ...mentionTask('Archived'), archived: true }] };
-  const h = await ui({}, { calendarCreate: true }, options); h.render();
+  const h = await ui({}, { calendarCreate: true, draft: { title: 'Planning' } }, options); h.render();
   h.view.notes.set_value('Prepare  tomorrow'); h.view.notes.events.change(null, h.cx);
   h.view.notes.set_value('Prepare @ tomorrow'); h.view.notes.events.change(null, h.cx); h.render();
   assert.ok(h.nodes.has('calendar-task-picker')); assert.equal(h.view.mentionItems().length, 2);
@@ -504,7 +512,7 @@ test('the picker is anchored to the native @ glyph in both fields and dismissal 
 
 test('outside dismissal and saving an open picker never retain temporary anchor tokens', async () => {
   for (const action of ['outside', 'save']) {
-    const h = await ui({}, { calendarCreate: true }, { tasks: () => [mentionTask()] });
+    const h = await ui({}, { calendarCreate: true, draft: { title: 'Planning' } }, { tasks: () => [mentionTask()] });
     h.view.notes.set_value('Discuss @'); h.view.notes.events.change(null, h.cx); h.render();
     const focusCount = h.view.notes.focusCount;
     if (action === 'outside') h.nodes.get('calendar-task-picker').outside(null, h.cx);
