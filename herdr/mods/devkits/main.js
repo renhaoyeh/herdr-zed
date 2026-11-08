@@ -694,7 +694,7 @@ export default class Devkits extends View {
     const conversation = layoutNode(layout(), 'workspace-view');
     const showing = name => Boolean(editor) && shared('devkits.right-panel') === name;
     // Like Zed: the branch sits beside the project in the header; only a remote project names its machine here.
-    return this.systemDisplay.contextMenu(h_flex()).id('devkits-status').relative().size_full().pr(4).gap(8).items_center().bg(t.background)
+    return h_flex().id('devkits-status').relative().size_full().pr(4).gap(8).items_center().bg(t.background)
       .text_size(11).text_color(t.muted)
       .when(Boolean(space && conversation), el => el
         .child(ToolbarButton('open-conversation', t, { icon: true, disabled: taskMode(), selected: conversationVisible(space) })
@@ -710,7 +710,7 @@ export default class Devkits extends View {
         .accessibility_label('Herdr settings')
         .on_click(() => run('app.settings')).child(glyph('gear')))
       .child(h_flex().id('status-workspace-actions').flex_none().h_full().gap(0)
-        .child(ToolbarButton('system-monitor-settings', t)
+        .child(this.systemDisplay.contextMenu(ToolbarButton('system-monitor-settings', t))
           .accessibility_label('System monitor settings').on_click(() => this.systemMonitor.open('settings'))
           .child(glyph('chart-column')).child('System'))
         .child(ToolbarButton('open-calendar', t)
