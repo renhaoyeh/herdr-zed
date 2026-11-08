@@ -102,11 +102,11 @@ function hardwareCoreBars(id, data, config, t, height = 24) {
   }));
 }
 
-function hardwareUsageBar(id, percent, module, t) {
+function hardwareUsageBar(id, percent, module, t, chart = null) {
   const value = Number.isFinite(percent) ? Math.max(0, Math.min(100, percent)) : null;
   return h_flex().id(id).w(116).flex_none().gap(6).items_center()
     .accessibility_label(`${hardwareTitle(module)} usage: ${hardwarePercent(value)}`)
-    .child(h_flex().flex_1().h(12).gap(1).children(Array.from({ length: 20 }, (_, index) =>
+    .child(chart || h_flex().id(`${id}-segments`).flex_1().h(12).gap(1).children(Array.from({ length: 20 }, (_, index) =>
       div().id(`${id}-${index}`).flex_1().h_full().relative().bg(t.border)
         .when(value !== null && value > index * 5, el => el.child(div().id(`${id}-${index}-fill`).absolute().left(0).h_full()
           .w(`${Math.min(100, (value - index * 5) * 20)}%`).bg(hardwareColors(t)[module]))))))
@@ -178,8 +178,8 @@ export class SystemMonitor {
         const capacityRow = id === 'ram' || id === 'disk' || id === 'gpu' || id === 'storage';
         const gpu = id === 'gpu' ? primaryHardwareGPU(data) : null;
         const coreMode = id === 'cpu' && cpuMode === 'cores';
-        const usageBar = ['ram', 'gpu', 'storage'].includes(id);
-        const percent = this.hardwareError ? null : id === 'ram' ? data?.memory?.percent : id === 'gpu' ? gpu?.percent : data?.disk?.percent;
+        const usageBar = ['cpu', 'ram', 'gpu', 'storage'].includes(id);
+        const percent = this.hardwareError ? null : id === 'cpu' ? data?.cpu : id === 'ram' ? data?.memory?.percent : id === 'gpu' ? gpu?.percent : data?.disk?.percent;
         const title = ({ ram: data?.memory?.type ? `RAM · ${data.memory.type}` : 'RAM', disk: data?.disk?.model ? `Disk I/O · ${data.disk.model}` : 'Disk I/O', storage: 'Storage', network: 'Network', battery: 'Battery' })[id] || id.toUpperCase();
         const capacity = id === 'ram' ? data?.memory?.total : id === 'disk' || id === 'storage' ? data?.disk?.total : gpu?.memory?.total;
         const model = id === 'cpu' ? data?.cpuName : id === 'ram'
@@ -189,26 +189,27 @@ export class SystemMonitor {
           : capacityRow ? `${hardwareBytes(capacity).replace(/\.0(?= )/, '')}${id === 'gpu' && Number.isFinite(capacity)
             ? gpu.memory.type === 'unified' ? ' unified' : gpu.memory.type === 'shared' ? ' shared' : ' VRAM' : ''}` : hardwareValue(id, data);
         const subtitle = coreMode ? `${selectedHardwareCores(config, data?.cores).length} of ${data?.cores || '—'} cores`
+          : id === 'cpu' ? 'Overall usage'
           : id === 'ram' && data?.memory ? `${hardwareBytes(data.memory.used)} used`
           : id === 'gpu' && gpu ? 'Usage'
           : id === 'storage' && data?.disk ? `${hardwareBytes(data.disk.used)} used`
           : id === 'disk' ? hardwareValue(id, data) : hardwareSubtitle(id, data);
         const card = Button(`${prefix}-${id}`, t, { variant: 'ghost' }).w_full().h_auto().py(style === 'compact' ? 4 : 6).px(12).flex_col().items_stretch().gap(3)
           .accessibility_label(`${title}: ${value}${capacityRow ? ` total. ${subtitle}` : ''}. Open ${hardwareTitle(id)} details`).on_click(() => this.open(id))
-          .child(h_flex().w_full().items_center().gap(8)
+          .child(h_flex().w_full().h(16).flex_none().items_center().gap(8)
             .child(div().min_w(0).truncate().text_size(11).font_medium().text_color(t.foreground).child(title))
             .child(div().flex_1())
-            .child(div().id(`${prefix}-${id}-value`).flex_none().text_size(rates && !capacityRow ? 10 : 12).font_family('Geist Mono').text_color(colors[id]).child(value)))
-          .when(['cpu', 'ram', 'gpu', 'storage'].includes(id), el => el.child(div().id(`${prefix}-${id}-model`).w_full().text_left().truncate().text_size(10).text_color(t.muted)
+            .when(id !== 'cpu' || this.hardwareError || !data || data.cpu === null, el => el.child(div().id(`${prefix}-${id}-value`).flex_none().text_size(rates && !capacityRow ? 10 : 12).font_family('Geist Mono').text_color(colors[id]).child(value))))
+          .when(['cpu', 'ram', 'gpu', 'storage'].includes(id), el => el.child(div().id(`${prefix}-${id}-model`).w_full().h(14).flex_none().text_left().truncate().text_size(10).text_color(t.muted)
             .child(model || (data ? 'Model not reported' : 'Waiting for system data'))))
-          .when(style === 'graph' || capacityRow, el => el.child(h_flex().w_full().gap(10).items_center()
+          .when(style === 'graph' || capacityRow || id === 'cpu', el => el.child(h_flex().id(`${prefix}-${id}-usage`).w_full().h(16).flex_none().gap(10).items_center()
             .child(div().id(`${prefix}-${id}-subtitle`).flex_1().min_w(0).text_left().truncate().text_size(10).text_color(t.muted)
               .child(subtitle))
-            .when(usageBar, el => el.child(hardwareUsageBar(`${prefix}-${id}-bar`, percent, id, t)))
+            .when(usageBar, el => el.child(hardwareUsageBar(`${prefix}-${id}-bar`, percent, id, t, coreMode
+              ? hardwareCoreBars(`${prefix}-core-bars`, data, config, t, 12).flex_1().flex_basis(0).min_w(0) : null)))
             .when(!usageBar && style === 'graph', el => el.child(div().w(84).flex_none().child(coreMode ? hardwareCoreBars(`${prefix}-core-bars`, data, config, t, 16)
-              : hardwareChart(`${prefix}-chart-${id}`, history, id, t, 16))))))
-          .when(style === 'compact' && coreMode, el => el.child(hardwareCoreBars(`${prefix}-core-bars`, data, config, t, 16)));
-        return onWidgetSize ? v_flex().id(`${prefix}-${id}-layout`).w_full().h_auto().flex_none()
+              : hardwareChart(`${prefix}-chart-${id}`, history, id, t, 16))))));
+        return onWidgetSize ? v_flex().id(`${prefix}-${style}-${cpuMode}-${id}-layout`).w_full().h_auto().flex_none()
           .on_size_change((size, cx) => onWidgetSize(id, size, cx)).child(card) : card;
       }));
   }
