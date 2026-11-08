@@ -142,7 +142,12 @@ test('tabs reuse one italic preview, pin on double-click, close to the recent ta
 
   // Tabs survive a mod reload or restart: a new view restores them from shared state.
   view.closeTab('f.ts', cx); view.show('g.ts', cx); await drain();
-  const reloaded = new view.constructor(); reloaded.init(cx); reloaded.refresh(project, cx); await drain();
+  const reloaded = new view.constructor(); reloaded.init(cx);
+  const notify = cx.notify;
+  cx.notify = () => assert.fail('Restoring tabs during render must not request another render synchronously');
+  reloaded.refresh(project, cx);
+  cx.notify = notify;
+  await drain();
   assert.deepEqual(reloaded.tabs.map(doc => doc.path), ['b.ts', 'g.ts']);
   assert.equal(reloaded.file, 'g.ts');
   assert.equal(reloaded.preview, 'g.ts');

@@ -173,7 +173,9 @@ export default class FileViewer {
     if (session?.paths?.length) {
       this.tabs = session.paths.map(openDocument); this.preview = session.preview;
       this.activationHistory = (session.history || []).filter(path => session.paths.includes(path));
-      this.activate(session.file, cx, false);
+      // refresh also runs during render; restore state without the interactive activate notification.
+      this.file = this.tabs.some(doc => doc.path === session.file) ? session.file : this.tabs[0].path;
+      if (this.doc) this.load(this.doc, cx);
     }
   }
 
