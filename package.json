@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "install:herdr": "node herdr/install.js",
+    "reinstall:herdr": "node herdr/install.js --reinstall",
     "sync:shared": "node herdr/sync-shared.js",
     "test": "node --test"
   },
