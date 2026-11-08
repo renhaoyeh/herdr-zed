@@ -16,7 +16,7 @@ async function load(host = {}) {
   const source = await readFile(new URL('../mods/devkits/files.js', import.meta.url), 'utf8');
   const sidePanel = await readFile(new URL('../mods/devkits/components/side-panel.js', import.meta.url), 'utf8');
   const shell = await readFile(new URL('../mods/devkits/shell.js', import.meta.url), 'utf8');
-  const command = await readFile(new URL('../mods/devkits/shell-command.js', import.meta.url), 'utf8');
+  const command = await readFile(new URL('../mods/devkits/components/session-shell.js', import.meta.url), 'utf8');
   return new Function(...Object.keys(host), (command + '\n' + shell + '\n' + sidePanel + '\n' + source).replace(/^import .*;\r?\n/gm, '')
     .replace('export default class', 'class').replace(/^export /gm, '') + '\nreturn { FileViewer, FileMenu, fullPath, revealPath, directory, parseStatus, gitStatus };')(...Object.values(host));
 }

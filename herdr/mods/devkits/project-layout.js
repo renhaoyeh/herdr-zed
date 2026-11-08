@@ -31,6 +31,7 @@ export function maximizeConversation(project, maximized) {
 const TASK_LAYOUT = 'devkits.board-layout';
 export const taskMode = () => shared('devkits.tasks-open') ?? Boolean(shared('devkits.board-project'));
 export function enforceTaskBoard() {
+  if (layoutNode(layout(), 'tasks') && layoutNode(layout(), 'editor')?.active !== 'tasks') run('layout.select', { stack: 'editor', child: 'tasks' });
   for (const id of ['workspace-view', 'simulator', 'editor']) {
     const node = layoutNode(layout(), id), hidden = id !== 'editor';
     if (node && Boolean(node.hidden) !== hidden) run(hidden ? 'layout.hide' : 'layout.show', { id });
@@ -61,6 +62,7 @@ export function openTaskBoard(project) {
 export function closeTaskBoard(keepMode = false) {
   if (keepMode) return; // Project selection must not reveal or resize the workspace.
   const previous = shared(TASK_LAYOUT);
+  if (layoutNode(layout(), 'workspace-editor') && layoutNode(layout(), 'editor')?.active !== 'workspace-editor') run('layout.select', { stack: 'editor', child: 'workspace-editor' });
   setShared('devkits.tasks-open', Boolean(keepMode));
   setShared('devkits.board-project', null);
   if (!previous) return;

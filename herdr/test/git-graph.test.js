@@ -9,7 +9,7 @@ import { promisify } from 'node:util';
 const graphRun = promisify(execFile);
 const sha = letter => letter.repeat(40);
 async function data(host = {}) {
-  const sources = await Promise.all(['shell-command.js', 'shell.js', 'git-graph-data.js'].map(name => readFile(new URL(`../mods/devkits/${name}`, import.meta.url), 'utf8')));
+  const sources = await Promise.all(['components/session-shell.js', 'shell.js', 'git-graph-data.js'].map(name => readFile(new URL(`../mods/devkits/${name}`, import.meta.url), 'utf8')));
   return new Function(...Object.keys(host), sources.join('\n').replace(/^import .*;\r?\n/gm, '').replace(/^export /gm, '')
     + '\nreturn { readGraphSnapshot, readGraphPage, parseGraphCommits, graphRows, searchGraph, graphDate };')(...Object.values(host));
 }

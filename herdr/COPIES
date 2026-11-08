@@ -1,15 +1,22 @@
 # Shared components: mods/devkits/components/<file> is the source, copied by sync-shared.js into
 # mods/<mod>/components/<file> for each mod listed. A mod can only import files in its own folder,
 # so each needs its own copy.
-button.js: devkits-simulator devkits-system devkits-asana devkits-mantisbt
-dropdown-menu.js: devkits-simulator devkits-asana devkits-mantisbt
-checkbox.js: devkits-system
+button.js: devkits-simulator devkits-system devkits-asana devkits-mantisbt devkits-tasks devkits-calendar
+dropdown-menu.js: devkits-simulator devkits-asana devkits-mantisbt devkits-tasks
+checkbox.js: devkits-system devkits-tasks devkits-calendar
 toggle-group.js: devkits-system
 dialog.js: devkits-system devkits-asana
-icon.js: devkits-system
+icon.js: devkits-system devkits-tasks devkits-calendar
 system-monitor.js: devkits-system
 system-monitor-model.js: devkits-system
 system-monitor-topology.js: devkits-system
 task-source.js: devkits-asana devkits-mantisbt
 task-source-model.js: devkits-asana devkits-mantisbt
-source-channel.js: devkits-asana devkits-mantisbt
+source-channel.js: devkits-asana devkits-mantisbt devkits-tasks
+select.js: devkits-tasks
+side-panel.js: devkits-tasks
+task-theme.js: devkits-tasks devkits-calendar
+tasks-model.js: devkits-tasks devkits-calendar
+tasks.js: devkits-tasks devkits-calendar
+session-model.js: devkits-tasks devkits-calendar
+session-shell.js: devkits-tasks devkits-calendar

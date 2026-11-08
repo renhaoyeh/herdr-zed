@@ -4,7 +4,7 @@ export async function evaluateNative(path, host, names) {
   const source = await readFile(new URL(path, import.meta.url), 'utf8');
   const declared = new Set([...source.matchAll(/^(?:export (?:default )?)?(?:(?:async )?function|class|const|let)\s+(\w+)/gm)].map(match => match[1]));
   const bindings = Object.entries(host).filter(([name]) => !declared.has(name));
-  return new Function(...bindings.map(([name]) => name), source.replace(/^import .*;\r?\n/gm, '')
+  return new Function(...bindings.map(([name]) => name), source.replace(/^import .*;\r?\n/gm, '').replace(/^export \{.*\}(?: from .*)?;\r?\n/gm, '')
     .replace('export default class', 'class').replace(/^export /gm, '') + `\nreturn { ${names} };`)(...bindings.map(([, value]) => value));
 }
 

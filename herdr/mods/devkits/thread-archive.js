@@ -2,8 +2,7 @@ import { div, svg, image } from 'gpui-kit';
 import { h_flex } from 'gpui-base';
 import { shared, setShared, run, notify, hc, exec, readTextFile, home, terminals } from 'herdr';
 import { archivable, agentCommand, commandKind, resumeArgv, codexSessionId, archivedAge, folderKey } from './model.js';
-import { taskActions } from './agent-board-model.js';
-import { threadBoardTask, setTaskArchived, boardRecords } from './agent-board-state.js';
+import { taskActions, threadBoardTask, taskLinkForTab, setTaskArchived, boardRecords } from './components/tasks.js';
 import { Button } from './components/button.js';
 import { SidebarContent, SidebarGroup, SidebarMenuButton } from './components/sidebar.js';
 import { glyph } from './components/icon.js';
@@ -107,7 +106,7 @@ export const threadArchive = {
         }
         if (id) {
           const project = this.projects().find(project => project.id === thread.space);
-          const task = shared('devkits.thread-tasks')?.[tab] || null;
+          const task = taskLinkForTab(tab, project);
           const boardTask = project ? threadBoardTask(project, thread) : null;
           const entry = { id: `${kind}:${id}`, title: thread.title, folder: project?.folder || terminal.cwd,
             projectName: project?.name || terminal.cwd, profile: shared('devkits.thread-profiles')?.[tab] || null,

@@ -17,7 +17,7 @@ async function load(host = {}) {
   const history = await readFile(new URL('../mods/devkits/git-history.js', import.meta.url), 'utf8');
   const auth = await readFile(new URL('../mods/devkits/git-auth.js', import.meta.url), 'utf8');
   const shell = await readFile(new URL('../mods/devkits/shell.js', import.meta.url), 'utf8');
-  const command = await readFile(new URL('../mods/devkits/shell-command.js', import.meta.url), 'utf8');
+  const command = await readFile(new URL('../mods/devkits/components/session-shell.js', import.meta.url), 'utf8');
   const utf8 = await readFile(new URL('../mods/devkits/utf8.js', import.meta.url), 'utf8');
   const toast = await readFile(new URL('../mods/devkits/git-result-toast.js', import.meta.url), 'utf8');
   return new Function(...Object.keys(host), (utf8 + '\n' + command + '\n' + shell + '\n' + menu + '\n' + history + '\n' + auth + '\n' + sidePanel + '\n' + toast + '\n' + source).replace(/^import .*;\r?\n/gm, '')
