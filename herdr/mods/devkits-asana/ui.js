@@ -101,7 +101,7 @@ export default class AsanaPanel extends TaskSourceController {
           .child(div().max_w(400).truncate().child(bound?.name || `Choose ${this.source.name} project`))
           .child(glyph('chevron-down', 14).text_color(t.muted)))
         .child(div().flex_1())
-        .when(this.needsToken !== null && !this.settingsOpen, el => el.child(asanaButton('asana-settings', t, { variant: 'ghost', size: 'icon' })
+        .when(this.needsToken === false && !this.settingsOpen, el => el.child(asanaButton('asana-settings', t, { variant: 'ghost', size: 'icon' })
           .disabled(this.tokenBusy).accessibility_label(`${this.source.name} settings`)
           .on_click((_event, cx) => this.openSettings(cx))
           .child(glyph('gear', 14))))
