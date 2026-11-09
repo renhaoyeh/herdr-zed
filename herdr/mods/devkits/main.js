@@ -663,12 +663,19 @@ export default class Devkits extends View {
       .child(this.systemDisplay.renderStatus(t))
       .child(h_flex().id('status-actions').min_w(0).h_full().overflow_x_scroll().items_center().gap(8)
       .child(h_flex().id('status-workspace-actions').flex_none().h_full().gap(0)
+        .when(Boolean(space), el => el
+          .child(ToolbarButton('open-asana', t).accessibility_label('Asana')
+            .on_click(() => requestTaskSource(space, 'asana'))
+            .child(glyph('asana').text_color('#F06A6A')).child('Asana'))
+          .child(ToolbarButton('open-mantisbt', t).accessibility_label('MantisBT')
+            .on_click(() => requestTaskSource(space, 'mantisbt'))
+            .child(image('mods/devkits/assets/mantisbt.png').size(14).flex_none()).child('MantisBT')))
         .child(ToolbarButton('open-calendar', t)
           .accessibility_label('Calendar').on_click(openCalendar).child(glyph('calendar')).child('Calendar'))
         .when(Boolean(space), el => el.child(ToolbarButton('open-tasks', t, { selected: taskMode() })
-          .accessibility_label('Tasks')
-          .on_click(() => { if (taskMode()) this.closeBoard(); else this.openBoard(space); })
-          .child(glyph('columns-3')).child('Tasks'))))
+            .accessibility_label('Tasks')
+            .on_click(() => { if (taskMode()) this.closeBoard(); else this.openBoard(space); })
+            .child(glyph('columns-3')).child('Tasks'))))
       .when(Boolean(space || simulator), el => el
         .child(div().w(1).h(16).flex_none().bg(t.border))
         .child(h_flex().id('status-panel-actions').flex_none().h_full().gap(0)
@@ -870,7 +877,7 @@ export default class Devkits extends View {
     const selection = `${active?.id || ''}:${active?.tabs.find(tab => tab.active)?.id || ''}`;
     if (shared('devkits.native-selection') !== selection) {
       const previous = shared('devkits.native-selection');
-      if (previous !== undefined) {
+      if (typeof previous === 'string') {
         hidePanels();
         // Switching projects brings back that project's panel; another tab in the same project is a thread choice.
         if (previous.split(':')[0] === (active?.id || '')) rememberPanel(active?.id, null);

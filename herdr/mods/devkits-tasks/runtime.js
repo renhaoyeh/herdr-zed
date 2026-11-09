@@ -166,8 +166,6 @@ export class TaskRuntime {
   boardPanel(project, cx) {
     const launchers = this.taskAssignees(project);
     return this.agentBoard.render(project, agents(), launchers, {
-      asana: () => this.taskSources.open(project),
-      mantisbt: () => this.taskSources.open(project, 'mantisbt'),
       archive: (task, eventCx) => {
         const currentProject = this.projects().find(item => item.id === project.id) || project;
         const current = projectBoardTasks(currentProject, agents()).find(item => item.gid === task.gid);

@@ -243,8 +243,6 @@ export default class AgentBoard {
         .child(glyph('columns-3', 15)).child(div().font_semibold().child('Tasks'))
         .child(div().text_color(t.muted).child('/')).child(div().truncate().text_color(t.muted).child(project.name))
         .child(div().flex_1())
-        .child(button('board-asana', t).h(28).on_click(actions.asana).child('Import from Asana'))
-        .child(button('board-mantisbt', t).h(28).on_click(actions.mantisbt).child('Import from MantisBT'))
         .child(button('board-new-task', t).pl(8).pr(10)
           .on_click(() => this.compose(project)).child(glyph('plus', 14)).child('New task')))
       .child(h_flex().h(44).flex_none().px(8).gap(4).items_center().text_size(12)
