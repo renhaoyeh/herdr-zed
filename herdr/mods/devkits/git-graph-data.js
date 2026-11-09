@@ -2,6 +2,19 @@ import { exec } from 'herdr';
 import { execShell } from './shell.js';
 
 const GRAPH_PAGE = 100;
+// Windows caps a command line at 32,767 characters; leave room for the other arguments.
+const TIP_ARGUMENT_LIMIT = 20000;
+
+/** Run git log over the snapshot tips, piping them through --stdin when they would overflow the command line. */
+function graphLog(folder, on, snapshot, args) {
+  if (snapshot.tips.join(' ').length <= TIP_ARGUMENT_LIMIT) {
+    return exec('git', ['-C', folder, '-c', 'log.showSignature=false', '--no-pager', 'log', ...args, ...snapshot.tips, '--'], { on });
+  }
+  // Too many refs to pass as arguments: read the same ref set inside the shell instead.
+  return execShell(['-c', 'cd "$1" || exit 2; shift; '
+    + '{ git rev-parse --verify -q HEAD; git for-each-ref --format="%(objectname)" refs/heads refs/remotes refs/tags; } '
+    + '| git -c log.showSignature=false --no-pager log --stdin "$@" --', 'devkits-graph', folder, ...args], { on });
+}
 const graphSha = value => /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(value || '');
 
 export function graphDate(at, relative = true, now = Date.now()) {
@@ -62,9 +75,8 @@ export async function readGraphPage(folder, on, snapshot = null, skip = 0) {
   snapshot ||= await readGraphSnapshot(folder, on);
   if (!snapshot.tips.every(graphSha)) throw new Error('Invalid graph revision.');
   if (!snapshot.tips.length) return { snapshot, entries: [], hasMore: false };
-  const result = await exec('git', ['-C', folder, '-c', 'log.showSignature=false', '--no-pager', 'log',
-    '--no-color', '--topo-order', '-z', '--format=%H%x00%h%x00%an%x00%ae%x00%at%x00%P%x00%B',
-    `--max-count=${GRAPH_PAGE + 1}`, `--skip=${skip}`, ...snapshot.tips, '--'], { on });
+  const result = await graphLog(folder, on, snapshot, ['--no-color', '--topo-order', '-z',
+    '--format=%H%x00%h%x00%an%x00%ae%x00%at%x00%P%x00%B', `--max-count=${GRAPH_PAGE + 1}`, `--skip=${skip}`]);
   if (result.code !== 0) throw new Error(result.stderr.trim() || 'Cannot read Git graph.');
   const entries = parseGraphCommits(result.stdout);
   return { snapshot, entries: entries.slice(0, GRAPH_PAGE), hasMore: entries.length > GRAPH_PAGE };
@@ -74,10 +86,8 @@ export async function readGraphPage(folder, on, snapshot = null, skip = 0) {
 export async function searchGraph(folder, on, snapshot, query, matchCase) {
   if (!query || !snapshot?.tips.length) return [];
   if (!snapshot.tips.every(graphSha)) throw new Error('Invalid graph revision.');
-  const base = ['-C', folder, '-c', 'log.showSignature=false', '--no-pager', 'log', '--no-color', '--format=%H',
-    '--fixed-strings', ...(!matchCase ? ['--regexp-ignore-case'] : [])];
-  const results = await Promise.all(['--grep=', '--author='].map(flag => exec('git',
-    [...base, flag + query, ...snapshot.tips, '--'], { on })));
+  const base = ['--no-color', '--format=%H', '--fixed-strings', ...(!matchCase ? ['--regexp-ignore-case'] : [])];
+  const results = await Promise.all(['--grep=', '--author='].map(flag => graphLog(folder, on, snapshot, [...base, flag + query])));
   const matches = new Set();
   for (const result of results) {
     if (result.code !== 0) throw new Error(result.stderr.trim() || 'Cannot search commits.');
