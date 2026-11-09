@@ -186,7 +186,7 @@ export default class XcodeStorage {
         .when(this.confirming, el => el
           .child(Button('xcode-storage-cancel', t, { variant: 'secondary' }).disabled(Boolean(this.busy)).child('Cancel')
             .on_click((_event, cx) => { this.confirming = false; cx.notify(); }))
-          .child(Button('xcode-storage-delete', t).disabled(Boolean(this.busy)).child(this.busy ? 'Deleting…' : 'Delete')
+          .child(Button('xcode-storage-delete', t, { variant: 'destructive' }).disabled(Boolean(this.busy)).child(this.busy ? 'Deleting…' : 'Delete')
             .on_click((_event, cx) => this.remove(cx))))
         .when(!this.confirming, el => el
           .child(Button('xcode-storage-review', t, { variant: 'secondary' }).disabled(!chosen.length || this.loading).child('Delete…')

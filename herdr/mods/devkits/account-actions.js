@@ -120,7 +120,7 @@ export const accountActions = {
       .when(Boolean(this.removeError), el => el.child(div().id('remove-account-error').text_size(12).text_color(t.destructive || t.foreground).child(this.removeError)))
       .child(AlertDialogFooter().children([
         AlertDialogCancel('cancel-remove-account', t).disabled(Boolean(this.removing)).on_click(back).child('Cancel'),
-        AlertDialogAction('confirm-remove-account', t).disabled(Boolean(this.removing))
+        Button('confirm-remove-account', t, { variant: 'destructive' }).disabled(Boolean(this.removing))
           .on_click((_event, cx) => confirm(cx)).child(this.removing ? 'Removing…' : 'Remove'),
       ]));
   },

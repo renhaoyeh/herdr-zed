@@ -5,7 +5,7 @@ import { SourceTaskReader } from './task-sources.js';
 import { TaskSession } from './task-session.js';
 import { boardStatuses, boardKey, liveVersion, boardPriorityOptions, boardPriorities, canStartTask, taskActions, taskManualStatusOptions, taskChildren, canAddSubtask } from './agent-board-model.js';
 import { launcherLabel, launcherOption } from './components/session-model.js';
-import { rememberBoardTask, projectBoardTasks, boardRecords, deleteLocalTask, setTaskDueDate } from './agent-board-state.js';
+import { rememberBoardTask, projectBoardTasks, boardRecords, setTaskDueDate } from './agent-board-state.js';
 import { taskTokenId } from './components/tasks-model.js';
 import { readTaskOutput, taskIdentifier, outputMarkdown } from './agent-board-details.js';
 import { glyph, AgentIcon } from './components/icon.js';
@@ -17,6 +17,7 @@ import { DropdownMenu, DropdownMenuState } from './components/dropdown-menu.js';
 export { boardTheme } from './components/task-theme.js';
 import { boardTheme } from './components/task-theme.js';
 import { openTaskComposer } from './task-composer.js';
+import { openDeleteTask } from './delete-task.js';
 const button = (id, t, options = {}) => Button(id, t, { variant: 'ghost', ...options });
 const sourceName = task => task.mantisbt ? 'MantisBT' : task.asana ? 'Asana' : task.source === 'local' ? 'Local task' : task.source === 'thread' ? 'Agent thread' : 'Asana';
 
@@ -96,7 +97,6 @@ export default class AgentBoard {
     const key = task && `${boardKey(project)}:${task.gid}`;
     if ((this.scheduleEditor?.key || null) === key) return;
     this.scheduleEditor = null; this.dueError = null;
-    if (this.deleteCandidate !== task?.gid) this.deleteCandidate = null;
     this.dueDate.set_value(task?.dueDate || '');
     if (task) this.scheduleEditor = { key, project, gid: task.gid };
   }
@@ -123,11 +123,9 @@ export default class AgentBoard {
       ...(task.execution ? { execution: null, runs: [...(task.runs || []), task.execution].slice(-30) } : {}) });
     return true;
   }
-  deleteTask(project, gid, cx) {
-    if (this.deleteCandidate !== gid) { this.deleteCandidate = gid; cx.notify(); return; }
-    const current = currentSpaces().find(item => item.id === project.id) || (project.pending ? project : null);
-    if (!current || !deleteLocalTask(current, gid, currentAgents())) return;
-    this.selected = null; this.currentTask = null; cx.notify();
+  deleteTask(project, gid) {
+    const task = this.latestTask(project, gid);
+    if (taskActions(task).canDelete) openDeleteTask(project, task);
   }
   cancelDrag(cx) {
     if (!this.drag) return;
@@ -214,12 +212,12 @@ export default class AgentBoard {
         .on_mouse_down('left', (_e, cx) => cx.stop_propagation())
         .on_click((_e, cx) => { cx.stop_propagation(); this.cardMenuTask = task.gid; this.cardMenu.open = true; this.cardMenu.focus?.focus(); cx.notify(); });
       const menu = this.cardMenuTask === task.gid ? DropdownMenu(`board-card-menu-${task.gid}`, this.cardMenu, trigger, [
-          ...(policy.canArchive || policy.canRestore ? [{ key: 'archive', label: task.archived ? 'Restore task' : 'Archive task' }] : []),
-          ...(policy.canSchedule ? [{ key: 'schedule', label: 'Schedule time' }] : []),
-          ...(policy.canDelete ? [{ key: 'delete', label: 'Delete task' }] : []),
+          ...(policy.canSchedule ? [{ key: 'schedule', label: 'Schedule time…', icon: 'calendar' }] : []),
+          ...(policy.canArchive || policy.canRestore ? [{ key: 'archive', label: task.archived ? 'Restore' : 'Archive', icon: task.archived ? 'rotate-ccw' : 'archive' }] : []),
+          ...(policy.canDelete ? [{ key: 'delete', label: 'Delete…', icon: 'trash', destructive: true, separator: true }] : []),
         ], (action, cx) => {
           this.show(task, project, cx);
-          if (action === 'delete') this.deleteTask(project, task.gid, cx);
+          if (action === 'delete') this.deleteTask(project, task.gid);
           else if (action === 'schedule') this.scheduleTask(project, task.gid);
           else task.archived ? actions.restore(task) : actions.archive(task, cx);
         }, t) : trigger;
@@ -440,9 +438,6 @@ export default class AgentBoard {
           .child(TextView.markdown(`board-comment-${comment.gid}`, comment.text).selectable(true).scrollable(false).w_full().text_size(13)))))
       .when(Boolean(launchRow) || policy.canArchive || policy.canRestore || policy.canDelete, el => el.child(v_flex().flex_none().px(24).py(14).gap(12).border_t(1).border_color(t.border)
         .when(Boolean(launchRow), el => el.child(launchRow))
-        .when(this.deleteCandidate === task.gid, el => el.child(v_flex().gap(8)
-          .child(div().text_size(12).text_color(t.muted).child('Delete this task? Conversations, files and subtasks are kept. Calendar events remain with an unavailable task link.'))
-          .child(button('board-cancel-delete', t).h(28).self_start().on_click((_event, cx) => { this.deleteCandidate = null; cx.notify(); }).child('Cancel'))))
         .child(h_flex().gap(12).items_center()
           .when(policy.canArchive || policy.canRestore, el => el.child(button('board-archive-task', t).h(28).justify_start()
             .on_click((_e, cx) => task.archived ? actions.restore(task) : actions.archive(task, cx))
@@ -450,7 +445,7 @@ export default class AgentBoard {
           .child(div().flex_1())
           .when(policy.canDelete, el => el.child(button('board-delete-task', t).h(28).gap(6).text_color(t.destructive)
             .hover(el => el.bg(t.hover).text_color(t.destructive))
-            .on_click((_e, cx) => this.deleteTask(project, task.gid, cx))
-            .child(glyph('trash', 13)).child(this.deleteCandidate === task.gid ? 'Confirm delete' : 'Delete task'))))));
+            .on_click(() => this.deleteTask(project, task.gid))
+            .child(glyph('trash', 13)).child('Delete…'))))));
   }
 }

@@ -69,7 +69,10 @@ export function DropdownMenu(id, state, trigger, items, onSelect, t, { side = 'b
     cx.notify();
   };
   const enabled = items.map((item, index) => item.disabled ? -1 : index).filter(index => index >= 0);
+  // Linear menus: rounded, shadowed, inset rounded rows with leading icons.
+  const linear = t.appearance === 'linear';
   const content = DropdownMenuContent(`${id}-content`, undefined, t).w(224)
+    .when(linear, el => el.rounded(12).py(6).px(0).font_family(t.fontFamily).font_normal().shadow_md())
     .role('menu')
     .track_focus(state.focus).accessibility_label('Actions')
     .on_mouse_down_out((_event, cx) => { cx.stop_propagation(); close(cx); })
@@ -86,11 +89,16 @@ export function DropdownMenu(id, state, trigger, items, onSelect, t, { side = 'b
       cx.stop_propagation(); cx.notify();
     })
     .children(items.flatMap((item, index) => [
-      ...(item.separator ? [DropdownMenuSeparator(t)] : []),
+      ...(item.separator ? [DropdownMenuSeparator(t).when(linear, el => el.my(6))] : []),
       DropdownMenuItem(`${id}-${item.key}`, t).role('menu_item').accessibility_label(item.label)
         .min_w(0).when(Boolean(item.description), el => el.h(44))
+        .when(linear, el => el.mx(4).px(10).rounded(8).cursor_default().text_color(t.secondary))
+        .when(Boolean(item.destructive), el => el.text_color(t.destructive || t.ansi1))
         .when(item.disabled, el => el.opacity(0.4).cursor_default())
-        .when(!item.disabled && state.index === index, el => el.bg(t.selected).aria_active_descendant())
+        .when(!item.disabled && state.index === index, el => el.bg(linear ? t.menuHover : t.selected).aria_active_descendant()
+          .when(linear && !item.destructive, el => el.text_color(t.foreground)))
+        .when(Boolean(item.icon), el => el.child(svg(`mods/devkits/assets/icons/${item.icon}.svg`).size(14).flex_none()
+          .text_color(item.destructive ? t.destructive || t.ansi1 : t.muted)))
         .on_hover((inside, cx) => { if (inside && !item.disabled) { state.index = index; cx.notify(); } })
         .on_click((_event, cx) => choose(item, cx))
         .when(Boolean(item.color), el => el.child(div().size(14).flex_none().bg(item.color)))

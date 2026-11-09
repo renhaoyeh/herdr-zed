@@ -4,12 +4,13 @@ import { TaskRuntime } from './runtime.js';
 import { TasksMcpBridge } from './mcp-bridge.js';
 import AgentBoard from './agent-board.js';
 import TaskComposer from './task-composer.js';
+import DeleteTask from './delete-task.js';
 import { boardTheme } from './components/task-theme.js';
 export default class TasksMod extends View {
   init(_props, cx) {
     this.runtime = new TaskRuntime(); this.target = props() || {};
     if (this.target.view === 'service') { this.runtime.init(cx); new TasksMcpBridge().init(this.runtime, cx); return; }
-    if (this.target.overlay && this.target.view !== 'task-composer') {
+    if (this.target.overlay && !['task-composer', 'delete-task'].includes(this.target.view)) {
       const navigate = this.runtime.navigate.bind(this.runtime);
       this.runtime.navigate = event => {
         if (['close', 'thread', 'launch'].includes(event.type)) closeOverlay(this.target.overlay);
@@ -25,12 +26,15 @@ export default class TasksMod extends View {
     });
     if (this.target.view === 'task-composer') {
       this.composer = new TaskComposer(); this.composer.init(this.target, cx);
+    } else if (this.target.view === 'delete-task') {
+      this.deleter = new DeleteTask(); this.deleter.init(this.target, cx);
     } else { this.runtime.agentBoard = new AgentBoard(); this.runtime.agentBoard.init(cx); }
   }
   close() { this.composer?.saveDraft(); }
   render(cx) {
     if (this.target.view === 'service') return div().size_full().bg(theme().border);
     const t = boardTheme();
+    if (this.deleter) return this.deleter.render();
     if (this.composer) return this.composer.render(this.runtime.taskAssignees(this.target.project));
     const projects = this.runtime.projects();
     const project = this.target.project || projects.find(project => project.id === shared('devkits.board-project')) || projects.find(project => project.active);

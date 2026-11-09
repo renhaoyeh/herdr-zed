@@ -443,7 +443,7 @@ export const sessionMenu = {
                     .child(Button(`account-actions-${choice.agent.key}-rename`, t, { variant: 'secondary' }).h(28)
                       .on_click(() => this.renameAccount(choice.agent)).child('Rename'))
                     .child(Button(`account-actions-${choice.agent.key}-remove`, t, { variant: 'secondary' }).h(28)
-                      .on_click(() => this.confirmRemoveAccount(choice.agent)).child('Remove')))))))))
+                      .text_color(t.destructive || t.ansi1).on_click(() => this.confirmRemoveAccount(choice.agent)).child('Remove')))))))))
         .when(local && !this.loading && !this.launchError && !choices.some(choice => choice.group === 2), el => el
           .child(DropdownMenuLabel(t).id('manage-section-2').px(0).mt(16).child('YOUR ACCOUNTS'))
           .child(div().text_size(12).text_color(t.muted).child('No accounts added. Use Add account on an agent row.')))
