@@ -17,6 +17,6 @@ export function taskPrompt(task, reporting = null) {
     notes && `Description:\n${task.source === 'local' ? notes : clip(notes)}`,
     comments.length && `Latest comments${stories.length > comments.length ? ` (${comments.length} of ${stories.length})` : ''}:\n${comments.join('\n')}`,
     task.note?.trim() && `My instructions:\n${task.note.trim()}`,
-    reporting && `Herdr task progress reporting:\nRead the local reporting manual first: node ${JSON.stringify(reporting.cli)} --skill\nFor this task use:\nnode ${JSON.stringify(reporting.cli)} report --run ${JSON.stringify(reporting.run)} --status doing --message "Starting work"\nUse this run ID unchanged for this attempt. Follow the reporting policy in the global Agent Guide.`]
+    reporting && `Herdr task attempt: ${reporting.run}\nUse the herdr_tasks MCP report_task tool with run=${JSON.stringify(reporting.run)} for this attempt. Discover the tool's instructions through MCP and follow the reporting policy in the global Agent Guide.`]
     .filter(Boolean).join('\n\n');
 }

@@ -201,7 +201,7 @@ export class TaskRuntime {
       if (!project || !canStartTask(projectBoardTasks(project, agents()).find(item => item.gid === task.gid))) return;
     }
     const reporting = task && !target.machine && !spaces().find(space => space.id === target.space)?.machine
-      ? { cli: `${appHome()}/mods/devkits-tasks/tasks-cli.cjs`, project: boardKey({ folder: target.folder }), run: `run:${Date.now()}:${Math.random().toString(36).slice(2)}` } : null;
+      ? { run: `run:${Date.now()}:${Math.random().toString(36).slice(2)}` } : null;
     if (task) argv = [...argv, taskPrompt(task, reporting)];
     // Closing the launcher destroys its async context; finish reading rules first.
     if (target.overlay) this.navigate({ type: 'close-overlay', overlay: target.overlay });

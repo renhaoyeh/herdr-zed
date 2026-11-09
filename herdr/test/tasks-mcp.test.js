@@ -61,10 +61,47 @@ test('stdio handshake, discovery, Unicode calls and errors remain valid JSON-RPC
   assert.equal(messages.length, 8);
   assert.equal(messages[0].error.code, -32700); assert.equal(messages[1].error.code, -32000);
   assert.equal(messages[2].result.serverInfo.name, 'herdr-tasks');
-  assert.equal(messages[3].result.tools.length, 3);
+  assert.equal(messages[3].result.tools.length, 4);
   assert.equal(messages[4].result.structuredContent.task.name, '繁體中文\nDescription');
   assert.equal(messages[5].result.isError, true); assert.equal(messages[6].error.code, -32602);
   assert.deepEqual(messages[7].result, {}); assert.equal(calls.length, 2);
+});
+
+test('MCP discovers reporting and binds ordinary reports to the server terminal without exposing a script path', async () => {
+  const input = new PassThrough(), output = new PassThrough(), calls = [];
+  let raw = '';
+  output.on('data', chunk => { raw += chunk; });
+  const runtime = { snapshot: () => ({ projects: {} }), reportTask(_project, args) {
+    calls.push(args); return { gid: 'own-task', status: args.status, execution: { id: args.run || 'bound-run', summary: args.message } };
+  } };
+  const server = start(input, output, (name, args) => tasksMcpCall(runtime, name, args));
+  const send = (id, method, params) => input.write(JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n');
+  const report = (id, args) => send(id, 'tools/call', { name: 'report_task', arguments: args });
+  const previous = process.env.HC_TERMINAL_ID;
+  try {
+    process.env.HC_TERMINAL_ID = 't-own';
+    send(1, 'initialize', {}); send(2, 'tools/list');
+    report(3, { status: 'doing', message: '開始工作' });
+    report(4, { status: 'doing', message: 'Spoof', terminal: 't-other' });
+    await server.drained();
+    delete process.env.HC_TERMINAL_ID;
+    report(5, { status: 'done', message: 'Missing identity' });
+    report(6, { run: 'explicit-run', status: 'done', message: 'Validated' });
+    await server.drained();
+    const messages = raw.trim().split('\n').map(line => JSON.parse(line));
+    const tool = messages[1].result.tools.find(tool => tool.name === 'report_task');
+    assert.deepEqual(tool.inputSchema.required, ['status', 'message']);
+    assert.deepEqual(tool.inputSchema.properties.status.enum, ['doing', 'waiting', 'done', 'fail']);
+    assert.equal(tool.inputSchema.additionalProperties, false);
+    assert.ok(!JSON.stringify(tool).includes('tasks-cli.cjs'));
+    assert.deepEqual(calls, [{ status: 'doing', message: '開始工作', terminal: 't-own' }, { run: 'explicit-run', status: 'done', message: 'Validated' }]);
+    assert.equal(messages[2].result.structuredContent.task.run, 'bound-run');
+    assert.equal(messages[3].result.isError, true); assert.equal(messages[4].result.isError, true);
+  } finally {
+    server.lines.close();
+    if (previous === undefined) delete process.env.HC_TERMINAL_ID;
+    else process.env.HC_TERMINAL_ID = previous;
+  }
 });
 
 test('bridge rejects expired and unsafe commands and deduplicates deliveries', async () => {

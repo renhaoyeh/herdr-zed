@@ -13,6 +13,7 @@ const project = { type: 'string', description: 'Exact project key returned by li
 const tools = [
   { name: 'list_projects', description: 'List projects available in the running Herdr Tasks service.', inputSchema: { type: 'object', properties: {}, additionalProperties: false }, annotations: { readOnlyHint: true } },
   { name: 'list_tasks', description: 'List project tasks, including gid, status, parentId and archived state.', inputSchema: { type: 'object', properties: { project }, required: ['project'], additionalProperties: false }, annotations: { readOnlyHint: true } },
+  { name: 'report_task', description: 'Report your Herdr task progress. Use doing to begin work or resume, waiting when a user answer is needed, done only when the whole task is complete, or fail when the attempt cannot finish. Include a concise progress/result message. Pass the exact run ID from the task prompt when supplied; otherwise omit run to bind to your own live HC terminal. Ending a reply is not task completion. Returns the current run ID.', inputSchema: { type: 'object', properties: { run: { type: 'string', minLength: 1, description: 'Exact task attempt ID from the task prompt. Omit for an ordinary conversation.' }, status: { type: 'string', enum: ['doing', 'waiting', 'done', 'fail'] }, message: { type: 'string', minLength: 1, maxLength: 4000 } }, required: ['status', 'message'], additionalProperties: false }, annotations: { readOnlyHint: false, destructiveHint: false } },
   { name: 'create_task', description: 'Create a local Todo in Herdr Tasks without starting an agent. Use list_tasks to avoid duplicates, especially after a timeout. Optionally create a subtask using an existing nonarchived parent gid.', inputSchema: { type: 'object', properties: { project, name: { type: 'string', minLength: 1, maxLength: 1000 }, notes: { type: 'string', maxLength: 20000 }, priority: { type: 'string', enum: ['none', 'low', 'medium', 'high', 'urgent'] }, parentId: { type: 'string', minLength: 1 } }, required: ['project', 'name'], additionalProperties: false }, annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false } },
 ];
 async function bridge(name, args) {
@@ -54,7 +55,19 @@ function start(input = process.stdin, output = process.stdout, call = bridge) {
     if (request.method === 'tools/list') { reply({ tools }); return; }
     if (request.method !== 'tools/call') { send({ id: request.id, error: { code: -32601, message: 'Method not found' } }); return; }
     if (!tools.some(tool => tool.name === request.params?.name)) { send({ id: request.id, error: { code: -32602, message: 'Unknown tool' } }); return; }
-    try { const value = await call(request.params.name, request.params.arguments || {}); reply({ content: [{ type: 'text', text: JSON.stringify(value) }], structuredContent: value }); }
+    try {
+      let args = request.params.arguments || {};
+      if (request.params.name === 'report_task') {
+        if (!args || typeof args !== 'object' || Array.isArray(args)) throw new Error('Arguments must be an object.');
+        for (const key of Object.keys(args)) if (!['run', 'status', 'message'].includes(key)) throw new Error(`Unknown reporting field: ${key}`);
+        if (args.run !== undefined && (typeof args.run !== 'string' || !args.run)) throw new Error('run must be a nonempty task attempt ID.');
+        if (!args.run) {
+          if (!process.env.HC_TERMINAL_ID) throw new Error('No HC terminal identity. Use the run ID supplied in your task prompt.');
+          args = { ...args, terminal: process.env.HC_TERMINAL_ID };
+        }
+      }
+      const value = await call(request.params.name, args); reply({ content: [{ type: 'text', text: JSON.stringify(value) }], structuredContent: value });
+    }
     catch (error) { reply({ isError: true, content: [{ type: 'text', text: error.message }] }); }
   }).catch(error => process.stderr.write(`${error.message}\n`)); });
   return { lines, drained: () => pending };

@@ -122,7 +122,7 @@ test('explicit resume keeps the archive on launch failure and removes it only af
   assert.deepEqual(h.native, []);
 });
 
-test('a new local execution receives a real reporting manual and a unique run while retaining prior profile results', async () => {
+test('a new local execution receives MCP tool discovery and a unique run while retaining prior profile results', async () => {
   const key = '["","/project"]', task = { gid: 'local:new-run', name: 'Implement login', notes: 'Keep the existing UI.', source: 'local', status: 'todo',
     runs: [{ id: 'old', profile: 'old-profile', status: 'fail', summary: 'Missing test fixture' }] };
   const h = await modules({ [key]: { [task.gid]: task } });
@@ -130,7 +130,8 @@ test('a new local execution receives a real reporting manual and a unique run wh
     { space: 'p', folder: '/project', task }, { model: 'chosen-model', effort: 'high' });
   const saved = h.owner.boardRecords(h.state.projects[0])[task.gid];
   const launch = h.memory['devkits.tasks.navigation'].find(event => event.type === 'launch');
-  assert.match(launch.argv.at(-1), /tasks-cli\.cjs.*--skill/);
+  assert.match(launch.argv.at(-1), /herdr_tasks MCP report_task/);
+  assert.ok(!launch.argv.at(-1).includes('tasks-cli.cjs'));
   assert.ok(launch.argv.at(-1).includes(saved.execution.id));
   assert.equal(saved.execution.profileName, 'Implementer'); assert.equal(saved.execution.model, 'chosen-model');
   assert.equal(saved.runs[0].summary, 'Missing test fixture'); assert.deepEqual(h.native, []);
