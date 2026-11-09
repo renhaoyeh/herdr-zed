@@ -27,7 +27,7 @@ export function SelectTrigger(id, color, t, width = 144) {
 
 // Label fields above their triggers so the setting name stays separate from the chosen value. `boxed` draws the
 // trigger as a bordered field instead of an underline, for rows inside bordered tables.
-export function Select(id, state, value, options, label, onChange, t, { width = 144, prefix, boxed = false, radius = 0 } = {}) {
+export function Select(id, state, value, options, label, onChange, t, { width = 144, prefix, boxed = false, radius = 0, fullWidth = false } = {}) {
   const selected = options.find(option => option.key === value) || options[0];
   const linear = t.appearance === 'linear', naturalWidth = linear;
   const triggerColor = linear ? t.secondary : selected.color;
@@ -51,6 +51,9 @@ export function Select(id, state, value, options, label, onChange, t, { width = 
       .border(1).border_color(t.border).bg(t.popover).hover(el => el.bg(t.input)).cursor_pointer()
     : SelectTrigger(id, selected.color, t, width);
   const trigger = base.rounded(linear ? 999 : radius)
+    .when(fullWidth, el => el.w_full().min_w(0).on_size_change((size, cx) => {
+      if (size.width > 0 && state.width !== size.width) { state.width = size.width; cx.notify(); }
+    }))
     .on_mouse_down('left', (_event, cx) => { cx.stop_propagation(); state.trigger.focus(); })
     .on_click((_event, cx) => {
       cx.stop_propagation();
@@ -64,7 +67,7 @@ export function Select(id, state, value, options, label, onChange, t, { width = 
     .when(Boolean(selected.icon), el => el.child(optionIcon(selected)))
     .child(div().when(!naturalWidth, el => el.flex_1()).min_w(0).truncate().text_color(triggerColor).child(selected.label))
     .when(!linear, el => el.child(svg('mods/devkits/assets/icons/chevron-down.svg').size(12).flex_none().text_color(boxed ? t.muted : selected.color)));
-  const list = DropdownMenuContent(`${id}-options`, undefined, t).w(Math.max(linear ? 208 : 168, width)).mt(4).rounded(linear ? 12 : radius ? radius + 2 : 0)
+  const list = DropdownMenuContent(`${id}-options`, undefined, t).w(fullWidth ? state.width || width : Math.max(linear ? 208 : 168, width)).mt(fullWidth ? 0 : 4).rounded(linear ? 12 : radius ? radius + 2 : 0)
     .when(linear, el => el.p(0).font_family(t.fontFamily).font_normal().shadow_md())
     .when(!linear && radius > 0, el => el.font_family('Arial').shadow_lg())
     .role('list_box').track_focus(state.list).accessibility_label(label)
@@ -98,6 +101,7 @@ export function Select(id, state, value, options, label, onChange, t, { width = 
       .when(hasIcons, el => el.child(div().size(14).flex_none().when(selected.key === option.key, el => el
         .child(svg('mods/devkits/assets/icons/check.svg').size(14))))))));
   const control = NativeSelect.new(`${id}-select`).open(state.open).accessibility_label(`${label}: ${selected.label}`)
+    .when(fullWidth, el => el.w_full().min_w(0))
     .when(linear, el => el.flex_none().w_auto().self_start())
     .track_focus(state.trigger).content_focus_handle(state.list)
     .on_open_change((open, cx) => {
@@ -106,6 +110,7 @@ export function Select(id, state, value, options, label, onChange, t, { width = 
       cx.notify();
     })
     .child(NativePopup.new(`${id}-popup`, trigger).anchor('top_left')
+      .when(fullWidth, el => el.relative().w_full().min_w(0))
       .when(state.open, el => el.content(list)));
   return prefix ? v_flex().w(width).flex_none().gap(4).when(linear, el => el.items_start())
     .child(div().text_size(11).text_color(t.muted).child(prefix))
