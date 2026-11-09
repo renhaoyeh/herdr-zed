@@ -266,7 +266,7 @@ export default class MantisPanel extends TaskSourceController {
       .child(widget().id('mantis-activities').child(widgetHeader('mantis-activities-header', 'Activities', 'clock'))
         .when(Boolean(task.commentsError), el => el.child(div().p(12).text_color(mantisTheme.destructive).child(task.commentsError)))
         .when(!task.comments?.length && !task.commentsError, el => el.child(div().p(12).child('No notes.')))
-        .children((task.comments || []).map(comment => h_flex().id(`mantis-note-${comment.gid}`).items_stretch().min_h(90).border_b(1).border_color('#dddddd')
+        .children((task.comments || []).map((comment, index) => h_flex().id(`mantis-note-${comment.gid}`).items_stretch().min_h(90).when(index > 0, el => el.mt(12)).border_b(1).border_color('#dddddd')
           .child(v_flex().w(185).flex_none().p(12).gap(8).bg('#edf3f4').text_color(mantisTheme.accent)
             .child(h_flex().gap(6).items_center().child(glyph('agent')).child(comment.authorLogin || comment.author))
             .child(div().text_size(12).text_color(mantisTheme.muted).child(date(comment.at, true)))
