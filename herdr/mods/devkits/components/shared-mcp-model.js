@@ -31,7 +31,8 @@ export function parseSharedMcp(text) {
   const value = JSON.parse(text);
   if (!mcpObject(value) || value.version !== 1) throw new Error('Unsupported shared MCP file. Expected version 1.');
   mcpTable(value.servers);
-  // Legacy account/agent exceptions no longer apply. Saving drops them.
+  if (Object.keys(value).some(key => !['version', 'servers'].includes(key)))
+    throw new Error('Unsupported shared MCP fields. Expected only version and servers.');
   return { version: 1, servers: value.servers };
 }
 

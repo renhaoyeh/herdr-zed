@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { agentCommand } from '../mods/devkits/model.js';
+import { agentCommand } from '../mods/devkits/components/session-model.js';
 import { taskStatus, reconcileBoardRecords } from '../mods/devkits-tasks/agent-board-model.js';
 
 async function evidenceHost(options = {}) {

@@ -2,7 +2,7 @@ import { availableAgents, loadAccountIdentities } from './discovery.js';
 import { div } from 'gpui-kit';
 import { v_flex, h_flex } from 'gpui-base';
 import { shared, setShared, props, spaces, openOverlay, closeOverlay, home, readTextFile, keys, window, exec, appHome } from 'herdr';
-import { launcherChoices, launcherLabel, launcherOption, accountAddresses, noAccountLabel, permissionModes, sessionKind, isAccountLauncher, claudeModels, claudeEfforts, codexHome, codexModels, mergeModels, orderedOptions, moveOption, effortLabel, sessionChoices, settingsKey, profileSettings, configuredAgents, autoRank, autoMultipliers, autoMultiplier, planMultiplier, planLabel, quotaResetLabel } from './model.js';
+import { launcherChoices, launcherLabel, launcherOption, accountAddresses, noAccountLabel, permissionModes, sessionKind, isAccountLauncher, claudeModels, claudeEfforts, codexHome, codexModels, mergeModels, orderedOptions, moveOption, effortLabel, sessionChoices, settingsKey, configuredAgents, autoRank, autoMultipliers, autoMultiplier, planMultiplier, planLabel, quotaResetLabel } from './components/session-model.js';
 import { DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from './components/dropdown-menu.js';
 import { Button } from './components/button.js';
 import { Checkbox } from './components/checkbox.js';
@@ -33,11 +33,8 @@ export const sessionMenu = {
     this.loadAgents(cx);
     if ((props() || {}).view && !['manage-launchers', 'agent-profile-editor'].includes((props() || {}).view)) return;
     this.loadCodexModels(cx);
-    // Former provider pages open their default account on Accounts.
-    const page = (props() || {}).page || 'agents';
-    // Former provider and Models pages open the same settings on Accounts.
-    this.settingsPage = ['claude', 'codex', 'models'].includes(page) ? 'accounts' : page === 'usage' ? 'agents' : page;
-    if (['claude', 'codex'].includes(page)) this.selectedAccount = page;
+    const page = (props() || {}).page;
+    this.settingsPage = ['accounts', 'agents', 'agent-profiles'].includes(page) ? page : 'agents';
     this.defaultSelects = { permissions: new SelectState(cx), model: new SelectState(cx), effort: new SelectState(cx), profile: new SelectState(cx) };
     if ((props() || {}).view === 'agent-profile-editor') { this.initAgentProfileEditor(cx); return; }
   },
@@ -57,8 +54,6 @@ export const sessionMenu = {
       cx.notify();
     });
   },
-
-  // Copy legacy provider defaults once, then keep every profile and named agent independent.
 
   profileModels(agent) {
     return this.codexModelsByHome?.get(codexHome(agent, home())) ?? this.codexModelList;

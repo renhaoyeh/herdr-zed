@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { usageWindows, readUsage, readCodexUsage, claudePlan } from '../mods/devkits-usage/usage-reader.js';
-import { quotaResetLabel, autoAgent, planMultiplier, planLabel } from '../mods/devkits/model.js';
+import { quotaResetLabel, autoAgent, planMultiplier, planLabel } from '../mods/devkits/components/session-model.js';
 
 test('resets count down in days/hours or hours/minutes; overdue and absent times stay explicit', () => {
   const now = Date.UTC(2026, 10, 6, 8);

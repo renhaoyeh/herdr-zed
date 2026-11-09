@@ -12,7 +12,7 @@ export const hardwareModules = [
 export function hardwarePreferences(saved = {}) {
   const ids = hardwareModules.map(module => module.id);
   const savedOrder = Array.isArray(saved?.order) ? saved.order : [];
-  const order = savedOrder.join(',') === 'cpu,gpu,ram,disk,network,storage,battery,sensors' ? ids : savedOrder;
+  const order = savedOrder;
   return {
     visible: Object.fromEntries(ids.map(id => [id, typeof saved?.visible?.[id] === 'boolean' ? saved.visible[id] : ['cpu', 'ram', 'gpu', 'storage'].includes(id)])),
     order: [...new Set([...order.filter(id => ids.includes(id)), ...ids])],

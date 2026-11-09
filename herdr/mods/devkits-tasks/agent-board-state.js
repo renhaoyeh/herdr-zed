@@ -23,18 +23,13 @@ export function rememberBoardTask(project, task, change = {}) {
 }
 export function projectBoardTasks(project, agents = []) {
   const records = { ...boardRecords(project) };
-  // Older archives predate task snapshots. Retain them as archived cards too;
-  // an explicit null snapshot marks a deleted task and must not recreate it.
+  // Current archives carry a complete task snapshot. Deleted or absent snapshots
+  // never synthesize a task from a conversation title.
   for (const entry of shared('devkits.archived-threads') || []) {
     if (project.machine || folderKey(entry.folder) !== folderKey(project.folder)) continue;
-    const snapshot = entry.boardTask || entry.task;
-    if (!snapshot && Object.hasOwn(entry, 'boardTask')) continue;
-    const gid = snapshot?.gid || `archive:${entry.id}`;
-    if (records[gid]) continue;
-    records[gid] = { ...snapshot, gid, name: snapshot?.name || entry.title,
-      source: snapshot?.source || (snapshot ? 'asana' : 'thread'),
-      status: snapshot?.status || 'todo', archived: true, archiveId: entry.id,
-      agentKey: snapshot?.agentKey || entry.profile || null };
+    const snapshot = entry.boardTask;
+    if (!snapshot?.gid || records[snapshot.gid]) continue;
+    records[snapshot.gid] = { ...snapshot, archived: true, archiveId: entry.id };
   }
   const deleted = shared('devkits.deleted-tasks')?.[boardKey(project)] || {};
   const tasks = boardTasks(project, [], records, shared('devkits.thread-tasks') || {}, project.tabs || [], withTaskInputEvidence(agentsWithTurns(agents, terminals()), terminals()), sessionThreadTitle)

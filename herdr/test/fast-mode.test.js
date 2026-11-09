@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { sessionArgv } from '../mods/devkits/model.js';
+import { sessionArgv } from '../mods/devkits/components/session-model.js';
 
 test('Fast applies without a model or effort override and preserves account wrappers', () => {
   const agent = { key: 'devkits-codex-work' };
@@ -33,7 +33,7 @@ test('Fast is Codex-only and never adds flags to Claude or other agents', () => 
 });
 
 test('agent configurations retain their profile credentials and have independent identities', async () => {
-  const { configuredAgents, sessionKind, settingsKey, launcherArgv } = await import('../mods/devkits/model.js');
+  const { configuredAgents, sessionKind, settingsKey, launcherArgv } = await import('../mods/devkits/components/session-model.js');
   const profile = { key: 'devkits-codex-work', name: 'Work', icon: 'codex.svg', installed: true,
     run: ['env', 'CODEX_HOME=/work', 'codex', '--no-daemon'] };
   const configs = [{ key: 'devkits-preset-one', profileKey: profile.key, name: 'Sol Fast' },
@@ -52,7 +52,7 @@ test('agent configurations retain their profile credentials and have independent
 });
 
 test('icons carry the provider while account and configured-agent labels retain their names', async () => {
-  const { launcherLabel, launcherChoices, configuredAgents } = await import('../mods/devkits/model.js');
+  const { launcherLabel, launcherChoices, configuredAgents } = await import('../mods/devkits/components/session-model.js');
   assert.equal(launcherLabel('Claude Code · 工作'), '工作');
   assert.equal(launcherLabel('Codex · Work / Sol Fast'), 'Work / Sol Fast');
   const profile = { key: 'claude', name: 'Claude Code', run: ['claude'], icon: 'icons/claude.svg' };
@@ -65,7 +65,7 @@ test('icons carry the provider while account and configured-agent labels retain 
 });
 
 test('shared launcher options omit provider names in any case and retain account names and provider icons', async () => {
-  const { launcherLabel, launcherOption, accountAddresses } = await import('../mods/devkits/model.js');
+  const { launcherLabel, launcherOption, accountAddresses } = await import('../mods/devkits/components/session-model.js');
   for (const name of ['Codex', 'CODEX', 'cOdEx', 'Codex CLI', 'Claude', 'CLAUDE CODE']) {
     assert.equal(launcherLabel(name), 'Default account');
     assert.equal(launcherLabel(launcherLabel(name)), 'Default account');

@@ -3,8 +3,8 @@ import { agentSelection } from './components/agent-selection.js';
 import { View, div, svg, image } from 'gpui-kit';
 import { v_flex, h_flex } from 'gpui-base';
 import { agents, spaces, panes, theme, run, props, window, openOverlay, closeOverlay, setAgentOrder, layout, settings, pickFolder, shared, setShared, notify, nextCommand, terminals } from 'herdr';
-import { configuredAgents, projectGroups, projectCatalog, folderKey, autoLauncherKey, threadProfile, threadProgram, archivable, childTerminals, terminalLabel, terminalWorking } from './model.js';
-import { terminalArgv } from './shell-command.js';
+import { configuredAgents, projectGroups, projectCatalog, folderKey, autoLauncherKey, threadProfile, threadProgram, archivable, childTerminals, terminalLabel, terminalWorking } from './components/session-model.js';
+import { terminalArgv } from './components/session-shell.js';
 import FileViewer, { FileMenu } from './files.js';
 import DiffViewer from './diff.js';
 import { BuildRulesSettings } from './diff-ignore-settings.js';
@@ -33,12 +33,8 @@ import { glyph } from './components/icon.js';
 const startingThreads = new Set();
 // Asana opens independently above the workspace, bound to its originating project.
 // Files and Changes share the editor beside the thread instead, shown or hidden in the layout like the simulator.
-const hidePanels = () => { setShared('devkits.asana', null); };
-// Clear legacy inline-panel state when opening an Asana pop-out.
-const rememberPanel = (id, name) => { if (id) setShared('devkits.project-panels', { ...(shared('devkits.project-panels') || {}), [id]: name || null }); };
 const openCalendar = () => openOverlay({ mod: 'devkits-calendar', kind: 'dialog', frame: 'none', modal: false, width: 0.9, height: 0.86,
   props: { view: 'calendar' } });
-const restorePanel = () => false;
 // Like Zed's dock buttons: close only the side panel, preserving the central document.
 const toggleEditor = (_editor, name) => {
   const maximized = Boolean(shared('devkits.conversation-maximized'));
@@ -74,12 +70,6 @@ export default class Devkits extends View {
     if (props()?.view === 'system-display-menu') {
       this.systemDisplayMenu = new SystemDisplayMenu(props() || {}); this.systemDisplayMenu.init(cx); return;
     }
-    if (['calendar', 'google-calendar', 'task-composer'].includes(props()?.view)) {
-      const target = props(); closeOverlay(target.overlay);
-      openOverlay({ mod: target.view === 'task-composer' ? 'devkits-tasks' : 'devkits-calendar', kind: 'dialog', frame: 'none',
-        modal: target.view === 'task-composer', width: target.view === 'task-composer' ? 760 : 0.9, height: target.view === 'task-composer' ? 400 : 0.86,
-        props: { ...target, overlay: undefined } }); return;
-    }
     if (props()?.view === 'status') {
       clearGitToast(); setShared('devkits.git-output-request', null);
     }
@@ -87,20 +77,13 @@ export default class Devkits extends View {
     if (props()?.view === 'file-menu') {
       this.fileMenu = new FileMenu(); this.fileMenu.init(cx); return;
     }
-    if (['token-statistics', 'usage-details'].includes(props()?.view)) {
-      const target = props(); closeOverlay(target.overlay);
-      openOverlay({ mod: 'devkits-usage', kind: 'dialog', frame: 'none', modal: false,
-        width: target.view === 'usage-details' ? 480 : 1080, height: target.view === 'usage-details' ? 480 : 0.85,
-        props: { ...target, overlay: undefined } }); return;
-    }
     if (props()?.view === 'xcode-storage') {
       this.xcodeStorage = new XcodeStorage();
       this.xcodeStorage.init(cx);
       return;
     }
-    if (['hardware-details', 'status'].includes(props()?.view) || (!props()?.view && cx)) {
+    if (props()?.view === 'status' || (!props()?.view && cx)) {
       this.systemDisplay.init(); this.systemMonitor.init(cx);
-      if (props()?.view === 'hardware-details') { closeOverlay(props().overlay); openSystemDetails(props()?.page); return; }
     }
     if (!props()?.view && cx) {
       this.taskHost.init(cx);
@@ -181,10 +164,7 @@ export default class Devkits extends View {
       this.handle.focus();
       if (props().view === 'project-picker') this.projectIndex = -1;
     }
-    if (['asana', 'mantisbt'].includes(props()?.view) && props()?.overlay) {
-      const target = props(), project = target.project || this.projects().find(project => project.active);
-      requestTaskSource(project, target.view); if (target.overlay) closeOverlay(target.overlay); return;
-    }
+
   }
 
   openProject(cx) {
@@ -198,7 +178,6 @@ export default class Devkits extends View {
         if (!saved.some(path => folderKey(path) === folderKey(folder))) setShared('devkits.projects', [...saved, folder]);
         const project = this.projects().find(p => !p.machine && folderKey(p.folder) === folderKey(folder));
         if (project.pending) {
-          hidePanels();
           setShared('devkits.selected-project', null);
           if (!taskMode()) run('layout.select', { stack: 'workspace-view', child: 'main' });
           run('space.new', { name: project.name, folder, machine: '', tab: '__devkits_default_terminal__' });
@@ -224,11 +203,9 @@ export default class Devkits extends View {
   }
 
   selectProject(project) {
-    hidePanels();
     setShared('devkits.selected-project', project.id);
     if (!project.pending) run('space.select', { id: project.id });
     if (!taskMode()) run('layout.select', { stack: 'workspace-view', child: project.pending ? 'project-empty' : 'main' });
-    restorePanel(project.id);
   }
 
   closeProject(project) {
@@ -426,9 +403,7 @@ export default class Devkits extends View {
     if (profile || target.restoreArchiveId) setShared('devkits.pending-profiles', [...(shared('devkits.pending-profiles') || []), { key: profile,
       space: target.space || null, folder: target.folder, before: spaces().flatMap(space => space.tabs.map(tab => tab.id)), at: Date.now(),
       ...(task ? { task } : {}), ...(target.restoreArchiveId ? { restoreArchiveId: target.restoreArchiveId } : {}) }]);
-    hidePanels();
     this.showConversation(true, { ...target, id: target.space, machine: spaces().find(space => space.id === target.space)?.machine });
-    rememberPanel(target.space, null);
     setShared('devkits.selected-project', null);
     run('layout.select', { stack: 'workspace-view', child: 'main' });
     if (target.space) run('tab.new', { space: target.space, folder: target.folder, ...(argv ? { name, argv } : {}) });
@@ -625,7 +600,6 @@ export default class Devkits extends View {
         .child(ToolbarButton('open-conversation', t, { icon: true, disabled: taskMode(), selected: conversationVisible(space) })
           .accessibility_label(conversationVisible(space) ? 'Hide conversation' : 'Show conversation')
           .on_click(() => {
-            hidePanels(); rememberPanel(space.id, null);
             this.showConversation(!conversationVisible(space));
           }).child(glyph('agent'))))
       .when(Boolean(space?.machine), el => el.child(h_flex().flex_none().gap(8).items_center().child(glyph('terminal', 12)).child(space.machine)))
@@ -700,7 +674,6 @@ export default class Devkits extends View {
         cx.notify();
       })
       .on_click(() => {
-        rememberPanel(thread.space, null);
         this.selectProject(this.projects().find(project => project.id === thread.space));
         run('tab.select', { id: thread.tab.id });
         this.showConversation(true, { ...this.projects().find(project => project.id === thread.space), tabs: [{ id: thread.tab.id, active: true }] });
@@ -788,7 +761,6 @@ export default class Devkits extends View {
         cx.notify();
       })
       .on_click(() => {
-        rememberPanel(thread.space, null);
         this.selectProject(this.projects().find(project => project.id === thread.space));
         run('tab.select', { id: thread.tab.id });
         this.showConversation(true, { ...this.projects().find(project => project.id === thread.space), tabs: [{ id: thread.tab.id, active: true }] });
@@ -820,8 +792,6 @@ export default class Devkits extends View {
     if (props()?.view === 'ui-settings') return this.interfaceSettings.render(t);
     if (props()?.view === 'usage-display-menu') return this.usageDisplayMenu.render(t);
     if (props()?.view === 'system-display-menu') return this.systemDisplayMenu.render(t);
-    if (['calendar', 'google-calendar', 'task-composer'].includes(props()?.view)) return div();
-    if (['token-statistics', 'usage-details'].includes(props()?.view)) return div();
     if (props()?.view === 'xcode-storage') return this.xcodeStorage.render();
     if (props()?.view === 'file-menu') return this.fileMenu.render();
     if (props()?.view === 'editor') {
@@ -834,11 +804,9 @@ export default class Devkits extends View {
     if (props()?.view === 'header') return this.header(t);
     if (props()?.view === 'run-menu') return this.runMenu.render(t);
     if (props()?.view === 'branch-menu') return this.branchMenu.render(t);
-    if (props()?.view === 'hardware-details') return div();
     if (props()?.view === 'brand') return this.brand(t);
     if (props()?.view === 'pane') return this.paneHeader(t, cx);
     if (props()?.view === 'status') return this.statusBar(t);
-    if (['asana', 'mantisbt', 'asana-projects', 'mantisbt-projects'].includes(props()?.view)) return div();
     if (props()?.view === 'project-empty') return div().size_full().bg(t.canvas);
     if (props()?.view === 'close-project') return this.closePrompt(t);
     if (props()?.view === 'project-menu') return this.projectMenu(t);
@@ -852,13 +820,8 @@ export default class Devkits extends View {
     if (shared('devkits.native-selection') !== selection) {
       const previous = shared('devkits.native-selection');
       if (typeof previous === 'string') {
-        hidePanels();
-        // Switching projects brings back that project's panel; another tab in the same project is a thread choice.
-        if (previous.split(':')[0] === (active?.id || '')) rememberPanel(active?.id, null);
-        if (!restorePanel(active?.id)) {
-          setShared('devkits.selected-project', null);
-          if (!taskMode()) run('layout.select', { stack: 'workspace-view', child: 'main' });
-        }
+            setShared('devkits.selected-project', null);
+        if (!taskMode()) run('layout.select', { stack: 'workspace-view', child: 'main' });
       }
       setShared('devkits.native-selection', selection);
     }

@@ -3,8 +3,8 @@ import { div } from 'gpui-kit';
 import { v_flex, h_flex, InputState, Input } from 'gpui-base';
 import { WebSocket } from 'websocket';
 import { appHome, exec, hc, readTextFile, writeTextFile, theme, closeOverlay, openOverlay, window, shared, setShared } from 'herdr';
-import { commandArgv } from './shell-command.js';
-import { launcherLabel } from './model.js';
+import { commandArgv } from './components/session-shell.js';
+import { launcherLabel } from './components/session-model.js';
 import { Button } from './components/button.js';
 
 // Each account owns a private credentials directory; the CLI itself signs in, stores, and refreshes tokens.

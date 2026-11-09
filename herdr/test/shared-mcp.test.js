@@ -9,18 +9,17 @@ import { sessionKind, settingsKey, sessionArgv, tasksMcpServer } from '../mods/d
 import { evaluateNative } from './source-harness.js';
 import { parseSharedMcp, mcpToml } from '../mods/devkits/components/shared-mcp-model.js';
 import { syncSharedMcp } from '../mods/devkits-agents/shared-mcp-sync.js';
-import { migrateSharedMcp } from '../mods/devkits-agents/shared-mcp-migrate.js';
 
-const config = { version: 1, servers: { vs: { command: 'bridge', args: ['繁體中文', 'C:\\with spaces\\bridge', 'quote"'] }, ic: { url: 'http://127.0.0.1:18765/mcp' } },
-  profiles: { work: { ic: false }, review: { vs: { command: 'review-bridge' } } } };
+const config = { version: 1, servers: { vs: { command: 'bridge', args: ['繁體中文', 'C:\\with spaces\\bridge', 'quote"'] }, ic: { url: 'http://127.0.0.1:18765/mcp' } } };
+
 const host = { parseSharedMcp, mcpToml, home: () => '/home', exec: async () => ({ code: 0 }), sessionKind, tasksMcpServer, settingsKey, appHome: () => '/herdr', readTextFile: async () => JSON.stringify(config) };
 const load = extra => evaluateNative('../mods/devkits/components/shared-mcp.js', { ...host, ...extra }, 'parseSharedMcp, sharedMcpArgv, sessionMcpArgv, mcpToml');
 
-test('shared MCP ignores legacy account and agent exceptions and preserves explicit CLI precedence', async () => {
+test('shared MCP accepts only the current schema and preserves explicit CLI precedence', async () => {
   const { parseSharedMcp, sharedMcpArgv } = await load();
   const shared = parseSharedMcp(JSON.stringify(config));
   const agent = { key: 'review', profileKey: 'devkits-codex-work' };
-  assert.equal(shared.profiles, undefined);
+  assert.throws(() => parseSharedMcp(JSON.stringify({ ...config, profiles: {} })), /Unsupported shared MCP fields/);
   const original = ['env', 'CODEX_HOME=/account', 'codex', '-c', 'mcp_servers.vs.command="explicit"', '--', 'prompt'];
   const argv = sharedMcpArgv(agent, original, shared);
   assert.ok(argv.includes(`mcp_servers.vs=${mcpToml(config.servers.vs)}`));
@@ -65,26 +64,6 @@ test('Codex parses generated MCP arguments including Windows paths, quotes and d
   assert.equal(servers.find(server => server.name === 'ic').enabled, false);
 });
 
-test('explicit migration backs up accounts, chooses one shared transport and leaves unrelated MCP settings alone', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'devkits-mcp-migrate-'));
-  const profiles = [{ key: 'codex', directory: join(root, 'main') }, { key: 'work', directory: join(root, 'work') }];
-  for (const profile of profiles) { await mkdir(profile.directory); await writeFile(join(profile.directory, 'config.toml'), '# private settings\n'); }
-  const data = new Map(profiles.map((profile, index) => [profile.directory, { mcp_servers: { vs: { command: index ? 'custom' : 'bridge' }, remote: { url: 'https://private.example' } } }]));
-  const writes = [], closed = [];
-  const service = async directory => ({ config: data.get(directory), close: async () => closed.push(directory), write: async edits => writes.push([directory, edits]) });
-  const file = join(root, 'shared.json');
-  await migrateSharedMcp({ file, profiles, names: ['vs'] }, service);
-  const result = JSON.parse(await readFile(file, 'utf8'));
-  assert.deepEqual(result.servers, { vs: { command: 'bridge' } });
-  assert.equal(result.profiles, undefined);
-  assert.equal(writes.length, 2);
-  assert.equal(writes[0][1][0].keyPath, 'mcp_servers."vs"');
-  assert.equal(writes[0][1].length, 1);
-  assert.equal(await readFile(join(profiles[0].directory, 'config.toml.before-shared-mcp.bak'), 'utf8'), '# private settings\n');
-  assert.equal(closed.length, 2);
-});
-
-
 test('MCP synchronization replaces transports, cleans owned entries, preserves personal changes and is idempotent', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'devkits-mcp-sync-'));
   await writeFile(join(directory, 'config.toml'), '# original\n');
@@ -115,7 +94,7 @@ test('MCP synchronization replaces transports, cleans owned entries, preserves p
 
 test('real Codex config persists complete disabled transports and supports background enabled-only overrides', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'devkits-mcp-persist-'));
-  await writeFile(join(directory, 'config.toml'), '# preserve comment\nmodel = "personal"\n[mcp_servers.own]\ncommand = "personal-server"\n[mcp_servers.ic]\nenabled = false\n');
+  await writeFile(join(directory, 'config.toml'), '# preserve comment\nmodel = "personal"\n[mcp_servers.own]\ncommand = "personal-server"\n[mcp_servers.ic]\nurl = "http://127.0.0.1:18765/mcp"\nenabled = false\n');
   const servers = { ic: { url: 'http://127.0.0.1:18765/mcp', enabled: false } };
   await syncSharedMcp(directory, servers);
   const run = args => promisify(execFile)('codex', args, { env: { ...process.env, CODEX_HOME: directory }, timeout: 15000, windowsHide: true });
@@ -136,7 +115,7 @@ test('synchronization failure prevents launching with incomplete settings', asyn
 
 test('local launch persists Tasks transport without shared settings for background title generation', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'devkits-title-mcp-'));
-  await writeFile(join(directory, 'config.toml'), '# account settings\n[mcp_servers.own]\ncommand = "personal-server"\n[mcp_servers.herdr_tasks]\nenabled = false\n');
+  await writeFile(join(directory, 'config.toml'), '# account settings\n[mcp_servers.own]\ncommand = "personal-server"\n[mcp_servers.herdr_tasks]\ncommand = "node"\nargs = ["/herdr/mods/devkits-tasks/mcp-server.cjs"]\nenabled = false\n');
   const appDirectory = 'C:\\Users\\A B\\herdr';
   let synchronized = false;
   const { sessionMcpArgv } = await load({

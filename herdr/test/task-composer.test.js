@@ -1,5 +1,5 @@
 import { test } from 'node:test';
-import { launcherOption } from '../mods/devkits/model.js';
+import { launcherOption } from '../mods/devkits/components/session-model.js';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { boardKey, liveVersion, taskActions } from '../mods/devkits-tasks/agent-board-model.js';

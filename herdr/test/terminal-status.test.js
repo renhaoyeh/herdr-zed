@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { terminalWorking } from '../mods/devkits/model.js';
+import { terminalWorking } from '../mods/devkits/components/session-model.js';
 
 const terminal = (name, argv = [name]) => ({ state: 'live', foreground: { pid: 42, name, argv } });
 

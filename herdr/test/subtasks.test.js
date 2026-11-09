@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import * as board from '../mods/devkits-tasks/agent-board-model.js';
-import { folderKey, threadTitle, configuredAgents } from '../mods/devkits/model.js';
+import { folderKey, threadTitle, configuredAgents } from '../mods/devkits/components/session-model.js';
 
 async function state(memory = {}) {
   const source = await readFile(new URL('../mods/devkits-tasks/agent-board-state.js', import.meta.url), 'utf8');

@@ -4,13 +4,10 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 import { openConfig } from './codex-config.js';
-import { mcpToml } from './components/shared-mcp-model.js';
 
 export async function syncSharedMcp(directory, servers, configService = openConfig) {
   await mkdir(directory, { recursive: true });
-  // Supply valid transports while reading legacy configs containing only enabled=false.
-  const overrides = Object.entries(servers).flatMap(([name, server]) => ['-c', `mcp_servers.${name}=${mcpToml(server)}`]);
-  const service = await configService(directory, overrides);
+  const service = await configService(directory);
   try {
     const current = service.config.mcp_servers || {};
     const previous = service.config.devkits_shared_mcp?.servers || {};

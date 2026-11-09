@@ -148,18 +148,6 @@ export function launcherOption(agent, address = null) {
     icon: agent.icon || (kind ? `icons/${kind}.svg` : 'agent'), iconTint: agent.icon ? Boolean(agent.tint) : !kind };
 }
 
-// Seed existing profiles from legacy provider defaults without overwriting their independent values.
-export function profileSettings(saved = {}, profiles = []) {
-  let next = saved;
-  for (const profile of profiles) {
-    const kind = sessionKind(profile);
-    if (!kind || Object.hasOwn(next, profile.key) || !Object.hasOwn(saved, kind)) continue;
-    if (next === saved) next = { ...saved };
-    next[profile.key] = typeof saved[kind] === 'object' ? { ...saved[kind] } : saved[kind];
-  }
-  return next;
-}
-
 // Configurations reuse the profile's executable and credentials, with their own stable launcher identity.
 export function configuredAgents(profiles = [], configs = []) {
   const originals = profiles.filter(agent => !agent.profileKey);

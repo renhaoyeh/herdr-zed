@@ -2,7 +2,7 @@ import { evaluateNative, sourceOptions } from './source-harness.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import * as model from '../mods/devkits/model.js';
+import * as model from '../mods/devkits/components/session-model.js';
 
 const reply = (status, body) => ({ status, ok: status >= 200 && status < 300, json: async () => body });
 const connection = { url: 'https://tracker.test/mantis', token: 'secret' };

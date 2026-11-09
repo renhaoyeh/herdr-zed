@@ -1,5 +1,5 @@
 import { test } from 'node:test';
-import { launcherLabel } from '../mods/devkits/model.js';
+import { launcherLabel } from '../mods/devkits/components/session-model.js';
 import assert from 'node:assert/strict';
 import { readFile, mkdtemp, rm, stat } from 'node:fs/promises';
 import { execFile } from 'node:child_process';

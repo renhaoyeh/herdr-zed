@@ -2,7 +2,7 @@
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { join, resolve } from 'node:path';
-import { commandArgv } from './shell-command.js';
+import { commandArgv } from './components/session-shell.js';
 
 // Use Codex's TOML parser/editor, preserving comments, unrelated keys and concurrent edits.
 export async function openConfig(directory, overrides = []) {

@@ -1,26 +1,8 @@
 import { exec, knownAgents, readTextFile, appHome, shared, setShared } from 'herdr';
-import { sessionKind, isAccountLauncher, configuredAgents, profileSettings } from './components/session-model.js';
+import { sessionKind, isAccountLauncher, configuredAgents } from './components/session-model.js';
 const agentDiscoveryLoads = new Map();
 export function availableAgents(profiles, machine) {
     if (machine) return profiles;
-    // Discard legacy profile visibility flags once; afterwards profiles hide like any other launcher.
-    if (!shared('devkits.profile-visibility')) {
-      const hiddenLaunchers = shared('devkits.hidden-launchers') || [];
-      const nativeHidden = hiddenLaunchers.filter(key => !key.startsWith('agent:devkits-preset-'));
-      if (nativeHidden.length !== hiddenLaunchers.length) setShared('devkits.hidden-launchers', nativeHidden);
-      setShared('devkits.profile-visibility', true);
-    }
-    if (profiles.length && shared('devkits.hidden-usage-profiles') === undefined) {
-      const hidden = shared('devkits.hidden-launchers') || [];
-      setShared('devkits.hidden-usage-profiles', profiles.filter(agent => !agent.profileKey && hidden.includes(`agent:${agent.key}`)).map(agent => agent.key));
-    }
-    if (profiles.length && !shared('devkits.independent-agent-defaults')) {
-      for (const key of ['devkits.codex-permissions', 'devkits.profile-sessions']) {
-        const saved = shared(key) || {}, next = profileSettings(saved, profiles.filter(agent => !agent.profileKey));
-        if (next !== saved) setShared(key, next);
-      }
-      setShared('devkits.independent-agent-defaults', true);
-    }
     return configuredAgents(profiles, shared('devkits.agent-configs') || []);
   }
 export async function discoverAgents(machine, refresh = false) {
@@ -53,7 +35,7 @@ export async function discoverAgents(machine, refresh = false) {
 
 const identityReads = new Set();
 export function loadAccountIdentities(cx, agents, machine = null) {
-    if (spaces().find(space => space.id === props()?.space)?.machine) return;
+    if (machine) return;
     const usage = shared('devkits.usage.snapshot')?.contexts?.[JSON.stringify(null)]?.usage || [];
     const missing = (agents || []).filter(agent => !agent.profileKey && ['claude', 'codex'].includes(sessionKind(agent))
       && !usage.find(item => item.key === agent.key)?.email && !identityReads.has(agent.key));
