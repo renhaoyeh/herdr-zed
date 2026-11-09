@@ -22,18 +22,23 @@ export function asanaTheme(host = theme()) {
     background: '#ffffff', chrome: '#f9f8f8', popover: '#ffffff', foreground: '#1e1f21',
     muted: '#6d6e6f', hover: '#f9f8f8', selected: '#e9f2fe', border: '#edeae9', input: '#cfcbcb',
     solid: '#4573d2', solid_foreground: '#ffffff', destructive: '#c92f54',
-    working: '#f1bd6c', done: '#58a182', accent: '#4573d2', project: '#a9e5e2',
+    working: '#f1bd6c', done: '#58a182', accent: '#4573d2', project: '#a9e5e2', skeleton: '#edeae9',
   } : {
     background: '#1e1f21', chrome: '#252628', popover: '#1e1f21', foreground: '#f5f4f3',
     muted: '#a2a0a2', hover: '#363639', selected: '#2b3b55', border: '#424244', input: '#565557',
     solid: '#4573d2', solid_foreground: '#ffffff', destructive: '#f06a6a',
-    working: '#f1bd6c', done: '#5da283', accent: '#a4cafe', project: '#a9e5e2',
+    working: '#f1bd6c', done: '#5da283', accent: '#a4cafe', project: '#a9e5e2', skeleton: '#363639',
   };
 }
 
 // Asana controls use their own geometry inside the project's Sera shell.
 const asanaButton = (id, t, options = {}) => Button(id, t, options).rounded(t.appearance === 'linear' ? 999 : 6)
   .when(options.variant === 'outline', el => el.border(1).border_color(t.input));
+
+// Like Asana, loading shows gray placeholders shaped like the content instead of text.
+const bar = (t, width, height = 10) => div().w(width).h(height).flex_none().rounded(4).bg(t.skeleton);
+const dot = (t, size) => div().size(size).flex_none().rounded_full().bg(t.skeleton);
+const widths = [280, 200, 340, 240, 180, 310, 220, 260];
 
 export class AsanaProjectPicker extends TaskSourceProjectPicker {
   constructor(options = {}) { super({ ...options, source: asanaSource }); }
@@ -194,6 +199,15 @@ export default class AsanaPanel extends TaskSourceController {
       .child(v_flex().id('asana-list-rows').flex_1().min_h(0).overflow_y_scrollbar().children(this.listItems().map(row))));
   }
 
+  // The list's shape with placeholder bars: section heading, then ruled task rows.
+  loadingList(t) {
+    return v_flex().id('asana-loading').flex_1().min_h(0).overflow_hidden().accessibility_label('Loading tasks')
+      .child(h_flex().h(34).flex_none().border_b(1).border_color(t.border))
+      .child(h_flex().h(52).flex_none().px(24).gap(8).items_center().border_b(1).border_color(t.border).child(bar(t, 140, 14)))
+      .children(widths.map(width => h_flex().h(38).flex_none().px(24).gap(10).items_center().border_b(1).border_color(t.border)
+        .child(dot(t, 16)).child(bar(t, width)).child(div().flex_1()).child(dot(t, 24)).child(bar(t, 64))));
+  }
+
   board(t) {
     return h_flex().id('asana-board').flex_1().min_h(0).overflow_x_scrollbar().bg(t.chrome).p(24).gap(16)
       .on_click((_event, cx) => this.clearSelection(cx))
@@ -234,7 +248,9 @@ export default class AsanaPanel extends TaskSourceController {
             .text_color(surface === value ? t.foreground : t.muted)
             .on_click((_event, cx) => { this.cancelFieldDrag(cx); this.fieldSurface = value; cx.notify(); }).child(label))))
         .child(div().text_size(12).text_color(t.muted).child('Drag handles to reorder fields. Task titles always stay visible.'))
-        .when(Boolean(schema?.loading), el => el.child(div().text_size(13).text_color(t.muted).child('Loading project fields…')))
+        .when(Boolean(schema?.loading), el => el.child(v_flex().accessibility_label('Loading project fields')
+          .children(widths.slice(0, 4).map(width => h_flex().h(44).gap(12).items_center().border_b(1).border_color(t.border)
+            .child(div().w(28).flex_none()).child(bar(t, 16, 16)).child(bar(t, width / 2))))))
         .when(Boolean(schema?.error), el => el.child(h_flex().gap(12).items_center()
           .child(div().flex_1().text_size(13).text_color(t.destructive).child(schema.error))
           .child(asanaButton('source-fields-retry', t, { variant: 'outline' })
@@ -251,7 +267,7 @@ export default class AsanaPanel extends TaskSourceController {
             .accessibility_label(`Reorder ${field.name}. Drag or use Alt + Up or Down.`)
             .on_mouse_down('left', (_event, cx) => { cx.stop_propagation(); this.startFieldDrag(surface, field.id, cx); })
             .on_key_down((event, cx) => this.fieldDragKey(event, surface, field.id, cx)).child(glyph('grip-vertical')))
-          .child(Checkbox(`source-field-visible-${surface}-${field.id}`, field.visible, t).flex_1()
+          .child(Checkbox(`source-field-visible-${surface}-${field.id}`, field.visible, t, { radius: 4 }).flex_1()
             .accessibility_label(`Show ${field.name} in ${labels[surface]}`)
             .on_change((_checked, cx) => this.changeField(surface, field.id, 0, cx))
             .child(div().text_size(13).child(field.name)))
@@ -310,8 +326,11 @@ export default class AsanaPanel extends TaskSourceController {
         .child(asanaButton('asana-close-preview', t, { variant: 'ghost', size: 'icon' }).accessibility_label('Close preview')
           .on_click((_event, cx) => this.clearSelection(cx)).child(glyph('close'))))
       .child(v_flex().id(`asana-preview-${this.selected}`).flex_1().min_h(0).overflow_y_scrollbar().px(32).py(28).gap(24)
-        .when(!task, el => el.child(div().text_size(13).text_color(this.detailError ? t.destructive || t.foreground : t.muted)
-          .child(this.detailError || 'Loading…')))
+        .when(!task && Boolean(this.detailError), el => el.child(div().text_size(13).text_color(t.destructive || t.foreground).child(this.detailError)))
+        .when(!task && !this.detailError, el => el.child(v_flex().gap(24).accessibility_label('Loading task')
+          .child(bar(t, 320, 24))
+          .child(v_flex().gap(14).children(widths.slice(0, 4).map(width => h_flex().gap(24).child(bar(t, 96)).child(bar(t, width / 2)))))
+          .child(v_flex().gap(10).children(widths.slice(4).map(width => bar(t, width))))))
         .when(Boolean(task), el => el
           .child(div().text_size(24).font_semibold().line_height('32px').child(task.name))
           .child(v_flex().gap(2)
@@ -324,7 +343,9 @@ export default class AsanaPanel extends TaskSourceController {
             .child(h_flex().gap(8).items_center().text_size(13).font_medium()
               .child('Subtasks').child(div().text_color(t.muted).font_normal().child(String(task.subtasks))))
             .child(v_flex().rounded(6).overflow_hidden().border(1).border_color(t.border)
-              .when(!subtasks, el => el.child(div().p(12).text_size(12).text_color(t.muted).child('Loading…')))
+              .when(!subtasks, el => el.child(v_flex().accessibility_label('Loading subtasks').children(widths.slice(0, Math.min(task.subtasks, 3)).map((width, index) =>
+                h_flex().h(36).px(12).gap(10).items_center().when(index > 0, el => el.border_t(1).border_color(t.border))
+                  .child(dot(t, 14)).child(bar(t, width / 2))))))
               .children((subtasks || []).map((sub, index) => h_flex().id(`asana-subtask-${sub.gid}`).h(36).flex_none().px(12).gap(10).items_center()
                 .when(index > 0, el => el.border_t(1).border_color(t.border))
                 .cursor_pointer().hover(el => el.bg(t.hover))
@@ -336,7 +357,8 @@ export default class AsanaPanel extends TaskSourceController {
           .child(v_flex().gap(12)
             .child(h_flex().gap(8).items_center().text_size(13).font_medium()
               .child('Activity').when(Boolean(task.comments?.length), el => el.child(div().text_color(t.muted).font_normal().child(String(task.comments.length)))))
-            .when(!task.comments, el => el.child(div().text_size(12).text_color(t.muted).child('Loading comments…')))
+            .when(!task.comments, el => el.child(v_flex().gap(16).accessibility_label('Loading comments').children(widths.slice(0, 2).map(width =>
+              h_flex().gap(10).items_start().child(dot(t, 22)).child(v_flex().gap(8).pt(4).child(bar(t, 120)).child(bar(t, width)))))))
             .when(Boolean(task.commentsError), el => el.child(div().text_size(12).text_color(t.destructive || t.foreground).child(task.commentsError)))
             .when(Boolean(task.comments) && !task.comments.length && !task.commentsError, el => el.child(div().text_size(12).text_color(t.muted).child('No comments.')))
             .children((task.comments || []).map(comment => h_flex().id(`asana-comment-${comment.gid}`).gap(10).items_start()
@@ -392,7 +414,7 @@ export default class AsanaPanel extends TaskSourceController {
       .child(h_flex().flex_1().min_h(0)
         .on_mouse_down('left', (_event, cx) => cx.stop_propagation())
         .child(v_flex().flex_1().min_w(0).min_h(0).h_full()
-          .when(this.needsToken === null || (this.loading && !this.settingsOpen), el => el.child(status('Loading…')))
+          .when(this.needsToken === null || (this.loading && !this.settingsOpen), el => el.child(this.loadingList(t)))
           .when(this.needsToken === true || this.settingsOpen, el => el.child(this.connect(t, close)))
           .when(ready && Boolean(this.error), el => el.child(div().id('asana-error').p(12).text_size(12)
             .text_color(t.destructive || t.foreground).child(this.error)))
