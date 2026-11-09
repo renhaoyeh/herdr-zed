@@ -400,7 +400,7 @@ export const sessionMenu = {
       { id: 'agents', label: 'Add session', icon: glyph('square-plus') },
       ...(local ? [{ id: 'agent-profiles', label: 'Profiles', icon: glyph('agent') }] : []),
       { id: 'rules', label: local ? 'Rules & MCP' : 'Rules', icon: glyph('book-open') },
-      ...(local ? [{ id: 'usage', label: 'Usage', icon: glyph('chart-column') }] : [])];
+      ...(local ? [{ id: 'usage', label: 'Usage accounts', icon: glyph('chart-column') }] : [])];
     const page = pages.some(item => item.id === this.settingsPage) ? this.settingsPage : 'agents';
     return DialogContent('manage-launchers', t).accessibility_label('Settings')
       .on_mouse_up('left', (_event, cx) => cancelDrag(cx))

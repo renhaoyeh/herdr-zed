@@ -19,7 +19,7 @@ import { sessionMcpArgv } from './components/shared-mcp.js';
 import { UsageClient } from './components/usage.js';
 import { SystemMonitor } from './components/system-monitor.js';
 import { SystemDisplay, SystemDisplayMenu, openSystemDetails } from './system-display.js';
-import { InterfaceSettings, openInterfaceSettings } from './ui-settings.js';
+import { InterfaceSettings, openInterfaceSettings, UsageDisplayMenu, openUsageDisplayMenu, usageStyle, usageShownIn } from './ui-settings.js';
 import { RunControls, RunMenu, runApp } from './run-app.js';
 import { BranchMenu } from './branch-menu.js';
 import { ProjectLayout, layoutNode, conversationMaximized, maximizeConversation, openTaskBoard, closeTaskBoard, enforceTaskBoard, taskMode } from './project-layout.js';
@@ -70,6 +70,9 @@ export default class Devkits extends View {
     }
     if (props()?.view === 'ui-settings') {
       this.interfaceSettings = new InterfaceSettings(); this.interfaceSettings.init(cx); return;
+    }
+    if (props()?.view === 'usage-display-menu') {
+      this.usageDisplayMenu = new UsageDisplayMenu(props() || {}); this.usageDisplayMenu.init(cx); return;
     }
     if (props()?.view === 'system-display-menu') {
       this.systemDisplayMenu = new SystemDisplayMenu(props() || {}); this.systemDisplayMenu.init(cx); return;
@@ -541,7 +544,10 @@ export default class Devkits extends View {
     else if (event.type === 'stop-thread') cx.spawn(async cx => { await this.stopThread(event.thread); cx.notify(); });
   }
 
-  accountUsage(t) { return this.usageClient.render(t); }
+  accountUsage(t) {
+    if (!usageShownIn('sidebar')) return div().h(0).flex_none();
+    return this.usageClient.render(t, { style: usageStyle(), openMenu: at => openUsageDisplayMenu(at, 'sidebar') });
+  }
 
   groupedThreads(space, threads, t, live) {
     threads = threads.filter(thread => threadVisibleInSidebar(space, thread));
@@ -697,6 +703,7 @@ export default class Devkits extends View {
           }).child(glyph('agent'))))
       .when(Boolean(space?.machine), el => el.child(h_flex().flex_none().gap(8).items_center().child(glyph('terminal', 12)).child(space.machine)))
       .child(this.systemDisplay.renderStatus(t))
+      .when(usageShownIn('status'), el => el.child(this.usageClient.renderStatus(t, { openMenu: at => openUsageDisplayMenu(at, 'status') })))
       .child(h_flex().id('status-actions').min_w(0).h_full().overflow_x_scroll().items_center().gap(8)
       .child(h_flex().id('status-workspace-actions').flex_none().h_full().gap(0)
         .when(Boolean(space), el => el
@@ -884,6 +891,7 @@ export default class Devkits extends View {
     const t = theme();
     if (props()?.view === 'diff-ignore-settings') return this.buildRulesSettings.render(t);
     if (props()?.view === 'ui-settings') return this.interfaceSettings.render(t);
+    if (props()?.view === 'usage-display-menu') return this.usageDisplayMenu.render(t);
     if (props()?.view === 'system-display-menu') return this.systemDisplayMenu.render(t);
     if (['calendar', 'google-calendar', 'task-composer'].includes(props()?.view)) return div();
     if (props()?.view === 'shared-mcp') return this.sharedMcpDialog(t);
