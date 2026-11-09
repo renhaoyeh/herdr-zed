@@ -20,6 +20,7 @@ tasks-model.js: devkits-tasks devkits-calendar
 tasks.js: devkits-tasks devkits-calendar
 session-model.js: devkits-tasks devkits-calendar devkits-usage
 session-shell.js: devkits-tasks devkits-calendar devkits-usage
+shared-mcp.js: devkits-tasks
 agent-session-windows.js: devkits-tasks
 agent-process-windows.js: devkits-tasks
 progress.js: devkits-usage
