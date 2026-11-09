@@ -10,7 +10,6 @@ import { ToggleGroup, ToggleGroupItem } from './components/toggle-group.js';
 import { DialogContent, DialogTitle, DialogDescription, DialogFooter } from './components/dialog.js';
 import { glyph, AgentIcon } from './components/icon.js';
 import { Select, SelectState } from './components/select.js';
-import { RulesPreview } from './global-rules.js';
 
 const launcherSections = ['Terminal', 'Agents', 'Your accounts', 'Agent profiles'];
 export const noAccount = noAccountLabel;
@@ -40,8 +39,6 @@ export const sessionMenu = {
     if (['claude', 'codex'].includes(page)) this.selectedAccount = page;
     this.defaultSelects = { permissions: new SelectState(cx), model: new SelectState(cx), effort: new SelectState(cx), profile: new SelectState(cx) };
     if (props().view === 'agent-profile-editor') { this.initAgentProfileEditor(cx); return; }
-    this.rulesPreview = new RulesPreview();
-    this.rulesPreview.start(cx);
   },
 
   // Manage lists the models every local Codex profile knows.
@@ -395,11 +392,9 @@ export const sessionMenu = {
     };
     // Like Zed's settings, one page per subject in a left list, ordered as a new user sets things up:
     // accounts first, then what Add session shows, then the optional extras.
-    const providers = ['claude', 'codex'].filter(kind => choices.some(choice => choice.agent?.key === kind));
     const pages = [...(local ? [{ id: 'accounts', label: 'Accounts', icon: glyph('user-round') }] : []),
       { id: 'agents', label: 'Agents', icon: glyph('square-plus') },
-      ...(local ? [{ id: 'agent-profiles', label: 'Profiles', icon: glyph('agent') }] : []),
-      { id: 'rules', label: local ? 'Rules & MCP' : 'Rules', icon: glyph('book-open') }];
+      ...(local ? [{ id: 'agent-profiles', label: 'Profiles', icon: glyph('agent') }] : [])];
     const page = pages.some(item => item.id === this.settingsPage) ? this.settingsPage : 'agents';
     return DialogContent('manage-launchers', t).accessibility_label('Settings')
       .on_mouse_up('left', (_event, cx) => cancelDrag(cx))
@@ -430,17 +425,7 @@ export const sessionMenu = {
           .when(page === 'accounts', el => el.child(this.accountsPage(t)))
           .when(page === 'agents', el => el.child(DialogDescription(t).flex_none().child('Choose what Add session and Usage show, in one order. Drag to reorder; changes save automatically. Agents using the same account share its quota.'))
             .child(this.agentsPage(choices, hidden, toggle, move, cancelDrag, t)))
-          .when(page === 'agent-profiles', el => el.child(this.agentProfilesPage(t)))
-          .when(page === 'rules', el => el
-            .when(local && providers.includes('codex'), el => el.child(h_flex().flex_none().min_h(48).px(12).py(8).gap(16).items_center()
-              .border(1).border_color(t.border)
-              .child(v_flex().flex_1().min_w(0).gap(4)
-                .child(div().text_size(13).text_color(t.foreground).child('Shared MCP servers'))
-                .child(DialogDescription(t).child('Every Codex account and profile starts with these servers.')))
-              .child(Button('shared-local-mcp', t, { variant: 'secondary' }).h(28)
-                .on_click(() => this.openSharedMcp(choices.find(choice => choice.agent?.key === 'codex').agent)).child('Shared MCP…'))))
-            .child(DialogDescription(t).flex_none().child(this.rulesPreview.description()))
-            .child(this.rulesPreview.body(t)))))
+          .when(page === 'agent-profiles', el => el.child(this.agentProfilesPage(t)))))
       .child(DialogFooter().flex_none().child(Button('manage-launchers-done', t).on_click(done).child('Done')));
   },
 

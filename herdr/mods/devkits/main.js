@@ -26,7 +26,7 @@ import { ProjectLayout, layoutNode, conversationMaximized, maximizeConversation,
 import { threadArchive } from './thread-archive.js';
 import { startPanel } from './start-panel.js';
 import { openAgentSettings } from './session-menu.js';
-import { sessionRules, ensureRules } from './global-rules.js';
+import { sessionRules, ensureRules, rulesPath } from './global-rules.js';
 import { DropdownMenu, DropdownMenuState, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from './components/dropdown-menu.js';
 import { Button, ToolbarButton } from './components/button.js';
 import { AlertDialogContent, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from './components/alert-dialog.js';
@@ -165,6 +165,11 @@ export default class Devkits extends View {
           if (command === 'agent-board') { const project = this.projects().find(project => project.active); if (project && !project.machine) this.openBoard(project); }
           if (command === 'close-board') this.closeBoard();
           if (command === 'close-file') this.closeFileTab(cx);
+          if (command === 'open-file') {
+            const request = shared('devkits.open-file-request'), project = this.projects().find(project => project.active);
+            setShared('devkits.open-file-request', null);
+            if (project && request) { this.editor.openFile(project, request.path, cx, { on: request.on }); this.editor.focus(); }
+          }
           if (command === 'focus' || command === 'focus-editor') this.editor.focus();
         }
       });
@@ -379,6 +384,15 @@ export default class Devkits extends View {
     if (editor && !editor.hidden && this.editor) { this.editor.closeActiveTab(cx); return; }
     if (editor && !editor.hidden && (shared('devkits.editor-kind') || editor.active || 'files') === 'files' && this.files?.file)
       this.files.closeTab(this.files.file, cx);
+  }
+
+  openEditorFile(path, on = null) {
+    this.closeBoard();
+    maximizeConversation(null, false);
+    run('layout.show', { id: 'editor' });
+    run('layout.select', { stack: 'editor', child: 'workspace-editor' });
+    setShared('devkits.open-file-request', { path, on });
+    run('devkits.open-file');
   }
 
   defaultThreadAgent(project, agents) { return this.defaultThreadChoice(project, agents).agent; }
@@ -638,10 +652,16 @@ export default class Devkits extends View {
     const link = secondary ? null : taskLinkForTab(p.tab, project);
     const maximized = conversationMaximized(project);
     this.threadMenu ??= new DropdownMenuState();
-    // Like Zed's agent panel menu: Agent settings, not in the + menu. Threads close or archive from the sidebar.
-    const actions = secondary ? [{ key: 'close', label: 'Close terminal' }] : [{ key: 'settings', label: 'Agent settings…', icon: 'settings' }];
+    // Like Zed's agent panel menu, global configuration lives beside Agent settings.
+    const codex = !machine && launchers.find(agent => agent.key === 'codex' && agent.installed !== false);
+    const actions = secondary ? [{ key: 'close', label: 'Close terminal' }] : [
+      { key: 'rules', label: 'Global Rules…', icon: 'book-open' },
+      ...(codex ? [{ key: 'mcp', label: 'Shared MCP…', icon: 'settings' }] : []),
+      { key: 'settings', label: 'Agent settings…', icon: 'settings', separator: true },
+    ];
     const choose = key => key === 'settings' ? openAgentSettings(project && !project.pending ? project.id : null)
-      : run('pane.close', { pane: p.pane });
+      : key === 'rules' ? this.openEditorFile(rulesPath()) : key === 'mcp' ? this.openSharedMcp(codex)
+        : run('pane.close', { pane: p.pane });
     const terminal = terminals().find(terminal => terminal.address === p.terminal);
     const working = terminalWorking({ ...terminal, status: p.status || terminal?.status });
     const icon = working ? glyph('loader', 14).text_color(t.working).spin(900).accessibility_label('Working')
