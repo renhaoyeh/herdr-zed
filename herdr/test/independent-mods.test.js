@@ -25,6 +25,7 @@ for (const provider of ['asana', 'mantisbt']) test(`${provider} runs across modu
   consumer.open(project, provider);
   const target = { ...overlays.at(-1).props, overlay: 'source-overlay' };
   assert.equal(overlays.at(-1).mod, `devkits-${provider}`);
+  assert.equal(overlays.at(-1).modal, false, 'Clicking the backdrop dismisses the source browser');
   // The provider gets serialized props, never a function or native view belonging to Devkits.
   assert.deepEqual(JSON.parse(JSON.stringify(target)), target);
   const sourceContext = { ...base, globalThis: { window: { sessionStorage: storage() } } };

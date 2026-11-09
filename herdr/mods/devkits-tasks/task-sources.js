@@ -12,7 +12,7 @@ export class TaskSources {
     const key = JSON.stringify(['', folderKey(project.folder)]);
     const binding = shared(`devkits.${source}-projects`)?.[key] || null;
     const channel = createSourceChannel({ receiver: 'devkits-tasks', source, context, binding });
-    return openOverlay({ mod: `devkits-${source}`, kind: 'dialog', modal: true, frame: 'none', width: 0.9, height: 0.86,
+    return openOverlay({ mod: `devkits-${source}`, kind: 'dialog', modal: false, frame: 'none', width: 0.9, height: 0.86,
       props: { channel, context, stateKey: `devkits.${source}`, importLabel: 'Import into Tasks' } });
   }
   poll(cx) {
