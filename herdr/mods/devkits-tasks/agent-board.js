@@ -4,7 +4,7 @@ import { shared, setShared, openOverlay, appHome, readTextFile, agents as curren
 import { SourceTaskReader } from './task-sources.js';
 import { TaskSession } from './task-session.js';
 import { boardStatuses, boardKey, liveVersion, boardPriorityOptions, boardPriorities, canStartTask, taskActions, taskManualStatusOptions, taskChildren, canAddSubtask } from './agent-board-model.js';
-import { launcherLabel, launcherOption } from './components/session-model.js';
+import { launcherLabel, launcherOption, accountAddresses } from './components/session-model.js';
 import { rememberBoardTask, projectBoardTasks, boardRecords, setTaskDueDate } from './agent-board-state.js';
 import { taskTokenId } from './components/tasks-model.js';
 import { readTaskOutput, taskIdentifier, outputMarkdown } from './agent-board-details.js';
@@ -344,7 +344,7 @@ export default class AgentBoard {
     const editable = task.source === 'local' && policy.canEdit;
     const assignment = editable ? Select('board-task-agent', this.agentSelect, task.agentKey || 'unassigned', [
       { key: 'unassigned', label: 'Unassigned', color: t.foreground, icon: 'agent', iconColor: t.muted },
-      ...launchers.map(agent => ({ ...launcherOption(agent), color: t.foreground })),
+      ...launchers.map(agent => launcherOption(agent, accountAddresses(shared))).map(option => ({ ...option, color: option.unknown ? t.muted : t.foreground })),
     ], 'Agent', key => {
       const current = latestTask(), agent = launchers.find(agent => agent.key === key);
       if (current?.source === 'local' && taskActions(current).canEdit)

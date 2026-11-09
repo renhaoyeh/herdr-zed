@@ -65,7 +65,7 @@ test('icons carry the provider while account and configured-agent labels retain 
 });
 
 test('shared launcher options omit provider names in any case and retain account names and provider icons', async () => {
-  const { launcherLabel, launcherOption } = await import('../mods/devkits/model.js');
+  const { launcherLabel, launcherOption, accountAddresses } = await import('../mods/devkits/model.js');
   for (const name of ['Codex', 'CODEX', 'cOdEx', 'Codex CLI', 'Claude', 'CLAUDE CODE']) {
     assert.equal(launcherLabel(name), 'Default account');
     assert.equal(launcherLabel(launcherLabel(name)), 'Default account');
@@ -75,6 +75,13 @@ test('shared launcher options omit provider names in any case and retain account
   }
   const account = { key: 'codex', name: 'CODEX', run: ['codex'] };
   assert.deepEqual(launcherOption(account), { key: 'codex', label: 'Default account', icon: 'icons/codex.svg', iconTint: false });
+  // With known addresses, a Default account is named by its address, or No account (marked unknown); named accounts keep their names.
+  const state = { 'devkits.usage.snapshot': { contexts: { null: { usage: [{ key: 'codex', email: 'me@example.com' }] } } },
+    'devkits.account-identities': { claude: { email: null } } };
+  const address = accountAddresses(key => state[key]);
+  assert.equal(launcherOption(account, address).label, 'me@example.com');
+  assert.deepEqual(launcherOption({ key: 'claude', name: 'Claude' }, address), { key: 'claude', label: 'No account', unknown: true, icon: 'icons/claude.svg', iconTint: false });
+  assert.equal(launcherOption({ key: 'devkits-codex-work', name: 'Codex · Work' }, address).label, 'Work');
   assert.equal(account.name, 'CODEX');
   assert.deepEqual(launcherOption({ key: 'devkits-claude-work', name: 'CLAUDE CODE · WORK', icon: 'icons/custom.svg', tint: true }),
     { key: 'devkits-claude-work', label: 'WORK', icon: 'icons/custom.svg', iconTint: true });

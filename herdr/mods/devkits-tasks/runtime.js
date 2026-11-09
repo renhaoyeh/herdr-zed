@@ -189,7 +189,7 @@ export class TaskRuntime {
     if (argv && !spaces().find(space => space.id === target.space)?.machine) {
       let rules = null;
       try { rules = await sessionRules(); } catch {}
-      argv = rulesArgv(agent, argv, rules, config?.instructions);
+      argv = rulesArgv(agent, argv, rules);
       if (!target.machine) {
         try { argv = await sessionMcpArgv(agent, argv); }
         catch (error) { notify({ title: 'Could not load shared MCP settings', body: error.message, level: 'error' }); return; }

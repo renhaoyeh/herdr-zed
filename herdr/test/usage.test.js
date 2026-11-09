@@ -51,11 +51,30 @@ test('usage reader performs handshake, ignores notifications, and closes its sub
         console.log(JSON.stringify({ id: 2, result: { rateLimits: { planType: 'prolite',
           primary: { windowDurationMins: 300, usedPercent: 42, resetsAt: 1234 }
         } } }));
+      } else if (m.method === 'account/read') {
+        console.log(JSON.stringify({ id: m.id, result: { account: { type: 'chatgpt', email: 'me@example.com' } } }));
       }
     });
   `;
   assert.deepEqual(await readUsage([process.execPath, '-e', server, '--']), [{ bucket: 'codex', name: 'codex', slot: 'primary', minutes: 300, usedPercent: 42, resetsAt: 1234 }]);
-  assert.equal((await readCodexUsage([process.execPath, '-e', server, '--'])).plan, 'prolite');
+  const reading = await readCodexUsage([process.execPath, '-e', server, '--']);
+  assert.equal(reading.plan, 'prolite');
+  assert.equal(reading.email, 'me@example.com');
+});
+
+test('Codex usage keeps its reading when the account address is unavailable', async () => {
+  const server = `
+    require('node:readline').createInterface({ input: process.stdin }).on('line', line => {
+      const m = JSON.parse(line);
+      if (m.method === 'initialize') console.log(JSON.stringify({ id: m.id, result: {} }));
+      if (m.method === 'account/rateLimits/read') console.log(JSON.stringify({ id: m.id,
+        result: { rateLimits: { primary: { windowDurationMins: 300, usedPercent: 7 } } } }));
+      if (m.method === 'account/read') console.log(JSON.stringify({ id: m.id, error: { message: 'unknown method' } }));
+    });
+  `;
+  const reading = await readCodexUsage([process.execPath, '-e', server, '--']);
+  assert.equal(reading.windows[0].usedPercent, 7);
+  assert.equal(reading.email, null);
 });
 
 test('usage reader handles missing binary, protocol errors, and timeout', async () => {
@@ -80,6 +99,7 @@ test('usage reads a saved env launcher through an npm-style shell shim on Window
       if (m.method === 'initialize') console.log(JSON.stringify({ id: m.id, result: {} }));
       if (m.method === 'account/rateLimits/read') console.log(JSON.stringify({ id: m.id,
         result: { rateLimits: { primary: { windowDurationMins: 300, usedPercent: 12 } } } }));
+      if (m.method === 'account/read') console.log(JSON.stringify({ id: m.id, result: { account: null } }));
     });
   `);
   const windows = await readUsage(['env', `CODEX_HOME=${directory}`, `DEVKITS_FIXTURE_NODE=${process.execPath}`,
@@ -109,10 +129,12 @@ test('Claude usage comes only from the status line recording in the account dire
   const limits = { five_hour: { used_percentage: 13, resets_at: 1793939999 }, seven_day: { used_percentage: 32.4, resets_at: 1794311999 } };
   assert.equal(record(JSON.stringify({ rate_limits: limits }), directory, 5000), '5h 13% · Week 32%');
   assert.deepEqual(JSON.parse(await readFile(`${directory}/devkits-usage.json`, 'utf8')), { capturedAt: 5000, rate_limits: limits });
-  assert.deepEqual(await readClaudeUsage(run), { fetchedAt: 5000, windows: claudeUsageWindows(limits) });
+  assert.deepEqual(await readClaudeUsage(run), { email: null, fetchedAt: 5000, windows: claudeUsageWindows(limits) });
   const { writeFile } = await import('node:fs/promises');
-  await writeFile(`${directory}/.claude.json`, JSON.stringify({ oauthAccount: { organizationType: 'claude_max', organizationRateLimitTier: 'default_claude_max_20x' } }));
+  await writeFile(`${directory}/.claude.json`, JSON.stringify({ oauthAccount: { emailAddress: 'me@example.com',
+    organizationType: 'claude_max', organizationRateLimitTier: 'default_claude_max_20x' } }));
   assert.equal((await readClaudeUsage(run)).plan, 'claude_max_20x');
+  assert.equal((await readClaudeUsage(run)).email, 'me@example.com');
   assert.equal(record(JSON.stringify({}), directory, 9000), '');
   assert.equal((await readClaudeUsage(run)).fetchedAt, 5000);
   assert.equal(statusText({ seven_day: { used_percentage: 7 } }), 'Week 7%');

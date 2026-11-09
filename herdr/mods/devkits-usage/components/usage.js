@@ -70,7 +70,10 @@ export class UsageClient {
               .on_click(() => openUsageDetails(account))
               .child(AgentIcon(choice.agent, t).self_center())
               .child(v_flex().flex_1().min_w(0).gap(3).line_height('12px')
-                .child(div().truncate().text_size(12).font_semibold().text_color(t.foreground).child(launcherLabel(choice.name)))
+                // A Default account is named by its signed-in address, or a muted No account, as in every account list.
+                .child(div().id(`usage-name-${choice.key}`).truncate().text_size(12).font_semibold()
+                  .text_color(supported && launcherLabel(choice.name) === 'Default account' && !data?.email ? t.muted : t.foreground)
+                  .child(supported && launcherLabel(choice.name) === 'Default account' ? data?.email || 'No account' : launcherLabel(choice.name)))
                 .children(windows.map(window => {
                   const elapsed = quotaElapsedPercent(window);
                   const label = window.minutes === 300 ? '5h' : 'Week';

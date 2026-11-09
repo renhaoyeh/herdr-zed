@@ -6,7 +6,8 @@ import { Button } from './components/button.js';
 import { DialogContent, DialogTitle, DialogDescription, DialogFooter } from './components/dialog.js';
 import { AlertDialogContent, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from './components/alert-dialog.js';
 
-// Account actions opened from Manage: add, rename and remove. Mixed into the Devkits view.
+// Account actions opened from Settings: add, rename and remove. Each stacks a modal above Settings and closes
+// only itself, like the profile editor; Settings reloads its accounts when profile-revision changes. Mixed into the Devkits view.
 export const accountActions = {
   initRenameAccount() {
     this.renameInput = InputState.new({ placeholder: 'Account name' });
@@ -16,25 +17,19 @@ export const accountActions = {
   },
 
   addAccount(provider) {
-    const target = props();
-    closeOverlay(target.overlay);
     openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: true, width: 520, height: 380,
-      props: { view: 'account-login', provider, returnTo: { view: 'manage-launchers', space: target.space } } });
+      props: { view: 'account-login', provider } });
   },
 
   renameAccount(account) {
     const target = props();
-    closeOverlay(target.overlay);
     openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: true, width: 480, height: 260,
       props: { view: 'rename-account', account: { key: account.key, name: account.name }, space: target.space } });
   },
 
   finishRename() {
     if (this.renaming) return;
-    const target = props();
-    closeOverlay(target.overlay);
-    openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: false, width: 1040, height: 0.8,
-      props: { view: 'manage-launchers', space: target.space } });
+    closeOverlay(props().overlay);
   },
 
   saveAccountName(cx) {
@@ -70,7 +65,6 @@ export const accountActions = {
 
   confirmRemoveAccount(account) {
     const target = props();
-    closeOverlay(target.overlay);
     openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: true, width: 480, height: 300,
       props: { view: 'remove-account', account: { key: account.key, name: account.name }, space: target.space } });
   },
@@ -80,8 +74,6 @@ export const accountActions = {
     const back = () => {
       if (this.removing) return;
       closeOverlay(target.overlay);
-      openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: false, width: 1040, height: 0.8,
-        props: { view: 'manage-launchers', space: target.space } });
     };
     const confirm = cx => {
       if (this.removing) return;

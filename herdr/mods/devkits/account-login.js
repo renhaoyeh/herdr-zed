@@ -2,7 +2,7 @@ import { ensureClaudeStatusLine } from './components/claude-usage-hook.js';
 import { div } from 'gpui-kit';
 import { v_flex, h_flex, InputState, Input } from 'gpui-base';
 import { WebSocket } from 'websocket';
-import { appHome, exec, hc, readTextFile, writeTextFile, theme, closeOverlay, openOverlay, window } from 'herdr';
+import { appHome, exec, hc, readTextFile, writeTextFile, theme, closeOverlay, openOverlay, window, shared, setShared } from 'herdr';
 import { commandArgv } from './shell-command.js';
 import { launcherLabel } from './model.js';
 import { Button } from './components/button.js';
@@ -244,6 +244,9 @@ export default class AccountLogin {
           try { await ensureClaudeStatusLine(profile.directory); } catch {} // Usage stays unavailable; sign-in still succeeds.
         }
         await registerAccount(profile);
+        // Settings stays open beneath this dialog and reloads its accounts on this revision.
+        setShared('devkits.agent-cache', {});
+        setShared('devkits.profile-revision', (shared('devkits.profile-revision') || 0) + 1);
         this.phase = 'success';
         this.email = email || profile.name;
       } catch (error) {
@@ -372,7 +375,7 @@ export default class AccountLogin {
     const source = this.source;
     const id = this.provider || 'codex';
     const pasteCode = id === 'claude' && this.phase === 'waiting';
-    const action = (name, label, handler, primary = false) => Button(`${id}-login-${name}`, t, { variant: primary ? 'default' : 'outline' })
+    const action = (name, label, handler, primary = false) => Button(`${id}-login-${name}`, t, { variant: primary ? 'default' : 'secondary' })
       .on_click(handler).child(label);
     return v_flex().id(`${id}-login-dialog`).size_full().rounded(0).border(1).border_color(t.border).p(24).gap(16).bg(t.popover).text_color(t.foreground).role('dialog')
       .track_focus(this.handle).on_key_down((event, cx) => {
@@ -400,7 +403,7 @@ export default class AccountLogin {
           .when(Boolean(this.codeError), el => el.child(div().text_size(12).text_color(t.destructive || t.foreground).child(this.codeError))))
         .when(Boolean(this.error), el => el.child(div().id(`${id}-login-error`).text_size(12).text_color(t.destructive || t.foreground).child(this.error))))
       .child(h_flex().gap(8).justify_end()
-        .when(this.phase === 'success', el => el.child(action('done', 'Back to Manage', () => this.finish(), true)))
+        .when(this.phase === 'success', el => el.child(action('done', 'Done', () => this.finish(), true)))
         .when(this.phase !== 'success', el => el
           .child(action('cancel', 'Cancel', () => this.finish()))
           .when(this.phase === 'waiting' && Boolean(this.authUrl), el => el.child(action('browser', 'Open browser', (_event, cx) => {

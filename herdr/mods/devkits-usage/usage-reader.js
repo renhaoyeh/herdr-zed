@@ -32,15 +32,18 @@ export function claudePlan(profile) {
   return type === 'claude_max' && tier ? `claude_max_${tier}x` : type;
 }
 
+// The signed-in address from the same profile file, so a Default account can be told apart.
+export const claudeEmail = profile => typeof profile?.oauthAccount?.emailAddress === 'string' && profile.oauthAccount.emailAddress || null;
+
 // Reads only what this profile's status line recorded and its account plan; it never touches credentials or the network.
 export async function readClaudeUsage(run, home = homedir()) {
   const configured = claudeConfigDir(run), directory = configured || `${home}/.claude`;
   let saved, profile;
   try { saved = JSON.parse(await readFile(`${directory}/${claudeUsageFile}`, 'utf8')); } catch {}
-  if (!saved?.rate_limits) throw new Error('No usage yet. Start a session with this account to update it.');
   try { profile = JSON.parse(await readFile(configured ? `${directory}/.claude.json` : `${home}/.claude.json`, 'utf8')); } catch {}
+  if (!saved?.rate_limits) throw Object.assign(new Error('No usage yet. Start a session with this account to update it.'), { email: claudeEmail(profile) });
   const plan = claudePlan(profile);
-  return { windows: claudeUsageWindows(saved.rate_limits), fetchedAt: Number.isFinite(saved.capturedAt) ? saved.capturedAt : null,
+  return { email: claudeEmail(profile), windows: claudeUsageWindows(saved.rate_limits), fetchedAt: Number.isFinite(saved.capturedAt) ? saved.capturedAt : null,
     ...(plan ? { plan } : {}) };
 }
 
@@ -65,18 +68,19 @@ export function readCodexUsage(argv, timeout = 18000) {
     const args = commandArgv(argv.filter(arg => arg !== '--no-daemon'), process.platform === 'win32' ? 'windows' : process.platform);
     const child = spawn(args[0], [...args.slice(1), 'app-server'], { stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true });
     const lines = createInterface({ input: child.stdout });
-    let done = false;
+    let done = false, limits, email = null, accountTimer;
     const finish = (error, result) => {
       if (done) return;
       done = true;
-      clearTimeout(timer);
+      clearTimeout(timer); clearTimeout(accountTimer);
       lines.close();
       child.stdin.end();
       const kill = setTimeout(() => child.kill('SIGKILL'), 800);
       kill.unref();
       child.once('close', () => clearTimeout(kill));
       if (error) reject(new Error(error));
-      else resolve({ windows: usageWindows(result), plan: typeof result.rateLimits?.planType === 'string' ? result.rateLimits.planType : null });
+      else resolve({ windows: usageWindows(result), plan: typeof result.rateLimits?.planType === 'string' ? result.rateLimits.planType : null,
+        email: typeof email === 'string' && email || null });
     };
     const timer = setTimeout(() => finish('Usage request timed out'), timeout);
     const send = message => { if (!done) child.stdin.write(`${JSON.stringify(message)}\n`); };
@@ -92,7 +96,13 @@ export function readCodexUsage(argv, timeout = 18000) {
         send({ id: 2, method: 'account/rateLimits/read' });
       } else if (message.id === 2) {
         if (message.error) return finish('Usage unavailable; check account sign-in');
-        finish(null, message.result || {});
+        // The signed-in address is optional; usage stands without it.
+        limits = message.result || {};
+        accountTimer = setTimeout(() => finish(null, limits), 2000);
+        send({ id: 3, method: 'account/read', params: { refreshToken: false } });
+      } else if (message.id === 3) {
+        email = message.result?.account?.email;
+        finish(null, limits);
       }
     });
     send({ id: 1, method: 'initialize', params: { clientInfo: { name: 'devkits_usage', version: '0.1.0' } } });
@@ -106,6 +116,6 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       if (account.provider === 'claude') return { key: account.key, name: account.name, ...await readClaudeUsage(account.run) };
       return { key: account.key, name: account.name, ...await readCodexUsage(account.run), fetchedAt: Date.now() };
     }
-    catch (error) { return { key: account.key, name: account.name, error: error.message }; }
+    catch (error) { return { key: account.key, name: account.name, error: error.message, ...(error.email ? { email: error.email } : {}) }; }
   }))));
 }

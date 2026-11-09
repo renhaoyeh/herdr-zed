@@ -1,5 +1,5 @@
 import { div } from 'gpui-kit';
-import { h_flex, v_flex, InputState, Input, TextareaState, Textarea } from 'gpui-base';
+import { h_flex, v_flex, InputState, Input } from 'gpui-base';
 import { shared, setShared, props, openOverlay, closeOverlay } from 'herdr';
 import { sessionKind, permissionModes, launcherChoices, launcherLabel, launcherOption, sessionChoices, effortLabel, claudeModels } from './model.js';
 import { Button } from './components/button.js';
@@ -7,8 +7,9 @@ import { Select } from './components/select.js';
 import { DialogContent, DialogTitle, DialogDescription, DialogFooter } from './components/dialog.js';
 import { DropdownMenuLabel } from './components/dropdown-menu.js';
 import { AgentIcon, glyph } from './components/icon.js';
+import { noAccount } from './session-menu.js';
 
-// New profiles use Usage's selected accounts and saved display order.
+// Profiles can use any installed account, in Add session's saved order.
 export const agentProfiles = {
   profileAccounts() {
     return launcherChoices(this.launchers, shared('devkits.launcher-order') || [])
@@ -16,20 +17,10 @@ export const agentProfiles = {
       .map(choice => choice.agent);
   },
 
-  selectableProfileAccounts() {
-    const hidden = shared('devkits.hidden-usage-profiles') || [];
-    return this.profileAccounts().filter(account => !hidden.includes(account.key));
-  },
-
-  profileEditorAccounts() {
-    const selected = new Set(this.selectableProfileAccounts().map(account => account.key));
-    // Editing can retain its saved account even when it is no longer selected for new profiles.
-    const existing = (shared('devkits.agent-configs') || []).find(config => config.key === props().configKey);
-    return this.profileAccounts().filter(account => selected.has(account.key) || account.key === existing?.profileKey);
-  },
+  profileEditorAccounts() { return this.profileAccounts(); },
 
   openAgentProfileEditor(config = null) {
-    if (!config && !this.selectableProfileAccounts().length) return;
+    if (!config && !this.profileAccounts().length) return;
     const target = props();
     openOverlay({ mod: 'devkits', kind: 'dialog', modal: true, frame: 'none', width: 640, height: 680,
       props: { view: 'agent-profile-editor', configKey: config?.key || null, space: target.space } });
@@ -51,9 +42,6 @@ export const agentProfiles = {
     this.configName = InputState.new({ placeholder: 'Profile name', value: this.profileDraft.name });
     this.configName.set_value(this.profileDraft.name);
     this.configName.on('change', (_event, cx) => { this.profileError = null; cx.notify(); });
-    this.configInstructions = TextareaState.new({ placeholder: 'Extra instructions for this agent…', rows: 5 });
-    this.configInstructions.set_value(config?.instructions || '');
-    this.configInstructions.on('change', (_event, cx) => { this.profileError = null; cx.notify(); });
     if (key && !config) this.profileError = 'This agent profile no longer exists.';
   },
 
@@ -70,12 +58,10 @@ export const agentProfiles = {
     if (this.profileSaving || this.profileSaved) return;
     const draft = this.profileDraft, account = this.profileEditorAccounts().find(item => item.key === draft.profileKey);
     const name = this.configName.value().trim(), configs = shared('devkits.agent-configs') || [], existing = props().configKey;
-    const instructions = this.configInstructions.value().trim();
     let error;
     if (existing && !configs.some(item => item.key === existing)) error = 'This agent profile no longer exists.';
     else if (!name || Array.from(name).length > 48 || /[\u0000-\u001f\u007f-\u009f]/.test(name)) error = 'Use a name of 1–48 characters without control characters.';
-    else if (instructions.includes('\u0000')) error = 'Instructions cannot contain null characters.';
-    else if (!account) error = 'Choose an account checked in Usage.';
+    else if (!account) error = 'Choose an account.';
     else {
       const choices = sessionChoices(sessionKind(account), this.profileModels(account), shared('devkits.session-options')?.[sessionKind(account)] || {}, draft.model);
       if (draft.model && !choices.models.some(model => model.key === draft.model)) error = 'Choose an available model.';
@@ -86,6 +72,8 @@ export const agentProfiles = {
     this.profileSaving = true;
     let number = configs.length + 1, key = existing || `devkits-preset-${Date.now().toString(36)}-${number}`;
     while (!existing && configs.some(item => item.key === key)) key = `devkits-preset-${Date.now().toString(36)}-${++number}`;
+    // Profile instructions are paused: no field edits them and launches ignore them, but saving keeps stored text.
+    const instructions = configs.find(item => item.key === existing)?.instructions;
     const config = { key, profileKey: account.key, name, ...(instructions ? { instructions } : {}) };
     const sessions = shared('devkits.profile-sessions') || {};
     setShared('devkits.profile-sessions', { ...sessions, [key]: { ...sessions[key], model: draft.model, effort: draft.effort,
@@ -122,7 +110,7 @@ export const agentProfiles = {
       })
       .child(DialogTitle().flex_none().child(creating ? 'New agent profile' : 'Edit agent profile'))
       .child(v_flex().flex_1().min_h(0).overflow_y_scroll().gap(12)
-        .child(DialogDescription(t).child(creating ? 'Name this setup and choose an account checked in Usage.' : 'Edit this saved model setup.'))
+        .child(DialogDescription(t).child(creating ? 'Name this setup and choose the account it starts with.' : 'Edit this saved model setup.'))
         .child(h_flex().flex_none().gap(12).items_center()
           .child(div().w(108).flex_none().text_size(13).child('Name'))
           .child(Input.new(this.configName).id('agent-configuration-name').accessibility_label('Agent profile name')
@@ -130,15 +118,11 @@ export const agentProfiles = {
         .child(h_flex().flex_none().gap(12).items_center()
           .child(div().w(108).flex_none().text_size(13).child('Account'))
           .child(Select('defaults-profile', this.defaultSelects.profile, account?.key || 'none',
-            [{ key: 'none', label: 'Select account', color: t.muted }, ...accounts.map(item => ({ ...launcherOption(item), color: t.foreground }))], 'Account',
+            [{ key: 'none', label: 'Select account', color: t.muted }, ...accounts.map(item => { const option = launcherOption(item), label = this.accountName(item, option.label);
+              return { ...option, label, color: label === noAccount ? t.muted : t.foreground }; })], 'Account',
             key => this.chooseProfileAccount(key), t, { width: 240, boxed: true })))
         .when(Boolean(account), el => el.child(this.configurationFields(account, t, draft)))
-        .child(v_flex().flex_none().gap(6)
-          .child(div().text_size(13).child('Additional system instructions'))
-          .child(div().text_size(12).text_color(t.muted).child('Appended after global Rules for new sessions using this profile. Leave blank to use global Rules only.'))
-          .child(Textarea.new(this.configInstructions).id('agent-profile-instructions').accessibility_label('Additional system instructions')
-            .w_full().h(112).p(8).border(1).border_color(t.input).rounded(4).text_size(12)))
-        .when(!accounts.length, el => el.child(div().text_size(12).text_color(t.muted).child('Check an account in Settings → Usage first.')))
+        .when(!accounts.length, el => el.child(div().text_size(12).text_color(t.muted).child('Install Claude Code or Codex CLI first.')))
         .when(Boolean(this.profileError), el => el.child(div().id('agent-profile-error').text_size(12)
           .text_color(t.destructive || t.ansi1).child(this.profileError))))
       .child(DialogFooter().flex_none().children([
@@ -150,7 +134,7 @@ export const agentProfiles = {
 
   agentProfilesPage(t) {
     const accounts = this.profileAccounts(), configs = shared('devkits.agent-configs') || [];
-    const canAdd = this.selectableProfileAccounts().length > 0;
+    const canAdd = accounts.length > 0;
     const columns = (name, account, model, effort, speed, actions) => h_flex().w_full().px(12).gap(12).items_center()
       .child(div().flex_1().min_w(0).child(name)).child(div().w(144).flex_none().min_w(0).child(account))
       .child(div().w(160).flex_none().min_w(0).child(model)).child(div().w(64).flex_none().child(effort))
@@ -162,7 +146,7 @@ export const agentProfiles = {
         .child(Button('add-agent-configuration', t, { variant: 'secondary' }).h(28).px(10).gap(6)
           .disabled(!canAdd)
           .on_click(() => this.openAgentProfileEditor()).child(glyph('plus')).child('Add')))
-      .child(DialogDescription(t).flex_none().child(canAdd ? 'Optional saved model setups. Add a profile using an account checked in Usage.' : 'Check an account in Settings → Usage to add an agent profile.'))
+      .child(DialogDescription(t).flex_none().child(canAdd ? 'Optional saved setups: an account with its own model, effort and permissions. Each appears in Add session.' : 'Install Claude Code or Codex CLI to add a profile.'))
       .child(v_flex().id('agent-profiles-table').flex_1().min_h(0).border(1).border_color(t.border)
         .child(columns('NAME', 'ACCOUNT', 'MODEL', 'EFFORT', 'SPEED', '').h(32).flex_none().text_size(11).text_color(t.muted)
           .border_b(1).border_color(t.border))
@@ -172,7 +156,7 @@ export const agentProfiles = {
             const account = accounts.find(item => item.key === config.profileKey), saved = shared('devkits.profile-sessions')?.[config.key] || {};
             const models = sessionKind(account) === 'claude' ? claudeModels : account ? this.profileModels(account) || [] : [];
             const label = h_flex().gap(6).items_center().min_w(0).child(AgentIcon(account, t).flex_none())
-              .child(text(account ? launcherLabel(account.name || sessionKind(account)) : 'Unavailable'));
+              .child(text(account ? this.accountName(account, launcherLabel(account.name || sessionKind(account))) : 'Unavailable'));
             const actions = h_flex().gap(4).items_center()
               .child(Button(`edit-agent-profile-${config.key}`, t, { variant: 'ghost' }).h(28).px(4).on_click(() => this.openAgentProfileEditor(config)).child('Edit'))
               .child(Button(`remove-agent-profile-${config.key}`, t, { variant: 'ghost', size: 'icon' }).accessibility_label(`Remove ${config.name}`)

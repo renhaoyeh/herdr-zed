@@ -2,12 +2,12 @@ import { evaluateNative, sourceOptions } from './source-harness.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { claudeModels, claudeEfforts, codexHome, codexModels, isClaudeLauncher, isCodexLauncher, sessionArgv, sessionKind, shownOptions, mergeModels, orderedOptions, moveOption, effortLabel, sessionChoices, settingsKey, launcherOption, folderKey } from '../mods/devkits/model.js';
+import { claudeModels, claudeEfforts, codexHome, codexModels, isClaudeLauncher, isCodexLauncher, sessionArgv, sessionKind, shownOptions, mergeModels, orderedOptions, moveOption, effortLabel, sessionChoices, settingsKey, launcherOption, accountAddresses, folderKey } from '../mods/devkits/model.js';
 
 const names = ['asanaTheme', 'AsanaPanel', 'AsanaProjectPicker', 'previewWidthAt', 'avatarColor', 'statusKind', 'initials', 'dueLabel', 'searchProjects', 'projectTasksPage', 'myProjectTasks', 'projectWorkspace', 'openSubtasks', 'taskDetails', 'taskComments', 'relativeTime',
   'filterTasks', 'taskPrompt', 'readAsanaToken', 'saveAsanaToken'];
 async function load(host = {}) {
-  host = { fetch: () => assert.fail('unexpected request'), Button: () => {}, claudeModels, claudeEfforts, codexHome, codexModels, isClaudeLauncher, isCodexLauncher, sessionKind, shownOptions, orderedOptions, effortLabel, settingsKey, launcherOption, folderKey,
+  host = { fetch: () => assert.fail('unexpected request'), Button: () => {}, claudeModels, claudeEfforts, codexHome, codexModels, isClaudeLauncher, isCodexLauncher, sessionKind, shownOptions, orderedOptions, effortLabel, settingsKey, launcherOption, accountAddresses, folderKey,
     glyph: () => element(), home: () => '/home', shared: () => null, setShared() {}, closeOverlay() {}, Select: () => element(), SelectState: class {}, ...host };
   Object.assign(host, await evaluateNative('../mods/devkits-asana/api.js', host, 'searchProjects, projectTasksPage, myProjectTasks, projectWorkspace, openSubtasks, taskDetails, taskComments, projectFields'));
   Object.assign(host, await evaluateNative('../mods/devkits-asana/connection.js', host, 'readAsanaToken, saveAsanaToken'));
@@ -336,7 +336,8 @@ test('Tasks names and applies profile defaults, narrows efforts to the effective
   const render = () => panel.launchRow({ gid: 'task' }, agents, (_agent, _task, options) => { started = options; }, {});
   render();
   assert.deepEqual(panel.session(agents).efforts, ['low', 'high']);
-  assert.equal(picks.get('task-session-agent').options[0].label, 'Default account');
+  // Tasks names Default accounts with the same rule as Settings: No account until an address is known.
+  assert.equal(picks.get('task-session-agent').options[0].label, 'No account');
   assert.equal(picks.get('task-session-agent').options[0].icon, 'icons/codex.svg');
   assert.equal(picks.get('task-session-agent').options[0].iconTint, false);
   assert.equal(picks.get('task-session-model').options[0].label, 'Default (A)');

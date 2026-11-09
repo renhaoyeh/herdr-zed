@@ -1,7 +1,7 @@
 import { div } from 'gpui-kit';
 import { v_flex, h_flex } from 'gpui-base';
-import { shared, setShared, props, spaces, openOverlay, closeOverlay, home, readTextFile, keys, window } from 'herdr';
-import { launcherChoices, launcherLabel, launcherOption, permissionModes, sessionKind, claudeModels, claudeEfforts, codexHome, codexModels, mergeModels, orderedOptions, moveOption, effortLabel, sessionChoices, settingsKey, profileSettings, configuredAgents, autoRank, autoMultipliers, autoMultiplier, planMultiplier, planLabel, quotaResetLabel } from './model.js';
+import { shared, setShared, props, spaces, openOverlay, closeOverlay, home, readTextFile, keys, window, exec, appHome } from 'herdr';
+import { launcherChoices, launcherLabel, launcherOption, accountAddresses, noAccountLabel, permissionModes, sessionKind, isAccountLauncher, claudeModels, claudeEfforts, codexHome, codexModels, mergeModels, orderedOptions, moveOption, effortLabel, sessionChoices, settingsKey, profileSettings, configuredAgents, autoRank, autoMultipliers, autoMultiplier, planMultiplier, planLabel, quotaResetLabel } from './model.js';
 import { DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from './components/dropdown-menu.js';
 import { Button } from './components/button.js';
 import { Checkbox } from './components/checkbox.js';
@@ -11,9 +11,15 @@ import { DialogContent, DialogTitle, DialogDescription, DialogFooter } from './c
 import { glyph, AgentIcon } from './components/icon.js';
 import { Select, SelectState } from './components/select.js';
 import { RulesPreview } from './global-rules.js';
-import { openInterfaceSettings } from './ui-settings.js';
 
 const launcherSections = ['Terminal', 'Agents', 'Your accounts', 'Agent profiles'];
+export const noAccount = noAccountLabel;
+// Accounts whose address was already requested in this app session.
+const identityReads = new Set();
+
+// One Settings dialog for agents, reachable with or without an open project.
+export const openAgentSettings = (space = null, page = 'accounts') => openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none',
+  modal: false, width: 1040, height: 0.8, props: { view: 'manage-launchers', space, page } });
 
 // The Add session menu and its Manage dialog. Mixed into the Devkits view, which provides
 // cachedAgents, startThread and the account actions (addAccount, renameAccount, confirmRemoveAccount).
@@ -27,7 +33,11 @@ export const sessionMenu = {
     this.loadAgents(cx);
     if (!['manage-launchers', 'agent-profile-editor'].includes(props().view)) return;
     this.loadCodexModels(cx);
-    this.settingsPage = props().page || 'agents';
+    // Former provider pages open their default account on Accounts.
+    const page = props().page || 'agents';
+    // Former provider and Models pages open the same settings on Accounts.
+    this.settingsPage = ['claude', 'codex', 'models'].includes(page) ? 'accounts' : page;
+    if (['claude', 'codex'].includes(page)) this.selectedAccount = page;
     this.defaultSelects = { permissions: new SelectState(cx), model: new SelectState(cx), effort: new SelectState(cx), profile: new SelectState(cx) };
     if (props().view === 'agent-profile-editor') { this.initAgentProfileEditor(cx); return; }
     this.rulesPreview = new RulesPreview();
@@ -53,10 +63,13 @@ export const sessionMenu = {
   // Copy legacy provider defaults once, then keep every profile and named agent independent.
   availableAgents(profiles, machine) {
     if (machine) return profiles;
-    // Custom profiles become available when created; discard their former visibility flags.
-    const hiddenLaunchers = shared('devkits.hidden-launchers') || [];
-    const nativeHidden = hiddenLaunchers.filter(key => !key.startsWith('agent:devkits-preset-'));
-    if (nativeHidden.length !== hiddenLaunchers.length) setShared('devkits.hidden-launchers', nativeHidden);
+    // Discard legacy profile visibility flags once; afterwards profiles hide like any other launcher.
+    if (!shared('devkits.profile-visibility')) {
+      const hiddenLaunchers = shared('devkits.hidden-launchers') || [];
+      const nativeHidden = hiddenLaunchers.filter(key => !key.startsWith('agent:devkits-preset-'));
+      if (nativeHidden.length !== hiddenLaunchers.length) setShared('devkits.hidden-launchers', nativeHidden);
+      setShared('devkits.profile-visibility', true);
+    }
     if (profiles.length && shared('devkits.hidden-usage-profiles') === undefined) {
       const hidden = shared('devkits.hidden-launchers') || [];
       setShared('devkits.hidden-usage-profiles', profiles.filter(agent => !agent.profileKey && hidden.includes(`agent:${agent.key}`)).map(agent => agent.key));
@@ -113,18 +126,72 @@ export const sessionMenu = {
         choose: checked => set({ serviceTier: checked ? 'fast' : null }) }] : [])];
   },
 
-  // Native provider settings remain independent of optional named agent profiles.
-  providerPage(kind, t) {
-    const name = kind === 'claude' ? 'Claude' : 'Codex';
-    const profiles = this.availableAgents(this.launchers).filter(agent => !agent.profileKey && sessionKind(agent) === kind);
-    const profile = profiles.find(agent => agent.key === this.selectedProfiles?.[kind]) || profiles.find(agent => agent.key === kind) || profiles[0];
-    return v_flex().id(`settings-${kind}`).flex_1().min_h(0).overflow_y_scroll().gap(12)
-      .child(DropdownMenuLabel(t).id(`defaults-section-${kind}`).px(0).child('DEFAULTS'))
-      .child(div().flex_none().text_size(12).text_color(t.muted).child(`Defaults for new ${name} sessions using the selected account.`))
-      .child(this.configurationAccountPicker(profiles, profile, key => { this.selectedProfiles = { ...this.selectedProfiles, [kind]: key }; }, t))
-      .child(this.configurationFields(profile, t))
-      .child(v_flex().id('provider-model-options').w_full().flex_none().gap(12).mt(4).pt(12).border_t(1).border_color(t.border)
-        .children(this.sessionOptions(kind, t)));
+  // Like macOS and Zed settings: accounts grouped by provider on the left, the selected account on the right.
+  // Its session defaults choose from the provider's shared Models in menus, so both sit together.
+  accountsPage(t) {
+    const agents = this.availableAgents(this.launchers).filter(agent => !agent.profileKey);
+    const usage = shared('devkits.usage.snapshot')?.contexts?.[JSON.stringify(null)]?.usage || [];
+    const order = shared('devkits.launcher-order') || [];
+    const groups = ['claude', 'codex'].map(kind => ({ kind, name: kind === 'claude' ? 'Claude' : 'Codex',
+      accounts: launcherChoices(agents.filter(agent => sessionKind(agent) === kind), order).map(choice => choice.agent).filter(Boolean) }));
+    const all = groups.flatMap(group => group.accounts);
+    const agent = all.find(item => item.key === this.selectedAccount) || all[0];
+    return v_flex().id('settings-accounts').flex_1().min_h(0).gap(12)
+      .child(DialogDescription(t).flex_none().child('Sign in to more Claude and Codex accounts. Each account keeps its own session defaults.'))
+      .child(h_flex().flex_1().min_h(0).gap(16).items_start()
+        .child(v_flex().id('accounts-list').w(220).flex_none().h_full().min_h(0).overflow_y_scroll().gap(12)
+          .children(groups.map(group => {
+            const installed = group.accounts.some(item => item.key === group.kind);
+            return v_flex().id(`accounts-${group.kind}`).flex_none().gap(2)
+              .child(h_flex().h(28).flex_none().gap(8).items_center()
+                .child(DropdownMenuLabel(t).px(0).flex_1().child(group.name.toUpperCase()))
+                .when(installed, el => el.child(Button(`add-${group.kind}-account`, t, { variant: 'ghost', size: 'icon' })
+                  .accessibility_label(`Add a ${group.name} account`).on_click(() => this.addAccount(group.kind)).child(glyph('plus')))))
+              .when(!group.accounts.length, el => el.child(div().py(4).text_size(12).text_color(t.muted)
+                .child(this.loading ? 'Loading agents…' : `${group.kind === 'claude' ? 'Claude Code' : 'Codex CLI'} is not installed.`)))
+              .children(group.accounts.map(item => Button(`account-${item.key}`, t, { variant: 'ghost' }).w_full().h(32).px(8).gap(8).justify_start()
+                .bg(item.key === agent?.key ? t.selected : t.popover).text_color(item.key === agent?.key ? t.foreground : t.muted)
+                .accessibility_label(`${launcherLabel(item.name || group.kind)}${item.key === agent?.key ? ', selected' : ''}`)
+                .on_click((_event, cx) => {
+                  for (const state of Object.values(this.defaultSelects || {})) state.open = false;
+                  this.selectedAccount = item.key; cx.notify();
+                })
+                .child(AgentIcon(item, t).flex_none())
+                .child(div().id(`account-list-name-${item.key}`).flex_1().min_w(0).truncate().text_size(13)
+                  .when(this.accountName(item, launcherLabel(item.name || group.kind)) === noAccount, el => el.text_color(t.muted))
+                  .child(this.accountName(item, launcherLabel(item.name || group.kind))))));
+          })))
+        .child(agent ? this.accountDetail(agent, usage, t)
+          : div().flex_1().p(12).text_size(12).text_color(t.muted).child(this.loading ? 'Loading agents…' : 'Install Claude Code or Codex CLI to manage accounts.')));
+  },
+
+  accountDetail(agent, usage, t) {
+    const kind = sessionKind(agent), name = kind === 'claude' ? 'Claude' : 'Codex';
+    const label = this.accountName(agent, launcherLabel(agent.name || kind)), identity = this.accountIdentity(agent);
+    // On the name's line: a named account's address, then the plan (a Default account already uses its address as the name).
+    const about = [identity.email !== label && identity.email, planLabel(identity.plan)].filter(Boolean).join(' · ');
+    return v_flex().id(`account-detail-${agent.key}`).flex_1().min_w(0).h_full().min_h(0).overflow_y_scroll().gap(12)
+      .child(h_flex().flex_none().gap(10).items_center()
+        .child(AgentIcon(agent, t).flex_none())
+        // One centered line: name · address · plan, the details muted.
+        .child(h_flex().flex_1().min_w(0).gap(6).items_center()
+          .child(div().flex_none().max_w_full().truncate().text_size(15).font_medium().when(label === noAccount, el => el.text_color(t.muted)).child(label))
+          .when(Boolean(about), el => el.child(div().flex_none().text_size(13).text_color(t.muted).child('·'))
+            .child(div().id(`account-email-${agent.key}`).flex_1().min_w(0).truncate().text_size(13).text_color(t.muted).child(about))))
+        .when(isAccountLauncher(agent), el => el
+          .child(Button(`account-actions-${agent.key}-rename`, t, { variant: 'secondary' }).h(28)
+            .on_click(() => this.renameAccount(agent)).child('Rename'))
+          .child(Button(`account-actions-${agent.key}-remove`, t, { variant: 'secondary' }).h(28)
+            .text_color(t.destructive || t.ansi1).on_click(() => this.confirmRemoveAccount(agent)).child('Remove'))))
+      .child(v_flex().id(`account-defaults-panel-${agent.key}`).flex_none().gap(8).mt(4)
+        .child(DropdownMenuLabel(t).px(0).child('SESSION DEFAULTS'))
+        .child(div().text_size(12).text_color(t.muted).child(`For new sessions started with ${label}. Model choices come from the list below.`))
+        .child(this.configurationFields(agent, t)))
+      .child(v_flex().flex_none().gap(8).mt(8)
+        .child(DropdownMenuLabel(t).px(0).child(`MODELS IN MENUS · ALL ${name.toUpperCase()} ACCOUNTS`))
+        .child(div().text_size(12).text_color(t.muted)
+          .child(`Which models and efforts every ${name} Model and Effort menu offers, including profiles. Drag to reorder.`))
+        .children(this.sessionOptions([kind], t)));
   },
 
   configurationAccountPicker(profiles, profile, choose, t) {
@@ -159,8 +226,7 @@ export const sessionMenu = {
 
   // Which models and efforts Asana's session composer offers, like Cursor's model list: one row and switch per model,
   // and efforts as joined segments as in Claude Code and Codex. Turned-off ones are hidden; Default always stays.
-  sessionOptions(kind, t) {
-    const kinds = [kind];
+  sessionOptions(kinds, t) {
     const saved = shared('devkits.session-options') || {};
     const shown = (kind, field, key) => !(saved[kind]?.[field] || []).includes(key);
     const toggle = (kind, field, key) => {
@@ -180,10 +246,8 @@ export const sessionMenu = {
       }
     };
     const title = effortLabel;
-    const name = kind === 'claude' ? 'Claude' : 'Codex';
-    return [DropdownMenuLabel(t).id('defaults-section-session').px(0).mt(8).child('MODELS AND EFFORT'),
-      div().flex_none().text_size(12).text_color(t.muted).child(`Which models and efforts the Model and Effort choices offer, for every ${name} account.`),
-      ...kinds.map(kind => {
+    // One card per provider, shown beside the selected account's session defaults.
+    return kinds.map(kind => {
         const models = orderedOptions(kind === 'claude' ? claudeModels : this.codexModelList || [], saved[kind]?.order);
         const reorder = (key, target) => {
           const current = shared('devkits.session-options') || {};
@@ -192,14 +256,14 @@ export const sessionMenu = {
         const dragging = this.modelDrag?.kind === kind;
         const efforts = kind === 'claude' ? claudeEfforts : [...new Set(models.flatMap(model => model.efforts))];
         const count = models.filter(model => shown(kind, 'models', model.key)).length;
-        return v_flex().id(`session-options-${kind}`).mb(8).flex_none().border(1).border_color(t.border)
-          .child(h_flex().h(36).px(12).gap(8).items_center().border_b(1).border_color(t.border)
-            .child(div().flex_1().text_size(13).font_medium().child(kind === 'claude' ? 'Claude' : 'Codex'))
-            .when(models.length > 0, el => el.child(div().text_size(12).text_color(t.muted).child(`${count} of ${models.length} models`))))
+        return v_flex().id(`session-options-${kind}`).flex_none().border(1).border_color(t.border)
+          .child(h_flex().h(36).px(12).gap(8).items_center()
+            .child(div().flex_1().text_size(13).font_medium().child('Models'))
+            .when(models.length > 0, el => el.child(div().text_size(12).text_color(t.muted).child(`${count} of ${models.length} shown`))))
           .when(!models.length, el => el.child(div().h(36).px(12).flex().items_center().text_size(12).text_color(t.muted).child('Loading models…')))
           // Drag a model by its handle to set the Model menu's order, as launchers are dragged above.
-          .children(models.map((model, index) => h_flex().id(`session-${kind}-model-${model.key}`).h(36).pl(4).pr(12).gap(8).items_center()
-            .when(index > 0, el => el.border_t(1).border_color(t.border))
+          .children(models.map(model => h_flex().id(`session-${kind}-model-${model.key}`).h(36).pl(4).pr(12).gap(8).items_center()
+            .border_t(1).border_color(t.border)
             .opacity(dragging && this.modelDrag.key === model.key ? 0.5 : 1)
             .bg(dragging && this.modelDrop === model.key && this.modelDrag.key !== model.key ? t.selected : t.popover)
             .on_mouse_move((_event, cx) => { if (dragging && this.modelDrop !== model.key) { this.modelDrop = model.key; cx.notify(); } })
@@ -227,7 +291,7 @@ export const sessionMenu = {
               .children(efforts.map((effort, index) => ToggleGroupItem(`session-${kind}-efforts-${effort}`, shown(kind, 'efforts', effort), index === 0, t)
                 .accessibility_label(`Show ${title(effort)} effort`).on_change((_pressed, cx) => { toggle(kind, 'efforts', effort); cx.notify(); })
                 .child(title(effort)))))));
-      })];
+      });
   },
 
   loadAgents(cx) {
@@ -250,9 +314,63 @@ export const sessionMenu = {
     });
   },
 
+  // Dialogs stacked above Settings change accounts and bump profile-revision; reload, selecting a new account.
+  // A local account's signed-in address: Usage's reading, else the address read for accounts Usage does not show.
+  accountIdentity(agent) {
+    const key = agent?.profileKey || agent?.key;
+    const reading = (shared('devkits.usage.snapshot')?.contexts?.[JSON.stringify(null)]?.usage || []).find(item => item.key === key);
+    const saved = shared('devkits.account-identities')?.[key];
+    return { email: reading?.email || saved?.email || null, plan: reading?.plan || saved?.plan || null };
+  },
+
+  // A Default account is named by its signed-in address, or a muted No account when none is known;
+  // named accounts keep their own name. Every account list uses this one rule.
+  accountName(agent, label) {
+    if (label !== 'Default account' || !agent || agent.profileKey || !['claude', 'codex'].includes(sessionKind(agent))) return label;
+    return launcherOption(agent, accountAddresses(shared)).label;
+  },
+
+  // Usage reads only the accounts it shows, so read every other local account's address once per app session
+  // through the same credential-free reader, and share it with every account label.
+  loadAccountIdentities(cx, agents = this.launchers) {
+    if (spaces().find(space => space.id === props()?.space)?.machine) return;
+    const usage = shared('devkits.usage.snapshot')?.contexts?.[JSON.stringify(null)]?.usage || [];
+    const missing = (agents || []).filter(agent => !agent.profileKey && ['claude', 'codex'].includes(sessionKind(agent))
+      && !usage.find(item => item.key === agent.key)?.email && !identityReads.has(agent.key));
+    if (!missing.length) return;
+    for (const agent of missing) identityReads.add(agent.key);
+    cx.spawn(async cx => {
+      try {
+        const result = await exec('node', [`${appHome()}/mods/devkits-usage/usage-reader.js`,
+          JSON.stringify(missing.map(agent => ({ key: agent.key, name: agent.name, run: agent.run, provider: sessionKind(agent) })))]);
+        if (result.code === 0) {
+          const saved = { ...(shared('devkits.account-identities') || {}) };
+          for (const entry of JSON.parse(result.stdout)) saved[entry.key] = { email: entry.email || null, plan: entry.plan || null };
+          setShared('devkits.account-identities', saved);
+        }
+      } catch {}
+      cx.notify();
+    });
+  },
+
+  syncAccountChanges(cx) {
+    if (this.settingsPage === 'accounts') this.loadAccountIdentities(cx);
+    const revision = shared('devkits.profile-revision') || 0;
+    if (this.agentsRevision === undefined || revision === this.agentsRevision) { this.agentsRevision = revision; return; }
+    this.agentsRevision = revision;
+    const before = new Set((this.launchers || []).map(agent => agent.key));
+    cx.spawn(async cx => {
+      try { this.launchers = await this.cachedAgents(spaces().find(space => space.id === props().space)?.machine); }
+      catch { this.launchError = true; }
+      const added = this.launchers.find(agent => isAccountLauncher(agent) && !agent.profileKey && !before.has(agent.key));
+      if (added) this.selectedAccount = added.key;
+      cx.notify();
+    });
+  },
+
   manageLaunchers(t) {
     const hidden = shared('devkits.hidden-launchers') || [];
-    const choices = launcherChoices(this.availableAgents(this.launchers, spaces().find(space => space.id === props().space)?.machine), shared('devkits.launcher-order') || []).filter(choice => !choice.agent?.profileKey);
+    const choices = launcherChoices(this.availableAgents(this.launchers, spaces().find(space => space.id === props().space)?.machine), shared('devkits.launcher-order') || []);
     const local = !spaces().find(space => space.id === props().space)?.machine;
     const toggle = (key, cx) => {
       const current = shared('devkits.hidden-launchers') || [];
@@ -275,15 +393,14 @@ export const sessionMenu = {
       this.dragKey = null; this.dropKey = null; this.modelDrag = null; this.modelDrop = null;
       cx.notify();
     };
-    // Like Cursor's and Zed's settings, one page per subject in a left list; Claude and Codex each get their own.
-    // What every agent shares comes first, then each provider's own page.
-    const pages = [{ id: 'agents', label: 'Agents', icon: glyph('terminal') },
-      { id: 'rules', label: 'Rules', icon: glyph('book-open') },
-      ...(local ? [{ id: 'usage', label: 'Usage', icon: glyph('chart-column') }] : []),
-      ...(local ? ['claude', 'codex'].filter(kind => choices.some(choice => sessionKind(choice.agent) === kind))
-        .map(kind => ({ id: kind, label: kind === 'claude' ? 'Claude' : 'Codex',
-          icon: AgentIcon(choices.find(choice => choice.agent?.key === kind)?.agent || { icon: null }, t).size(14) })) : []),
-      ...(local ? [{ id: 'agent-profiles', label: 'Agent profiles', icon: glyph('agent') }] : [])];
+    // Like Zed's settings, one page per subject in a left list, ordered as a new user sets things up:
+    // accounts first, then what Add session shows, then the optional extras.
+    const providers = ['claude', 'codex'].filter(kind => choices.some(choice => choice.agent?.key === kind));
+    const pages = [...(local ? [{ id: 'accounts', label: 'Accounts', icon: glyph('user-round') }] : []),
+      { id: 'agents', label: 'Add session', icon: glyph('square-plus') },
+      ...(local ? [{ id: 'agent-profiles', label: 'Profiles', icon: glyph('agent') }] : []),
+      { id: 'rules', label: local ? 'Rules & MCP' : 'Rules', icon: glyph('book-open') },
+      ...(local ? [{ id: 'usage', label: 'Usage', icon: glyph('chart-column') }] : [])];
     const page = pages.some(item => item.id === this.settingsPage) ? this.settingsPage : 'agents';
     return DialogContent('manage-launchers', t).accessibility_label('Settings')
       .on_mouse_up('left', (_event, cx) => cancelDrag(cx))
@@ -311,12 +428,20 @@ export const sessionMenu = {
             .on_click((_event, cx) => { this.settingsPage = item.id; cancelDrag(cx); cx.notify(); })
             .child(div().size(16).flex_none().flex().items_center().justify_center().child(item.icon)).child(item.label))))
         .child(v_flex().h_full().flex_1().min_w(0).min_h(0).gap(8)
-          .when(page === 'agents', el => el.child(DialogDescription(t).flex_none().child('Choose what Add session shows. Drag to reorder; changes save automatically.'))
-            .child(this.agentsPage(choices, hidden, local, toggle, move, cancelDrag, t)))
-          .when(page === 'claude' || page === 'codex', el => el.child(this.providerPage(page, t)))
+          .when(page === 'accounts', el => el.child(this.accountsPage(t)))
+          .when(page === 'agents', el => el.child(DialogDescription(t).flex_none().child('Choose what Add session shows and in which order. Drag to reorder; changes save automatically.'))
+            .child(this.agentsPage(choices, hidden, toggle, move, cancelDrag, t)))
           .when(page === 'usage', el => el.child(this.usageProfilesPage(choices, t)))
           .when(page === 'agent-profiles', el => el.child(this.agentProfilesPage(t)))
-          .when(page === 'rules', el => el.child(DialogDescription(t).flex_none().child(this.rulesPreview.description()))
+          .when(page === 'rules', el => el
+            .when(local && providers.includes('codex'), el => el.child(h_flex().flex_none().min_h(48).px(12).py(8).gap(16).items_center()
+              .border(1).border_color(t.border)
+              .child(v_flex().flex_1().min_w(0).gap(4)
+                .child(div().text_size(13).text_color(t.foreground).child('Shared MCP servers'))
+                .child(DialogDescription(t).child('Every Codex account and profile starts with these servers.')))
+              .child(Button('shared-local-mcp', t, { variant: 'secondary' }).h(28)
+                .on_click(() => this.openSharedMcp(choices.find(choice => choice.agent?.key === 'codex').agent)).child('Shared MCP…'))))
+            .child(DialogDescription(t).flex_none().child(this.rulesPreview.description()))
             .child(this.rulesPreview.body(t)))))
       .child(DialogFooter().flex_none().child(Button('manage-launchers-done', t).on_click(done).child('Done')));
   },
@@ -325,13 +450,7 @@ export const sessionMenu = {
     const profiles = choices.filter(choice => choice.agent && !choice.agent.profileKey);
     const hidden = shared('devkits.hidden-usage-profiles') || [];
     return v_flex().id('usage-profile-settings').flex_1().min_h(0).overflow_y_scroll().gap(8)
-      .child(h_flex().flex_none().min_h(48).px(12).py(8).gap(16).items_center().border(1).border_color(t.border)
-        .child(v_flex().flex_1().min_w(0).gap(4)
-          .child(div().text_size(13).text_color(t.foreground).child('Usage display'))
-          .child(DialogDescription(t).child('Sidebar visibility is controlled in Interface settings.')))
-        .child(Button('usage-interface-settings', t, { variant: 'secondary' }).child('Interface settings…')
-          .on_click(() => openInterfaceSettings('usage'))))
-      .child(DialogDescription(t).flex_none().child('Choose which accounts appear in Usage and can be used to add agent profiles. Agents using the same account share its quota.'))
+      .child(DialogDescription(t).flex_none().child('Choose which accounts appear in Usage. Agents using the same account share its quota.'))
       .children([1, 2].filter(group => profiles.some(choice => choice.group === group)).map(group => v_flex().flex_none().gap(4)
         .child(DropdownMenuLabel(t).px(0).mt(8).child(launcherSections[group].toUpperCase()))
         .child(v_flex().flex_none().border(1).border_color(t.border)
@@ -342,7 +461,8 @@ export const sessionMenu = {
                   const saved = shared('devkits.hidden-usage-profiles') || [];
                   setShared('devkits.hidden-usage-profiles', checked ? saved.filter(key => key !== choice.agent.key) : [...new Set([...saved, choice.agent.key])]);
                   cx.notify();
-                }).child(AgentIcon(choice.agent, t).flex_none()).child(div().truncate().text_size(13).child(choice.name))))))))
+                }).child(AgentIcon(choice.agent, t).flex_none()).child(div().truncate().text_size(13)
+                  .when(this.accountName(choice.agent, choice.name) === noAccount, el => el.text_color(t.muted)).child(this.accountName(choice.agent, choice.name)))))))))
       .child(this.autoAccountsSection(profiles, t));
   },
 
@@ -377,6 +497,9 @@ export const sessionMenu = {
       .child(v_flex().id('auto-account-rules').flex_none().gap(2)
         .children(rules.map(rule => DialogDescription(t).flex_none().child(rule))))
       .child(v_flex().flex_none().mt(4).border(1).border_color(t.border)
+        // An empty table keeps one row's height instead of collapsing to a line.
+        .when(!accounts.length, el => el.child(h_flex().id('auto-account-empty').h(40).px(12).items_center()
+          .text_size(12).text_color(t.muted).child('No added accounts.')))
         .children(accounts.map((choice, index) => {
           const key = choice.agent.key, selected = members.includes(key), status = standing(key);
           const plan = planLabel(reading(key)?.plan), size = autoMultiplier(key, reading(key), multipliers);
@@ -386,7 +509,8 @@ export const sessionMenu = {
                 const saved = (shared('devkits.auto-accounts') || []).filter(item => item !== key);
                 setShared('devkits.auto-accounts', checked ? [...saved, key] : saved);
                 cx.notify();
-              }).child(AgentIcon(choice.agent, t).flex_none()).child(div().truncate().text_size(13).child(choice.name))
+              }).child(AgentIcon(choice.agent, t).flex_none()).child(div().truncate().text_size(13)
+                  .when(this.accountName(choice.agent, choice.name) === noAccount, el => el.text_color(t.muted)).child(this.accountName(choice.agent, choice.name)))
               .when(Boolean(plan), el => el.child(div().id(`auto-plan-${key}`).flex_none().text_size(12).text_color(t.muted).child(plan))))
             .when(selected && key === next, el => el.child(div().id(`auto-next-${key}`).flex_none()
               .text_size(12).font_medium().text_color(t.foreground).child('Next')))
@@ -400,10 +524,10 @@ export const sessionMenu = {
         })));
   },
 
-  agentsPage(choices, hidden, local, toggle, move, cancelDrag, t) {
+  agentsPage(choices, hidden, toggle, move, cancelDrag, t) {
     return v_flex().id('manage-launchers-list').flex_1().min_h(0).overflow_y_scroll().gap(8)
         // One bordered table per section; rows are separated by rules and hover with t.selected.
-        .children([0, 1, 2].filter(group => choices.some(choice => choice.group === group)).map(group => v_flex().flex_none().gap(4)
+        .children([0, 1, 2, 3].filter(group => choices.some(choice => choice.group === group)).map(group => v_flex().flex_none().gap(4)
           .when(group > 0, el => el.mt(8))
           .child(DropdownMenuLabel(t).id(`manage-section-${group}`).px(0).child(launcherSections[group].toUpperCase()))
           .child(v_flex().flex_none().border(1).border_color(t.border)
@@ -432,24 +556,24 @@ export const sessionMenu = {
                   .child(Checkbox(`show-${choice.key}`, !hidden.includes(choice.key), t).h_full().flex_1().min_w(0)
                     .accessibility_label(choice.name).on_change((_checked, cx) => toggle(choice.key, cx))
                     .child(AgentIcon(choice.agent, t).flex_none())
-                    .child(div().flex_1().min_w(0).truncate().text_size(13).child(choice.name)))
-                  .when(local && ['codex', 'claude'].includes(choice.agent?.key), el => el
-                    .when(choice.agent.key === 'codex', el => el.child(Button('shared-local-mcp', t, { variant: 'secondary' }).h(28)
-                      .on_click(() => this.openSharedMcp(choice.agent)).child('Shared MCP…')))
-                    .child(Button(`add-${choice.agent.key}-account`, t, { variant: 'secondary' }).h(28).px(10).gap(6)
-                      .accessibility_label(`Add a ${choice.agent.key === 'codex' ? 'Codex' : 'Claude'} account`)
-                      .on_click(() => this.addAccount(choice.agent.key)).child(glyph('plus')).child('Add account')))
-                  .when(local && choice.group === 2, el => el
-                    .child(Button(`account-actions-${choice.agent.key}-rename`, t, { variant: 'secondary' }).h(28)
-                      .on_click(() => this.renameAccount(choice.agent)).child('Rename'))
-                    .child(Button(`account-actions-${choice.agent.key}-remove`, t, { variant: 'secondary' }).h(28)
-                      .text_color(t.destructive || t.ansi1).on_click(() => this.confirmRemoveAccount(choice.agent)).child('Remove')))))))))
-        .when(local && !this.loading && !this.launchError && !choices.some(choice => choice.group === 2), el => el
-          .child(DropdownMenuLabel(t).id('manage-section-2').px(0).mt(16).child('YOUR ACCOUNTS'))
-          .child(div().text_size(12).text_color(t.muted).child('No accounts added. Use Add account on an agent row.')))
+                    .child(div().flex_1().min_w(0).truncate().text_size(13)
+                      .when(this.accountName(choice.agent, choice.name) === noAccount, el => el.text_color(t.muted))
+                      .child(this.accountName(choice.agent, choice.name))))))))))
         .when(this.loading, el => el.child(div().p(8).text_size(12).text_color(t.muted).child('Loading agents…')))
         .when(this.launchError, el => el.child(Button('manage-retry-agents', t, { variant: 'secondary' })
           .on_click((_event, cx) => this.loadAgents(cx)).child('Could not load agents. Retry')));
+  },
+
+  // The effective New thread binding, formatted for this platform.
+  newThreadShortcut() {
+    const bindings = new Map();
+    for (const section of ['global', 'layout:devkits', 'mod:devkits']) {
+      for (const binding of keys().filter(binding => binding.section === section)) bindings.set(binding.keys, binding.action);
+    }
+    const shortcut = [...bindings].find(([, action]) => action === 'devkits.new-thread')?.[0];
+    const mac = window()?.platform === 'macos';
+    return shortcut?.split('-').map(part => ({ cmd: mac ? '⌘' : 'Super', ctrl: mac ? '⌃' : 'Ctrl',
+      alt: mac ? '⌥' : 'Alt', shift: mac ? '⇧' : 'Shift' })[part] || part.toUpperCase()).join(mac ? '' : '+');
   },
 
   launcher(t) {
@@ -462,17 +586,10 @@ export const sessionMenu = {
     const last = remembered.auto ? 'auto' : remembered.agent?.key;
     const auto = this.autoThreadAgent(this.launchers, machine);
     // Show the binding only beside the agent that New thread will actually launch.
-    const bindings = new Map();
-    for (const section of ['global', 'layout:devkits', 'mod:devkits']) {
-      for (const binding of keys().filter(binding => binding.section === section)) bindings.set(binding.keys, binding.action);
-    }
-    const shortcut = [...bindings].find(([, action]) => action === 'devkits.new-thread')?.[0];
-    const mac = window()?.platform === 'macos';
-    const shortcutLabel = shortcut?.split('-').map(part => ({ cmd: mac ? '⌘' : 'Super', ctrl: mac ? '⌃' : 'Ctrl',
-      alt: mac ? '⌥' : 'Alt', shift: mac ? '⇧' : 'Shift' })[part] || part.toUpperCase()).join(mac ? '' : '+');
+    const shortcutLabel = this.newThreadShortcut();
     const row = (id, name, icon, action) => DropdownMenuItem(id, t).on_click(action)
       .child(div().size(16).flex_none().flex().items_center().justify_center().text_color(t.muted).child(icon))
-      .child(div().flex_1().min_w(0).truncate().child(name));
+      .child(div().flex_1().min_w(0).truncate().when(name === noAccount, el => el.text_color(t.muted)).child(name));
     return DropdownMenuContent('thread-launcher', undefined, t)
       .track_focus(this.handle).on_key_down(event => {
         if (event.modifiers.control || event.modifiers.platform || event.modifiers.alt) return;
@@ -486,7 +603,7 @@ export const sessionMenu = {
             ...(i > 0 && choices[i - 1].group !== choice.group ? [DropdownMenuSeparator(t)] : []),
             ...(choice.group !== 0 && (i === 0 || choices[i - 1].group !== choice.group)
               ? [DropdownMenuLabel(t).id(`launcher-section-${choice.group}`).child(launcherSections[choice.group])] : []),
-            row(agent ? `start-${agent.key}` : 'new-terminal', choice.name, AgentIcon(agent, t),
+            row(agent ? `start-${agent.key}` : 'new-terminal', this.accountName(agent, choice.name), AgentIcon(agent, t),
               () => this.startThread(agent))
               .when(Boolean(agent && agent.key === last && shortcutLabel), el => el
                 .child(div().text_size(11).text_color(t.muted).child(shortcutLabel))),
@@ -502,13 +619,6 @@ export const sessionMenu = {
         .when(this.launchError, el => el.child(div().id('retry-agents').p(10).text_size(12).text_color(t.muted).cursor_pointer()
           .on_click((_event, cx) => this.loadAgents(cx)).child('Could not load agents. Click to retry.')))
         .when(!this.loading && !this.launchError && !choices.length, el => el.child(div().p(10).text_size(12).text_color(t.muted)
-          .child(this.launchers.length ? 'All agents are hidden. Use Settings to show them.' : 'No installed agents found.'))))
-      .child(DropdownMenuSeparator(t))
-      .child(row('manage-launchers-open', 'Settings…', glyph('settings'), () => {
-        const target = props();
-        closeOverlay(target.overlay);
-        openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: false, width: 1040, height: 0.8,
-          props: { view: 'manage-launchers', space: target.space } });
-      }));
+          .child(this.launchers.length ? 'All agents are hidden. Show them in Agent settings → Add session.' : 'No installed agents found.'))));
   },
 };

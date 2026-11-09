@@ -8,7 +8,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 async function load(host = {}) {
-  host = { launcherLabel, window: () => ({ platform: 'macos' }), ...host };
+  const memory = new Map();
+  host = { launcherLabel, window: () => ({ platform: 'macos' }), shared: key => memory.get(key), setShared: (key, value) => memory.set(key, value), ...host };
   const source = await readFile(new URL('../mods/devkits/account-login.js', import.meta.url), 'utf8');
   const helpers = await Promise.all(['components/session-shell', 'components/claude-usage-hook'].map(name => readFile(new URL(`../mods/devkits/${name}.js`, import.meta.url), 'utf8')));
   const factory = new Function('View', ...Object.keys(host), [...helpers, source].join('\n').replace(/^import .*;\r?\n/gm, '')

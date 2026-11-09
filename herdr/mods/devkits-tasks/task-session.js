@@ -1,7 +1,7 @@
 import { div } from 'gpui-kit';
 import { h_flex } from 'gpui-base';
 import { shared, setShared, home, readTextFile } from 'herdr';
-import { effortLabel, claudeModels, claudeEfforts, codexHome, codexModels, isClaudeLauncher, isCodexLauncher, sessionKind, shownOptions, orderedOptions, settingsKey, launcherOption } from './components/session-model.js';
+import { effortLabel, claudeModels, claudeEfforts, codexHome, codexModels, isClaudeLauncher, isCodexLauncher, sessionKind, shownOptions, orderedOptions, settingsKey, launcherOption, accountAddresses } from './components/session-model.js';
 import { Select, SelectState } from './components/select.js';
 import { Button } from './components/button.js';
 import { glyph } from './components/icon.js';
@@ -75,7 +75,7 @@ export class TaskSession {
       [option('default', fallback[name] ? `Default (${fallback[name]})` : 'Default'), ...options], label, onChange, t, { width: 168, prefix: label, boxed: t.appearance !== 'linear', radius: 6 });
     return h_flex().gap(8).items_center().flex_wrap()
       .when(agents.length > 0, el => el.child(Select('task-session-agent', this.selects.agent, current.agent.key,
-        agents.map(agent => ({ ...launcherOption(agent), color: t.foreground })), 'Agent',
+        agents.map(agent => launcherOption(agent, accountAddresses(shared))).map(option => ({ ...option, color: option.unknown ? t.muted : t.foreground })), 'Agent',
         key => remember({ agent: key, model: null, effort: null }), t, { width: 200, prefix: 'Agent', boxed: t.appearance !== 'linear', radius: 6 })))
       .when(current.models.length > 0, el => el.child(pick('task-session-model', 'model', 'Model', current.model,
         current.models.map(model => option(model.key, model.label)), key => remember({ model: key === 'default' ? null : key }))))

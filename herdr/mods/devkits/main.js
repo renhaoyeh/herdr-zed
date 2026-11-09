@@ -24,6 +24,8 @@ import { RunControls, RunMenu, runApp } from './run-app.js';
 import { BranchMenu } from './branch-menu.js';
 import { ProjectLayout, layoutNode, conversationMaximized, maximizeConversation, openTaskBoard, closeTaskBoard, enforceTaskBoard, taskMode } from './project-layout.js';
 import { threadArchive } from './thread-archive.js';
+import { startPanel } from './start-panel.js';
+import { openAgentSettings } from './session-menu.js';
 import { sessionRules, ensureRules } from './global-rules.js';
 import { DropdownMenu, DropdownMenuState, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from './components/dropdown-menu.js';
 import { Button, ToolbarButton } from './components/button.js';
@@ -152,7 +154,8 @@ export default class Devkits extends View {
     });
     if (props()?.view === 'editor') {
       this.editor = new WorkspaceEditor(); this.editor.init(cx); this.files = this.editor.files;
-      cx.spawn(async cx => { try { await this.cachedAgents(null); } catch {} cx.notify(); });
+      // Read local account addresses once at startup so every Default account can be told apart.
+      cx.spawn(async cx => { try { this.loadAccountIdentities(cx, await this.cachedAgents(null)); } catch {} cx.notify(); });
       cx.spawn(async cx => {
         for (;;) {
           const command = await nextCommand();
@@ -474,7 +477,7 @@ export default class Devkits extends View {
     if (argv && !spaces().find(space => space.id === target.space)?.machine) {
       let rules = null;
       try { rules = await sessionRules(); } catch {}
-      argv = rulesArgv(agent, argv, rules, config?.instructions);
+      argv = rulesArgv(agent, argv, rules);
       if (!target.machine) {
         try { argv = await sessionMcpArgv(agent, argv); }
         catch (error) { notify({ title: 'Could not load shared MCP settings', body: error.message, level: 'error' }); return; }
@@ -619,15 +622,20 @@ export default class Devkits extends View {
     const secondary = members.length > 1 && primary?.pane !== p.pane;
     const program = secondary ? p.program : threadProgram(thread, terminals(), p.program);
     const machine = spaces().find(space => space.id === thread?.space)?.machine || null;
-    const profile = !secondary && thread?.agent ? threadProfile(thread.tab, this.availableAgents(shared('devkits.agent-cache')?.[JSON.stringify(machine)] || [], machine),
-      shared('devkits.thread-profiles') || {}) : null;
+    const launchers = this.availableAgents(shared('devkits.agent-cache')?.[JSON.stringify(machine)] || [], machine);
+    const label = !secondary && thread?.agent ? threadProfile(thread.tab, launchers, shared('devkits.thread-profiles') || {}) : null;
+    // Two Default accounts look alike, so a Default account is named by its signed-in address.
+    const profile = label && !machine
+      ? this.accountName(launchers.find(agent => agent.key === (shared('devkits.thread-profiles') || {})[thread.tab.id]), label) : label;
     const title = secondary ? p.title || 'Terminal' : thread?.tab.name === '__devkits_default_terminal__' && !thread.agent ? 'Terminal' : thread?.title || p.title || 'Terminal';
     const project = this.projects().find(project => project.id === thread?.space);
     const link = secondary ? null : taskLinkForTab(p.tab, project);
     const maximized = conversationMaximized(project);
     this.threadMenu ??= new DropdownMenuState();
-    const actions = [{ key: 'close', label: secondary ? 'Close terminal' : 'Close thread' }];
-    const choose = () => secondary ? run('pane.close', { pane: p.pane }) : run('tab.close', { id: p.tab });
+    // Like Zed's agent panel menu: Agent settings, not in the + menu. Threads close or archive from the sidebar.
+    const actions = secondary ? [{ key: 'close', label: 'Close terminal' }] : [{ key: 'settings', label: 'Agent settings…', icon: 'settings' }];
+    const choose = key => key === 'settings' ? openAgentSettings(project && !project.pending ? project.id : null)
+      : run('pane.close', { pane: p.pane });
     const terminal = terminals().find(terminal => terminal.address === p.terminal);
     const working = terminalWorking({ ...terminal, status: p.status || terminal?.status });
     const icon = working ? glyph('loader', 14).text_color(t.working).spin(900).accessibility_label('Working')
@@ -645,6 +653,10 @@ export default class Devkits extends View {
         .on_click((_event, cx) => { cx.stop_propagation(); this.openTask(thread.space, link); })
         .child(glyph('list-todo', 12)).child(link.source === 'local' ? 'Task' : 'Asana')))
       .child(h_flex().h_full().flex_none().items_center()
+        // + then maximize then ⋯, as in Zed's panel toolbars.
+        .child(DropdownMenuTrigger(Button(`new-thread-${p.pane}`, t, { variant: 'ghost', size: 'icon' }).h_full().w(32)
+          .accessibility_label('New thread…').child(glyph('plus')), 280,
+          (cx, at) => this.newThread(cx, thread?.space, at), 'end'))
         .when(Boolean(project && layoutNode(layout(), 'workspace-view')), el => el.child(
           Button(`maximize-thread-${p.pane}`, t, { variant: 'ghost', size: 'icon' }).h_full().w(32)
             .accessibility_label(maximized ? 'Restore thread' : 'Maximize thread')
@@ -653,9 +665,6 @@ export default class Devkits extends View {
               maximizeConversation(project, !conversationMaximized(project));
               run('pane.focus', { pane: p.pane });
             }).child(glyph(maximized ? 'minimize' : 'maximize'))))
-        .child(DropdownMenuTrigger(Button(`new-thread-${p.pane}`, t, { variant: 'ghost', size: 'icon' }).h_full().w(32)
-          .accessibility_label('New thread…').child(glyph('plus')), 280,
-          (cx, at) => this.newThread(cx, thread?.space, at), 'end'))
         .child(DropdownMenu(`thread-actions-${p.pane}`, this.threadMenu,
           Button(`thread-menu-${p.pane}`, t, { variant: 'ghost', size: 'icon' }).h_full().w(32)
             .accessibility_label('Thread options').child(glyph('ellipsis')),
@@ -884,7 +893,8 @@ export default class Devkits extends View {
     if (props()?.view === 'file-menu') return this.fileMenu.render();
     if (props()?.view === 'editor') {
       const project = this.projects().find(project => project.active);
-      return this.editor.render(project, cx);
+      if (!project) return this.welcomeView(t, cx);
+      return this.editor.render(project, cx, { empty: () => this.projectStartView(project, t, cx) });
     }
     if (props()?.view === 'files') return this.files.render(this.projects().find(project => project.active), cx);
     if (props()?.view === 'diff') return this.diff.render(this.projects().find(project => project.active), cx);
@@ -898,11 +908,11 @@ export default class Devkits extends View {
     if (props()?.view === 'status') return this.statusBar(t);
     if (props()?.view === 'launcher') return this.launcher(t);
     if (['asana', 'mantisbt', 'asana-projects', 'mantisbt-projects'].includes(props()?.view)) return div();
-    if (props()?.view === 'manage-launchers') return this.manageLaunchers(t);
+    if (props()?.view === 'manage-launchers') { this.syncAccountChanges(cx); return this.manageLaunchers(t); }
     if (props()?.view === 'agent-profile-editor') return this.agentProfileEditor(t);
     if (props()?.view === 'remove-account') return this.removeAccountPrompt(t);
     if (props()?.view === 'rename-account') return this.renameAccountPrompt(t);
-    if (props()?.view === 'project-empty') return div().size_full().bg(t.background);
+    if (props()?.view === 'project-empty') return this.projectStartView(this.projects().find(project => project.active), t, cx);
     if (props()?.view === 'close-project') return this.closePrompt(t);
     if (props()?.view === 'project-menu') return this.projectMenu(t);
     if (props()?.view === 'project-picker') return this.projectPicker(t);
@@ -941,7 +951,7 @@ export default class Devkits extends View {
     }
     const conversation = layoutNode(layout(), 'workspace-view');
     const showConversation = !taskMode() && conversationVisible(chosen);
-    if (conversation && conversation.hidden === showConversation)
+    if (conversation && Boolean(conversation.hidden) === showConversation)
       run(showConversation ? 'layout.show' : 'layout.hide', { id: 'workspace-view' });
     const defaults = { ...(shared('devkits.default-terminals') || {}) };
     let defaultsChanged = false;
@@ -1010,6 +1020,10 @@ export default class Devkits extends View {
           .h_full().rounded(0).bg(this.archiveOpen ? t.selected : t.chrome)
           .on_click((_event, cx) => { this.archiveOpen = !this.archiveOpen; cx.notify(); }).child(glyph('clock')))
         .child(div().flex_1())
+        .child(Button('open-agent-settings', t, { variant: 'ghost' }).h_full().px(8).gap(6)
+          .accessibility_label('Agent settings')
+          .on_click(() => openAgentSettings(this.projects().find(project => project.active && !project.pending)?.id || null, 'accounts'))
+          .child(glyph('agent')).child('Agents'))
         .child(Button('open-interface-settings', t, { variant: 'ghost' }).h_full().px(8).gap(6)
           .accessibility_label('Interface settings').on_click(() => openInterfaceSettings())
           .child(glyph('settings')).child('Interface settings')));
@@ -1017,4 +1031,4 @@ export default class Devkits extends View {
 }
 
 // Feature views share this view's state and its project, agent and session helpers.
-Object.assign(Devkits.prototype, sessionMenu, agentProfiles, accountActions, sharedMcpSettings, threadArchive);
+Object.assign(Devkits.prototype, sessionMenu, agentProfiles, accountActions, sharedMcpSettings, threadArchive, startPanel);

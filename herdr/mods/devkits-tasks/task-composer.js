@@ -3,7 +3,7 @@ import { h_flex, v_flex, InputState, Input, TextareaState, Textarea } from 'gpui
 import { shared, setShared, closeOverlay, openOverlay, agents as liveAgents } from 'herdr';
 import { boardTheme } from './components/task-theme.js';
 import { boardKey, boardPriorityOptions, taskActions } from './agent-board-model.js';
-import { launcherOption } from './components/session-model.js';
+import { launcherOption, accountAddresses } from './components/session-model.js';
 import { createLocalTask, rememberBoardTask, projectBoardTasks } from './agent-board-state.js';
 import { Select, SelectState } from './components/select.js';
 import { Button } from './components/button.js';
@@ -105,7 +105,7 @@ export default class TaskComposer {
         .child(h_flex().h(28).px(8).gap(8).items_center().rounded(999).border(1).border_color(t.controlBorder).bg(t.control).text_size(12)
           .child(glyph('circle', 14).text_color(t.muted)).child('Todo'))
         .child(pick('priority', this.priority, boardPriorityOptions(t), 'Priority', 120))
-        .child(pick('agent', this.agent, [{ ...option('unassigned', 'Unassigned'), icon: 'agent', iconColor: t.muted }, ...agents.map(agent => ({ ...launcherOption(agent), color: t.foreground }))], 'Agent', 180)))
+        .child(pick('agent', this.agent, [{ ...option('unassigned', 'Unassigned'), icon: 'agent', iconColor: t.muted }, ...agents.map(agent => launcherOption(agent, accountAddresses(shared))).map(option => ({ ...option, color: option.unknown ? t.muted : t.foreground }))], 'Agent', 180)))
       .child(h_flex().h(60).flex_none().px(24).gap(12).items_center().border_t(1).border_color(t.border)
         .child(div().text_size(11).text_color(t.muted).child('⌘ / Ctrl Enter'))
         .child(div().flex_1())

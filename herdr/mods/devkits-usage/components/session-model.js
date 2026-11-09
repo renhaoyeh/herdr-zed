@@ -126,9 +126,25 @@ export const launcherLabel = name => {
 };
 
 // All account and agent selects share their label, provider icon and tint policy.
-export function launcherOption(agent) {
+export const noAccountLabel = 'No account';
+
+// Known signed-in addresses, read from shared state: Usage's readings, then addresses read for accounts Usage hides.
+export function accountAddresses(read) {
+  const usage = read('devkits.usage.snapshot')?.contexts?.[JSON.stringify(null)]?.usage || [];
+  const saved = read('devkits.account-identities') || {};
+  return key => usage.find(item => item.key === key)?.email || saved[key]?.email || null;
+}
+
+// With `address`, a Default account is named by its signed-in address, or No account (marked unknown) when none
+// is known; named accounts keep their own name. Every account list uses this one rule.
+export function launcherOption(agent, address = null) {
   const kind = sessionKind(agent);
-  return { key: agent.key, label: launcherLabel(agent.name || kind || 'Unnamed agent'),
+  let label = launcherLabel(agent.name || kind || 'Unnamed agent'), unknown = false;
+  if (address && label === 'Default account' && !agent.profileKey && kind) {
+    const email = address(agent.key);
+    label = email || noAccountLabel; unknown = !email;
+  }
+  return { key: agent.key, label, ...(unknown ? { unknown } : {}),
     icon: agent.icon || (kind ? `icons/${kind}.svg` : 'agent'), iconTint: agent.icon ? Boolean(agent.tint) : !kind };
 }
 

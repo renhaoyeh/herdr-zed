@@ -7,8 +7,8 @@ import { DialogContent, DialogTitle, DialogDescription, DialogFooter } from './c
 
 export const sharedMcpSettings = {
   openSharedMcp(agent) {
-    const target = props(); closeOverlay(target.overlay);
-    openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: false, width: 720, height: 0.8,
+    const target = props();
+    openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: true, width: 720, height: 0.8,
       props: { view: 'shared-mcp', agent, space: target.space } });
   },
   initSharedMcp(cx) {
@@ -23,11 +23,7 @@ export const sharedMcpSettings = {
       finally { this.mcpLoading = false; cx.notify(); }
     });
   },
-  finishSharedMcp() {
-    const target = props(); closeOverlay(target.overlay);
-    openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: false, width: 1040, height: 0.8,
-      props: { view: 'manage-launchers', space: target.space } });
-  },
+  finishSharedMcp() { closeOverlay(props().overlay); },
   saveSharedMcp(cx) {
     if (this.mcpLoading || this.mcpSaving || !this.mcpConfig) return;
     this.mcpSaving = true; this.mcpError = null; cx.notify();
