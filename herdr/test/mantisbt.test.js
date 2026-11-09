@@ -433,7 +433,7 @@ test('MantisBT custom fields remain individual full-width rows after Description
   assert.ok(detailRows.includes(customA)); assert.ok(detailRows.includes(customB));
   assert.equal(detailRows.indexOf(customA) + 1, detailRows.indexOf(customB));
   assert.equal(customA.childrenData.length, 2); assert.equal(customB.childrenData.length, 2);
-  const text = item => typeof item === 'string' ? item : (item?.childrenData || []).map(text).join(' ');
+  const text = item => typeof item === 'string' ? item : (item?.childrenData || []).map(text).filter(Boolean).join(' ');
   assert.ok(text(detailRows[detailRows.indexOf(customA) - 1]).includes('Description body'));
   assert.equal(text(customB), 'Priority Normal');
 });

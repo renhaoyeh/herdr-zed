@@ -17,6 +17,7 @@ export const mantisTheme = {
   hover: '#eff4f7', selected: '#e7f2f8', row: '#f8f8f8', popover: '#ffffff', input: '#d5d5d5',
   destructive: '#a94442',
 };
+const rule = '#c4c4c4';
 const statusColors = { new: '#fcbdbd', feedback: '#e3b7eb', acknowledged: '#ffcd85', confirmed: '#fff494',
   assigned: '#c2dfff', resolved: '#d2f5b0', closed: '#c9ccc4' };
 export const issueNumber = gid => String(gid || '').padStart(7, '0');
@@ -33,8 +34,9 @@ const field = (state, id, label) => Input.new(state).id(id).accessibility_label(
 const widgetHeader = (id, title, icon = 'list-todo') => h_flex().id(id).h(32).flex_none().px(10).gap(6).items_center()
   .bg(mantisTheme.widget).text_color('#ffffff').text_size(18).child(glyph(icon, 16)).child(title);
 const widget = () => v_flex().flex_none().border(1).border_color(mantisTheme.widget).bg('#ffffff');
-const cell = (value, width, header = false) => div().when(Boolean(width), el => el.w(width).flex_none())
+const cell = (value, width, header = false, divider = true) => div().when(Boolean(width), el => el.w(width).flex_none())
   .when(!width, el => el.flex_1().min_w(0)).h_full().px(8).flex().items_center().truncate()
+  .when(divider, el => el.border_r(1).border_color(rule))
   .text_color(header ? mantisTheme.accent : mantisTheme.foreground).when(header, el => el.font_semibold()).child(value || '—');
 
 export class MantisProjectPicker extends TaskSourceProjectPicker {
@@ -176,7 +178,7 @@ export default class MantisPanel extends TaskSourceController {
         .child(Button('mantis-toggle-filters', mantisTheme, { variant: 'ghost', size: 'icon' }).size(28).rounded(0).text_color('#ffffff')
           .accessibility_label(this.filtersOpen ? 'Collapse filters' : 'Expand filters')
           .on_click((_event, cx) => { this.filtersOpen = !this.filtersOpen; cx.notify(); }).child(glyph(this.filtersOpen ? 'chevron-down' : 'chevron-right', 16))))
-      .when(this.filtersOpen, el => el.child(h_flex().min_h(48).p(8).gap(6).items_center().flex_wrap()
+      .when(this.filtersOpen, el => el.child(h_flex().min_h(48).p(8).gap(6).items_center().flex_wrap().border_t(1).border_color(rule)
         .child(div().px(8).font_semibold().child('Status'))
         .children([null, ...sections].map(section => button(`mantis-filter-${section || 'all'}`, section || '[any]', (_event, cx) => {
           this.statusFilter = section; cx.notify();
@@ -189,7 +191,7 @@ export default class MantisPanel extends TaskSourceController {
     const loading = this.tab === 'mine' ? this.loading : this.loadingMore;
     const loaded = this.tab === 'mine' ? this.mine !== null : this.all.loaded;
     const header = h_flex().h(30).flex_none().items_center().bg('#f1f1f1').border_b(1).border_color(mantisTheme.border)
-      .children(columns.map(column => cell(column.name, column.width, true))).child(cell('Summary', null, true));
+      .children(columns.map(column => cell(column.name, column.width, true))).child(cell('Summary', null, true, false));
     const value = (task, column) => column.id === 'gid'
       ? div().id(`mantis-issue-number-${task.gid}`).text_color(mantisTheme.accent).hover(el => el.underline()).child(issueNumber(task.gid))
       : column.id === 'section' ? h_flex().gap(5).items_center().min_w(0)
@@ -197,10 +199,10 @@ export default class MantisPanel extends TaskSourceController {
         .child(div().truncate().text_color(mantisTheme.accent).child(task.section))
         : div().truncate().child(['createdAt', 'updatedAt', 'due'].includes(column.id) ? date(task[column.id], column.id !== 'due') : this.fieldValue(task, column));
     const row = (task, index) => h_flex().id(`mantis-issue-${task.gid}`).h(34).flex_none().items_center()
-      .bg(index % 2 ? '#ffffff' : mantisTheme.row).border_b(1).border_color('#dddddd').hover(el => el.bg(mantisTheme.selected)).cursor_pointer()
+      .bg(index % 2 ? '#ffffff' : mantisTheme.row).border_b(1).border_color(rule).hover(el => el.bg(mantisTheme.selected)).cursor_pointer()
       .accessibility_label(`${issueNumber(task.gid)}: ${task.name}`).on_click((_event, cx) => this.show(task, cx))
       .children(columns.map(column => cell(value(task, column), column.width)))
-      .child(cell(div().id(`mantis-issue-summary-${task.gid}`).text_color(mantisTheme.accent).truncate().hover(el => el.underline()).child(task.name)));
+      .child(cell(div().id(`mantis-issue-summary-${task.gid}`).text_color(mantisTheme.accent).truncate().hover(el => el.underline()).child(task.name), null, false, false));
     return widget().id('mantis-issues')
       .child(widgetHeader('mantis-issues-header', this.tab === 'mine' ? 'Assigned to Me' : 'Viewing Issues', 'columns-3')
         .child(div().px(9).rounded(10).bg('#aabac3').text_size(12).child(`${tasks.length ? '1' : '0'} - ${tasks.length}${this.tab === 'all' && this.all.next ? ' +' : ''}`)))
@@ -211,17 +213,19 @@ export default class MantisPanel extends TaskSourceController {
       .when(!tasks.length && loaded && !loading && !this.error, el => el.child(div().p(18).text_color(mantisTheme.muted).child(this.issueSearch.value() || this.statusFilter
         ? 'No loaded issues match the current filter.' : this.tab === 'mine' ? 'No open issues assigned to you.'
           : this.all.next ? 'No open issues on the loaded pages. Load more issues to continue.' : 'No open issues in this project.')))
-      .when(this.tab === 'all' && Boolean(this.all.next), el => el.child(h_flex().p(8).bg('#eeeeee')
+      .when(this.tab === 'all' && Boolean(this.all.next), el => el.child(h_flex().p(8).bg('#eeeeee').border_t(1).border_color(rule)
         .child(button('mantis-more', this.loadingMore ? 'Loading…' : 'Load more issues', (_event, cx) => this.more(cx), { disabled: this.loadingMore }))));
   }
 
   detailPage(importTask) {
     const task = this.detail;
-    const label = value => div().w(250).flex_none().px(10).py(8).bg(mantisTheme.category).font_semibold().child(value);
-    const property = (name, value) => h_flex().flex_1().min_w(0).min_h(36).border_b(1).border_color('#dddddd')
-      .child(label(name)).child(div().flex_1().min_w(0).px(10).py(8).child(value || '—'));
-    const full = (name, value) => h_flex().min_h(38).border_b(1).border_color('#dddddd').items_stretch()
-      .child(label(name)).child(div().flex_1().min_w(0).px(10).py(10).child(value || '—'));
+    const label = value => div().w(140).flex_none().px(10).py(8).bg(mantisTheme.category).font_semibold().child(value);
+    const valueCell = (content, divider = false) => div().flex_1().min_w(0).px(10).py(8).border_l(1).border_color(rule)
+      .when(divider, el => el.border_r(1)).child(content);
+    const property = (name, value, divider = false) => h_flex().flex_1().min_w(0).min_h(36).border_b(1).border_color(rule)
+      .child(label(name)).child(valueCell(value || '—', divider));
+    const full = (name, value) => h_flex().min_h(38).border_b(1).border_color(rule).items_stretch()
+      .child(label(name)).child(valueCell(value || '—'));
     if (!task) return widget().child(widgetHeader('mantis-detail-header', 'View Issue Details'))
       .child(div().p(20).text_color(this.detailError ? mantisTheme.destructive : mantisTheme.muted).child(this.detailError || 'Loading issue…'));
     const visible = this.displayFields('detail'), standard = visible.filter(field => !field.id.startsWith('custom:'));
@@ -232,7 +236,7 @@ export default class MantisPanel extends TaskSourceController {
       : ['createdAt', 'updatedAt', 'due'].includes(field.id) ? date(task[field.id], field.id !== 'due')
         : field.id === 'section' ? status(task) : this.fieldValue(task, field);
     const status = issue => h_flex().gap(6).items_center().child(div().size(18).rounded(3).flex_none().bg(statusColor(issue))).child(issue.section);
-    const metadataCell = content => div().flex_1().min_w(0).px(6).py(6).child(content);
+    const metadataCell = (content, last) => div().flex_1().min_w(0).px(6).py(6).when(!last, el => el.border_r(1).border_color(rule)).child(content);
     const children = this.subtasks.get(task.gid);
     return v_flex().gap(22)
       .child(widget().id('mantis-detail')
@@ -240,38 +244,39 @@ export default class MantisPanel extends TaskSourceController {
           .child(div().flex_1()).child(button('mantis-open', 'Open in MantisBT', (_event, cx) => cx.open_url(task.url), { icon: 'external-link' })))
         .when(metadata.length > 0, el => el
           .child(h_flex().bg(mantisTheme.category).font_semibold().border_b(1).border_color(mantisTheme.border)
-            .children(metadata.map(field => metadataCell(field.name))))
-          .child(h_flex().mb(10).border_b(1).border_color(mantisTheme.border)
-            .children(metadata.map(field => metadataCell(value(field))))))
+            .children(metadata.map((field, index) => metadataCell(field.name, index === metadata.length - 1))))
+          .child(h_flex().mb(10).border_b(1).border_color(rule)
+            .children(metadata.map((field, index) => metadataCell(value(field), index === metadata.length - 1)))))
         .children(properties.reduce((rows, field, index) => {
           if (index % 3 === 0) rows.push([]);
           rows.at(-1).push(field); return rows;
-        }, []).map(fields => h_flex().items_stretch().children(fields.map(field => property(field.name, value(field))))))
+        }, []).map((fields, rowIndex) => h_flex().items_stretch().when(rowIndex === 0, el => el.border_t(1).border_color(rule)).children(fields.map((field, index) => property(field.name, value(field), index < fields.length - 1)))))
         .child(full('Summary', div().font_semibold().child(`${issueNumber(task.gid)}: ${task.name}`)))
         .child(full('Description', task.notes || 'No description.'))
         .children(visible.filter(field => field.id.startsWith('custom:')).map(field =>
           full(field.name, this.fieldValue(task, field)).id(`mantis-custom-detail-${field.id}`)))
         .when(standard.some(field => field.id === 'tags'), el => el.child(full('Tags', task.tags?.join(', ') || 'No tags attached.')))
-        .child(h_flex().p(10).justify_end().bg('#f5f5f5')
+        .child(h_flex().p(10).justify_end().bg('#f5f5f5').border_t(1).border_color(rule)
           .child(button('mantis-import', this.importLabel, () => importTask(task), { primary: true, icon: 'plus', disabled: !this.onImport || (!task.comments && !task.commentsError) }))))
       .when(Boolean(task.parent) || task.subtasks > 0, el => el.child(widget().id('mantis-relationships')
         .child(widgetHeader('mantis-relationships-header', 'Relationships', 'list-tree'))
         .when(task.subtasks > 0 && !children, el => el.child(div().p(12).child('Loading relationships…')))
         .children([...(task.parent ? [{ ...task.parent, relation: 'child of' }] : []), ...(children || []).map(child => ({ ...child, relation: 'parent of' }))]
-          .map(related => h_flex().id(`mantis-related-${related.gid}`).min_h(36).items_center().border_b(1).border_color('#dddddd').hover(el => el.bg(mantisTheme.hover)).cursor_pointer()
+          .map(related => h_flex().id(`mantis-related-${related.gid}`).min_h(36).items_center().border_b(1).border_color(rule).hover(el => el.bg(mantisTheme.hover)).cursor_pointer()
             .on_click((_event, cx) => this.show(related, cx)).child(cell(related.relation, 100))
             .child(cell(div().id(`mantis-related-number-${related.gid}`).text_color(mantisTheme.accent).hover(el => el.underline()).child(issueNumber(related.gid)), 90))
             .child(cell(related.section ? status(related) : '—', 160)).child(cell(related.assigneeLogin || related.assignee, 150))
-            .child(cell(div().id(`mantis-related-summary-${related.gid}`).text_color(mantisTheme.accent).hover(el => el.underline()).child(related.name)))))))
+            .child(cell(div().id(`mantis-related-summary-${related.gid}`).text_color(mantisTheme.accent).hover(el => el.underline()).child(related.name), null, false, false))))))
       .child(widget().id('mantis-activities').child(widgetHeader('mantis-activities-header', 'Activities', 'clock'))
         .when(Boolean(task.commentsError), el => el.child(div().p(12).text_color(mantisTheme.destructive).child(task.commentsError)))
         .when(!task.comments?.length && !task.commentsError, el => el.child(div().p(12).child('No notes.')))
-        .children((task.comments || []).map((comment, index) => h_flex().id(`mantis-note-${comment.gid}`).items_stretch().min_h(90).when(index > 0, el => el.mt(12)).border_b(1).border_color('#dddddd')
+        .children((task.comments || []).map((comment, index) => h_flex().id(`mantis-note-${comment.gid}`).items_stretch().min_h(90).mx(10).mt(index > 0 ? 12 : 10).when(index === (task.comments.length - 1), el => el.mb(10)).border(1).border_color(rule)
           .child(v_flex().w(185).flex_none().p(12).gap(8).bg('#edf3f4').text_color(mantisTheme.accent)
             .child(h_flex().gap(6).items_center().child(glyph('agent')).child(comment.authorLogin || comment.author))
             .child(div().text_size(12).text_color(mantisTheme.muted).child(date(comment.at, true)))
             .child(div().text_size(12).child(`~${issueNumber(comment.gid)}`)))
-          .child(v_flex().flex_1().min_w(0).justify_start().p(12).bg('#e8e8e8').child(comment.text)))));
+          .child(v_flex().flex_1().min_w(0).border_l(1).border_color(rule)
+            .child(v_flex().flex_1().min_w(0).justify_start().p(12).bg('#e8e8e8').child(comment.text))))));
   }
 
   fieldSettings() {
@@ -282,7 +287,7 @@ export default class MantisPanel extends TaskSourceController {
       .child(widgetHeader('mantis-fields-header', 'Field Display', 'columns-3'))
       .when(!bound, el => el.child(div().p(12).child('Select a project to configure its fields.')))
       .when(Boolean(bound), el => el
-        .child(h_flex().min_h(42).px(12).gap(8).items_center().bg('#f5f5f5').border_b(1).border_color(mantisTheme.border)
+        .child(h_flex().min_h(42).px(12).gap(8).items_center().bg('#f5f5f5').border_b(1).border_color(rule)
           .child(div().font_semibold().child('Project:')).child(div().child(bound.name || bound.gid)))
         .child(h_flex().p(12).gap(8).children(Object.entries(labels).map(([value, title]) =>
           button(`source-fields-${value}`, title, (_event, cx) => { this.cancelFieldDrag(cx); this.fieldSurface = value; cx.notify(); }, { primary: surface === value }))))
@@ -291,8 +296,8 @@ export default class MantisPanel extends TaskSourceController {
           .child(div().flex_1().text_color(mantisTheme.destructive).child(schema.error))
           .child(button('source-fields-retry', 'Retry', (_event, cx) => this.syncFields(cx, true)))))
         .child(h_flex().h(32).items_center().bg(mantisTheme.category).border_t(1).border_b(1).border_color(mantisTheme.border)
-          .child(div().w(36).flex_none()).child(div().w(85).px(12).font_semibold().child('Display'))
-          .child(div().flex_1().px(12).font_semibold().child('Field')))
+          .child(div().w(36).flex_none().h_full().border_r(1).border_color(rule)).child(div().w(85).h_full().flex().items_center().px(12).border_r(1).border_color(rule).font_semibold().child('Display'))
+          .child(div().flex_1().h_full().flex().items_center().px(12).font_semibold().child('Field')))
         .child(v_flex().id('mantis-field-rows').on_hover((hovered, cx) => { if (!hovered) this.cancelFieldDrag(cx); })
           .on_key_down((event, cx) => { if (event.key === 'escape' && this.fieldDrag) { this.cancelFieldDrag(cx); cx.stop_propagation(); } })
           .children(fields.map((field, index) => h_flex().id(`source-field-${surface}-${field.id}`).min_h(40).items_center()
@@ -300,24 +305,24 @@ export default class MantisPanel extends TaskSourceController {
           .opacity(this.fieldDrag?.id === field.id ? 0.5 : 1).border_b(1).border_color(mantisTheme.border)
           .on_mouse_move((_event, cx) => this.hoverField(surface, field.id, cx))
           .on_mouse_up('left', (_event, cx) => { if (this.fieldDrag) { this.dropField(surface, field.id, cx); cx.stop_propagation(); } })
-          .child(Button(`source-field-drag-${surface}-${field.id}`, mantisTheme, { variant: 'ghost', size: 'icon' }).w(36).h(30).cursor_grab()
+          .child(div().w(36).h_full().flex_none().flex().items_center().justify_center().border_r(1).border_color(rule).child(Button(`source-field-drag-${surface}-${field.id}`, mantisTheme, { variant: 'ghost', size: 'icon' }).w(36).h(30).cursor_grab()
             .accessibility_label(`Reorder ${field.name}. Drag or use Alt + Up or Down.`)
             .on_mouse_down('left', (_event, cx) => { cx.stop_propagation(); this.startFieldDrag(surface, field.id, cx); })
-            .on_key_down((event, cx) => this.fieldDragKey(event, surface, field.id, cx)).child(glyph('grip-vertical')))
-          .child(div().w(85).px(12).child(Checkbox(`source-field-visible-${surface}-${field.id}`, field.visible, mantisTheme)
+            .on_key_down((event, cx) => this.fieldDragKey(event, surface, field.id, cx)).child(glyph('grip-vertical'))))
+          .child(div().w(85).h_full().flex().items_center().px(12).border_r(1).border_color(rule).child(Checkbox(`source-field-visible-${surface}-${field.id}`, field.visible, mantisTheme)
             .accessibility_label(`Show ${field.name} in ${labels[surface]}`)
             .on_change((_checked, cx) => this.changeField(surface, field.id, 0, cx))))
-          .child(div().flex_1().min_w(0).px(12).child(field.name))
+          .child(div().flex_1().min_w(0).h_full().flex().items_center().px(12).child(field.name))
           )))
-        .child(div().p(12).bg('#eeeeee').text_color(mantisTheme.muted)
+        .child(div().p(12).bg('#eeeeee').border_t(1).border_color(rule).text_color(mantisTheme.muted)
           .child('Drag handles to reorder. Changes save on drop. Summary stays visible. Imports keep all loaded fields.')));
   }
 
   connectionPage(close) {
     const back = cx => { this.settingsOpen = false; this.tokenInput.set_value(''); this.error = null; cx.notify(); };
-    const row = (title, content) => h_flex().min_h(52).border_b(1).border_color('#dddddd')
+    const row = (title, content) => h_flex().min_h(52).border_b(1).border_color(rule)
       .child(div().w(180).flex_none().px(12).py(16).bg(mantisTheme.category).font_semibold().child(title))
-      .child(div().flex_1().min_w(0).p(12).child(content));
+      .child(div().flex_1().min_w(0).p(12).border_l(1).border_color(rule).child(content));
     return v_flex().gap(0).child(widget().id('mantis-connection').child(widgetHeader('mantis-account-header', 'My Account — API Tokens', 'gear'))
       .child(row('Server URL', field(this.serverInput, 'mantis-server', 'MantisBT server URL').w_full()))
       .child(row('API Token', h_flex().gap(8).items_center()
@@ -325,7 +330,7 @@ export default class MantisPanel extends TaskSourceController {
         .child(button('mantis-copy-token', this.tokenCopied ? 'Copied' : 'Copy', (_event, cx) => this.copyToken(cx), { disabled: !this.tokenInput.value().trim() }))))
       .child(div().p(12).child('Create an API Token in MantisBT → My Account → API Tokens. Save keeps your settings even if the connection fails.'))
       .when(Boolean(this.error), el => el.child(div().p(12).text_color(mantisTheme.destructive).child(this.error)))
-      .child(h_flex().p(12).gap(8).bg('#eeeeee')
+      .child(h_flex().p(12).gap(8).bg('#eeeeee').border_t(1).border_color(rule)
         .child(button('mantis-save-token', this.tokenBusy ? 'Saving…' : 'Save', (_event, cx) => this.saveToken(cx), { primary: true, disabled: this.tokenBusy }))
         .child(button('mantis-cancel-token', 'Cancel', (_event, cx) => this.token ? back(cx) : close(), { disabled: this.tokenBusy }))
         .when(Boolean(this.token), el => el.child(button('mantis-clear-token', 'Clear saved token', (_event, cx) => this.clearToken(cx), { disabled: this.tokenBusy })))))
@@ -347,7 +352,7 @@ export default class MantisPanel extends TaskSourceController {
       .child(this.navbar(close))
       .child(h_flex().flex_1().min_h(0).items_stretch().child(this.sidebar())
         .child(v_flex().flex_1().h_full().min_w(0).min_h(0).p(8).gap(10)
-          .child(h_flex().h(41).flex_none().px(16).gap(8).items_center().bg(mantisTheme.breadcrumb).text_color(mantisTheme.accent)
+          .child(h_flex().h(41).flex_none().px(16).gap(8).items_center().bg(mantisTheme.breadcrumb).border_b(1).border_color('#c5dbe8').text_color(mantisTheme.accent)
             .child(glyph('folder', 16)).child(this.binding()?.name || project?.name || 'MantisBT')
             .child(div().text_color(mantisTheme.muted).child('/'))
             .child(this.settingsOpen || this.needsToken ? 'My Account' : this.selected ? 'View Issue Details' : this.tab === 'mine' ? 'My View' : 'View Issues')
@@ -363,7 +368,7 @@ export default class MantisPanel extends TaskSourceController {
               .when(Boolean(this.selected), el => el.child(this.detailPage(importTask)))
               .when(!this.selected, el => el.child(this.filters()).child(this.issueList(cx))))
             .child(div().min_h(24).flex_1())
-            .child(h_flex().mt(24).pt(10).border_t(1).border_color('#dddddd').gap(4).text_size(12)
+            .child(h_flex().mt(24).pt(10).border_t(1).border_color(rule).gap(4).text_size(12)
               .child('Powered by').child(div().text_color(mantisTheme.accent).child('MantisBT'))))));
   }
 }
