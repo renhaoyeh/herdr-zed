@@ -6,7 +6,7 @@ import { Button } from './components/button.js';
 import { DropdownMenuLabel } from './components/dropdown-menu.js';
 import { Empty, EmptyTitle, EmptyDescription } from './components/empty.js';
 import { glyph, AgentIcon } from './components/icon.js';
-import { openAgentSettings, noAccount } from './session-menu.js';
+import { openAgentSettings, noAccount } from './components/agents.js';
 
 const providers = [
   { key: 'claude', name: 'Claude Code', install: 'npm install -g @anthropic-ai/claude-code' },
@@ -29,8 +29,7 @@ export const startPanel = {
   },
 
   recheckAgents(cx) {
-    setShared('devkits.agent-cache', {});
-    this.startAgents(null, cx);
+    cx.spawn(async cx => { try { await this.cachedAgents(null, true); } catch {} cx.notify(); });
     cx.notify();
   },
 
