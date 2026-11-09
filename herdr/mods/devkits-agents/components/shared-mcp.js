@@ -23,7 +23,7 @@ export async function sessionMcpArgv(agent, argv) {
   // Persist the built-in Tasks transport as well as the user-managed shared defaults.
   const servers = { ...config.servers, herdr_tasks: tasksMcpServer(appHome()) };
   const directory = argv.find(arg => arg.startsWith('CODEX_HOME='))?.slice(11) || `${home()}/.codex`;
-  const result = await exec('node', [`${appHome()}/mods/devkits/shared-mcp-sync.js`, directory, JSON.stringify(servers)], { timeout: 60000 });
+  const result = await exec('node', [`${appHome()}/mods/devkits-agents/shared-mcp-sync.js`, directory, JSON.stringify(servers)], { timeout: 60000 });
   if (result.code !== 0) throw new Error(result.stderr?.trim() || 'Could not synchronize shared MCP settings.');
   return sharedMcpArgv(agent, argv, config);
 }

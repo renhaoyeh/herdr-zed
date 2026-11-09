@@ -12,7 +12,7 @@ export default class UsageMod extends View {
     else if (this.target.view === 'usage-details') { this.details = new UsageDetails(); this.details.init(cx); }
     else { this.analytics = new Analytics(); this.analytics.init(cx); }
   }
-  close() { this.client?.close(); }
+  close() { this.client?.close(); for (const monitor of this.service?.monitors.values() || []) monitor.agentClient.close(); }
   render() {
     const t = theme();
     if (this.service) return div().size_full().bg(t.border);

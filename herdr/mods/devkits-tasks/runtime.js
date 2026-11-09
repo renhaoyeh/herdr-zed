@@ -1,17 +1,18 @@
-import { agents, spaces, terminals, shared, setShared, readTextFile, appHome, notify, props } from 'herdr';
-import { projectCatalog, projectGroups, folderKey, launcherChoices, launcherLabel, isAccountLauncher, launcherArgv, sessionArgv, sessionKind, rulesArgv, settingsKey, configuredAgents, resolveThreadProfiles } from './components/session-model.js';
+import { agents, spaces, terminals, shared, setShared, notify, props } from 'herdr';
+import { projectCatalog, projectGroups, folderKey, launcherChoices, launcherLabel, isAccountLauncher, configuredAgents, resolveThreadProfiles } from './components/session-model.js';
 import { boardKey, taskActions, canStartTask } from './agent-board-model.js';
 import { projectBoardTasks, rememberBoardTask, setTaskArchived, threadBoardTask, threadBoardStatus, sessionThreadTitle, boardRecords, createLocalTask } from './agent-board-state.js';
 import { observeTaskInput } from './agent-task-evidence.js';
 import { taskPrompt } from './task-prompt.js';
 import { TaskSources } from './task-sources.js';
 import { openTaskComposer } from './task-composer.js';
-import { sessionMcpArgv } from './components/shared-mcp.js';
+import { AgentClient } from './components/agents.js';
 import { publishTaskNavigation } from './components/tasks.js';
 const startingThreads = new Set();
-const sessionRules = async () => { const file = `${appHome()}/data/devkits/AGENTS.md`, text = await readTextFile(file); return text?.trim() ? { file, text } : null; };
+
 
 export class TaskRuntime {
+  agentClient = new AgentClient();
 
   constructor() { this.taskSources = new TaskSources((project, snapshot) => openTaskComposer(project, null, 'todo', snapshot)); }
   projects() { return projectCatalog(spaces(), shared('devkits.projects') || [], shared('devkits.project-roots') || {}, shared('devkits.selected-project'), shared('devkits.project-order') || []); }
@@ -120,6 +121,7 @@ export class TaskRuntime {
     if (next !== this.snapshotSignature) { this.snapshotSignature = next; setShared('devkits.tasks.snapshot', snapshot); }
   }
   init(cx) {
+    this.agentClient.init(cx);
     this.taskSources.init(cx); this.refresh(cx);
     cx.timer.every(1500, cx => this.refresh(cx));
     cx.timer.every(200, cx => this.poll(cx));
@@ -159,11 +161,6 @@ export class TaskRuntime {
   }
 
   async launchThread(agent, target, options) {
-    const config = agent?.profileKey && (shared('devkits.agent-configs') || []).find(item => item.key === agent.key && item.profileKey === agent.profileKey);
-    if (agent?.profileKey && !config) {
-      notify({ title: 'Agent configuration is unavailable', body: 'Choose another agent configuration.' });
-      return;
-    }
     const task = target.task;
     if (task) {
       const project = this.projects().find(item => item.id === target.space || (!item.machine && folderKey(item.folder) === folderKey(target.folder))) || { folder: target.folder, tabs: [] };
@@ -173,28 +170,9 @@ export class TaskRuntime {
         return;
       }
     }
-    let argv;
-    // A choice made for this session wins; otherwise the profile's own default model and effort apply.
-    const profile = shared('devkits.profile-sessions')?.[settingsKey(agent)] || {};
-    const session = { model: options.model === undefined ? profile.model : options.model,
-      effort: options.effort === undefined ? profile.effort : options.effort,
-      serviceTier: profile.serviceTier };
-    const allowed = shared('devkits.session-options')?.[sessionKind(agent)] || {};
-    if (allowed.models?.includes(session.model)) session.model = null;
-    if (allowed.efforts?.includes(session.effort)) session.effort = null;
-    try { argv = agent && sessionArgv(agent, launcherArgv(agent, shared('devkits.codex-permissions')?.[settingsKey(agent)]), { ...session,
-      tasksMcpHome: !target.machine && !spaces().find(space => space.id === target.space)?.machine ? appHome() : null }); }
+    let argv, session;
+    try { ({ argv, session } = await this.agentClient.prepare(agent, target, options)); }
     catch (error) { notify({ title: 'Could not start session', body: error.message, level: 'error' }); return; }
-    // Global rules live on this computer, so only local sessions get them.
-    if (argv && !spaces().find(space => space.id === target.space)?.machine) {
-      let rules = null;
-      try { rules = await sessionRules(); } catch {}
-      argv = rulesArgv(agent, argv, rules, config?.instructions);
-      if (!target.machine) {
-        try { argv = await sessionMcpArgv(agent, argv); }
-        catch (error) { notify({ title: 'Could not load shared MCP settings', body: error.message, level: 'error' }); return; }
-      }
-    }
     // A local task may be deleted while its launch rules are being read.
     if (task?.source === 'local') {
       const project = this.projects().find(item => item.id === target.space || (!item.machine && folderKey(item.folder) === folderKey(target.folder)));

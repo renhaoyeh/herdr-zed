@@ -11,25 +11,25 @@ import { AlertDialogContent, AlertDialogTitle, AlertDialogDescription, AlertDial
 export const accountActions = {
   initRenameAccount() {
     this.renameInput = InputState.new({ placeholder: 'Account name' });
-    this.renameInput.set_value(accountLabel(props().account.name));
+    this.renameInput.set_value(accountLabel((props() || {}).account.name));
     this.renameInput.on('submit', (_event, cx) => this.saveAccountName(cx));
     this.renameInput.focus();
   },
 
   addAccount(provider) {
-    openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: true, width: 520, height: 380,
+    openOverlay({ mod: 'devkits-agents', kind: 'dialog', frame: 'none', modal: true, width: 520, height: 380,
       props: { view: 'account-login', provider } });
   },
 
   renameAccount(account) {
     const target = props();
-    openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: true, width: 480, height: 260,
+    openOverlay({ mod: 'devkits-agents', kind: 'dialog', frame: 'none', modal: true, width: 480, height: 260,
       props: { view: 'rename-account', account: { key: account.key, name: account.name }, space: target.space } });
   },
 
   finishRename() {
     if (this.renaming) return;
-    closeOverlay(props().overlay);
+    closeOverlay((props() || {}).overlay);
   },
 
   saveAccountName(cx) {
@@ -38,7 +38,7 @@ export const accountActions = {
     const name = this.renameInput.value();
     cx.spawn(async cx => {
       try {
-        await renameAccountProfile(props().account.key, name);
+        await renameAccountProfile((props() || {}).account.key, name);
         setShared('devkits.agent-cache', {});
         setShared('devkits.profile-revision', (shared('devkits.profile-revision') || 0) + 1);
         this.renaming = false; this.finishRename();
@@ -65,7 +65,7 @@ export const accountActions = {
 
   confirmRemoveAccount(account) {
     const target = props();
-    openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: true, width: 480, height: 300,
+    openOverlay({ mod: 'devkits-agents', kind: 'dialog', frame: 'none', modal: true, width: 480, height: 300,
       props: { view: 'remove-account', account: { key: account.key, name: account.name }, space: target.space } });
   },
 

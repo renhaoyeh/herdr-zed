@@ -8,8 +8,8 @@ import { promisify } from 'node:util';
 import { sessionKind, settingsKey, sessionArgv, tasksMcpServer } from '../mods/devkits/components/session-model.js';
 import { evaluateNative } from './source-harness.js';
 import { parseSharedMcp, mcpToml } from '../mods/devkits/components/shared-mcp-model.js';
-import { syncSharedMcp } from '../mods/devkits/shared-mcp-sync.js';
-import { migrateSharedMcp } from '../mods/devkits/shared-mcp-migrate.js';
+import { syncSharedMcp } from '../mods/devkits-agents/shared-mcp-sync.js';
+import { migrateSharedMcp } from '../mods/devkits-agents/shared-mcp-migrate.js';
 
 const config = { version: 1, servers: { vs: { command: 'bridge', args: ['繁體中文', 'C:\\with spaces\\bridge', 'quote"'] }, ic: { url: 'http://127.0.0.1:18765/mcp' } },
   profiles: { work: { ic: false }, review: { vs: { command: 'review-bridge' } } } };

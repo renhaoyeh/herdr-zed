@@ -46,6 +46,8 @@ async function setup(options = {}) {
   const exports = 'UsageClient, usageClientPrefix, usageRefreshPrefix, usageMessage, usageCommand';
   const owner = endpoint('devkits-usage');
   Object.assign(owner, await evaluateNative('../mods/devkits/components/usage.js', owner, exports));
+  const discovery = await evaluateNative('../mods/devkits-agents/discovery.js', owner, 'discoverAgents');
+  owner.AgentClient = class { init() {} close() {} discover(machine, refresh) { return discovery.discoverAgents(machine, refresh); } };
   Object.assign(owner, await evaluateNative('../mods/devkits-usage/monitor.js', owner, 'UsageMonitor'));
   const { UsageService } = await evaluateNative('../mods/devkits-usage/service.js', owner, 'UsageService');
   const service = new UsageService(), serviceClock = clock(errors); service.init(serviceClock.cx);

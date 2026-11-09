@@ -1,4 +1,5 @@
-import { shared, setShared, exec, appHome, home, knownAgents, readTextFile } from 'herdr';
+import { AgentClient } from './components/agents.js';
+import { shared, setShared, exec, appHome, home } from 'herdr';
 import { launcherChoices, isAccountLauncher, configuredAgents } from './components/session-model.js';
 import { ensureClaudeStatusLine } from './components/claude-usage-hook.js';
 import { UsageClient } from './components/usage.js';
@@ -13,22 +14,11 @@ const claudeDirectory = agent => agent.run.find(arg => arg.startsWith('CLAUDE_CO
 export class UsageMonitor extends UsageClient {
   constructor({ machine = null, active = () => true } = {}) { super({ context: () => ({ machine }), active }); this.machine = machine; }
   projects() { return [{ active: true, machine: this.machine }]; }
-  async cachedAgents(machine) {
-    const key = JSON.stringify(machine || null), cached = shared('devkits.agent-cache')?.[key];
-    let available = cached;
-    if (!available) {
-      available = (await knownAgents({ on: machine })).filter(agent => agent.installed && (!machine || !isAccountLauncher(agent)));
-      if (!machine) {
-        const source = await readTextFile(`${appHome()}/programs.json`), programs = source === null ? {} : JSON.parse(source).programs || {};
-        available = available.map(agent => typeof programs[agent.key]?.name === 'string' ? { ...agent, name: programs[agent.key].name } : agent);
-      }
-      setShared('devkits.agent-cache', { ...(shared('devkits.agent-cache') || {}), [key]: available });
-    }
-    if (!machine && available.length && shared('devkits.hidden-usage-profiles') === undefined) {
-      const hidden = shared('devkits.hidden-launchers') || [];
-      setShared('devkits.hidden-usage-profiles', available.filter(agent => !agent.profileKey && hidden.includes(`agent:${agent.key}`)).map(agent => agent.key));
-    }
-    return machine ? available.filter(agent => !isAccountLauncher(agent)) : configuredAgents(available, shared('devkits.agent-configs') || []);
+  agentClient = new AgentClient();
+  cachedAgents(machine, refresh = false) {
+    const cached = shared('devkits.agent-cache')?.[JSON.stringify(machine || null)];
+    if (!refresh && cached) return Promise.resolve(machine ? cached.filter(agent => !isAccountLauncher(agent)) : configuredAgents(cached, shared('devkits.agent-configs') || []));
+    return this.agentClient.discover(machine, refresh);
   }
   snapshot() {
     const machine = this.projects().find(project => project.active)?.machine || null;
@@ -58,14 +48,10 @@ export class UsageMonitor extends UsageClient {
     if (this.usageLoading || (!force && this.usageScope === scope)) return;
     this.usageScope = scope;
     this.usageLoading = true; this.publish();
-    // A manual refresh rediscovers profiles and bypasses the provider cache.
-    if (manual) {
-      const { [JSON.stringify(machine)]: _, ...rest } = shared('devkits.agent-cache') || {};
-      setShared('devkits.agent-cache', rest);
-    }
     cx.spawn(async cx => {
       try {
-        const agents = await this.cachedAgents(machine);
+        this.agentClient.init(cx);
+        const agents = await this.cachedAgents(machine, manual);
         if (!this.active() || (this.projects().find(project => project.active)?.machine || null) !== machine) return;
         this.usageAgents = agents.filter(agent => !agent.profileKey);
         if (this.usageMachine !== machine) this.usage = [];

@@ -10,7 +10,7 @@ import { join } from 'node:path';
 async function load(host = {}) {
   const memory = new Map();
   host = { launcherLabel, window: () => ({ platform: 'macos' }), shared: key => memory.get(key), setShared: (key, value) => memory.set(key, value), ...host };
-  const source = await readFile(new URL('../mods/devkits/account-login.js', import.meta.url), 'utf8');
+  const source = await readFile(new URL('../mods/devkits-agents/account-login.js', import.meta.url), 'utf8');
   const helpers = await Promise.all(['components/session-shell', 'components/claude-usage-hook'].map(name => readFile(new URL(`../mods/devkits/${name}.js`, import.meta.url), 'utf8')));
   const factory = new Function('View', ...Object.keys(host), [...helpers, source].join('\n').replace(/^import .*;\r?\n/gm, '')
     .replace('export default class', 'class').replace(/^export /gm, '') + '\nreturn { AccountLogin, accountProfile, registerAccount, removeAccountProfile, renameAccountProfile, ensureClaudeStatusLine };');
@@ -160,7 +160,7 @@ test('finishing, cancelling, or escaping account sign-in returns to the large Ma
   assert.deepEqual(closed, ['login', 'login', 'login']);
   assert.equal(overlays.length, 3);
   for (const spec of overlays) {
-    assert.deepEqual(spec, { mod: 'devkits', kind: 'dialog', frame: 'none', modal: false, width: 1040, height: 0.8,
+    assert.deepEqual(spec, { mod: 'devkits-agents', kind: 'dialog', frame: 'none', modal: false, width: 1040, height: 0.8,
       props: { view: 'manage-launchers', space: 'api', refreshAgents: true } });
   }
 });

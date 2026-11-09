@@ -7,7 +7,7 @@ import { Select } from './components/select.js';
 import { DialogContent, DialogTitle, DialogDescription, DialogFooter } from './components/dialog.js';
 import { DropdownMenuLabel } from './components/dropdown-menu.js';
 import { AgentIcon, glyph } from './components/icon.js';
-import { noAccount } from './session-menu.js';
+import { noAccount } from './components/agents.js';
 
 // Profiles can use any installed account, in Add session's saved order.
 export const agentProfiles = {
@@ -22,7 +22,7 @@ export const agentProfiles = {
   openAgentProfileEditor(config = null) {
     if (!config && !this.profileAccounts().length) return;
     const target = props();
-    openOverlay({ mod: 'devkits', kind: 'dialog', modal: true, frame: 'none', width: 640, height: 680,
+    openOverlay({ mod: 'devkits-agents', kind: 'dialog', modal: true, frame: 'none', width: 640, height: 680,
       props: { view: 'agent-profile-editor', configKey: config?.key || null, space: target.space } });
   },
 
@@ -33,7 +33,7 @@ export const agentProfiles = {
   },
 
   initAgentProfileEditor() {
-    const key = props().configKey;
+    const key = (props() || {}).configKey;
     const config = (shared('devkits.agent-configs') || []).find(item => item.key === key);
     const session = config && shared('devkits.profile-sessions')?.[key] || {};
     this.profileDraft = { name: config?.name || '', profileKey: config?.profileKey || null,
@@ -60,7 +60,7 @@ export const agentProfiles = {
   saveAgentProfile(cx) {
     if (this.profileSaving || this.profileSaved) return;
     const draft = this.profileDraft, account = this.profileEditorAccounts().find(item => item.key === draft.profileKey);
-    const name = this.configName.value().trim(), configs = shared('devkits.agent-configs') || [], existing = props().configKey;
+    const name = this.configName.value().trim(), configs = shared('devkits.agent-configs') || [], existing = (props() || {}).configKey;
     const instructions = this.configInstructions.value().trim();
     let error;
     if (existing && !configs.some(item => item.key === existing)) error = 'This agent profile no longer exists.';
@@ -102,7 +102,7 @@ export const agentProfiles = {
 
   agentProfileEditor(t) {
     const draft = this.profileDraft, accounts = this.profileEditorAccounts(), account = accounts.find(item => item.key === draft.profileKey);
-    const creating = !props().configKey;
+    const creating = !(props() || {}).configKey;
     return DialogContent('agent-profile-editor', t).track_focus(this.handle)
       .accessibility_label(creating ? 'New agent profile' : 'Edit agent profile')
       .on_key_down((event, cx) => {

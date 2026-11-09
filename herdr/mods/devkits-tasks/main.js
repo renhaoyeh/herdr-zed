@@ -1,5 +1,5 @@
 import { View, div } from 'gpui-kit';
-import { props, shared, knownAgents, setShared, notify, closeOverlay, theme } from 'herdr';
+import { props, shared, notify, closeOverlay, theme } from 'herdr';
 import { TaskRuntime } from './runtime.js';
 import { TasksMcpBridge } from './mcp-bridge.js';
 import AgentBoard from './agent-board.js';
@@ -17,11 +17,10 @@ export default class TasksMod extends View {
         if (event.type !== 'close') navigate(event);
       };
     }
+    this.runtime.agentClient.init(cx);
     if (!shared('devkits.agent-cache')?.null) cx.spawn(async cx => {
-      try {
-        const available = (await knownAgents()).filter(agent => agent.installed);
-        setShared('devkits.agent-cache', { ...(shared('devkits.agent-cache') || {}), null: available });
-      } catch (error) { notify({ title: 'Could not load agents', body: error.message, level: 'error' }); }
+      try { await this.runtime.agentClient.discover(null); }
+      catch (error) { notify({ title: 'Could not load agents', body: error.message, level: 'error' }); }
       cx.notify();
     });
     if (this.target.view === 'task-composer') {
@@ -30,7 +29,7 @@ export default class TasksMod extends View {
       this.deleter = new DeleteTask(); this.deleter.init(this.target, cx);
     } else { this.runtime.agentBoard = new AgentBoard(); this.runtime.agentBoard.init(cx); }
   }
-  close() { this.composer?.saveDraft(); }
+  close() { this.composer?.saveDraft(); this.runtime.agentClient.close(); }
   render(cx) {
     if (this.target.view === 'service') return div().size_full().bg(theme().border);
     const t = boardTheme();

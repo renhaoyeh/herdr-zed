@@ -1,16 +1,11 @@
 import { div } from 'gpui-kit';
 import { v_flex, EditorState, Editor } from 'gpui-base';
-import { props, readTextFile, writeTextFile, openOverlay, closeOverlay, notify } from 'herdr';
+import { props, readTextFile, writeTextFile, closeOverlay, notify } from 'herdr';
 import { sharedMcpPath, parseSharedMcp } from './components/shared-mcp.js';
 import { Button } from './components/button.js';
 import { DialogContent, DialogTitle, DialogDescription, DialogFooter } from './components/dialog.js';
 
 export const sharedMcpSettings = {
-  openSharedMcp(agent) {
-    const target = props();
-    openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: true, width: 720, height: 0.8,
-      props: { view: 'shared-mcp', agent, space: target.space } });
-  },
   initSharedMcp(cx) {
     this.mcpLoading = true; this.mcpError = null;
     this.mcpServers = EditorState.new({ language: 'json', value: '{}' });
@@ -23,7 +18,7 @@ export const sharedMcpSettings = {
       finally { this.mcpLoading = false; cx.notify(); }
     });
   },
-  finishSharedMcp() { closeOverlay(props().overlay); },
+  finishSharedMcp() { closeOverlay((props() || {}).overlay); },
   saveSharedMcp(cx) {
     if (this.mcpLoading || this.mcpSaving || !this.mcpConfig) return;
     this.mcpSaving = true; this.mcpError = null; cx.notify();

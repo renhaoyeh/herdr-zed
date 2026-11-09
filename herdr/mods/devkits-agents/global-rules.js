@@ -1,7 +1,8 @@
-import { appHome, readTextFile, writeTextFile } from 'herdr';
+import { readTextFile, writeTextFile } from 'herdr';
 
 // Shared startup rules for sessions launched from Devkits on this computer.
-export const rulesPath = () => `${appHome()}/data/devkits/AGENTS.md`;
+import { rulesPath } from './components/agents.js';
+export { rulesPath } from './components/agents.js';
 
 const defaultRules = `# Global rules
 

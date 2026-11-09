@@ -229,6 +229,15 @@ async function modules(records = {}, projects = [{ id: 'p', folder: '/project', 
     'createSourceChannel, sourceChannels, consumeSourceEvents, closeSourceChannel'));
   Object.assign(owner, await evaluateNative('../mods/devkits-tasks/task-sources.js', owner, 'TaskSources'));
   Object.assign(owner, await evaluateNative('../mods/devkits-tasks/task-prompt.js', owner, 'taskPrompt'));
+  owner.AgentClient = class {
+    init() {} close() {} discover() { return Promise.resolve([]); }
+    async prepare(agent, target, options) {
+      const { prepareSession } = await evaluateNative('../mods/devkits-agents/session-preparation.js', {
+        ...owner, sessionRules: async () => { const text = await owner.readTextFile('/herdr/data/devkits/AGENTS.md'); return text?.trim() ? { file: '/herdr/data/devkits/AGENTS.md', text } : null; },
+      }, 'prepareSession');
+      return prepareSession(agent, target, options);
+    }
+  };
   const { TaskRuntime } = await evaluateNative('../mods/devkits-tasks/runtime.js', owner, 'TaskRuntime');
   const runtime = new TaskRuntime();
   return { base, owner, client, runtime, state, memory, writes, overlays, closed, native };
@@ -300,12 +309,13 @@ test('a canceled Calendar navigation drops its queued request and cannot open Ta
 
 test('task execution validates in Tasks and a deletion during asynchronous rule loading prevents launching', async () => {
   const h = await modules({ '["","/project"]': { one: { gid: 'one', name: 'Task', source: 'local', status: 'todo' } } });
-  let finish; h.owner.readTextFile = () => new Promise(resolve => { finish = resolve; });
+  let finish, started; const reading = new Promise(resolve => { started = resolve; });
+  h.owner.readTextFile = () => new Promise(resolve => { finish = resolve; started(); });
   // A fresh provider context binds the delayed native file reader.
   const { TaskRuntime } = await evaluateNative('../mods/devkits-tasks/runtime.js', h.owner, 'TaskRuntime');
   const service = new TaskRuntime(), clock = context(); service.init(clock.cx);
   h.client.requestTaskStart({ key: 'codex', name: 'Codex', run: ['codex'] }, { folder: '/project', space: 'p', task: { gid: 'one' } });
-  service.poll(clock.cx); assert.equal(typeof finish, 'function');
+  service.poll(clock.cx); await reading; assert.equal(typeof finish, 'function');
   assert.equal(h.owner.deleteLocalTask(h.state.projects[0], 'one', []), true);
   finish('Use project rules'); await clock.settle();
   assert.equal(h.memory['devkits.tasks.navigation'], undefined); assert.deepEqual(h.native, []);
@@ -318,7 +328,7 @@ test('closing the independent Tasks composer preserves its project-scoped unsave
   Object.assign(h.owner, { InputState: input, TextareaState: input, SelectState: class {}, liveAgents: () => [] });
   const { TaskComposer } = await evaluateNative('../mods/devkits-tasks/task-composer.js', h.owner, 'TaskComposer');
   const target = { view: 'task-composer', project: h.state.projects[0], overlay: 'draft' };
-  const { TasksMod } = await evaluateNative('../mods/devkits-tasks/main.js', { ...h.base, View: class {}, TaskRuntime: class { taskAssignees() { return []; } },
+  const { TasksMod } = await evaluateNative('../mods/devkits-tasks/main.js', { ...h.base, View: class {}, TaskRuntime: class { agentClient = { init() {}, close() {} }; taskAssignees() { return []; } },
     TaskComposer, props: () => target }, 'TasksMod');
   const view = new TasksMod(); view.init(null, clock.cx); view.composer.title.set_value('Unfinished'); view.close();
   assert.equal(h.memory['devkits.task-drafts']['["","/project"]'].name, 'Unfinished');

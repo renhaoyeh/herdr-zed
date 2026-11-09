@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, delimiter } from 'node:path';
-import { openConfig } from '../mods/devkits/codex-config.js';
+import { openConfig } from '../mods/devkits-agents/codex-config.js';
 
 test('settings reads and writes use an npm-style Codex shim without a system shell on Windows', async t => {
   const directory = await mkdtemp(join(tmpdir(), "devkits config 中文 ' $(literal) "));

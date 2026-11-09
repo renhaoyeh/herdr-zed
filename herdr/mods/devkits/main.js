@@ -1,32 +1,26 @@
+import { AgentClient, openAgentSettings, openAgentLauncher, openSharedMcp, rulesPath, agentAccountName } from './components/agents.js';
+import { agentSelection } from './components/agent-selection.js';
 import { View, div, svg, image } from 'gpui-kit';
 import { v_flex, h_flex } from 'gpui-base';
-import { agents, spaces, panes, theme, run, props, window, openOverlay, closeOverlay, setAgentOrder, layout, settings, pickFolder, shared, setShared, knownAgents, notify, appHome, readTextFile, nextCommand, terminals } from 'herdr';
-import { projectGroups, projectCatalog, folderKey, launcherChoices, isAccountLauncher, autoAgent, autoLauncherKey, launcherArgv, sessionArgv, sessionKind, threadProfile, threadProgram, archivable, rulesArgv, childTerminals, terminalLabel, terminalWorking, settingsKey } from './model.js';
+import { agents, spaces, panes, theme, run, props, window, openOverlay, closeOverlay, setAgentOrder, layout, settings, pickFolder, shared, setShared, notify, nextCommand, terminals } from 'herdr';
+import { configuredAgents, projectGroups, projectCatalog, folderKey, autoLauncherKey, threadProfile, threadProgram, archivable, childTerminals, terminalLabel, terminalWorking } from './model.js';
 import { terminalArgv } from './shell-command.js';
-import AccountLogin, { accountLabel } from './account-login.js';
 import FileViewer, { FileMenu } from './files.js';
 import DiffViewer from './diff.js';
 import { BuildRulesSettings } from './diff-ignore-settings.js';
 import { GitResultToast, clearGitToast } from './git-result-toast.js';
 import WorkspaceEditor from './workspace-editor.js';
 import XcodeStorage from './xcode-storage.js';
-import { TaskHost, withTaskSnapshot, openTaskComposer, requestTaskOpen, requestTaskSource, requestTaskStart, projectBoardTasks, threadBoardStatus, threadTaskArchived, threadVisibleInSidebar, threadBoardTask, taskLinkForTab, sessionThreadTitle, taskActions, boardStatuses } from './components/tasks.js';
-import { sessionMenu } from './session-menu.js';
-import { agentProfiles } from './agent-profiles.js';
-import { accountActions } from './account-actions.js';
-import { sharedMcpSettings } from './shared-mcp-settings.js';
-import { sessionMcpArgv } from './components/shared-mcp.js';
+import { TaskHost, withTaskSnapshot, openTaskComposer, requestTaskOpen, requestTaskSource, requestTaskStart, projectBoardTasks, threadBoardStatus, threadVisibleInSidebar, threadBoardTask, taskLinkForTab, sessionThreadTitle, taskActions, boardStatuses } from './components/tasks.js';
 import { UsageClient } from './components/usage.js';
 import { SystemMonitor } from './components/system-monitor.js';
 import { SystemDisplay, SystemDisplayMenu, openSystemDetails } from './system-display.js';
 import { InterfaceSettings, openInterfaceSettings, UsageDisplayMenu, openUsageDisplayMenu, usageStyle, usageShownIn } from './ui-settings.js';
 import { RunControls, RunMenu, runApp } from './run-app.js';
 import { BranchMenu } from './branch-menu.js';
-import { ProjectLayout, layoutNode, conversationMaximized, maximizeConversation, openTaskBoard, closeTaskBoard, enforceTaskBoard, taskMode } from './project-layout.js';
+import { ProjectLayout, layoutNode, conversationMaximized, maximizeConversation, openTaskBoard, closeTaskBoard, taskMode } from './project-layout.js';
 import { threadArchive } from './thread-archive.js';
 import { startPanel } from './start-panel.js';
-import { openAgentSettings } from './session-menu.js';
-import { sessionRules, ensureRules, rulesPath } from './global-rules.js';
 import { DropdownMenu, DropdownMenuState, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from './components/dropdown-menu.js';
 import { Button, ToolbarButton } from './components/button.js';
 import { AlertDialogContent, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from './components/alert-dialog.js';
@@ -53,9 +47,9 @@ const toggleEditor = (_editor, name) => {
 };
 const conversationKey = project => JSON.stringify([project.machine || '', folderKey(project.folder) || project.id]);
 const conversationVisible = project => Boolean(project && shared('devkits.conversation-visible')?.[conversationKey(project)]);
-const agentLoads = new Map();
 
 export default class Devkits extends View {
+  agentClient = new AgentClient();
   systemMonitor = new SystemMonitor({ receiver: 'devkits',
     active: () => this.systemDisplay.active(), openDetails: openSystemDetails,
   });
@@ -65,6 +59,9 @@ export default class Devkits extends View {
   taskHost = new TaskHost((event, cx) => this.taskNavigation(event, cx));
 
   init(_props, cx) {
+    this.agentClient.init(cx, (event, cx) => {
+      if (event.type === 'start') cx.spawn(async () => { await this.startThread(event.agent, event.target, event.options); });
+    }, !props()?.view);
     if (props()?.view === 'diff-ignore-settings') {
       this.buildRulesSettings = new BuildRulesSettings(); this.buildRulesSettings.init(cx); return;
     }
@@ -87,7 +84,6 @@ export default class Devkits extends View {
       clearGitToast(); setShared('devkits.git-output-request', null);
     }
     if (props()?.view === 'pane') { this.threadMenu = new DropdownMenuState(cx); return; }
-    if (props()?.view === 'shared-mcp') { this.initSharedMcp(cx); return; }
     if (props()?.view === 'file-menu') {
       this.fileMenu = new FileMenu(); this.fileMenu.init(cx); return;
     }
@@ -102,13 +98,6 @@ export default class Devkits extends View {
       this.xcodeStorage.init(cx);
       return;
     }
-    // Return an already-open permissions dialog to Manage during live updates.
-    if (props()?.view === 'codex-permissions') {
-      const target = props(); closeOverlay(target.overlay);
-      openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: false, width: 1040, height: 0.8,
-        props: { view: 'manage-launchers', space: target.space } });
-      return;
-    }
     if (['hardware-details', 'status'].includes(props()?.view) || (!props()?.view && cx)) {
       this.systemDisplay.init(); this.systemMonitor.init(cx);
       if (props()?.view === 'hardware-details') { closeOverlay(props().overlay); openSystemDetails(props()?.page); return; }
@@ -119,12 +108,10 @@ export default class Devkits extends View {
         if ([...(this.archiveChecks?.values() || [])].some(check => !check.pending && check.retryAt <= Date.now())) cx.notify();
       });
       // Shared values survive restarts; discover once for this app session.
-      setShared('devkits.agent-cache', {});
       this.usageClient.init(cx);
       for (const machine of new Set([null, ...spaces().map(space => space.machine || null)])) {
         cx.spawn(async () => { try { await this.cachedAgents(machine); } catch {} });
       }
-      cx.spawn(async () => { try { await ensureRules(); } catch {} });
     }
     if (props()?.view === 'branch-menu') {
       this.branchMenu = new BranchMenu();
@@ -157,8 +144,6 @@ export default class Devkits extends View {
     });
     if (props()?.view === 'editor') {
       this.editor = new WorkspaceEditor(); this.editor.init(cx); this.files = this.editor.files;
-      // Read local account addresses once at startup so every Default account can be told apart.
-      cx.spawn(async cx => { try { this.loadAccountIdentities(cx, await this.cachedAgents(null)); } catch {} cx.notify(); });
       cx.spawn(async cx => {
         for (;;) {
           const command = await nextCommand();
@@ -188,25 +173,18 @@ export default class Devkits extends View {
       this.diff.init(cx);
       return;
     }
-    if (props()?.view === 'account-login') {
-      this.login = new AccountLogin();
-      this.login.init(props(), cx);
-      return;
-    }
     this.folded = new Set();
-    if (props()?.view === 'rename-account') this.initRenameAccount();
     this.hovered = null;
     this.hoveredProject = null;
-    if (['close-project', 'remove-account', 'rename-account', 'project-menu', 'project-picker'].includes(props()?.view)) {
+    if (['close-project', 'project-menu', 'project-picker'].includes(props()?.view)) {
       this.handle = cx.focus_handle();
-      if (props().view !== 'rename-account') this.handle.focus();
+      this.handle.focus();
       if (props().view === 'project-picker') this.projectIndex = -1;
     }
     if (['asana', 'mantisbt'].includes(props()?.view) && props()?.overlay) {
       const target = props(), project = target.project || this.projects().find(project => project.active);
       requestTaskSource(project, target.view); if (target.overlay) closeOverlay(target.overlay); return;
     }
-    if (['launcher', 'manage-launchers', 'agent-profile-editor'].includes(props()?.view)) this.initSessionMenu(cx);
   }
 
   openProject(cx) {
@@ -363,8 +341,7 @@ export default class Devkits extends View {
   newThread(cx, id, at) {
     const project = this.projects().find(s => id ? s.id === id : s.active);
     if (!project) { this.openProject(cx); return; }
-    openOverlay({ mod: 'devkits', kind: 'popup', frame: 'none', width: 280, at,
-      props: { view: 'launcher', space: project.pending ? null : project.id, folder: project.folder, projectName: project.name } });
+    openAgentLauncher({ space: project.pending ? null : project.id, folder: project.folder, projectName: project.name }, at);
   }
 
   showConversation(visible = true, project = this.projects().find(project => project.active)) {
@@ -395,35 +372,6 @@ export default class Devkits extends View {
     run('devkits.open-file');
   }
 
-  defaultThreadAgent(project, agents) { return this.defaultThreadChoice(project, agents).agent; }
-
-  // The remembered launcher for this project, or Auto's current pick when Auto was last used.
-  defaultThreadChoice(project, agents) {
-    const key = JSON.stringify([project.machine || '', folderKey(project.folder) || project.id]);
-    const hidden = shared('devkits.hidden-launchers') || [];
-    const available = launcherChoices(agents, shared('devkits.launcher-order') || [])
-      .filter(choice => choice.agent && choice.agent.installed !== false && !hidden.includes(choice.key))
-      .map(choice => choice.agent);
-    for (const remembered of [shared('devkits.last-thread-agents')?.[key], shared('devkits.last-thread-agent')]) {
-      const agent = remembered === autoLauncherKey ? this.autoThreadAgent(agents, project.machine)
-        : available.find(agent => agent.key === remembered);
-      if (agent) return { agent, auto: remembered === autoLauncherKey };
-    }
-    return { agent: available[0], auto: false };
-  }
-
-  // Auto chooses among your added accounts selected in Settings → Usage, by this computer's quota readings.
-  autoThreadAgent(agents, machine) {
-    if (machine) return null;
-    // Accounts hidden from Usage have no readings, so Auto leaves them out too.
-    const hidden = shared('devkits.hidden-usage-profiles') || [];
-    const members = (shared('devkits.auto-accounts') || []).filter(key => !hidden.includes(key));
-    const choices = launcherChoices(agents.filter(agent => isAccountLauncher(agent) && !agent.profileKey && agent.installed !== false && members.includes(agent.key)),
-      shared('devkits.launcher-order') || []).map(choice => choice.agent).filter(Boolean);
-    return autoAgent(choices, shared('devkits.usage.snapshot')?.contexts?.[JSON.stringify(null)]?.usage || [], Date.now(),
-      shared('devkits.auto-multipliers') || {});
-  }
-
   async repeatThread(cx, projectId) {
     const project = this.projects().find(project => projectId ? project.id === projectId : project.active);
     if (!project) return this.newThread(cx);
@@ -437,28 +385,11 @@ export default class Devkits extends View {
     }
   }
 
-  async cachedAgents(machine) {
-    const key = JSON.stringify(machine || null);
-    const cached = shared('devkits.agent-cache')?.[key];
-    if (cached) return this.availableAgents(cached, machine);
-    if (agentLoads.has(key)) return this.availableAgents(await agentLoads.get(key), machine);
-    const pending = (async () => {
-      let agents = (await knownAgents({ on: machine }))
-        .filter(agent => agent.installed && (!machine || !isAccountLauncher(agent)));
-      // Native discovery can lag programs.json after a rename or removal.
-      if (!machine) {
-        const source = await readTextFile(`${appHome()}/programs.json`);
-        const programs = source === null ? {} : JSON.parse(source).programs || {};
-        agents = agents.filter(agent => !isAccountLauncher(agent) || Object.hasOwn(programs, agent.key))
-          .map(agent => typeof programs[agent.key]?.name === 'string'
-          ? { ...agent, name: programs[agent.key].name } : agent);
-      }
-      setShared('devkits.agent-cache', { ...(shared('devkits.agent-cache') || {}), [key]: agents });
-      return agents;
-    })();
-    agentLoads.set(key, pending);
-    try { return this.availableAgents(await pending, machine); } finally { agentLoads.delete(key); }
-  }
+  accountName(agent, label) { return agentAccountName(agent, label); }
+
+  cachedAgents(machine, refresh = false) { return this.agentClient.discover(machine, refresh); }
+
+  availableAgents(profiles, machine) { return configuredAgents(profiles, machine ? [] : shared('devkits.agent-configs') || []); }
 
   // A task becomes the thread name and the agent's opening prompt.
   // `options` picks this session's model and effort; Default leaves the launcher's own.
@@ -472,34 +403,10 @@ export default class Devkits extends View {
   }
 
   async launchThread(agent, target, options) {
-    const config = agent?.profileKey && (shared('devkits.agent-configs') || []).find(item => item.key === agent.key && item.profileKey === agent.profileKey);
-    if (agent?.profileKey && !config) {
-      notify({ title: 'Agent configuration is unavailable', body: 'Choose another agent configuration.' });
-      return;
-    }
     if (target.task) { requestTaskStart(agent, target, options); return; }
     let argv;
-    // A choice made for this session wins; otherwise the profile's own default model and effort apply.
-    const profile = shared('devkits.profile-sessions')?.[settingsKey(agent)] || {};
-    const session = { model: options.model === undefined ? profile.model : options.model,
-      effort: options.effort === undefined ? profile.effort : options.effort,
-      serviceTier: profile.serviceTier };
-    const allowed = shared('devkits.session-options')?.[sessionKind(agent)] || {};
-    if (allowed.models?.includes(session.model)) session.model = null;
-    if (allowed.efforts?.includes(session.effort)) session.effort = null;
-    try { argv = agent && sessionArgv(agent, launcherArgv(agent, shared('devkits.codex-permissions')?.[settingsKey(agent)]), { ...session,
-      tasksMcpHome: !target.machine && !spaces().find(space => space.id === target.space)?.machine ? appHome() : null }); }
+    try { ({ argv } = await this.agentClient.prepare(agent, target, options)); }
     catch (error) { notify({ title: 'Could not start session', body: error.message, level: 'error' }); return; }
-    // Global rules live on this computer, so only local sessions get them.
-    if (argv && !spaces().find(space => space.id === target.space)?.machine) {
-      let rules = null;
-      try { rules = await sessionRules(); } catch {}
-      argv = rulesArgv(agent, argv, rules, config?.instructions);
-      if (!target.machine) {
-        try { argv = await sessionMcpArgv(agent, argv); }
-        catch (error) { notify({ title: 'Could not load shared MCP settings', body: error.message, level: 'error' }); return; }
-      }
-    }
     if (target.overlay) closeOverlay(target.overlay);
     this.closeBoard();
     this.openThread(target, agent?.name, argv, agent?.key, null);
@@ -583,13 +490,13 @@ export default class Devkits extends View {
   }
 
   async close() {
+    this.agentClient.close();
     this.buildRulesSettings?.close();
     this.systemMonitor.close();
     this.usageClient.close();
     if (this.editor) this.editor.close();
     else this.files?.close();
     this.diff?.close();
-    await this.login?.close();
   }
 
   header(t) {
@@ -660,7 +567,7 @@ export default class Devkits extends View {
       { key: 'settings', label: 'Agent settings…', icon: 'settings', separator: true },
     ];
     const choose = key => key === 'settings' ? openAgentSettings(project && !project.pending ? project.id : null)
-      : key === 'rules' ? this.openEditorFile(rulesPath()) : key === 'mcp' ? this.openSharedMcp(codex)
+      : key === 'rules' ? this.openEditorFile(rulesPath()) : key === 'mcp' ? openSharedMcp(codex)
         : run('pane.close', { pane: p.pane });
     const terminal = terminals().find(terminal => terminal.address === p.terminal);
     const working = terminalWorking({ ...terminal, status: p.status || terminal?.status });
@@ -914,10 +821,8 @@ export default class Devkits extends View {
     if (props()?.view === 'usage-display-menu') return this.usageDisplayMenu.render(t);
     if (props()?.view === 'system-display-menu') return this.systemDisplayMenu.render(t);
     if (['calendar', 'google-calendar', 'task-composer'].includes(props()?.view)) return div();
-    if (props()?.view === 'shared-mcp') return this.sharedMcpDialog(t);
     if (['token-statistics', 'usage-details'].includes(props()?.view)) return div();
     if (props()?.view === 'xcode-storage') return this.xcodeStorage.render();
-    if (props()?.view === 'codex-permissions') return div();
     if (props()?.view === 'file-menu') return this.fileMenu.render();
     if (props()?.view === 'editor') {
       const project = this.projects().find(project => project.active);
@@ -926,7 +831,6 @@ export default class Devkits extends View {
     }
     if (props()?.view === 'files') return this.files.render(this.projects().find(project => project.active), cx);
     if (props()?.view === 'diff') return this.diff.render(this.projects().find(project => project.active), cx);
-    if (props()?.view === 'account-login') return this.login.render();
     if (props()?.view === 'header') return this.header(t);
     if (props()?.view === 'run-menu') return this.runMenu.render(t);
     if (props()?.view === 'branch-menu') return this.branchMenu.render(t);
@@ -934,12 +838,7 @@ export default class Devkits extends View {
     if (props()?.view === 'brand') return this.brand(t);
     if (props()?.view === 'pane') return this.paneHeader(t, cx);
     if (props()?.view === 'status') return this.statusBar(t);
-    if (props()?.view === 'launcher') return this.launcher(t);
     if (['asana', 'mantisbt', 'asana-projects', 'mantisbt-projects'].includes(props()?.view)) return div();
-    if (props()?.view === 'manage-launchers') { this.syncAccountChanges(cx); return this.manageLaunchers(t); }
-    if (props()?.view === 'agent-profile-editor') return this.agentProfileEditor(t);
-    if (props()?.view === 'remove-account') return this.removeAccountPrompt(t);
-    if (props()?.view === 'rename-account') return this.renameAccountPrompt(t);
     if (props()?.view === 'project-empty') return div().size_full().bg(t.canvas);
     if (props()?.view === 'close-project') return this.closePrompt(t);
     if (props()?.view === 'project-menu') return this.projectMenu(t);
@@ -1058,4 +957,4 @@ export default class Devkits extends View {
 }
 
 // Feature views share this view's state and its project, agent and session helpers.
-Object.assign(Devkits.prototype, sessionMenu, agentProfiles, accountActions, sharedMcpSettings, threadArchive, startPanel);
+Object.assign(Devkits.prototype, agentSelection, threadArchive, startPanel);
