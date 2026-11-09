@@ -135,10 +135,10 @@ export default class MantisPanel extends TaskSourceController {
   }
   chooseView(tab, cx) {
     this.tab = tab; this.writeState('tab', tab);
-    this.settingsOpen = false; this.selected = null; this.detail = null; this.detailRequest = null;
+    this.settingsOpen = false; this.clearIssue(cx);
     this.handle.focus(); cx.notify();
   }
-  back(cx) { this.selected = null; this.detail = null; this.detailRequest = null; cx.notify(); }
+  back(cx) { this.clearIssue(cx); }
 
   navbar(close) {
     const ready = this.needsToken === false, bound = this.binding();

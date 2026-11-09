@@ -53,6 +53,16 @@ export class TaskSourceController {
 
   readState(key) { return this.state?.get(key); }
   writeState(key, value) { this.state?.set(key, value); }
+  selectionScope() { return JSON.stringify([this.folder || '', this.fieldScope()]); }
+  rememberSelection(gid) {
+    if (!this.folder || !this.binding()) return;
+    this.writeState('browser-selection', { ...(this.readState('browser-selection') || {}), [this.selectionScope()]: gid });
+  }
+  clearIssue(cx) {
+    this.rememberSelection(null);
+    this.selected = null; this.detail = null; this.detailError = null; this.detailRequest = null;
+    cx.notify();
+  }
   snapshot(task = this.detail) { return sourceTaskSnapshot(this.source, task, this.server); }
   import(task = this.detail) {
     if (!task || task.completed || (!Array.isArray(task.comments) && !task.commentsError)) return false;
@@ -206,7 +216,7 @@ export class TaskSourceController {
     if (saved) Object.assign(this, Object.fromEntries(keys.map(key => [key, saved[key]])));
     this.search.set_value(saved?.query || '');
     if (!this.folder) return;
-    if (this.selected && !this.detail && this.token) this.show({ gid: this.selected }, cx);
+    if (this.selected && !this.detail && this.token) this.show({ gid: this.selected }, cx, { restoring: true });
     if (this.token) { this.needsToken = false; return; }
     this.needsToken = null;
     cx.spawn(async cx => {
@@ -230,6 +240,8 @@ export class TaskSourceController {
       const folder = this.folder;
       this.reset(); this.loadedGid = gid;
       if (!gid) return;
+      const selected = this.readState('browser-selection')?.[this.selectionScope()];
+      if (selected) this.show({ gid: selected }, cx, { restoring: true });
       this.load(cx, async () => {
         let workspace = bound.workspace;
         if (!workspace) {
@@ -342,11 +354,12 @@ export class TaskSourceController {
   }
 
   // Keep the selected preview and its pending read; changing sources reads fresh.
-  show(task, cx) {
+  show(task, cx, { restoring = false } = {}) {
     const gid = task.gid;
     if (this.selected === gid && (this.detail || this.detailRequest)) return;
     const request = { folder: this.folder, gid };
     this.detailRequest = request;
+    if (!restoring) this.rememberSelection(gid);
     this.selected = gid; this.cursor = gid; this.detail = null; this.detailError = null;
     cx.spawn(async cx => {
       try {
@@ -361,7 +374,8 @@ export class TaskSourceController {
       } catch (error) { if (this.detailRequest === request) { this.detailError = error.message; if (error.unauthorized) this.fail(error); } }
       finally { if (this.detailRequest === request) { this.detailRequest = null; cx.notify(); } }
     });
-    cx.notify();
+    // Restoration runs inside render; its loading state is already part of that frame.
+    if (!restoring) cx.notify();
   }
 
   // Comments arrive after the preview opens; include them in the imported snapshot.
@@ -409,7 +423,7 @@ export class TaskSourceController {
       const next = rows[Math.max(0, Math.min(rows.length - 1, index + (event.key === 'down' ? 1 : -1)))];
       if (!next) return;
       this.show(next.task, cx);
-    } else if (event.key === 'escape' && this.selected) { this.selected = null; this.detail = null; }
+    } else if (event.key === 'escape' && this.selected) { this.clearIssue(cx); }
     else if ((event.key === 'right' || event.key === 'left') && row?.task?.subtasks && !row.depth
       && this.expanded.has(row.task.gid) === (event.key === 'left')) this.toggleExpanded(row.task, cx);
     else return;

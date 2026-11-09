@@ -73,8 +73,7 @@ export default class AsanaPanel extends TaskSourceController {
 
   clearSelection(cx) {
     if (!this.selected) return;
-    this.selected = null; this.detail = null; this.detailError = null; this.detailRequest = null;
-    cx.notify();
+    this.clearIssue(cx);
   }
 
   toolbar(t, close) {

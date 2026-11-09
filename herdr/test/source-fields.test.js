@@ -185,3 +185,28 @@ for (const provider of ['asana', 'mantisbt']) test(`${provider} field dragging s
   h.bind({ gid: 'one', server: p.server });
   assert.deepEqual(p.fieldOptions('detail').map(field => field.id), after);
 });
+
+
+for (const provider of ['asana', 'mantisbt']) test(provider + ' restores a selected issue in a new browser and remembers explicit dismissal', async () => {
+  const h = await controller(provider), pending = [], reads = [];
+  let rendering = false;
+  const context = { notify() { assert.equal(rendering, false, 'must not notify during render'); }, spawn: work => pending.push(work(context)) };
+  const settle = async () => { while (pending.length) await pending.shift(); };
+  const source = { ...h.panel.source, projectWorkspace: async () => 'one', myProjectTasks: async () => [],
+    taskDetails: async (_credentials, gid) => { reads.push(gid); return { gid, name: 'Fresh issue', comments: [] }; } };
+  const reopen = (folder = '/repo', server = 'https://one.test') => {
+    const panel = new h.panel.constructor({ source, state: h.panel.state, getBinding: h.panel.getBinding });
+    panel.folder = folder; panel.server = server; panel.token = 'secret'; panel.needsToken = false; panel.tab = 'mine';
+    panel.reset(); return panel;
+  };
+  const first = reopen(); first.show({ gid: 'issue-1' }, context); await settle(); first.dispose();
+  const second = reopen(); rendering = true;
+  try { second.sync(context); } finally { rendering = false; }
+  await settle();
+  assert.equal(second.selected, 'issue-1'); assert.equal(second.detail.name, 'Fresh issue');
+  assert.deepEqual(reads, ['issue-1', 'issue-1']);
+  const other = reopen('/other'); other.sync(context); await settle(); assert.equal(other.selected, null);
+  if (provider === 'mantisbt') { const server = reopen('/repo', 'https://other.test'); server.sync(context); await settle(); assert.equal(server.selected, null); }
+  second.clearIssue(context); second.dispose();
+  const dismissed = reopen(); dismissed.sync(context); await settle(); assert.equal(dismissed.selected, null);
+});
