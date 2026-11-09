@@ -16,6 +16,7 @@ import { UsageClient } from './components/usage.js';
 import { SystemMonitor } from './components/system-monitor.js';
 import { SystemDisplay, SystemDisplayMenu, openSystemDetails } from './system-display.js';
 import { InterfaceSettings, openInterfaceSettings, UsageDisplayMenu, openUsageDisplayMenu, usageStyle, usageShownIn } from './ui-settings.js';
+import { ResetDevkits } from './reset-devkits.js';
 import { RunControls, RunMenu, runApp } from './run-app.js';
 import { BranchMenu } from './branch-menu.js';
 import { ProjectLayout, layoutNode, conversationMaximized, maximizeConversation, openTaskBoard, closeTaskBoard, taskMode } from './project-layout.js';
@@ -55,6 +56,7 @@ export default class Devkits extends View {
   taskHost = new TaskHost((event, cx) => this.taskNavigation(event, cx));
 
   init(_props, cx) {
+    if (props()?.view === 'reset-devkits') { this.dataReset = new ResetDevkits(); this.dataReset.init(cx); return; }
     this.agentClient.init(cx, (event, cx) => {
       if (event.type === 'start') cx.spawn(async () => { await this.startThread(event.agent, event.target, event.options); });
     }, !props()?.view);
@@ -788,6 +790,7 @@ export default class Devkits extends View {
 
   renderView(cx) {
     const t = theme();
+    if (props()?.view === 'reset-devkits') return this.dataReset.render(t);
     if (props()?.view === 'diff-ignore-settings') return this.buildRulesSettings.render(t);
     if (props()?.view === 'ui-settings') return this.interfaceSettings.render(t);
     if (props()?.view === 'usage-display-menu') return this.usageDisplayMenu.render(t);
