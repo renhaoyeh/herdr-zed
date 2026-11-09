@@ -455,8 +455,9 @@ export default class FileViewer {
     const items = [...this.tabs.map(doc => ({ key: `file:${doc.path}`, path: doc.path })), ...extra];
     const positions = new Map(order.map((key, i) => [key, i]));
     items.sort((a, b) => (positions.get(a.key) ?? Infinity) - (positions.get(b.key) ?? Infinity));
-    const list = wrap ? h_flex().flex_wrap() : h_flex().id('file-tab-list').overflow_x_scroll();
-    return h_flex().id('file-tabs').flex_none().items_start().bg(t.chrome).border_b(1).border_color(t.border)
+    const list = wrap ? h_flex().flex_wrap() : h_flex().id('file-tab-list').h_full().overflow_x_scroll();
+    // Like every 32px header, the bar owns its height and border; wrapped tabs grow it by 32px rows.
+    return h_flex().id('file-tabs').when(!wrap, el => el.h(32)).flex_none().items_start().bg(t.chrome).border_b(1).border_color(t.border)
       .child(list.flex_1().min_w(0).role('tab_list').accessibility_label('Open editor tabs')
         .children(items.map((doc, index) => {
           const active = doc.path ? fileActive && doc.path === this.file : doc.active;
@@ -464,7 +465,7 @@ export default class FileViewer {
           const folder = doc.path?.includes('/') ? doc.path.slice(0, doc.path.lastIndexOf('/')) : '';
           const close = cx => doc.path ? (closeFile ? closeFile(doc.path, cx) : this.closeTab(doc.path, cx)) : doc.close(cx);
           const id = doc.path || doc.key;
-          return Button(`file-tab-${id}`, t, { variant: 'ghost' }).h(32).max_w(240).pl(12).pr(6).gap(6).justify_start()
+          return Button(`file-tab-${id}`, t, { variant: 'ghost' }).when(wrap, el => el.h(32)).when(!wrap, el => el.h_full()).max_w(240).pl(12).pr(6).gap(6).justify_start()
             .border_r(1).border_color(t.border).bg(active ? t.background : t.chrome).text_color(active ? t.foreground : t.muted)
             .role('tab').selected(active).set_position(index + 1, items.length)
             .accessibility_label(`${doc.path || doc.label}${preview ? ', preview' : ''}`)
@@ -486,7 +487,7 @@ export default class FileViewer {
               .child(icon('close').size(12)));
         })))
       .child(DropdownMenu('file-tab-options', this.optionsMenu,
-        Button('file-tab-options-trigger', t, { variant: 'ghost', size: 'icon' }).h(32).w(32)
+        Button('file-tab-options-trigger', t, { variant: 'ghost', size: 'icon' }).when(wrap, el => el.h(32)).when(!wrap, el => el.h_full()).w(32)
           .accessibility_label('Tab options').child(icon('ellipsis')),
         [{ key: 'wrap-tabs', label: 'Wrap tabs', checked: wrap }],
         (_key, cx) => this.toggleWrapTabs(cx), t, { offset: { x: 8, y: 9 } }));
