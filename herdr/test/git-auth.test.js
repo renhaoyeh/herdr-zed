@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { execFile } from 'node:child_process';
-import { gitShellCommand } from '../mods/devkits/shell-command.js';
+import { gitShellCommand } from '../mods/devkits/components/session-shell.js';
 
 const run = promisify(execFile);
 async function load(host = {}) {

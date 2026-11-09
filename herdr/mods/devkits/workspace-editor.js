@@ -63,17 +63,14 @@ export default class WorkspaceEditor {
   switchProject(project) {
     const key = JSON.stringify([project?.machine || '', project?.folder || project?.id || '']);
     if (this.projectKey === key) return;
-    const firstProject = this.projectKey === null;
     this.capturePreview(); this.remember();
     if (this.projectKey) this.diff.close();
     if (this.projectKey) this.sessions.set(this.projectKey, this.session);
     this.projectKey = key; this.diffItemKey = null; this.restoreQueued = null; this.tabSwitch = null;
-    this.legacyRestore = false;
     const cached = this.sessions.get(key);
     if (cached) { this.session = cached; return; }
     const saved = shared('devkits.editor-tabs')?.[key];
     this.session = emptyEditorSession();
-    this.legacyRestore = firstProject && !saved && shared('devkits.editor-kind') === 'diff';
     if (!saved) return;
     const seen = new Set();
     for (const item of Array.isArray(saved.git) ? saved.git : []) {
@@ -175,7 +172,6 @@ export default class WorkspaceEditor {
     this.switchProject(project);
     const dock = shared('devkits.right-panel');
     const files = this.files.render(project, cx, true, false);
-    if (!this.session.active && this.legacyRestore) { this.legacyRestore = false; this.gitOpened({ kind: 'changes' }); }
     this.syncTabs();
     const outputRequest = shared('devkits.git-output-request');
     if (outputRequest) {

@@ -60,35 +60,12 @@ test('a closed dock survives reload without hiding the central editor and stays 
   assert.equal(root.children[0].hidden, false);
 });
 
-test('legacy MantisBT side-preview widths do not block restoring the full-page interface', async () => {
-  const { Controller, store } = await host(), state = new Controller();
-  store['devkits.project-layouts'] = { '["","/a"]': { dock: 'files', widths: [310, 620, 700] } };
-  state.sync(a); state.sync(a);
-  assert.equal(state.restoring, null);
-  assert.deepEqual(store['devkits.project-layouts']['["","/a"]'].widths, [310, 620]);
-  state.sync(b); state.sync(b);
-  state.sync(a); state.sync(a);
-  assert.equal(store['devkits.asana-preview-width'], 620);
-});
-
 test('layouts without simulator blocks never create one', async () => {
   const { Controller, root, calls } = await host();
   root.children = root.children.filter(node => node.id !== 'simulator');
   const state = new Controller(); state.sync(a); state.sync(a);
   assert.equal(calls.some(([, args]) => args.id === 'simulator'), false);
   assert.equal(state.restoring, null);
-});
-
-test('legacy hidden editor migrates to a closed dock with the document still visible', async () => {
-  const { Controller, root, store } = await host();
-  store['devkits.project-layouts'] = { '["","/a"]': {
-    editor: { hidden: true, active: 'diff', size: { px: 650 } }, widths: [310, null],
-  } };
-  const state = new Controller(); state.sync(a); state.sync(a);
-  assert.equal(root.children[0].hidden, false);
-  assert.equal(store['devkits.editor-kind'], 'diff');
-  assert.equal(store['devkits.right-panel'], null);
-  assert.deepEqual(root.children[0].size, { px: 650 });
 });
 
 test('maximizing preserves normal visibility, widths and content through layout persistence', async () => {

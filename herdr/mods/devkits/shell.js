@@ -1,5 +1,5 @@
 import { exec } from 'herdr';
-import { gitShellCommand } from './shell-command.js';
+import { gitShellCommand } from './components/session-shell.js';
 
 const gitShellMachines = new Set();
 

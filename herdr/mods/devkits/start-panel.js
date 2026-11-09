@@ -1,7 +1,7 @@
 import { div } from 'gpui-kit';
 import { v_flex, h_flex } from 'gpui-base';
 import { shared, setShared } from 'herdr';
-import { launcherChoices, launcherLabel, isAccountLauncher } from './model.js';
+import { launcherChoices, launcherLabel, isAccountLauncher } from './components/session-model.js';
 import { Button } from './components/button.js';
 import { DropdownMenuLabel } from './components/dropdown-menu.js';
 import { Empty, EmptyTitle, EmptyDescription } from './components/empty.js';

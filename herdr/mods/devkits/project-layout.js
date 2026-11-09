@@ -1,7 +1,7 @@
 import { layout, run, shared, setShared } from 'herdr';
 
 const STORAGE = 'devkits.project-layouts';
-const WIDTHS = ['devkits.side-panel-width', 'devkits.asana-preview-width'];
+const WIDTHS = ['devkits.side-panel-width'];
 export const layoutNode = (node, id) => node?.id === id ? node
   : (node?.children ?? []).map(child => layoutNode(child, id)).find(Boolean) ?? null;
 const keyFor = project => project ? JSON.stringify([project.machine || '',
@@ -29,7 +29,7 @@ export function maximizeConversation(project, maximized) {
 }
 // Tasks temporarily owns the workspace without changing its underlying panel layout.
 const TASK_LAYOUT = 'devkits.board-layout';
-export const taskMode = () => shared('devkits.tasks-open') ?? Boolean(shared('devkits.board-project'));
+export const taskMode = () => Boolean(shared('devkits.tasks-open'));
 export function enforceTaskBoard() {
   if (layoutNode(layout(), 'tasks') && layoutNode(layout(), 'editor')?.active !== 'tasks') run('layout.select', { stack: 'editor', child: 'tasks' });
   for (const id of ['workspace-view', 'simulator', 'editor']) {
@@ -142,9 +142,9 @@ export class ProjectLayout {
       if (id === 'editor') setShared('devkits.editor-kind', state.active || 'files');
       if (id !== 'workspace-view') run(state.hidden ? 'layout.hide' : 'layout.show', { id });
     }
-    target.dock = saved.dock !== undefined ? saved.dock : saved.editor?.hidden ? null : saved.editor?.active || 'files';
+    target.dock = saved.dock !== undefined ? saved.dock : 'files';
     setShared('devkits.right-panel', target.dock);
-    target.widths = WIDTHS.map((_name, index) => (saved.widths || [280, null])[index] ?? null);
+    target.widths = WIDTHS.map((_name, index) => (saved.widths || [280])[index] ?? null);
     this.restoring = target;
     WIDTHS.forEach((name, index) => { if ((shared(name) ?? null) !== target.widths[index]) setShared(name, target.widths[index]); });
   }

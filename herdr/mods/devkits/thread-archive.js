@@ -1,8 +1,8 @@
 import { div, svg, image } from 'gpui-kit';
 import { h_flex } from 'gpui-base';
 import { shared, setShared, run, notify, hc, exec, readTextFile, home, terminals, appHome, window } from 'herdr';
-import { archivable, agentCommand, commandKind, resumeArgv, codexSessionId, archivedAge, folderKey } from './model.js';
-import { taskActions, threadBoardTask, taskLinkForTab, setTaskArchived, boardRecords } from './components/tasks.js';
+import { archivable, agentCommand, commandKind, resumeArgv, codexSessionId, archivedAge, folderKey } from './components/session-model.js';
+import { taskActions, threadBoardTask, taskLinkForTab, setTaskArchived } from './components/tasks.js';
 import { Button } from './components/button.js';
 import { SidebarContent, SidebarGroup, SidebarMenuButton } from './components/sidebar.js';
 import { glyph } from './components/icon.js';
@@ -152,8 +152,7 @@ export const threadArchive = {
       if (!saved.some(folder => folderKey(folder) === folderKey(entry.folder))) setShared('devkits.projects', [...saved, entry.folder]);
     }
     this.archiveOpen = false;
-    const boardTask = entry.boardTask || entry.task
-      || Object.values(boardRecords({ folder: entry.folder })).find(task => task.archiveId === entry.id);
+    const boardTask = entry.boardTask;
     // Preserve the archive until the new native tab is observed by Tasks. Failed starts remain retryable.
     this.openThread({ space: project && !project.pending ? project.id : null, folder: entry.folder,
       projectName: project?.name || entry.projectName, restoreArchiveId: entry.id }, entry.title, entry.argv, entry.profile, entry.task || (boardTask ? { gid: boardTask.gid, name: boardTask.name || entry.title, folder: entry.folder, source: boardTask.source || 'thread' } : null));
