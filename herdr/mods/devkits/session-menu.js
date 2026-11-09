@@ -386,6 +386,8 @@ export const sessionMenu = {
                     .child(AgentIcon(choice.agent, t).flex_none())
                     .child(div().flex_1().min_w(0).truncate().text_size(13).child(choice.name)))
                   .when(local && ['codex', 'claude'].includes(choice.agent?.key), el => el
+                    .when(choice.agent.key === 'codex', el => el.child(Button('shared-local-mcp', t, { variant: 'secondary' }).h(28)
+                      .on_click(() => this.openSharedMcp(choice.agent)).child('Shared MCP…')))
                     .child(Button(`add-${choice.agent.key}-account`, t, { variant: 'secondary' }).h(28).px(10).gap(6)
                       .accessibility_label(`Add a ${choice.agent.key === 'codex' ? 'Codex' : 'Claude'} account`)
                       .on_click(() => this.addAccount(choice.agent.key)).child(glyph('plus')).child('Add account')))
@@ -395,9 +397,10 @@ export const sessionMenu = {
                       Button(`account-menu-${choice.agent.key}`, t, { variant: 'row', size: 'icon' })
                         .accessibility_label(`Actions for ${choice.name}`).child(glyph('ellipsis')),
                       [{ key: 'rename', label: 'Rename' },
-                        ...(choice.agent.key.startsWith('devkits-codex-') ? [{ key: 'sync', label: 'Shared plugins and skills…' }] : []),
+                        ...(choice.agent.key.startsWith('devkits-codex-') ? [{ key: 'mcp', label: 'Shared MCP…' }, { key: 'sync', label: 'Shared plugins and skills…' }] : []),
                         { key: 'remove', label: 'Remove', separator: true }],
                       key => key === 'rename' ? this.renameAccount(choice.agent)
+                        : key === 'mcp' ? this.openSharedMcp(choice.agent)
                         : key === 'sync' ? this.openCodexSharing(choice.agent) : this.confirmRemoveAccount(choice.agent), t)))))))))
         .when(local && !this.loading && !this.launchError && !choices.some(choice => choice.group === 2), el => el
           .child(DropdownMenuLabel(t).id('manage-section-2').px(0).mt(16).child('YOUR ACCOUNTS'))

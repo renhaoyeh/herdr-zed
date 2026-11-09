@@ -6,6 +6,7 @@ import { observeTaskInput } from './agent-task-evidence.js';
 import { taskPrompt } from './task-prompt.js';
 import { TaskSources } from './task-sources.js';
 import { openTaskComposer } from './task-composer.js';
+import { sessionMcpArgv } from './components/shared-mcp.js';
 import { publishTaskNavigation } from './components/tasks.js';
 const startingThreads = new Set();
 const sessionRules = async () => { const file = `${appHome()}/data/devkits/AGENTS.md`, text = await readTextFile(file); return text?.trim() ? { file, text } : null; };
@@ -128,6 +129,10 @@ export class TaskRuntime {
       let rules = null;
       try { rules = await sessionRules(); } catch {}
       argv = rulesArgv(agent, argv, rules, config?.instructions);
+      if (!target.machine) {
+        try { argv = await sessionMcpArgv(agent, argv); }
+        catch (error) { notify({ title: 'Could not load shared MCP settings', body: error.message, level: 'error' }); return; }
+      }
     }
     // A local task may be deleted while its launch rules are being read.
     if (task?.source === 'local') {

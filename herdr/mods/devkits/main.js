@@ -13,6 +13,8 @@ import { TaskHost, openTaskComposer, requestTaskOpen, requestTaskSource, request
 import { sessionMenu } from './session-menu.js';
 import { agentProfiles } from './agent-profiles.js';
 import { accountActions } from './account-actions.js';
+import { sharedMcpSettings } from './shared-mcp-settings.js';
+import { sessionMcpArgv } from './components/shared-mcp.js';
 import { UsageClient } from './components/usage.js';
 import { SystemMonitor } from './components/system-monitor.js';
 import { SystemDisplay, SystemDisplayMenu, openSystemDetails } from './system-display.js';
@@ -77,6 +79,7 @@ export default class Devkits extends View {
     }
     if (props()?.view === 'pane') { this.threadMenu = new DropdownMenuState(cx); return; }
     if (props()?.view === 'codex-sharing') { this.initCodexSharing(cx); return; }
+    if (props()?.view === 'shared-mcp') { this.initSharedMcp(cx); return; }
     if (props()?.view === 'file-menu') {
       this.fileMenu = new FileMenu(); this.fileMenu.init(cx); return;
     }
@@ -447,6 +450,10 @@ export default class Devkits extends View {
       let rules = null;
       try { rules = await sessionRules(); } catch {}
       argv = rulesArgv(agent, argv, rules, config?.instructions);
+      if (!target.machine) {
+        try { argv = await sessionMcpArgv(agent, argv); }
+        catch (error) { notify({ title: 'Could not load shared MCP settings', body: error.message, level: 'error' }); return; }
+      }
     }
     if (target.overlay) closeOverlay(target.overlay);
     this.closeBoard();
@@ -826,6 +833,7 @@ export default class Devkits extends View {
     if (props()?.view === 'system-display-menu') return this.systemDisplayMenu.render(t);
     if (['calendar', 'google-calendar', 'task-composer'].includes(props()?.view)) return div();
     if (props()?.view === 'codex-sharing') return this.sharingDialog(t);
+    if (props()?.view === 'shared-mcp') return this.sharedMcpDialog(t);
     if (['token-statistics', 'usage-details'].includes(props()?.view)) return div();
     if (props()?.view === 'xcode-storage') return this.xcodeStorage.render();
     if (props()?.view === 'codex-permissions') return div();
@@ -960,4 +968,4 @@ export default class Devkits extends View {
 }
 
 // Feature views share this view's state and its project, agent and session helpers.
-Object.assign(Devkits.prototype, sessionMenu, agentProfiles, accountActions, threadArchive);
+Object.assign(Devkits.prototype, sessionMenu, agentProfiles, accountActions, sharedMcpSettings, threadArchive);

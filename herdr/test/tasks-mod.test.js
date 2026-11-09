@@ -36,6 +36,7 @@ async function modules(records = {}, projects = [{ id: 'p', folder: '/project', 
   const memory = { 'devkits.agent-board': clone(records), 'devkits.agent-cache': { null: [] } }, writes = [], overlays = [], native = [], closed = [];
   const state = { projects, agents: [] };
   const base = { ...sessions, ...identity,
+    sessionMcpArgv: async (_agent, argv) => argv,
     globalThis: { window: { sessionStorage: { getItem: () => null, setItem() {}, removeItem() {} } } },
     shared: key => clone(memory[key]), setShared: (key, value) => { memory[key] = clone(value); writes.push(key); },
     agents: () => state.agents, spaces: () => state.projects, terminals: () => [], appHome: () => '/herdr', home: () => '/home',
