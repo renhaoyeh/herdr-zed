@@ -37,7 +37,7 @@ const widget = () => v_flex().flex_none().border(1).border_color(mantisTheme.wid
 const cell = (value, width, header = false, divider = true) => div().when(Boolean(width), el => el.w(width).flex_none())
   .when(!width, el => el.flex_1().min_w(0)).h_full().px(8).flex().items_center().truncate()
   .when(divider, el => el.border_r(1).border_color(rule))
-  .text_color(header ? mantisTheme.accent : mantisTheme.foreground).when(header, el => el.font_semibold()).child(value || '—');
+  .text_color(mantisTheme.foreground).when(header, el => el.font_semibold()).child(value || '—');
 
 export class MantisProjectPicker extends TaskSourceProjectPicker {
   constructor(options = {}) { super({ ...options, source: mantisSource }); }
@@ -113,18 +113,40 @@ export default class MantisPanel extends TaskSourceController {
   init(cx) {
     super.init(cx);
     this.tab = 'all';
-    this.statusFilter = null;
-    this.filtersOpen = false;
+    this.statusFilter = null; this.assigneeFilter = null;
+    this.filtersOpen = true;
+    this.fetchingAll = false; this.fetchedPages = 0; this.stopFetch = false;
     this.issueSearch = InputState.new({ placeholder: 'Search' });
     this.issueSearch.on('change', (_event, cx) => cx.notify());
   }
 
-  reset() { super.reset(); this.statusFilter = null; }
+  reset() { super.reset(); this.statusFilter = null; this.assigneeFilter = null; this.fetchingAll = false; this.stopFetch = true; }
 
   open(project, cx) {
     super.open(project, cx);
-    this.statusFilter = null;
+    this.statusFilter = null; this.assigneeFilter = null;
     this.issueSearch.set_value('');
+  }
+
+  allLoaded() { return this.tab === 'mine' || (this.all.loaded && !this.all.next); }
+
+  // MantisBT's REST API ignores handler, status and sort parameters, so every page is read and filtered here.
+  fetchAll(cx) {
+    if (this.fetchingAll || this.loadingMore || this.allLoaded()) return;
+    const request = this.page, gid = this.loadedGid;
+    this.fetchingAll = true; this.loadingMore = true; this.stopFetch = false; this.fetchedPages = 0; cx.notify();
+    cx.spawn(async cx => {
+      try {
+        while (!this.stopFetch && this.page === request && (!this.all.loaded || this.all.next)) {
+          const page = await this.source.projectTasksPage(this.credentials(), gid, this.all.next);
+          if (this.page !== request) return;
+          this.all = { tasks: [...this.all.tasks, ...page.tasks], next: page.next, loaded: true };
+          this.fetchedPages++; cx.notify();
+        }
+      } catch (error) { if (this.page === request) this.fail(error); }
+      if (this.page === request) { this.fetchingAll = false; this.loadingMore = false; }
+      cx.notify();
+    });
   }
 
   view() { return 'list'; }
@@ -132,7 +154,7 @@ export default class MantisPanel extends TaskSourceController {
   issueTasks() {
     const words = this.issueSearch.value().toLowerCase().split(/\s+/).filter(Boolean);
     return (this.tab === 'mine' ? this.mine || [] : this.all.tasks).filter(task =>
-      (!this.statusFilter || task.section === this.statusFilter) && words.every(word =>
+      (!this.statusFilter || task.section === this.statusFilter) && (!this.assigneeFilter || (task.assignee || 'Unassigned') === this.assigneeFilter) && words.every(word =>
         [task.name, issueNumber(task.gid), task.section, task.assignee, task.category].filter(Boolean).join(' ').toLowerCase().includes(word)));
   }
   chooseView(tab, cx) {
@@ -171,18 +193,28 @@ export default class MantisPanel extends TaskSourceController {
   filters() {
     const tasks = this.tab === 'mine' ? this.mine || [] : this.all.tasks;
     const sections = [...new Set(tasks.map(task => task.section))];
+    const assignees = [...new Set(tasks.map(task => task.assignee || 'Unassigned'))].sort((a, b) => a.localeCompare(b));
+    const chips = (title, values, current, choose, prefix) => h_flex().gap(6).items_center().flex_wrap()
+      .child(div().w(90).px(8).font_semibold().child(title))
+      .children([null, ...values].map(value => button(`mantis-filter-${prefix}-${value || 'all'}`, value || '[any]', (_event, cx) => {
+        choose(value); cx.notify();
+      }, { primary: current === value })));
     return widget().id('mantis-filters').mb(22)
-      .child(widgetHeader('mantis-filters-header', `Filters${this.statusFilter ? `: ${this.statusFilter}` : ''}`, 'list-todo')
+      .child(widgetHeader('mantis-filters-header', `Filters${[this.statusFilter, this.assigneeFilter].filter(Boolean).map(value => `: ${value}`).join('')}`, 'list-todo')
         .child(div().flex_1())
         .child(field(this.issueSearch, 'mantis-search', 'Search MantisBT issues').w(190).h(24))
         .child(Button('mantis-toggle-filters', mantisTheme, { variant: 'ghost', size: 'icon' }).size(28).rounded(0).text_color('#ffffff')
           .accessibility_label(this.filtersOpen ? 'Collapse filters' : 'Expand filters')
           .on_click((_event, cx) => { this.filtersOpen = !this.filtersOpen; cx.notify(); }).child(glyph(this.filtersOpen ? 'chevron-down' : 'chevron-right', 16))))
-      .when(this.filtersOpen, el => el.child(h_flex().min_h(48).p(8).gap(6).items_center().flex_wrap().border_t(1).border_color(rule)
-        .child(div().px(8).font_semibold().child('Status'))
-        .children([null, ...sections].map(section => button(`mantis-filter-${section || 'all'}`, section || '[any]', (_event, cx) => {
-          this.statusFilter = section; cx.notify();
-        }, { primary: this.statusFilter === section })))));
+      .when(this.filtersOpen && !this.allLoaded(), el => el.child(h_flex().p(8).gap(8).items_center().border_t(1).border_color(rule)
+        .child(button('mantis-fetch-all', this.fetchingAll ? 'Fetching…' : 'Fetch all issues', (_event, cx) => this.fetchAll(cx), { disabled: this.fetchingAll || this.loadingMore })
+        )
+        .when(this.fetchingAll, el => el.child(button('mantis-fetch-stop', 'Stop', (_event, cx) => { this.stopFetch = true; cx.notify(); }))
+          .child(div().text_color(mantisTheme.muted).child(`Fetched ${this.fetchedPages} pages · ${this.all.tasks.length} open issues`)))
+        .when(!this.fetchingAll, el => el.child(div().text_color(mantisTheme.muted).child('Fetch every page to filter by status or assignee.')))))
+      .when(this.filtersOpen && this.allLoaded(), el => el.child(v_flex().p(8).gap(8).border_t(1).border_color(rule)
+        .child(chips('Status', sections, this.statusFilter, value => { this.statusFilter = value; }, 'status'))
+        .child(chips('Assignee', assignees, this.assigneeFilter, value => { this.assigneeFilter = value; }, 'assignee'))));
   }
 
   issueList(cx) {
@@ -193,16 +225,18 @@ export default class MantisPanel extends TaskSourceController {
     const header = h_flex().h(30).flex_none().items_center().bg('#f1f1f1').border_b(1).border_color(mantisTheme.border)
       .children(columns.map(column => cell(column.name, column.width, true))).child(cell('Summary', null, true, false));
     const value = (task, column) => column.id === 'gid'
-      ? div().id(`mantis-issue-number-${task.gid}`).text_color(mantisTheme.accent).hover(el => el.underline()).child(issueNumber(task.gid))
+      ? div().id(`mantis-issue-number-${task.gid}`).text_color(mantisTheme.accent).cursor_pointer().hover(el => el.underline())
+        .on_click((_event, cx) => this.show(task, cx)).child(issueNumber(task.gid))
       : column.id === 'section' ? h_flex().gap(5).items_center().min_w(0)
         .child(div().size(18).rounded(3).flex_none().bg(statusColor(task)))
-        .child(div().truncate().text_color(mantisTheme.accent).child(task.section))
+        .child(div().truncate().child(task.section))
         : div().truncate().child(['createdAt', 'updatedAt', 'due'].includes(column.id) ? date(task[column.id], column.id !== 'due') : this.fieldValue(task, column));
     const row = (task, index) => h_flex().id(`mantis-issue-${task.gid}`).h(34).flex_none().items_center()
-      .bg(index % 2 ? '#ffffff' : mantisTheme.row).border_b(1).border_color(rule).hover(el => el.bg(mantisTheme.selected)).cursor_pointer()
-      .accessibility_label(`${issueNumber(task.gid)}: ${task.name}`).on_click((_event, cx) => this.show(task, cx))
+      .bg(index % 2 ? '#ffffff' : mantisTheme.row).border_b(1).border_color(rule).hover(el => el.bg(mantisTheme.selected))
+      .accessibility_label(`${issueNumber(task.gid)}: ${task.name}`)
       .children(columns.map(column => cell(value(task, column), column.width)))
-      .child(cell(div().id(`mantis-issue-summary-${task.gid}`).text_color(mantisTheme.accent).truncate().hover(el => el.underline()).child(task.name), null, false, false));
+      .child(cell(div().id(`mantis-issue-summary-${task.gid}`).text_color(mantisTheme.accent).truncate().cursor_pointer().hover(el => el.underline())
+        .on_click((_event, cx) => this.show(task, cx)).child(task.name), null, false, false));
     return widget().id('mantis-issues')
       .child(widgetHeader('mantis-issues-header', this.tab === 'mine' ? 'Assigned to Me' : 'Viewing Issues', 'columns-3')
         .child(div().px(9).rounded(10).bg('#aabac3').text_size(12).child(`${tasks.length ? '1' : '0'} - ${tasks.length}${this.tab === 'all' && this.all.next ? ' +' : ''}`)))
@@ -210,7 +244,7 @@ export default class MantisPanel extends TaskSourceController {
         .child(v_flex().min_w(280 + columns.reduce((total, field) => total + field.width, 0)).child(header).children(tasks.map(row))))
       .when(loading, el => el.child(div().p(12).text_color(mantisTheme.muted).child(this.tab === 'mine'
         ? 'Loading issues assigned to you…' : this.all.loaded ? 'Loading more issues…' : 'Loading issues…')))
-      .when(!tasks.length && loaded && !loading && !this.error, el => el.child(div().p(18).text_color(mantisTheme.muted).child(this.issueSearch.value() || this.statusFilter
+      .when(!tasks.length && loaded && !loading && !this.error, el => el.child(div().p(18).text_color(mantisTheme.muted).child(this.issueSearch.value() || this.statusFilter || this.assigneeFilter
         ? 'No loaded issues match the current filter.' : this.tab === 'mine' ? 'No open issues assigned to you.'
           : this.all.next ? 'No open issues on the loaded pages. Load more issues to continue.' : 'No open issues in this project.')))
       .when(this.tab === 'all' && Boolean(this.all.next), el => el.child(h_flex().p(8).bg('#eeeeee').border_t(1).border_color(rule)
@@ -271,7 +305,7 @@ export default class MantisPanel extends TaskSourceController {
         .when(Boolean(task.commentsError), el => el.child(div().p(12).text_color(mantisTheme.destructive).child(task.commentsError)))
         .when(!task.comments?.length && !task.commentsError, el => el.child(div().p(12).child('No notes.')))
         .children((task.comments || []).map((comment, index) => h_flex().id(`mantis-note-${comment.gid}`).items_stretch().min_h(90).mx(10).mt(index > 0 ? 12 : 10).when(index === (task.comments.length - 1), el => el.mb(10)).border(1).border_color(rule)
-          .child(v_flex().w(185).flex_none().p(12).gap(8).bg('#edf3f4').text_color(mantisTheme.accent)
+          .child(v_flex().w(185).flex_none().p(12).gap(8).bg('#edf3f4')
             .child(h_flex().gap(6).items_center().child(glyph('agent')).child(comment.authorLogin || comment.author))
             .child(div().text_size(12).text_color(mantisTheme.muted).child(date(comment.at, true)))
             .child(div().text_size(12).child(`~${issueNumber(comment.gid)}`)))
