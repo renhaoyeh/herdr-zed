@@ -78,7 +78,6 @@ export default class Devkits extends View {
       clearGitToast(); setShared('devkits.git-output-request', null);
     }
     if (props()?.view === 'pane') { this.threadMenu = new DropdownMenuState(cx); return; }
-    if (props()?.view === 'codex-sharing') { this.initCodexSharing(cx); return; }
     if (props()?.view === 'shared-mcp') { this.initSharedMcp(cx); return; }
     if (props()?.view === 'file-menu') {
       this.fileMenu = new FileMenu(); this.fileMenu.init(cx); return;
@@ -110,7 +109,6 @@ export default class Devkits extends View {
       // Shared values survive restarts; discover once for this app session.
       setShared('devkits.agent-cache', {});
       this.usageClient.init(cx);
-      this.initSkillWatch(cx);
       for (const machine of new Set([null, ...spaces().map(space => space.machine || null)])) {
         cx.spawn(async () => { try { await this.cachedAgents(machine); } catch {} });
       }
@@ -534,8 +532,6 @@ export default class Devkits extends View {
   async close() {
     this.systemMonitor.close();
     this.usageClient.close();
-    this.closeSkillWatch();
-    this.sharingPoll?.cancel();
     if (this.editor) this.editor.close();
     else this.files?.close();
     this.diff?.close();
@@ -839,7 +835,6 @@ export default class Devkits extends View {
     if (props()?.view === 'ui-settings') return this.interfaceSettings.render(t);
     if (props()?.view === 'system-display-menu') return this.systemDisplayMenu.render(t);
     if (['calendar', 'google-calendar', 'task-composer'].includes(props()?.view)) return div();
-    if (props()?.view === 'codex-sharing') return this.sharingDialog(t);
     if (props()?.view === 'shared-mcp') return this.sharedMcpDialog(t);
     if (['token-statistics', 'usage-details'].includes(props()?.view)) return div();
     if (props()?.view === 'xcode-storage') return this.xcodeStorage.render();

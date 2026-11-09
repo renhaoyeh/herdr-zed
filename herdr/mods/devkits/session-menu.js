@@ -2,7 +2,7 @@ import { div } from 'gpui-kit';
 import { v_flex, h_flex } from 'gpui-base';
 import { shared, setShared, props, spaces, openOverlay, closeOverlay, home, readTextFile, keys, window } from 'herdr';
 import { launcherChoices, launcherLabel, launcherOption, permissionModes, sessionKind, claudeModels, claudeEfforts, codexHome, codexModels, mergeModels, orderedOptions, moveOption, effortLabel, sessionChoices, settingsKey, profileSettings, configuredAgents } from './model.js';
-import { DropdownMenu, DropdownMenuState, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from './components/dropdown-menu.js';
+import { DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from './components/dropdown-menu.js';
 import { Button } from './components/button.js';
 import { Checkbox } from './components/checkbox.js';
 import { Switch } from './components/switch.js';
@@ -16,7 +16,7 @@ import { openInterfaceSettings } from './ui-settings.js';
 const launcherSections = ['Terminal', 'Agents', 'Your accounts', 'Agent profiles'];
 
 // The Add session menu and its Manage dialog. Mixed into the Devkits view, which provides
-// cachedAgents, startThread and the account actions (addAccount, renameAccount, openCodexSharing, confirmRemoveAccount).
+// cachedAgents, startThread and the account actions (addAccount, renameAccount, confirmRemoveAccount).
 export const sessionMenu = {
   initSessionMenu(cx) {
     if (props().refreshAgents) setShared('devkits.agent-cache', {});
@@ -237,7 +237,6 @@ export const sessionMenu = {
       this.launchers = this.availableAgents(cached, machine);
       this.loading = false;
       this.launchError = false;
-      if (props().view === 'manage-launchers') this.prepareAccountMenus(cx);
       return;
     }
     this.loading = true;
@@ -245,16 +244,10 @@ export const sessionMenu = {
     cx.spawn(async cx => {
       try {
         this.launchers = await this.cachedAgents(machine);
-        if (props().view === 'manage-launchers') this.prepareAccountMenus(cx);
       } catch { this.launchError = true; }
       this.loading = false;
       cx.notify();
     });
-  },
-
-  prepareAccountMenus(cx) {
-    this.accountMenus ||= new Map();
-    for (const agent of this.launchers) if (!this.accountMenus.has(agent.key)) this.accountMenus.set(agent.key, new DropdownMenuState(cx));
   },
 
   manageLaunchers(t) {
@@ -391,17 +384,11 @@ export const sessionMenu = {
                     .child(Button(`add-${choice.agent.key}-account`, t, { variant: 'secondary' }).h(28).px(10).gap(6)
                       .accessibility_label(`Add a ${choice.agent.key === 'codex' ? 'Codex' : 'Claude'} account`)
                       .on_click(() => this.addAccount(choice.agent.key)).child(glyph('plus')).child('Add account')))
-                  // Account actions live in one menu so every row's controls line up.
-                  .when(local && choice.group === 2 && Boolean(this.accountMenus?.get(choice.agent.key)), el => el
-                    .child(DropdownMenu(`account-actions-${choice.agent.key}`, this.accountMenus.get(choice.agent.key),
-                      Button(`account-menu-${choice.agent.key}`, t, { variant: 'row', size: 'icon' })
-                        .accessibility_label(`Actions for ${choice.name}`).child(glyph('ellipsis')),
-                      [{ key: 'rename', label: 'Rename' },
-                        ...(choice.agent.key.startsWith('devkits-codex-') ? [{ key: 'mcp', label: 'Shared MCP…' }, { key: 'sync', label: 'Shared plugins and skills…' }] : []),
-                        { key: 'remove', label: 'Remove', separator: true }],
-                      key => key === 'rename' ? this.renameAccount(choice.agent)
-                        : key === 'mcp' ? this.openSharedMcp(choice.agent)
-                        : key === 'sync' ? this.openCodexSharing(choice.agent) : this.confirmRemoveAccount(choice.agent), t)))))))))
+                  .when(local && choice.group === 2, el => el
+                    .child(Button(`account-actions-${choice.agent.key}-rename`, t, { variant: 'secondary' }).h(28)
+                      .on_click(() => this.renameAccount(choice.agent)).child('Rename'))
+                    .child(Button(`account-actions-${choice.agent.key}-remove`, t, { variant: 'secondary' }).h(28)
+                      .on_click(() => this.confirmRemoveAccount(choice.agent)).child('Remove')))))))))
         .when(local && !this.loading && !this.launchError && !choices.some(choice => choice.group === 2), el => el
           .child(DropdownMenuLabel(t).id('manage-section-2').px(0).mt(16).child('YOUR ACCOUNTS'))
           .child(div().text_size(12).text_color(t.muted).child('No accounts added. Use Add account on an agent row.')))
