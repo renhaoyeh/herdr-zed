@@ -36,7 +36,7 @@ export const sessionMenu = {
     // Former provider pages open their default account on Accounts.
     const page = props().page || 'agents';
     // Former provider and Models pages open the same settings on Accounts.
-    this.settingsPage = ['claude', 'codex', 'models'].includes(page) ? 'accounts' : page;
+    this.settingsPage = ['claude', 'codex', 'models'].includes(page) ? 'accounts' : page === 'usage' ? 'agents' : page;
     if (['claude', 'codex'].includes(page)) this.selectedAccount = page;
     this.defaultSelects = { permissions: new SelectState(cx), model: new SelectState(cx), effort: new SelectState(cx), profile: new SelectState(cx) };
     if (props().view === 'agent-profile-editor') { this.initAgentProfileEditor(cx); return; }
@@ -397,10 +397,9 @@ export const sessionMenu = {
     // accounts first, then what Add session shows, then the optional extras.
     const providers = ['claude', 'codex'].filter(kind => choices.some(choice => choice.agent?.key === kind));
     const pages = [...(local ? [{ id: 'accounts', label: 'Accounts', icon: glyph('user-round') }] : []),
-      { id: 'agents', label: 'Add session', icon: glyph('square-plus') },
+      { id: 'agents', label: 'Agents', icon: glyph('square-plus') },
       ...(local ? [{ id: 'agent-profiles', label: 'Profiles', icon: glyph('agent') }] : []),
-      { id: 'rules', label: local ? 'Rules & MCP' : 'Rules', icon: glyph('book-open') },
-      ...(local ? [{ id: 'usage', label: 'Usage accounts', icon: glyph('chart-column') }] : [])];
+      { id: 'rules', label: local ? 'Rules & MCP' : 'Rules', icon: glyph('book-open') }];
     const page = pages.some(item => item.id === this.settingsPage) ? this.settingsPage : 'agents';
     return DialogContent('manage-launchers', t).accessibility_label('Settings')
       .on_mouse_up('left', (_event, cx) => cancelDrag(cx))
@@ -429,9 +428,8 @@ export const sessionMenu = {
             .child(div().size(16).flex_none().flex().items_center().justify_center().child(item.icon)).child(item.label))))
         .child(v_flex().h_full().flex_1().min_w(0).min_h(0).gap(8)
           .when(page === 'accounts', el => el.child(this.accountsPage(t)))
-          .when(page === 'agents', el => el.child(DialogDescription(t).flex_none().child('Choose what Add session shows and in which order. Drag to reorder; changes save automatically.'))
+          .when(page === 'agents', el => el.child(DialogDescription(t).flex_none().child('Choose what Add session and Usage show, in one order. Drag to reorder; changes save automatically. Agents using the same account share its quota.'))
             .child(this.agentsPage(choices, hidden, toggle, move, cancelDrag, t)))
-          .when(page === 'usage', el => el.child(this.usageProfilesPage(choices, t)))
           .when(page === 'agent-profiles', el => el.child(this.agentProfilesPage(t)))
           .when(page === 'rules', el => el
             .when(local && providers.includes('codex'), el => el.child(h_flex().flex_none().min_h(48).px(12).py(8).gap(16).items_center()
@@ -444,26 +442,6 @@ export const sessionMenu = {
             .child(DialogDescription(t).flex_none().child(this.rulesPreview.description()))
             .child(this.rulesPreview.body(t)))))
       .child(DialogFooter().flex_none().child(Button('manage-launchers-done', t).on_click(done).child('Done')));
-  },
-
-  usageProfilesPage(choices, t) {
-    const profiles = choices.filter(choice => choice.agent && !choice.agent.profileKey);
-    const hidden = shared('devkits.hidden-usage-profiles') || [];
-    return v_flex().id('usage-profile-settings').flex_1().min_h(0).overflow_y_scroll().gap(8)
-      .child(DialogDescription(t).flex_none().child('Choose which accounts appear in Usage. Agents using the same account share its quota.'))
-      .children([1, 2].filter(group => profiles.some(choice => choice.group === group)).map(group => v_flex().flex_none().gap(4)
-        .child(DropdownMenuLabel(t).px(0).mt(8).child(launcherSections[group].toUpperCase()))
-        .child(v_flex().flex_none().border(1).border_color(t.border)
-          .children(profiles.filter(choice => choice.group === group).map((choice, index) =>
-            h_flex().h(36).px(12).items_center().when(index > 0, el => el.border_t(1).border_color(t.border))
-              .child(Checkbox(`usage-profile-${choice.agent.key}`, !hidden.includes(choice.agent.key), t).h_full().flex_1().min_w(0)
-                .accessibility_label(`Show ${choice.name} in Usage`).on_change((checked, cx) => {
-                  const saved = shared('devkits.hidden-usage-profiles') || [];
-                  setShared('devkits.hidden-usage-profiles', checked ? saved.filter(key => key !== choice.agent.key) : [...new Set([...saved, choice.agent.key])]);
-                  cx.notify();
-                }).child(AgentIcon(choice.agent, t).flex_none()).child(div().truncate().text_size(13)
-                  .when(this.accountName(choice.agent, choice.name) === noAccount, el => el.text_color(t.muted)).child(this.accountName(choice.agent, choice.name)))))))))
-      .child(this.autoAccountsSection(profiles, t));
   },
 
   // Auto in Add session starts one of these accounts, chosen by quota at each launch.
@@ -493,9 +471,13 @@ export const sessionMenu = {
       setShared('devkits.auto-multipliers', saved);
     };
     return v_flex().id('auto-account-settings').flex_none().gap(4)
-      .child(DropdownMenuLabel(t).px(0).mt(8).child('AUTO'))
-      .child(v_flex().id('auto-account-rules').flex_none().gap(2)
-        .children(rules.map(rule => DialogDescription(t).flex_none().child(rule))))
+      .child(h_flex().flex_none().mt(8).gap(8).items_center()
+        .child(DropdownMenuLabel(t).px(0).flex_1().child('AUTO'))
+        .child(Button('auto-rules-toggle', t, { variant: 'ghost' }).h(24).px(6).gap(4).text_size(12)
+          .on_click((_event, cx) => { this.autoRulesOpen = !this.autoRulesOpen; cx.notify(); })
+          .child('How Auto chooses').child(glyph(this.autoRulesOpen ? 'chevron-up' : 'chevron-down', 12))))
+      .when(Boolean(this.autoRulesOpen), el => el.child(v_flex().id('auto-account-rules').flex_none().gap(2)
+        .children(rules.map(rule => DialogDescription(t).flex_none().child(rule)))))
       .child(v_flex().flex_none().mt(4).border(1).border_color(t.border)
         // An empty table keeps one row's height instead of collapsing to a line.
         .when(!accounts.length, el => el.child(h_flex().id('auto-account-empty').h(40).px(12).items_center()
@@ -524,8 +506,22 @@ export const sessionMenu = {
         })));
   },
 
+  // One list for what Add session and Usage show, in their shared order, with Auto below.
   agentsPage(choices, hidden, toggle, move, cancelDrag, t) {
+    const usageHidden = shared('devkits.hidden-usage-profiles') || [];
+    const toggleUsage = (key, checked, cx) => {
+      const saved = shared('devkits.hidden-usage-profiles') || [];
+      setShared('devkits.hidden-usage-profiles', checked ? saved.filter(item => item !== key) : [...new Set([...saved, key])]);
+      cx.notify();
+    };
+    // Usage lists native agents and accounts; Terminal and profiles share their account's quota.
+    const usageEligible = choice => Boolean(choice.agent && !choice.agent.profileKey);
+    // Remote projects have no local quota readings, so they show only Add session.
+    const local = !spaces().find(space => space.id === props().space)?.machine;
+    const column = (id, child) => div().id(id).w(96).flex_none().flex().items_center().justify_center().child(child);
     return v_flex().id('manage-launchers-list').flex_1().min_h(0).overflow_y_scroll().gap(8)
+        .child(h_flex().id('manage-columns').flex_none().h(20).px(8).items_center().text_size(11).text_color(t.muted)
+          .child(div().flex_1()).child(column('manage-column-session', 'Add session')).when(local, el => el.child(column('manage-column-usage', 'Usage'))))
         // One bordered table per section; rows are separated by rules and hover with t.selected.
         .children([0, 1, 2, 3].filter(group => choices.some(choice => choice.group === group)).map(group => v_flex().flex_none().gap(4)
           .when(group > 0, el => el.mt(8))
@@ -553,12 +549,17 @@ export const sessionMenu = {
                       this.dragKey = choice.key; this.dropKey = choice.key; this.manageIndex = index; cx.notify();
                     }).child(glyph('grip-vertical'))))
                   .when(choice.group === 0, el => el.child(div().size(28).flex_none()))
-                  .child(Checkbox(`show-${choice.key}`, !hidden.includes(choice.key), t).h_full().flex_1().min_w(0)
-                    .accessibility_label(choice.name).on_change((_checked, cx) => toggle(choice.key, cx))
-                    .child(AgentIcon(choice.agent, t).flex_none())
-                    .child(div().flex_1().min_w(0).truncate().text_size(13)
-                      .when(this.accountName(choice.agent, choice.name) === noAccount, el => el.text_color(t.muted))
-                      .child(this.accountName(choice.agent, choice.name))))))))))
+                  .child(AgentIcon(choice.agent, t).flex_none())
+                  .child(div().flex_1().min_w(0).truncate().text_size(13)
+                    .when(this.accountName(choice.agent, choice.name) === noAccount, el => el.text_color(t.muted))
+                    .child(this.accountName(choice.agent, choice.name)))
+                  .child(column(`manage-session-${choice.key}`, Checkbox(`show-${choice.key}`, !hidden.includes(choice.key), t)
+                    .accessibility_label(`Show ${choice.name} in Add session`).on_change((_checked, cx) => toggle(choice.key, cx))))
+                  .when(local, el => el.child(column(`manage-usage-${choice.key}`, usageEligible(choice)
+                    ? Checkbox(`usage-profile-${choice.agent.key}`, !usageHidden.includes(choice.agent.key), t)
+                      .accessibility_label(`Show ${choice.name} in Usage`).on_change((checked, cx) => toggleUsage(choice.agent.key, checked, cx))
+                    : div().text_size(12).text_color(t.muted).child('–'))))))))))
+        .when(local, el => el.child(this.autoAccountsSection(choices.filter(usageEligible), t)))
         .when(this.loading, el => el.child(div().p(8).text_size(12).text_color(t.muted).child('Loading agents…')))
         .when(this.launchError, el => el.child(Button('manage-retry-agents', t, { variant: 'secondary' })
           .on_click((_event, cx) => this.loadAgents(cx)).child('Could not load agents. Retry')));
