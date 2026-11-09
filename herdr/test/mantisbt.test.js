@@ -28,7 +28,7 @@ async function load(options = {}) {
     readTextFile: async path => files[path] ?? null,
     writeTextFile: async (path, text, expected) => { writes.push({ path, expected }); files[path] = text; }, ...options };
   Object.assign(host, await evaluateNative('../mods/devkits-mantisbt/api.js', host, 'normalizeUrl, filterProjects, searchProjects, projectTasksPage, myProjectTasks, taskDetails, taskComments, openSubtasks, validateConnection, projectFields'));
-  Object.assign(host, await evaluateNative('../mods/devkits-mantisbt/connection.js', host, 'readMantisConnection, saveMantisConnection, readMantisProjects, saveMantisProjects'));
+  Object.assign(host, await evaluateNative('../mods/devkits-mantisbt/connection.js', host, 'readMantisConnection, saveMantisConnection, readMantisProjects, saveMantisProjects, readMantisIssues, saveMantisIssues'));
   Object.assign(host, await evaluateNative('../mods/devkits-mantisbt/source.js', host, 'mantisSource'));
   Object.assign(host, await evaluateNative('../mods/devkits/components/task-source-model.js', host, 'filterTasks, sourceTaskSnapshot'));
   Object.assign(host, await evaluateNative('../mods/devkits/components/task-source.js', host, 'TaskSourceController, TaskSourceProjectPicker'));
@@ -436,4 +436,37 @@ test('MantisBT custom fields remain individual full-width rows after Description
   const text = item => typeof item === 'string' ? item : (item?.childrenData || []).map(text).filter(Boolean).join(' ');
   assert.ok(text(detailRows[detailRows.indexOf(customA) - 1]).includes('Description body'));
   assert.equal(text(customB), 'Priority Normal');
+});
+
+test('fetched issue lists persist per server and project, and are dropped when the token changes', async () => {
+  const { files, readMantisIssues, saveMantisIssues } = await load();
+  assert.equal(await readMantisIssues(connection, '7'), null);
+  const tasks = [{ gid: '1', name: 'One' }], fetchedAt = 1700000000000;
+  await saveMantisIssues(connection, '7', tasks, fetchedAt);
+  assert.deepEqual(await readMantisIssues(connection, '7'), { fetchedAt, tasks });
+  assert.equal(await readMantisIssues(connection, '8'), null);
+  assert.equal(await readMantisIssues({ ...connection, token: 'other' }, '7'), null);
+  assert.ok(!files['/herdr/data/devkits/mantisbt-issues.json'].includes(connection.token));
+  for (let project = 20; project < 27; project++) await saveMantisIssues(connection, String(project), tasks, fetchedAt + project);
+  assert.equal(await readMantisIssues(connection, '7'), null);
+  assert.ok(await readMantisIssues(connection, '26'));
+});
+
+test('Fetch all reads every page, saves the list, and sorting works on the loaded issues', async () => {
+  const { MantisPanel, taskSourceOptions, readMantisIssues } = await load();
+  const { cx, settle } = harness(), panel = new MantisPanel(taskSourceOptions('mantisbt'));
+  panel.init(cx); panel.token = connection.token; panel.server = connection.url; panel.loadedGid = '7'; panel.tab = 'all';
+  const pages = { null: { tasks: [{ gid: '3', name: 'b', section: 'new' }], next: 2 }, 2: { tasks: [{ gid: '9', name: 'a', section: 'assigned' }], next: null } };
+  panel.source = { ...panel.source, projectTasksPage: async (_credentials, _gid, next) => pages[next] };
+  panel.fetchAll(cx); assert.ok(panel.fetchingAll); await settle();
+  assert.ok(!panel.fetchingAll && !panel.loadingMore);
+  assert.deepEqual(panel.all.tasks.map(task => task.gid), ['3', '9']); assert.equal(panel.all.next, null);
+  assert.deepEqual((await readMantisIssues(panel.credentials(), '7')).tasks.map(task => task.gid), ['3', '9']);
+  panel.sortBy('gid', cx); assert.deepEqual(panel.issueTasks().map(task => task.gid), ['9', '3']);
+  panel.sortBy('gid', cx); assert.deepEqual(panel.issueTasks().map(task => task.gid), ['3', '9']);
+  panel.sortBy('summary', cx); assert.deepEqual(panel.issueTasks().map(task => task.name), ['a', 'b']);
+  // Refresh keeps the current list until the new read finishes.
+  pages.null = { tasks: [{ gid: '5', name: 'c', section: 'new' }], next: null };
+  panel.fetchAll(cx, true); assert.equal(panel.all.tasks.length, 2); await settle();
+  assert.deepEqual(panel.all.tasks.map(task => task.gid), ['5']);
 });

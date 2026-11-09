@@ -3,7 +3,7 @@ import { h_flex, v_flex, Input, InputState } from 'gpui-base';
 import { TaskSourceController, TaskSourceProjectPicker } from './components/task-source.js';
 import { mantisSource } from './source.js';
 import { filterProjects } from './api.js';
-import { readMantisProjects, saveMantisProjects } from './connection.js';
+import { readMantisProjects, saveMantisProjects, readMantisIssues, saveMantisIssues } from './connection.js';
 import { Button } from './components/button.js';
 import { Checkbox } from './components/checkbox.js';
 import { DropdownMenuTrigger } from './components/dropdown-menu.js';
@@ -23,6 +23,8 @@ const statusColors = { new: '#fcbdbd', feedback: '#e3b7eb', acknowledged: '#ffcd
 export const issueNumber = gid => String(gid || '').padStart(7, '0');
 export const statusColor = task => statusColors[task.statusName] || statusColors[String(task.section || '').toLowerCase()] || '#e4e4e4';
 const glyph = (name, size = 14) => svg(`mods/devkits/assets/icons/${name}.svg`).size(size).flex_none();
+const localStamp = ms => { const d = new Date(ms), p = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };
 const date = (value, time = false) => value ? value.slice(0, time ? 16 : 10).replace('T', ' ') : '—';
 const button = (id, label, action, { primary = false, icon, disabled = false } = {}) => Button(id, mantisTheme, { variant: primary ? 'default' : 'outline' })
   .h(30).px(10).gap(5).rounded(3).border(1).border_color(primary ? mantisTheme.solid : '#8fbce3')
@@ -116,11 +118,13 @@ export default class MantisPanel extends TaskSourceController {
     this.statusFilter = null; this.assigneeFilter = null;
     this.filtersOpen = true;
     this.fetchingAll = false; this.fetchedPages = 0; this.stopFetch = false;
+    this.sortKey = null; this.sortDir = 'desc'; this.cacheTried = false;
     this.issueSearch = InputState.new({ placeholder: 'Search' });
     this.issueSearch.on('change', (_event, cx) => cx.notify());
   }
 
-  reset() { super.reset(); this.statusFilter = null; this.assigneeFilter = null; this.fetchingAll = false; this.stopFetch = true; }
+  reset() { super.reset(); this.statusFilter = null; this.assigneeFilter = null; this.fetchingAll = false; this.stopFetch = true;
+    this.sortKey = null; this.cacheTried = false; }
 
   open(project, cx) {
     super.open(project, cx);
@@ -131,17 +135,25 @@ export default class MantisPanel extends TaskSourceController {
   allLoaded() { return this.tab === 'mine' || (this.all.loaded && !this.all.next); }
 
   // MantisBT's REST API ignores handler, status and sort parameters, so every page is read and filtered here.
-  fetchAll(cx) {
-    if (this.fetchingAll || this.loadingMore || this.allLoaded()) return;
-    const request = this.page, gid = this.loadedGid;
-    this.fetchingAll = true; this.loadingMore = true; this.stopFetch = false; this.fetchedPages = 0; cx.notify();
+  // A finished read is saved, so the next session shows it at once and Refresh reads it again.
+  fetchAll(cx, restart = false) {
+    if (this.fetchingAll || this.loadingMore || (!restart && this.allLoaded())) return;
+    const request = this.page, gid = this.loadedGid, credentials = this.credentials();
+    let tasks = restart ? [] : this.all.tasks, next = restart ? null : this.all.next, first = restart || !this.all.loaded;
+    this.fetchingAll = true; this.loadingMore = true; this.stopFetch = false; this.restarting = restart; this.fetchedPages = 0; cx.notify();
     cx.spawn(async cx => {
       try {
-        while (!this.stopFetch && this.page === request && (!this.all.loaded || this.all.next)) {
-          const page = await this.source.projectTasksPage(this.credentials(), gid, this.all.next);
+        while (!this.stopFetch && this.page === request && (first || next)) {
+          const page = await this.source.projectTasksPage(credentials, gid, next);
           if (this.page !== request) return;
-          this.all = { tasks: [...this.all.tasks, ...page.tasks], next: page.next, loaded: true };
-          this.fetchedPages++; cx.notify();
+          tasks = [...tasks, ...page.tasks]; next = page.next; first = false; this.fetchedPages++;
+          if (!restart) this.all = { ...this.all, tasks, next, loaded: true };
+          cx.notify();
+        }
+        if (!this.stopFetch && this.page === request && !next) {
+          const fetchedAt = Date.now();
+          this.all = { tasks, next: null, loaded: true, fetchedAt };
+          try { await saveMantisIssues(credentials, gid, tasks, fetchedAt); } catch {}
         }
       } catch (error) { if (this.page === request) this.fail(error); }
       if (this.page === request) { this.fetchingAll = false; this.loadingMore = false; }
@@ -149,9 +161,49 @@ export default class MantisPanel extends TaskSourceController {
     });
   }
 
+  // The first View Issues load shows the saved full list when there is one, instead of reading a page.
+  more(cx) {
+    if (this.tab === 'all' && !this.all.loaded && !this.cacheTried && !this.loadingMore) {
+      this.cacheTried = true; this.loadingMore = true;
+      const request = this.page, gid = this.loadedGid;
+      cx.spawn(async cx => {
+        const cached = await readMantisIssues(this.credentials(), gid);
+        if (this.page !== request) return;
+        this.loadingMore = false;
+        if (cached && !this.all.loaded) this.all = { tasks: cached.tasks, next: null, loaded: true, fetchedAt: cached.fetchedAt };
+        else super.more(cx);
+        cx.notify();
+      });
+      return;
+    }
+    super.more(cx);
+  }
+
+  sortBy(id, cx) {
+    this.sortDir = this.sortKey === id ? (this.sortDir === 'asc' ? 'desc' : 'asc') : ['gid', 'createdAt', 'updatedAt'].includes(id) ? 'desc' : 'asc';
+    this.sortKey = id; cx.notify();
+  }
+
+  sorted(tasks) {
+    if (!this.sortKey) return tasks;
+    const column = this.displayFields('list').find(field => field.id === this.sortKey);
+    const read = task => this.sortKey === 'gid' ? Number(task.gid) : this.sortKey === 'summary' ? task.name
+      : ['createdAt', 'updatedAt', 'due', 'section'].includes(this.sortKey) ? task[this.sortKey] : column ? this.fieldValue(task, column) : '';
+    const sign = this.sortDir === 'asc' ? 1 : -1;
+    return [...tasks].sort((a, b) => {
+      const left = read(a) ?? '', right = read(b) ?? '';
+      if (left === '' || left === '—') return right === '' || right === '—' ? 0 : 1;
+      if (right === '' || right === '—') return -1;
+      return sign * (typeof left === 'number' && typeof right === 'number' ? left - right : String(left).localeCompare(String(right), undefined, { numeric: true }));
+    });
+  }
+
   view() { return 'list'; }
   rows() { return this.issueTasks().map(task => ({ task, depth: 0 })); }
   issueTasks() {
+    return this.sorted(this.filteredTasks());
+  }
+  filteredTasks() {
     const words = this.issueSearch.value().toLowerCase().split(/\s+/).filter(Boolean);
     return (this.tab === 'mine' ? this.mine || [] : this.all.tasks).filter(task =>
       (!this.statusFilter || task.section === this.statusFilter) && (!this.assigneeFilter || (task.assignee || 'Unassigned') === this.assigneeFilter) && words.every(word =>
@@ -206,12 +258,17 @@ export default class MantisPanel extends TaskSourceController {
         .child(Button('mantis-toggle-filters', mantisTheme, { variant: 'ghost', size: 'icon' }).size(28).rounded(0).text_color('#ffffff')
           .accessibility_label(this.filtersOpen ? 'Collapse filters' : 'Expand filters')
           .on_click((_event, cx) => { this.filtersOpen = !this.filtersOpen; cx.notify(); }).child(glyph(this.filtersOpen ? 'chevron-down' : 'chevron-right', 16))))
-      .when(this.filtersOpen && !this.allLoaded(), el => el.child(h_flex().p(8).gap(8).items_center().border_t(1).border_color(rule)
-        .child(button('mantis-fetch-all', this.fetchingAll ? 'Fetching…' : 'Fetch all issues', (_event, cx) => this.fetchAll(cx), { disabled: this.fetchingAll || this.loadingMore })
-        )
-        .when(this.fetchingAll, el => el.child(button('mantis-fetch-stop', 'Stop', (_event, cx) => { this.stopFetch = true; cx.notify(); }))
-          .child(div().text_color(mantisTheme.muted).child(`Fetched ${this.fetchedPages} pages · ${this.all.tasks.length} open issues`)))
-        .when(!this.fetchingAll, el => el.child(div().text_color(mantisTheme.muted).child('Fetch every page to filter by status or assignee.')))))
+      .when(this.filtersOpen && this.tab === 'all', el => el.child(h_flex().p(8).gap(8).items_center().border_t(1).border_color(rule)
+        .child(this.fetchingAll
+          ? button('mantis-fetch-stop', 'Stop', (_event, cx) => { this.stopFetch = true; cx.notify(); })
+          : this.allLoaded()
+            ? button('mantis-fetch-all', 'Refresh', (_event, cx) => this.fetchAll(cx, true), { disabled: this.loadingMore })
+            : button('mantis-fetch-all', 'Fetch all issues', (_event, cx) => this.fetchAll(cx), { disabled: this.loadingMore }))
+        .child(div().text_color(mantisTheme.muted).child(this.fetchingAll
+          ? `Fetching… ${this.fetchedPages} pages${this.restarting ? ' (the current list stays until it finishes)' : ` · ${this.all.tasks.length} open issues`}`
+          : this.allLoaded()
+            ? `${this.all.tasks.length} open issues${this.all.fetchedAt ? ` · fetched ${localStamp(this.all.fetchedAt)}` : ''}`
+            : 'Fetch every page to filter or sort by status or assignee.'))))
       .when(this.filtersOpen && this.allLoaded(), el => el.child(v_flex().p(8).gap(8).border_t(1).border_color(rule)
         .child(chips('Status', sections, this.statusFilter, value => { this.statusFilter = value; }, 'status'))
         .child(chips('Assignee', assignees, this.assigneeFilter, value => { this.assigneeFilter = value; }, 'assignee'))));
@@ -222,8 +279,16 @@ export default class MantisPanel extends TaskSourceController {
     const columns = this.displayFields('list');
     const loading = this.tab === 'mine' ? this.loading : this.loadingMore;
     const loaded = this.tab === 'mine' ? this.mine !== null : this.all.loaded;
+    const sortable = this.allLoaded();
+    const head = (id, name, width, divider = true) => {
+      const label = h_flex().gap(4).items_center().min_w(0).child(div().truncate().child(name))
+        .when(this.sortKey === id, el => el.child(glyph(this.sortDir === 'asc' ? 'chevron-up' : 'chevron-down', 12)));
+      const element = cell(label, width, true, divider).id(`mantis-sort-${id}`);
+      return sortable ? element.cursor_pointer().hover(el => el.bg('#e4e4e4')).accessibility_label(`Sort by ${name}`)
+        .on_click((_event, cx) => this.sortBy(id, cx)) : element;
+    };
     const header = h_flex().h(30).flex_none().items_center().bg('#f1f1f1').border_b(1).border_color(mantisTheme.border)
-      .children(columns.map(column => cell(column.name, column.width, true))).child(cell('Summary', null, true, false));
+      .children(columns.map(column => head(column.id, column.name, column.width))).child(head('summary', 'Summary', null, false));
     const value = (task, column) => column.id === 'gid'
       ? div().id(`mantis-issue-number-${task.gid}`).text_color(mantisTheme.accent).cursor_pointer().hover(el => el.underline())
         .on_click((_event, cx) => this.show(task, cx)).child(issueNumber(task.gid))
