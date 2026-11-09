@@ -9,7 +9,7 @@ const names = ['asanaTheme', 'AsanaPanel', 'AsanaProjectPicker', 'previewWidthAt
 async function load(host = {}) {
   host = { fetch: () => assert.fail('unexpected request'), Button: () => {}, claudeModels, claudeEfforts, codexHome, codexModels, isClaudeLauncher, isCodexLauncher, sessionKind, shownOptions, orderedOptions, effortLabel, settingsKey, launcherOption, folderKey,
     glyph: () => element(), home: () => '/home', shared: () => null, setShared() {}, closeOverlay() {}, Select: () => element(), SelectState: class {}, ...host };
-  Object.assign(host, await evaluateNative('../mods/devkits-asana/api.js', host, 'searchProjects, projectTasksPage, myProjectTasks, projectWorkspace, openSubtasks, taskDetails, taskComments'));
+  Object.assign(host, await evaluateNative('../mods/devkits-asana/api.js', host, 'searchProjects, projectTasksPage, myProjectTasks, projectWorkspace, openSubtasks, taskDetails, taskComments, projectFields'));
   Object.assign(host, await evaluateNative('../mods/devkits-asana/connection.js', host, 'readAsanaToken, saveAsanaToken'));
   Object.assign(host, await evaluateNative('../mods/devkits-asana/source.js', host, 'asanaSource'));
   Object.assign(host, await evaluateNative('../mods/devkits/components/task-source-model.js', host, 'filterTasks, sourceTaskSnapshot, relativeTime, previewWidthAt, statusKind, avatarColor, initials, dueLabel, sourcePathKey'));
@@ -21,6 +21,30 @@ async function load(host = {}) {
 }
 
 const reply = (status, body) => ({ status, ok: status < 400, json: async () => body });
+
+test('Asana applies project field choices to lists, cards and details while hidden fields remain importable', async () => {
+  const texts = [], memory = {};
+  const node = () => new Proxy({}, { get: (_target, key) => key === 'when'
+    ? (condition, render) => condition ? render(node()) : node()
+    : (...args) => { if (key === 'child' && typeof args[0] === 'string') texts.push(args[0]); return node(); } });
+  const { AsanaPanel } = await load({ ...ui, div: node, h_flex: node, v_flex: node,
+    shared: key => memory[key], setShared: (key, value) => { memory[key] = value; } });
+  const panel = new AsanaPanel({ getBinding: () => ({ gid: 'p' }),
+    state: { get: key => memory[key], set: (key, value) => { memory[key] = value; } } });
+  panel.init({ focus_handle: () => ({}) });
+  const task = { gid: 't', name: 'Title', section: 'Doing', notes: '', comments: [], customFields: [
+    { gid: 'f', name: 'Release train', type: 'text', value: 'Orion', displayValue: 'Orion' },
+  ] };
+  panel.mine = [task]; panel.detail = task;
+  const cx = { notify() {} };
+  panel.list({}); assert.ok(!texts.includes('Release train'));
+  panel.changeField('list', 'custom:f', 0, cx); texts.length = 0; panel.list({});
+  assert.ok(texts.includes('Release train')); assert.ok(texts.includes('Orion'));
+  panel.changeField('card', 'custom:f', 0, cx); texts.length = 0; panel.board({});
+  assert.ok(texts.includes('Release train: Orion'));
+  panel.changeField('detail', 'custom:f', 0, cx); texts.length = 0; panel.preview({}, () => {});
+  assert.ok(!texts.includes('Release train')); assert.equal(panel.snapshot().customFields[0].value, 'Orion');
+});
 
 test('project search covers every workspace through typeahead with the typed query', async () => {
   const urls = [];

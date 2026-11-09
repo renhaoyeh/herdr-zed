@@ -26,9 +26,10 @@ export function sourceModuleOptions(source, target) {
   const channel = target.channel, context = target.context || {}, stateKey = target.stateKey || `task-source.${source.key}`;
   const getBinding = () => channel ? sourceChannel(channel)?.request.binding || null : shared(`${stateKey}-project`) || target.binding || null;
   const setBinding = (_folder, binding) => channel ? publishSourceEvent(channel, { type: 'binding', binding }) : setShared(`${stateKey}-project`, binding);
+  const preferenceKey = suffix => `${suffix === 'field-display' ? `devkits.${source.key}` : stateKey}-${suffix}`;
   return {
     source, importLabel: target.importLabel || 'Import',
-    state: { get: suffix => shared(`${stateKey}-${suffix}`), set: (suffix, value) => setShared(`${stateKey}-${suffix}`, value) },
+    state: { get: suffix => shared(preferenceKey(suffix)), set: (suffix, value) => setShared(preferenceKey(suffix), value) },
     getBinding, setBinding,
     onSelect: project => setBinding(context.folder, { gid: project.gid, name: project.name, workspace: project.workspaceGid,
       ...(source.server ? { server: project.server } : {}) }),

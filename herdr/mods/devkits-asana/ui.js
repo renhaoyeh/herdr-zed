@@ -6,6 +6,7 @@ import { TaskSourceController, TaskSourceProjectPicker } from './components/task
 import { asanaSource } from './source.js';
 import { previewWidthAt, statusKind, avatarColor, initials, dueLabel, relativeTime } from './components/task-source-model.js';
 import { Button } from './components/button.js';
+import { Checkbox } from './components/checkbox.js';
 import { DialogDescription } from './components/dialog.js';
 import { DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel } from './components/dropdown-menu.js';
 
@@ -160,6 +161,9 @@ export default class AsanaPanel extends TaskSourceController {
   // Asana's task table keeps assignees and due dates in aligned columns.
   // A plain scroll list: pages keep it to a few hundred rows, and hover then stays in GPUI instead of rebuilding rows in script each frame.
   list(t) {
+    const columns = this.displayFields('list');
+    const value = (task, column) => column.id === 'assignee' ? this.avatar(task, t, 24)
+      : column.id === 'due' ? this.due(task, t) : div().truncate().child(this.fieldValue(task, column));
     const row = item => {
       if (item.group) return this.sectionLabel(item.group, t);
       if (!item.task) return h_flex().id('asana-load-more').h(36).flex_none().px(16).gap(8).items_center().text_size(12).text_color(t.muted)
@@ -178,16 +182,17 @@ export default class AsanaPanel extends TaskSourceController {
           .on_click((_event, cx) => { cx.stop_propagation(); this.toggleExpanded(task, cx); })
           .child(glyph(this.expanded.has(task.gid) ? 'chevron-down' : 'chevron-right', 10)).child(String(task.subtasks))))
         .when(Boolean(task.parent) && !depth, el => el.child(div().flex_none().max_w(200).truncate().text_size(12).text_color(t.muted).child(`↳ ${task.parent}`)))
-        .child(h_flex().w(120).h_full().pl(12).border_l(1).border_color(t.border).flex_none().items_center().child(this.avatar(task, t, 24)))
-        .child(h_flex().w(120).h_full().pl(12).border_l(1).border_color(t.border).flex_none().items_center().child(this.due(task, t)));
+        .children(columns.map(column => h_flex().w(column.width).h_full().pl(12).border_l(1).border_color(t.border)
+          .flex_none().items_center().child(value(task, column))));
     };
-    return v_flex().id('asana-list').flex_1().min_h(0)
+    return v_flex().id('asana-list').flex_1().min_h(0).overflow_x_scrollbar()
       .on_click((_event, cx) => this.clearSelection(cx))
+      .child(v_flex().w_full().min_w(320 + columns.reduce((total, field) => total + field.width + 10, 0)).flex_1().min_h(0)
       .child(h_flex().h(34).px(24).gap(10).flex_none().items_center().border_b(1).border_color(t.border).text_size(12).text_color(t.muted)
         .child(div().flex_1().child('Task name'))
-        .child(div().w(120).h_full().pl(12).border_l(1).border_color(t.border).flex_none().flex().items_center().child('Assignee'))
-        .child(div().w(120).h_full().pl(12).border_l(1).border_color(t.border).flex_none().flex().items_center().child('Due date')))
-      .child(v_flex().id('asana-list-rows').flex_1().min_h(0).overflow_y_scrollbar().children(this.listItems().map(row)));
+        .children(columns.map(column => div().w(column.width).h_full().pl(12).border_l(1).border_color(t.border)
+          .flex_none().flex().items_center().truncate().child(column.name))))
+      .child(v_flex().id('asana-list-rows').flex_1().min_h(0).overflow_y_scrollbar().children(this.listItems().map(row))));
   }
 
   board(t) {
@@ -206,19 +211,59 @@ export default class AsanaPanel extends TaskSourceController {
             .when(Boolean(task.parent), el => el.child(div().truncate().text_size(11).text_color(t.muted).child(`↳ ${task.parent}`)))
             .child(div().text_size(13).font_medium().child(task.name))
             .child(h_flex().gap(8).items_center()
-              .child(this.status(group.name, t, 12))
-              .when(task.subtasks > 0, el => el.child(h_flex().h(20).px(6).items_center().rounded(4).border(1).border_color(t.border)
-                .text_size(11).text_color(t.muted).child(`${task.subtasks} subtasks`)))
-              .child(div().flex_1())
-              .child(this.due(task, t))
-              .child(this.avatar(task, t))))))))
+              .flex_wrap()
+              .children(this.displayFields('card').map(field => field.id === 'assignee' ? this.avatar(task, t)
+                : field.id === 'due' ? this.due(task, t)
+                  : div().text_size(11).text_color(t.muted).child(`${field.name}: ${this.fieldValue(task, field)}`)))))))))
       .when(this.tab === 'all' && Boolean(this.all.next), el => el.child(asanaButton('asana-load-more', t, { variant: 'outline' }).flex_none()
         .on_click((_event, cx) => { cx.stop_propagation(); this.more(cx); }).child(this.loadingMore ? 'Loading…' : 'Load more tasks')));
   }
 
+  fieldSettings(t) {
+    const bound = this.binding(), schema = this.fieldSchema?.scope === this.fieldScope() ? this.fieldSchema : null;
+    const labels = { list: 'List columns', card: 'Board cards', detail: 'Task details' };
+    const surface = labels[this.fieldSurface] ? this.fieldSurface : 'list';
+    const fields = this.fieldOptions(surface);
+    return v_flex().id('asana-field-settings').w_full().mt(16).pt(24).gap(16).border_t(1).border_color(t.border)
+      .child(div().text_size(20).font_semibold().child('Field display'))
+      .when(!bound, el => el.child(div().text_size(13).text_color(t.muted).child('Select a project to configure its fields.')))
+      .when(Boolean(bound), el => el
+        .child(div().text_size(13).text_color(t.muted).child(`${bound.name || bound.gid} · Changes save automatically`))
+        .child(h_flex().gap(24).border_b(1).border_color(t.border).children(Object.entries(labels).map(([value, label]) =>
+          asanaButton(`source-fields-${value}`, t, { variant: 'ghost' }).h(36).px(0).rounded(0)
+            .border_b(2).border_color(surface === value ? t.accent : t.background)
+            .text_color(surface === value ? t.foreground : t.muted)
+            .on_click((_event, cx) => { this.cancelFieldDrag(cx); this.fieldSurface = value; cx.notify(); }).child(label))))
+        .child(div().text_size(12).text_color(t.muted).child('Drag handles to reorder fields. Task titles always stay visible.'))
+        .when(Boolean(schema?.loading), el => el.child(div().text_size(13).text_color(t.muted).child('Loading project fields…')))
+        .when(Boolean(schema?.error), el => el.child(h_flex().gap(12).items_center()
+          .child(div().flex_1().text_size(13).text_color(t.destructive).child(schema.error))
+          .child(asanaButton('source-fields-retry', t, { variant: 'outline' })
+            .on_click((_event, cx) => this.syncFields(cx, true)).child('Retry'))))
+        .child(v_flex().id('asana-field-rows').on_hover((hovered, cx) => { if (!hovered) this.cancelFieldDrag(cx); })
+          .on_key_down((event, cx) => { if (event.key === 'escape' && this.fieldDrag) { this.cancelFieldDrag(cx); cx.stop_propagation(); } })
+          .children(fields.map(field => h_flex().id(`source-field-${surface}-${field.id}`)
+          .min_h(44).gap(12).items_center().border_b(1).border_color(t.border)
+          .opacity(this.fieldDrag?.id === field.id ? 0.5 : 1)
+          .bg(this.fieldDrag?.target === field.id && this.fieldDrag?.id !== field.id ? t.selected : t.background)
+          .on_mouse_move((_event, cx) => this.hoverField(surface, field.id, cx))
+          .on_mouse_up('left', (_event, cx) => { if (this.fieldDrag) { this.dropField(surface, field.id, cx); cx.stop_propagation(); } })
+          .child(asanaButton(`source-field-drag-${surface}-${field.id}`, t, { variant: 'ghost', size: 'icon' }).size(28).cursor_grab()
+            .accessibility_label(`Reorder ${field.name}. Drag or use Alt + Up or Down.`)
+            .on_mouse_down('left', (_event, cx) => { cx.stop_propagation(); this.startFieldDrag(surface, field.id, cx); })
+            .on_key_down((event, cx) => this.fieldDragKey(event, surface, field.id, cx)).child(glyph('grip-vertical')))
+          .child(Checkbox(`source-field-visible-${surface}-${field.id}`, field.visible, t).flex_1()
+            .accessibility_label(`Show ${field.name} in ${labels[surface]}`)
+            .on_change((_checked, cx) => this.changeField(surface, field.id, 0, cx))
+            .child(div().text_size(13).child(field.name)))
+          .when(field.id.startsWith('custom:'), el => el.child(div().text_size(12).text_color(t.muted).child('Custom field')))
+          )))
+        .child(div().text_size(12).text_color(t.muted).child('Imports keep all loaded fields, including hidden fields.')));
+  }
+
   connect(t, close) {
     const back = cx => { this.settingsOpen = false; this.tokenInput.set_value(''); this.error = null; cx.notify(); };
-    return v_flex().flex_1().max_w(560).p(32).gap(16)
+    return v_flex().flex_1().min_h(0).overflow_y_scrollbar().max_w(800).p(32).gap(16)
       .when(Boolean(this.token), el => el.child(h_flex().child(asanaButton('asana-settings-back', t, { variant: 'ghost' }).gap(6).disabled(this.tokenBusy)
         .on_click((_event, cx) => back(cx)).child(glyph('chevron-left', 14)).child('Back to tasks'))))
       .child(div().text_size(24).font_semibold().child(`${this.source.name} settings`))
@@ -241,7 +286,8 @@ export default class AsanaPanel extends TaskSourceController {
         .child(asanaButton('asana-cancel-token', t, { variant: 'outline' }).disabled(this.tokenBusy)
           .on_click((_event, cx) => this.token ? back(cx) : close()).child('Cancel'))
         .when(Boolean(this.token), el => el.child(asanaButton('asana-clear-token', t, { variant: 'outline' }).text_color(t.destructive)
-          .disabled(this.tokenBusy).on_click((_event, cx) => this.clearToken(cx)).child('Clear saved token'))));
+          .disabled(this.tokenBusy).on_click((_event, cx) => this.clearToken(cx)).child('Clear saved token'))))
+      .child(this.fieldSettings(t));
   }
 
   // Asana's task detail pane, with properties followed by description and activity.
@@ -270,9 +316,8 @@ export default class AsanaPanel extends TaskSourceController {
         .when(Boolean(task), el => el
           .child(div().text_size(24).font_semibold().line_height('32px').child(task.name))
           .child(v_flex().gap(2)
-            .child(property('Status', [this.status(task.section, t), div().child(task.section || 'No section')]))
-            .child(property('Assignee', [this.avatar(task, t), div().text_color(task.assignee ? t.foreground : t.muted).child(task.assignee || 'Unassigned')]))
-            .child(property('Due date', task.due ? this.due(task, t).text_size(13) : div().text_color(t.muted).child('No due date'))))
+            .children(this.displayFields('detail').map(field => property(field.name,
+              div().text_size(13).child(this.fieldValue(task, field))))))
           .child(div().text_size(12).text_color(t.muted).child('Description'))
           .child(task.notes.trim() ? TextView.markdown(`asana-notes-${task.gid}`, task.notes).selectable(true).scrollable(false).w_full()
             : div().text_size(13).text_color(t.muted).child('No description.'))

@@ -25,6 +25,7 @@ export default class TaskComposer {
     const draft = this.task || shared('devkits.task-drafts')?.[this.draftKey] || (source ? {
       name: source.name, notes: source.notes || '',
       [sourceKey]: { gid: source.gid, name: source.name, url: source.url, parent: source.parent, comments: source.comments || [],
+        ...(source.fields ? { fields: source.fields } : {}), ...(source.customFields ? { customFields: source.customFields } : {}),
         ...(sourceKey === 'mantisbt' ? { server: source.server } : {}) },
     } : {});
     this.asana = draft.asana || null;

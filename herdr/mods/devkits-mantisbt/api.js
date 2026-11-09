@@ -2,6 +2,7 @@
 const authSchemes = new Map();
 const configurations = new Map();
 const projectLists = new Map();
+const fieldDefinitions = new Map();
 const pageSize = 20;
 const id = value => encodeURIComponent(String(value));
 
@@ -95,6 +96,36 @@ async function resolvedThreshold(connection, project, request) {
 
 const relationships = (issue, type) => (issue.relationships || []).filter(relation => relation.type?.name === type);
 const issueUrl = (connection, issue) => `${normalizeUrl(connection.url)}/view.php?id=${id(issue)}`;
+const customField = entry => ({ gid: String(entry.field?.id ?? entry.id), name: entry.field?.name || entry.name || 'Custom field',
+  type: String(entry.type?.name || entry.type || 'text'), value: entry.value ?? null,
+  displayValue: Array.isArray(entry.value) ? entry.value.join(', ') : String(entry.value ?? ''),
+});
+export async function projectFields(connection, project, request = fetch) {
+  const body = await mantisRequest(connection, `/projects/${id(project)}`, request);
+  const record = body.projects?.find(item => String(item.id) === String(project)) || body.project;
+  if (!record) throw new Error('The server did not return this MantisBT project.');
+  return (record.custom_fields || []).map(customField);
+}
+
+async function typedCustomFields(issue, connection, request) {
+  const values = (issue.custom_fields || []).map(customField);
+  if (!values.length) return values;
+  const key = JSON.stringify([normalizeUrl(connection.url), connection.token, String(issue.project?.id)]);
+  if (!fieldDefinitions.has(key)) fieldDefinitions.set(key, projectFields(connection, issue.project.id, request)
+    .catch(error => { fieldDefinitions.delete(key); throw error; }));
+  let definitions;
+  try { definitions = await fieldDefinitions.get(key); } catch { return values; }
+  return values.map(field => {
+    const definition = definitions.find(item => item.gid === field.gid);
+    const type = definition?.type || field.type;
+    let displayValue = field.displayValue;
+    if (type === 'date' && /^\d+$/.test(displayValue)) {
+      const date = new Date(Number(displayValue) * 1000);
+      if (Number.isFinite(date.getTime())) displayValue = [date.getFullYear(), String(date.getMonth() + 1).padStart(2, '0'), String(date.getDate()).padStart(2, '0')].join('-');
+    }
+    return { ...field, type, displayValue };
+  });
+}
 const normalize = (issue, connection, threshold) => {
   const parent = relationships(issue, 'child-of')[0]?.issue;
   return {
@@ -113,6 +144,7 @@ const normalize = (issue, connection, threshold) => {
     projectName: issue.project?.name || '', createdAt: issue.created_at || '', updatedAt: issue.updated_at || '',
     noteCount: issue.notes?.length || 0, attachmentCount: issue.attachments?.length || 0,
     tags: (issue.tags || []).map(tag => tag.name).filter(Boolean),
+    customFields: (issue.custom_fields || []).map(customField),
     subtasks: relationships(issue, 'parent-of').length,
     completed: Number(issue.status?.id) >= threshold,
     parent: parent ? { gid: String(parent.id), name: parent.summary || `Issue #${parent.id}`, url: issueUrl(connection, parent.id) } : null,
@@ -126,8 +158,9 @@ async function issuesPage(connection, project, page, filter, request) {
     resolvedThreshold(connection, project, request),
   ]);
   if (!Array.isArray(body.issues)) throw new Error('The server did not return MantisBT issues.');
-  return { tasks: body.issues.filter(issue => String(issue.project?.id) === String(project))
-    .map(issue => normalize(issue, connection, threshold)).filter(task => !task.completed).map(listTask),
+  const tasks = await Promise.all(body.issues.filter(issue => String(issue.project?.id) === String(project)).map(async issue =>
+    ({ ...normalize(issue, connection, threshold), customFields: await typedCustomFields(issue, connection, request) })));
+  return { tasks: tasks.filter(task => !task.completed).map(listTask),
   next: body.issues.length === pageSize ? page + 1 : null };
 }
 
@@ -163,7 +196,7 @@ export async function taskDetails(connection, gid, _project, request = fetch) {
   const threshold = await resolvedThreshold(connection, issue.project.id, request);
   const notes = [issue.description, issue.steps_to_reproduce && `Steps to reproduce:\n${issue.steps_to_reproduce}`,
     issue.additional_information && `Additional information:\n${issue.additional_information}`].filter(Boolean).join('\n\n');
-  return { ...normalize(issue, connection, threshold), notes, projects: [String(issue.project.id)], comments: comments(issue) };
+  return { ...normalize(issue, connection, threshold), customFields: await typedCustomFields(issue, connection, request), notes, projects: [String(issue.project.id)], comments: comments(issue) };
 }
 
 export async function taskComments(connection, gid, request = fetch) {

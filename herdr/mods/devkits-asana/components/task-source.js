@@ -67,6 +67,102 @@ export class TaskSourceController {
     return this.source.server && bound?.server !== this.server ? null : bound;
   }
 
+  fieldScope() { return JSON.stringify([this.source.key, this.source.server ? this.server : '', this.binding()?.gid || '']); }
+  fieldCatalog() {
+    const fields = [...(this.source.fields || [])], seen = new Set();
+    const schema = this.fieldSchema?.scope === this.fieldScope() ? this.fieldSchema.fields : [];
+    const tasks = [...(this.mine || []), ...(this.all?.tasks || []), this.detail].filter(Boolean);
+    for (const field of [...schema, ...tasks.flatMap(task => task.customFields || [])]) {
+      if (!field.gid || seen.has(field.gid)) continue;
+      seen.add(field.gid);
+      fields.push({ id: `custom:${field.gid}`, name: field.name, type: field.type, width: 140, detail: true });
+    }
+    return fields;
+  }
+  fieldOptions(surface) {
+    const fields = this.fieldCatalog(), saved = this.readState('field-display')?.[this.fieldScope()]?.[surface] || [];
+    const order = [...saved.map(item => item.id), ...fields.map(field => field.id)];
+    return [...new Set(order)].flatMap(id => {
+      const field = fields.find(field => field.id === id);
+      return field ? [{ ...field, visible: saved.find(item => item.id === id)?.visible ?? Boolean(field[surface]) }] : [];
+    });
+  }
+  displayFields(surface) { return this.fieldOptions(surface).filter(field => field.visible); }
+  fieldValue(task, field) {
+    if (field.id.startsWith('custom:')) return task.customFields?.find(item => `custom:${item.gid}` === field.id)?.displayValue || '—';
+    const value = task[field.id];
+    return Array.isArray(value) ? value.join(', ') || '—' : value == null || value === '' ? '—' : String(value);
+  }
+  changeField(surface, id, direction, cx) {
+    const options = this.fieldOptions(surface).map(field => ({ id: field.id, visible: field.visible }));
+    const index = options.findIndex(field => field.id === id);
+    if (index < 0) return;
+    if (!direction) options[index].visible = !options[index].visible;
+    else {
+      const target = index + direction;
+      if (target < 0 || target >= options.length) return;
+      [options[index], options[target]] = [options[target], options[index]];
+    }
+    this.saveFieldOptions(surface, options, cx);
+  }
+  saveFieldOptions(surface, options, cx) {
+    const saved = this.readState('field-display') || {}, scope = this.fieldScope(), previous = saved[scope] || {};
+    // Retain temporarily unavailable fields and other projects' choices.
+    const missing = (previous[surface] || []).filter(item => !options.some(field => field.id === item.id));
+    this.writeState('field-display', { ...saved, [scope]: { ...previous, [surface]: [...options, ...missing] } });
+    cx.notify();
+  }
+  startFieldDrag(surface, id, cx) {
+    this.fieldDrag = { scope: this.fieldScope(), surface, id, target: id };
+    cx.notify();
+  }
+  cancelFieldDrag(cx) {
+    if (!this.fieldDrag) return;
+    this.fieldDrag = null; cx.notify();
+  }
+  hoverField(surface, id, cx) {
+    const drag = this.fieldDrag;
+    if (!drag) return;
+    if (drag.scope !== this.fieldScope() || drag.surface !== surface) { this.cancelFieldDrag(cx); return; }
+    if (drag.target !== id) { drag.target = id; cx.notify(); }
+  }
+  dropField(surface, target, cx) {
+    const drag = this.fieldDrag;
+    this.cancelFieldDrag(cx);
+    if (!drag || drag.scope !== this.fieldScope() || drag.surface !== surface || drag.id === target) return;
+    const options = this.fieldOptions(surface).map(({ id, visible }) => ({ id, visible }));
+    const from = options.findIndex(field => field.id === drag.id), to = options.findIndex(field => field.id === target);
+    if (from < 0 || to < 0) return;
+    options.splice(to, 0, options.splice(from, 1)[0]);
+    this.saveFieldOptions(surface, options, cx);
+  }
+  fieldDragKey(event, surface, id, cx) {
+    if (event.key === 'escape' && this.fieldDrag) { this.cancelFieldDrag(cx); cx.stop_propagation(); }
+    else if (event.modifiers?.alt && ['up', 'down'].includes(event.key)) {
+      this.cancelFieldDrag(cx);
+      this.changeField(surface, id, event.key === 'up' ? -1 : 1, cx); cx.stop_propagation();
+    }
+  }
+  syncFields(cx, retry = false) {
+    const scope = this.fieldScope(), credentials = this.credentials(), gid = this.binding()?.gid;
+    if (this.needsToken !== false || !this.binding()?.gid || !this.source.projectFields || this.disposed) return;
+    if (!retry && this.fieldSchema?.scope === scope && this.fieldSchema.credentials === JSON.stringify(credentials)) return;
+    const state = { scope, credentials: JSON.stringify(credentials), fields: [], loading: true, error: null };
+    this.fieldSchema = state;
+    cx.spawn(async cx => {
+      try {
+        const fields = await this.source.projectFields(credentials, gid);
+        if (this.fieldSchema !== state || this.fieldScope() !== scope || this.disposed) return;
+        state.fields = fields;
+      } catch (error) {
+        if (this.fieldSchema !== state || this.fieldScope() !== scope || this.disposed) return;
+        state.error = error.message;
+      }
+      state.loading = false; cx.notify();
+    });
+  }
+  dispose() { this.disposed = true; this.fieldSchema = null; this.detailRequest = null; this.page++; }
+
   init(cx) {
     this.handle = cx.focus_handle();
     this.tab = this.readState('tab') === 'all' ? 'all' : 'mine';
@@ -129,6 +225,7 @@ export class TaskSourceController {
   sync(cx) {
     const bound = this.binding(), gid = bound?.gid || null;
     if (this.needsToken !== false) return;
+    if (this.settingsOpen) this.syncFields(cx);
     if (gid !== this.loadedGid) {
       const folder = this.folder;
       this.reset(); this.loadedGid = gid;

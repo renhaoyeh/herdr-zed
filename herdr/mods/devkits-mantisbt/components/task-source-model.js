@@ -10,12 +10,22 @@ export function sourceTaskSnapshot(source, task, server = '') {
   if (!source?.key || task?.gid == null || String(task.gid) === '') throw new Error('Select a source task to import.');
   const pick = (record, keys) => Object.fromEntries(keys.filter(key => record[key] != null)
     .map(key => [key, String(record[key])]));
+  const fieldValue = value => value == null || ['string', 'number', 'boolean'].includes(typeof value) ? value
+    : Array.isArray(value) ? value.map(fieldValue) : pick(value, ['gid', 'name', 'color', 'start', 'end', 'date', 'date_time']);
+  const fields = Object.fromEntries(['section', 'assignee', 'assigneeGid', 'due', 'subtasks', 'completed', 'priority', 'severity',
+    'category', 'resolution', 'reproducibility', 'reporter', 'viewStatus', 'projectName', 'createdAt', 'updatedAt', 'noteCount', 'attachmentCount', 'tags',
+    'statusName', 'statusId', 'priorityId', 'assigneeLogin']
+    .filter(key => task[key] != null).map(key => [key, fieldValue(task[key])]));
   return {
     source: source.key, gid: String(task.gid), name: String(task.name || 'Untitled task'),
     notes: String(task.notes || ''), url: String(task.url || ''),
     parent: task.parent && typeof task.parent === 'object' ? pick(task.parent, ['gid', 'name', 'url']) : null,
     comments: (Array.isArray(task.comments) ? task.comments : []).map(comment =>
       pick(comment, ['gid', 'author', 'authorGid', 'authorLogin', 'text', 'at'])),
+    ...(Object.keys(fields).length ? { fields } : {}),
+    ...(Array.isArray(task.customFields) ? { customFields: task.customFields.map(field => ({
+      ...pick(field, ['gid', 'name', 'type', 'displayValue']), value: fieldValue(field.value),
+    })) } : {}),
     ...(source.server ? { server: source.normalizeUrl(task.server || server) } : {}),
   };
 }

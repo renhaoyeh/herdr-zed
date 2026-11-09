@@ -1,6 +1,15 @@
 
 const api = 'https://app.asana.com/api/1.0';
-const taskFields = 'name,due_on,assignee.name,assignee.gid,num_subtasks,permalink_url,memberships.project.gid,memberships.section.name';
+const taskFields = 'name,due_on,assignee.name,assignee.gid,num_subtasks,permalink_url,memberships.project.gid,memberships.section.name,custom_fields.gid,custom_fields.name,custom_fields.resource_subtype,custom_fields.display_value,custom_fields.number_value,custom_fields.text_value,custom_fields.enum_value,custom_fields.multi_enum_values,custom_fields.date_value,custom_fields.people_value.name';
+const customField = field => ({ gid: String(field.gid), name: field.name || 'Custom field', type: field.resource_subtype || field.type || 'text',
+  value: field.number_value ?? field.text_value ?? field.enum_value ?? field.multi_enum_values ?? field.date_value ?? field.people_value ?? null,
+  displayValue: field.display_value ?? field.enum_value?.name ?? field.multi_enum_values?.map(value => value.name).join(', ') ?? field.text_value ?? (field.number_value == null ? '' : String(field.number_value)),
+});
+
+export async function projectFields(token, project, request = fetch) {
+  const body = await asanaRequest(token, `/projects/${encodeURIComponent(project)}?opt_fields=custom_field_settings.custom_field.gid,custom_field_settings.custom_field.name,custom_field_settings.custom_field.resource_subtype`, request);
+  return (body.data?.custom_field_settings || []).map(setting => customField(setting.custom_field));
+}
 
 async function asanaRequest(token, path, request = fetch) {
   const response = await request(`${api}${path}`, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } });
@@ -26,6 +35,7 @@ const normalize = (task, project) => ({
   gid: task.gid, name: task.name || 'Untitled task', url: task.permalink_url || '', due: task.due_on || null,
   assignee: task.assignee?.name || null, assigneeGid: task.assignee?.gid || null, subtasks: task.num_subtasks || 0,
   section: task.memberships?.find(item => item.project?.gid === project)?.section?.name || null,
+  customFields: (task.custom_fields || []).map(customField),
 });
 
 // Asana stays the source of truth: Devkits only reads it and never writes back.

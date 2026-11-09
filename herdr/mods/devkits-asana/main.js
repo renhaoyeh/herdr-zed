@@ -14,6 +14,6 @@ export default class SourceMod extends View {
       if (binding !== this.bindingSignature) { this.bindingSignature = binding; cx.notify(); }
     });
   }
-  close() { if (!this.isPicker) publishSourceEvent(this.target.channel, { type: 'close' }); }
+  close() { if (!this.isPicker) { this.browser.dispose(); publishSourceEvent(this.target.channel, { type: 'close' }); } }
   render(cx) { return this.isPicker ? this.browser.render() : this.browser.render(this.target.context || null, cx); }
 }

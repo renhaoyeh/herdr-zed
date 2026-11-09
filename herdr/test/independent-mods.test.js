@@ -37,6 +37,7 @@ for (const provider of ['asana', 'mantisbt']) test(`${provider} runs across modu
   const binding = { gid: 'p1', name: 'Tracker', ...(provider === 'mantisbt' ? { server: 'https://tracker.test' } : {}) };
   browser.setBinding('/original', binding);
   const task = { gid: 'same-id', name: 'Source task', notes: 'Original description', url: 'https://tracker.test/task/same-id',
+    priority: 'High', customFields: [{ gid: 'effort', name: 'Estimate', type: 'number', value: 0, displayValue: '0', token: 'private' }],
     parent: { gid: 'parent', name: 'Parent', url: 'https://tracker.test/parent', token: 'private' },
     comments: [{ author: 'Amy', text: 'Keep this context', token: 'private' }], token: 'private' };
   browser.detail = task; browser.server = 'https://tracker.test/';
@@ -59,6 +60,8 @@ for (const provider of ['asana', 'mantisbt']) test(`${provider} runs across modu
   assert.equal(tasks.length, 1); assert.equal(tasks[0].source, 'local'); assert.equal(tasks[0].status, 'todo');
   assert.equal(tasks[0][provider].gid, 'same-id'); assert.equal(tasks[0][provider].parent.name, 'Parent');
   assert.equal(tasks[0][provider].comments[0].text, 'Keep this context'); assert.equal(tasks[0].notes, 'Edited instructions');
+  assert.equal(tasks[0][provider].fields.priority, 'High');
+  assert.deepEqual(tasks[0][provider].customFields, [{ gid: 'effort', name: 'Estimate', type: 'number', value: 0, displayValue: '0' }]);
   if (provider === 'mantisbt') assert.equal(tasks[0].mantisbt.server, 'https://tracker.test');
 });
 

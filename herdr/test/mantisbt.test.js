@@ -27,7 +27,7 @@ async function load(options = {}) {
     fetch: () => assert.fail('Unexpected network request'),
     readTextFile: async path => files[path] ?? null,
     writeTextFile: async (path, text, expected) => { writes.push({ path, expected }); files[path] = text; }, ...options };
-  Object.assign(host, await evaluateNative('../mods/devkits-mantisbt/api.js', host, 'normalizeUrl, filterProjects, searchProjects, projectTasksPage, myProjectTasks, taskDetails, taskComments, openSubtasks, validateConnection'));
+  Object.assign(host, await evaluateNative('../mods/devkits-mantisbt/api.js', host, 'normalizeUrl, filterProjects, searchProjects, projectTasksPage, myProjectTasks, taskDetails, taskComments, openSubtasks, validateConnection, projectFields'));
   Object.assign(host, await evaluateNative('../mods/devkits-mantisbt/connection.js', host, 'readMantisConnection, saveMantisConnection, readMantisProjects, saveMantisProjects'));
   Object.assign(host, await evaluateNative('../mods/devkits-mantisbt/source.js', host, 'mantisSource'));
   Object.assign(host, await evaluateNative('../mods/devkits/components/task-source-model.js', host, 'filterTasks, sourceTaskSnapshot'));
@@ -41,6 +41,27 @@ const harness = () => {
   const pending = [], cx = { notify() {}, focus_handle: () => ({ focus() {} }), spawn: work => { pending.push(work(cx)); } };
   return { cx, settle: async () => { while (pending.length) await pending.shift(); } };
 };
+
+test('MantisBT applies custom field choices to its table and details independently', async () => {
+  const texts = [];
+  const node = () => new Proxy({}, { get: (_target, key) => key === 'when'
+    ? (condition, render) => condition ? render(node()) : node()
+    : (...args) => { if (key === 'child' && typeof args[0] === 'string') texts.push(args[0]); return node(); } });
+  const { MantisPanel, taskSourceOptions } = await load({ div: node, h_flex: node, v_flex: node });
+  const panel = new MantisPanel(taskSourceOptions('mantisbt'));
+  const { cx } = harness(); panel.init(cx);
+  panel.server = connection.url;
+  const task = { gid: '1', name: 'Issue', notes: '', comments: [], customFields: [
+    { gid: 'f', name: 'RD Note', type: 'textarea', value: 'Investigate', displayValue: 'Investigate' },
+  ] };
+  panel.all = { tasks: [task], loaded: true, next: null }; panel.detail = task;
+  panel.issueList(cx); assert.ok(!texts.includes('RD Note'));
+  panel.changeField('list', 'custom:f', 0, cx); texts.length = 0; panel.issueList(cx);
+  assert.ok(texts.includes('RD Note')); assert.ok(texts.includes('Investigate'));
+  texts.length = 0; panel.detailPage(() => {}); assert.ok(texts.includes('Investigate'));
+  panel.changeField('detail', 'custom:f', 0, cx); texts.length = 0; panel.detailPage(() => {});
+  assert.ok(!texts.includes('Investigate')); assert.equal(panel.snapshot().customFields[0].value, 'Investigate');
+});
 
 test('server URLs preserve installation paths and accept an API URL without credentials, query or fragments', async () => {
   const { normalizeUrl } = await load();
@@ -380,4 +401,39 @@ test('MantisBT still validates the URL before saving credentials', async () => {
   panel.saveToken(cx); await settle();
   assert.match(panel.error, /server URL/); assert.equal(writes.length, 0);
   assert.equal(panel.tokenInput.value(), 'secret');
+});
+
+
+test('MantisBT custom fields remain individual full-width rows after Description, including short values', async () => {
+  const ids = new Map();
+  const node = () => {
+    const data = { children: [] };
+    const proxy = new Proxy(data, { get: (target, key) => {
+      if (key === 'childrenData') return target.children;
+      if (key === 'when') return (condition, render) => { if (condition) render(proxy); return proxy; };
+      return (...args) => {
+        if (key === 'id') ids.set(args[0], proxy);
+        if (key === 'child') target.children.push(args[0]);
+        if (key === 'children') target.children.push(...args[0]);
+        return proxy;
+      };
+    } });
+    return proxy;
+  };
+  const { MantisPanel, taskSourceOptions } = await load({ div: node, h_flex: node, v_flex: node });
+  const panel = new MantisPanel(taskSourceOptions('mantisbt'));
+  panel.init(harness().cx); panel.server = connection.url;
+  panel.detail = { gid: '1', name: 'Issue', notes: 'Description body', comments: [], customFields: [
+    { gid: 'a', name: 'For PM', displayValue: '='.repeat(152) },
+    { gid: 'b', name: 'Priority', displayValue: 'Normal' },
+  ] };
+  panel.detailPage(() => {});
+  const detailRows = ids.get('mantis-detail').childrenData;
+  const customA = ids.get('mantis-custom-detail-custom:a'), customB = ids.get('mantis-custom-detail-custom:b');
+  assert.ok(detailRows.includes(customA)); assert.ok(detailRows.includes(customB));
+  assert.equal(detailRows.indexOf(customA) + 1, detailRows.indexOf(customB));
+  assert.equal(customA.childrenData.length, 2); assert.equal(customB.childrenData.length, 2);
+  const text = item => typeof item === 'string' ? item : (item?.childrenData || []).map(text).join(' ');
+  assert.ok(text(detailRows[detailRows.indexOf(customA) - 1]).includes('Description body'));
+  assert.equal(text(customB), 'Priority Normal');
 });
