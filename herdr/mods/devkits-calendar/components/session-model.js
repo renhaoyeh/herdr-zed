@@ -213,8 +213,10 @@ export function moveOption(keys, key, target) {
   return next;
 }
 
-export function tasksMcpServer(directory) {
-  return { command: 'node', args: [`${directory.replace(/\\/g, '/')}/mods/devkits-tasks/mcp-server.cjs`], env: { HERDR_APP_HOME: directory } };
+export function tasksMcpServer(directory, kind = 'codex') {
+  return { command: 'node', args: [`${directory.replace(/\\/g, '/')}/mods/devkits-tasks/mcp-server.cjs`], env: { HERDR_APP_HOME: directory },
+    // Codex filters stdio server environments; forward each launch's live identity.
+    ...(kind === 'codex' ? { env_vars: ['HC_TERMINAL_ID'] } : {}) };
 }
 
 export function sessionArgv(agent, argv, { model, effort, serviceTier, tasksMcpHome } = {}) {
@@ -228,9 +230,9 @@ export function sessionArgv(agent, argv, { model, effort, serviceTier, tasksMcpH
     : [...(model ? ['-m', model] : []), ...(effort ? ['-c', `model_reasoning_effort="${effort}"`] : []),
       ...(fast ? ['-c', 'service_tier="fast"'] : [])];
   if (tasksMcpHome) {
-    const server = tasksMcpServer(tasksMcpHome);
+    const server = tasksMcpServer(tasksMcpHome, kind);
     if (kind === 'claude') flags.push('--mcp-config', JSON.stringify({ mcpServers: { herdr_tasks: server } }));
-    else flags.push('-c', `mcp_servers.herdr_tasks={command="node",args=${JSON.stringify(server.args)},env={HERDR_APP_HOME=${JSON.stringify(tasksMcpHome)}}}`);
+    else flags.push('-c', `mcp_servers.herdr_tasks={command="node",args=${JSON.stringify(server.args)},env={HERDR_APP_HOME=${JSON.stringify(tasksMcpHome)}},env_vars=${JSON.stringify(server.env_vars)}}`);
   }
   const rest = [];
   const overridesConfig = value => (model && /^model\s*=/.test(value)) || (effort && /^model_reasoning_effort\s*=/.test(value)) ||

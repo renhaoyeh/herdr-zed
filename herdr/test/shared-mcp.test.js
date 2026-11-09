@@ -37,6 +37,7 @@ test('launch preparation synchronizes account defaults before returning argv and
   await sessionMcpArgv({ key: 'review', profileKey: 'devkits-codex-work' }, ['env', 'CODEX_HOME=/account', 'codex']);
   assert.equal(calls[0][1][1], '/account');
   assert.deepEqual(JSON.parse(calls[0][1][2]), { ...config.servers, herdr_tasks: tasksMcpServer('/herdr') });
+  assert.deepEqual(JSON.parse(calls[0][1][2]).herdr_tasks.env_vars, ['HC_TERMINAL_ID']);
   assert.deepEqual(reads, ['/herdr/data/devkits/codex-mcp.json']);
   await sessionMcpArgv({ key: 'claude' }, ['claude']);
   assert.equal(reads.length, 1);

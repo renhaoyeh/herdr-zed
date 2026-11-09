@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { PassThrough } from 'node:stream';
 import { createRequire } from 'node:module';
 import { tasksMcpCall } from '../mods/devkits-tasks/mcp-api.js';
-import { sessionArgv } from '../mods/devkits/components/session-model.js';
+import { sessionArgv, tasksMcpServer } from '../mods/devkits/components/session-model.js';
 import { evaluateNative } from './source-harness.js';
 const { start } = createRequire(import.meta.url)('../mods/devkits-tasks/mcp-server.cjs');
 
@@ -100,8 +100,12 @@ test('local launch configuration preserves account environment and existing flag
   const argv = sessionArgv(codex, original, { tasksMcpHome: home });
   assert.deepEqual(argv.slice(0, 3), original.slice(0, 3)); assert.deepEqual(argv.slice(-2), ['--', 'prompt']);
   assert.match(argv[4], /mcp_servers.herdr_tasks/); assert.match(argv[4], /C:\/Users\/A B\/herdr\/mods/);
+  assert.match(argv[4], /env_vars=\["HC_TERMINAL_ID"\]/);
+  assert.deepEqual(tasksMcpServer(home).env_vars, ['HC_TERMINAL_ID']);
+  assert.equal(Object.hasOwn(tasksMcpServer(home).env, 'HC_TERMINAL_ID'), false);
   const flags = sessionArgv(claude, ['claude', '--mcp-config', 'existing.json'], { tasksMcpHome: home });
   assert.equal(JSON.parse(flags[2]).mcpServers.herdr_tasks.env.HERDR_APP_HOME, home);
+  assert.equal(Object.hasOwn(JSON.parse(flags[2]).mcpServers.herdr_tasks, 'env_vars'), false);
   assert.deepEqual(flags.slice(3), ['--mcp-config', 'existing.json']);
   assert.deepEqual(sessionArgv(codex, ['codex']), ['codex']);
 });
