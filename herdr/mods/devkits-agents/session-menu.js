@@ -149,7 +149,7 @@ export const sessionMenu = {
         if (this.accountDetailWidth === size.width) return;
         this.accountDetailWidth = size.width; cx.notify();
       })
-      .child(h_flex().flex_none().gap(10).items_center()
+      .child(h_flex().id(`account-header-${agent.key}`).h(28).flex_none().gap(10).items_center()
         .child(AgentIcon(agent, t).flex_none())
         // One centered line: name · address · plan, the details muted.
         .child(h_flex().flex_1().min_w(0).gap(6).items_center()
