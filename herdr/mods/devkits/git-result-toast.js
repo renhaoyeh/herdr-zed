@@ -4,7 +4,7 @@ import { shared, setShared, settings } from 'herdr';
 import { Button } from './components/button.js';
 
 const GIT_TOAST = 'devkits.git-result-toast';
-export const gitToastProject = context => JSON.stringify([context?.machine || '', context?.folder || context?.id || '']);
+export const gitToastProject = context => JSON.stringify([context?.machine || '', context?.workspaceFolder || context?.folder || context?.id || '']);
 
 export function clearGitToast(context) {
   if (!context || shared(GIT_TOAST)?.project === gitToastProject(context)) setShared(GIT_TOAST, null);

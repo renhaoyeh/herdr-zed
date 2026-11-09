@@ -8,7 +8,7 @@ import { execFile } from 'node:child_process';
 
 async function load(host = {}) {
   const memory = {};
-  host = { shared: key => memory[key], setShared: (key, value) => { memory[key] = value; }, TextEncoder: undefined, TextDecoder: undefined,
+  host = { SelectState: class { constructor() { this.open = false; } }, shared: key => memory[key], setShared: (key, value) => { memory[key] = value; }, TextEncoder: undefined, TextDecoder: undefined,
     v_virtual_list: (_id, count, _sizes, _key, render) => { render({ start: 0, end: count }); return host.div(); },
     Scrollbar: { vertical: () => host.div() }, ...host };
   const source = await readFile(new URL('../mods/devkits/diff.js', import.meta.url), 'utf8');
@@ -21,10 +21,80 @@ async function load(host = {}) {
   const utf8 = await readFile(new URL('../mods/devkits/utf8.js', import.meta.url), 'utf8');
   const toast = await readFile(new URL('../mods/devkits/git-result-toast.js', import.meta.url), 'utf8');
   return new Function(...Object.keys(host), (utf8 + '\n' + command + '\n' + shell + '\n' + menu + '\n' + history + '\n' + auth + '\n' + sidePanel + '\n' + toast + '\n' + source).replace(/^import .*;\r?\n/gm, '')
-    .replace('export default class', 'class').replace(/^export /gm, '') + '\nreturn { DiffViewer, DropdownMenu, DropdownMenuState, showGitToast, clearGitToast, utf8ByteLength, parseDiff, parseDiffBatches, parseDiffAsync, parseDiffIndex, readDiff, readPushState, pushBranch, gitRemoteAction, affectsDiff, pairLines, changedRanges, changeSections, changeTree, wrapLine, isLockFile };')(...Object.values(host));
+    .replace('export default class', 'class').replace(/^export /gm, '') + '\nreturn { DiffViewer, readRepositories, DropdownMenu, DropdownMenuState, showGitToast, clearGitToast, utf8ByteLength, parseDiff, parseDiffBatches, parseDiffAsync, parseDiffIndex, readDiff, readPushState, pushBranch, gitRemoteAction, affectsDiff, pairLines, changedRanges, changeSections, changeTree, wrapLine, isLockFile };')(...Object.values(host));
 }
 const run = promisify(execFile);
 const indexFor = path => `${'a'.repeat(40)}\0/repo\0:100644 100644 abc def M\0${path}\0` + `1\t1\t${path}\0\0`;
+
+test('repository discovery reads immediate child repositories and linked worktrees without entering nested trees', async t => {
+  const folder = await mkdtemp(join(tmpdir(), "devkits repositories ' $(unused) "));
+  t.after(() => rm(folder, { recursive: true, force: true }));
+  const git = (...args) => run('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args]);
+  const alpha = join(folder, 'alpha');
+  await git('init', '-q', '-b', 'main', alpha);
+  await git('-C', alpha, 'commit', '--allow-empty', '-qm', 'initial');
+  await git('-C', alpha, 'worktree', 'add', '-qb', 'linked', join(folder, 'linked'));
+  await git('init', '-q', join(folder, '中文 repo'));
+  await git('init', '-q', join(folder, '.hidden'));
+  await git('init', '-q', join(folder, 'ordinary', 'nested'));
+  await git('init', '-q', '--bare', join(folder, 'bare.git'));
+  await mkdir(join(folder, 'broken', '.git'), { recursive: true });
+  const { readRepositories } = await load({ exec: async (command, args, options) => {
+    assert.equal(options.on, 'remote');
+    try { return { code: 0, ...await run(command, args) }; }
+    catch (error) { return { code: error.code, stdout: error.stdout, stderr: error.stderr }; }
+  } });
+  const names = await readRepositories(folder.replaceAll('\\', '/'), 'remote');
+  assert.deepEqual(new Set(names), new Set(['alpha', 'linked', '中文 repo', '.hidden']));
+  assert.deepEqual(await readRepositories(alpha.replaceAll('\\', '/'), 'remote'), ['.']);
+  await mkdir(join(alpha, 'src'));
+  assert.deepEqual(await readRepositories(join(alpha, 'src').replaceAll('\\', '/'), 'remote'), ['.']);
+  assert.deepEqual(await readRepositories(join(folder, 'ordinary', 'nested').replaceAll('\\', '/'), 'remote'), ['.']);
+  assert.deepEqual(await readRepositories(join(folder, 'broken').replaceAll('\\', '/'), 'remote'), []);
+});
+
+test('child repository selection scopes reads, remembers the choice and discards obsolete discovery', async () => {
+  const memory = {}, pending = [], reads = [], tasks = [];
+  const { DiffViewer } = await load({
+    shared: key => memory[key], setShared: (key, value) => { memory[key] = value; },
+    VirtualListScrollHandle: { new: () => ({}) },
+    exec: async (_command, args, options) => {
+      assert.ok(args.includes('devkits-repositories'));
+      assert.equal(options.on, 'remote');
+      return new Promise(resolve => pending.push(resolve));
+    },
+  });
+  const cx = { sleep: async () => {}, notify() {}, spawn(fn) { tasks.push(fn(cx)); } };
+  const drain = async () => { while (tasks.length) await Promise.all(tasks.splice(0)); };
+  const view = new DiffViewer(); view.init();
+  view.observe = () => {}; view.reload = () => reads.push(view.context.folder);
+  view.showChanges = () => { view.previewMode = false; };
+  let switched = 0; view.onRepositoryChange = () => switched++;
+  const project = { id: 'parent', folder: '/parent', machine: 'remote', branch: 'wrong-parent-branch' };
+  view.refresh(project, cx); await Promise.resolve();
+  pending.shift()({ code: 0, stdout: 'alpha\0beta\0' }); await drain();
+  assert.equal(view.context.folder, '/parent/alpha');
+  assert.equal(view.history.context.folder, '/parent/alpha');
+  assert.equal(view.nativeBranch, null);
+  view.selectRepository('beta', cx); await drain();
+  assert.equal(switched, 1);
+  assert.equal(view.project.folder, '/parent');
+  assert.equal(view.context.folder, '/parent/beta');
+  assert.deepEqual(reads, ['/parent/alpha', '/parent/beta']);
+  view.selectRepository('../elsewhere', cx); assert.equal(switched, 1);
+  view.refresh(project, cx); await Promise.resolve();
+  pending.shift()({ code: 0, stdout: 'alpha\0beta\0' }); await drain();
+  assert.equal(view.context.folder, '/parent/beta', 'Restores the saved repository');
+  view.refresh(project, cx); await Promise.resolve();
+  const obsolete = pending.shift();
+  view.refresh({ ...project, id: 'next', folder: '/next' }, cx); await Promise.resolve();
+  pending.shift()({ code: 0, stdout: 'current\0' });
+  obsolete({ code: 0, stdout: 'obsolete\0' }); await drain();
+  assert.equal(view.context.folder, '/next/current');
+  view.refresh(project, cx); await Promise.resolve();
+  pending.shift()({ code: 0, stdout: 'alpha\0' }); await drain();
+  assert.equal(view.context.folder, '/parent/alpha', 'A missing saved repository falls back to an available one');
+});
 
 test('lockfile preference filters working changes and history without discarding Git data', async () => {
   const memory = {};
@@ -912,7 +982,7 @@ test('reloads keep the shown diff and skip repainting until git diff output chan
 });
 
 test('project initialization yields before watchers, Git reads and History notifications', async () => {
-  const { DiffViewer } = await load({ VirtualListScrollHandle: { new: () => ({}) } });
+  const { DiffViewer } = await load({ VirtualListScrollHandle: { new: () => ({}) }, exec: async () => ({ code: 0, stdout: '.\0' }) });
   const tasks = [], waits = [], started = [];
   let rendering = true;
   const cx = {

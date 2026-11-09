@@ -5,6 +5,7 @@ import { execShell } from './shell.js';
 import { utf8ByteLength } from './utf8.js';
 import { Button } from './components/button.js';
 import { DropdownMenu, DropdownMenuState } from './components/dropdown-menu.js';
+import { Select, SelectState } from './components/select.js';
 import { TreeItem, TreeItemIcon, TreeItemLabel, GitStatusColor } from './components/tree.js';
 import { Empty, EmptyDescription } from './components/empty.js';
 import { CommitHistory, readCommitSummary } from './git-history.js';
@@ -435,6 +436,22 @@ const splitPath = path => {
 // Match dependency lockfiles by basename, including nested workspaces.
 export const isLockFile = path => /(?:\.lock|(?:^|-)lock\.(?:json|ya?ml)|^npm-shrinkwrap\.json|^bun\.lockb)$/i.test(path.split(/[\\/]/).at(-1));
 
+// A non-repository workspace can contain independent repositories. Inspect only
+// immediate children, including worktrees whose .git marker is a file.
+export async function readRepositories(folder, on) {
+  const result = await execShell(['-c', 'cd "$1" || exit 2; '
+    + 'if [ "$(git rev-parse --is-inside-work-tree 2>/dev/null)" = true ]; then printf ".\\0"; exit 0; fi; '
+    + 'for p in ./* ./.[!.]* ./..?*; do '
+    + '[ -d "$p" ] && { [ -d "$p/.git" ] || [ -f "$p/.git" ]; } || continue; '
+    + '[ "$(git -C "$p" rev-parse --is-inside-work-tree 2>/dev/null)" = true ] || continue; '
+    + 'printf "%s\\0" "${p#./}"; done', 'devkits-repositories', folder], { on });
+  if (result.code !== 0) throw new Error(result.stderr || 'Could not read repositories.');
+  return result.stdout.split('\0').filter(Boolean).sort((a, b) => a.localeCompare(b));
+}
+
+const repositoryProjectKey = project => JSON.stringify([project.machine || null, project.folder]);
+const repositoryFolder = (project, name) => name === '.' ? project.folder : `${project.folder.replace(/[/\\]+$/, '')}/${name}`;
+
 export default class DiffViewer {
   init(cx) {
     this.sidePanel = new SidePanelState(() => shared('devkits.side-panel-width') || 280, width => setShared('devkits.side-panel-width', width));
@@ -449,6 +466,8 @@ export default class DiffViewer {
     this.gitMenu = new DropdownMenuState(cx);
     this.optionsMenu = new DropdownMenuState(cx);
     this.fileViewMenu = new DropdownMenuState(cx);
+    this.repositoryMenu = new SelectState(cx);
+    this.repositories = [];
     this.panelTab = 'changes';
     this.history = new CommitHistory(cx, (text, cx, cancelled) => {
       this.rowCache = null; this.collapsed.clear(); this.selected = null;
@@ -479,6 +498,7 @@ export default class DiffViewer {
     this.watcher?.cancel(); this.poll?.cancel(); this.queued?.cancel();
     this.queued = null;
     this.context = null; this.previewMode = false;
+    this.project = null; this.repositories = []; this.repositoryMenu.open = false; this.discovering = false;
     this.previewCommit = null;
     this.expandedCommitMessage = null;
     this.history.reset(null);
@@ -488,10 +508,15 @@ export default class DiffViewer {
     this.request++;
   }
 
-  refresh(project, cx) {
+  refresh(project, cx, selection = null) {
     this.close();
+    this.project = project ? { ...project } : null;
+    this.repositories = selection?.repositories || [];
     this.context = project ? { ...project } : null;
-    this.nativeBranch = project?.branch || null;
+    if (selection) this.context.folder = repositoryFolder(project, selection.name);
+    if (project) this.context.workspaceFolder = project.folder;
+    this.discovering = Boolean(project?.folder && !selection);
+    this.nativeBranch = this.context?.folder === project?.folder ? project?.branch || null : null;
     this.history.reset(this.context);
     this.graph?.reset(this.context);
     this.files = []; this.collapsed.clear(); this.folders.clear(); this.rowCache = null; this.selected = null;
@@ -510,11 +535,40 @@ export default class DiffViewer {
       cx.spawn(async cx => {
         await cx.sleep(0);
         if (this.context !== context) return;
+        if (!selection) {
+          try {
+            const repositories = await readRepositories(project.folder, project.machine);
+            if (this.context !== context) return;
+            this.repositories = repositories;
+            const saved = shared('devkits.git-repository')?.[repositoryProjectKey(project)];
+            const name = repositories.includes(saved) ? saved : repositories[0];
+            if (name) context.folder = repositoryFolder(project, name);
+            this.nativeBranch = context.folder === project.folder ? project.branch || null : null;
+            this.history.reset(context); this.graph?.reset(context);
+          } catch (error) {
+            if (this.context !== context) return;
+            this.discovering = false;
+            this.error = String(error.message || error); this.loaded = true; cx.notify(); return;
+          }
+        }
+        this.discovering = false;
         this.observe(cx);
         this.reload(cx);
         if (this.panelTab === 'history') this.history.load(cx);
+        cx.notify();
       });
     }
+  }
+
+  selectRepository(name, cx) {
+    if (!this.project || !this.repositories.includes(name)) return;
+    if (repositoryFolder(this.project, name) === this.context?.folder) return;
+    const project = this.project, repositories = this.repositories;
+    setShared('devkits.git-repository', { ...(shared('devkits.git-repository') || {}), [repositoryProjectKey(project)]: name });
+    this.refresh(project, cx, { repositories, name });
+    this.onRepositoryChange?.(cx);
+    this.showChanges(cx);
+    cx.notify();
   }
 
   observe(cx) {
@@ -894,6 +948,7 @@ export default class DiffViewer {
   }
 
   openCommit(commit, cx, preview) {
+    if (this.discovering) return;
     this.rowCache = null; this.selected = null; this.pendingReveal = null; this.rowStart = null;
     if (preview) {
       this.history.selection++;
@@ -905,6 +960,7 @@ export default class DiffViewer {
   }
 
   openGraph(cx) {
+    if (this.discovering) return;
     if (!this.graph) {
       this.graph = new GitGraph(cx, (text, cx, cancelled) => cx?.sleep ? parseDiffAsync(text, cx, cancelled) : parseDiff(text));
       this.graph.visibleFiles = files => this.visibleFiles(files);
@@ -927,7 +983,7 @@ export default class DiffViewer {
   setPanelTab(tab, cx) {
     if (this.panelTab === tab) { cx.notify(); return; }
     this.panelTab = tab;
-    if (tab === 'history') { this.history.load(cx); this.history.focus?.focus(); }
+    if (tab === 'history' && !this.discovering) { this.history.load(cx); this.history.focus?.focus(); }
     cx.notify();
   }
 
@@ -979,6 +1035,14 @@ export default class DiffViewer {
       .on_click((_event, cx) => this.setPanelTab(key, cx)).child(label);
     // A full-height dock with its own header, as Zed's Git panel sits beside the editor.
     return v_flex().size_full().min_h(0).bg(t.chrome).border_l(1).border_color(t.border)
+      // Native Popup reserves 8px at the window edge. Give the field the same
+      // inset so an edge-mounted dock does not shift only its expanded list.
+      .when(this.repositories.some(name => name !== '.'), el => el.child(h_flex().h(32).flex_none().min_w(0).px(8)
+        .border_b(1).border_color(t.border)
+        .child(Select('git-repository', this.repositoryMenu,
+          this.repositories.find(name => repositoryFolder(this.project, name) === this.context?.folder),
+          this.repositories.map(name => ({ key: name, label: name, icon: 'folder', color: t.muted })),
+          'Git repository', (name, cx) => this.selectRepository(name, cx), t, { fullWidth: true }))))
       .child(h_flex().h(32).flex_none().items_center().border_b(1).border_color(t.border).text_size(12)
         .child(tab('changes', this.indexLoaded || this.loaded || files.length ? `Changes (${files.length})` : 'Changes'))
         .child(tab('history', 'History')))
@@ -1194,8 +1258,9 @@ export default class DiffViewer {
   }
 
   render(project, cx, parts = false) {
-    if (this.context?.id !== project?.id || this.context?.folder !== project?.folder || this.context?.machine !== project?.machine) this.refresh(project, cx);
-    this.nativeBranch = project?.branch || null;
+    const workspace = this.project || this.context;
+    if (workspace?.id !== project?.id || workspace?.folder !== project?.folder || workspace?.machine !== project?.machine) this.refresh(project, cx);
+    this.nativeBranch = this.context?.folder === project?.folder ? project?.branch || null : null;
     if (this.graphMode && !this.output) {
       const t = theme();
       const body = div().id('diff-viewer').relative().size_full().min_h(0).bg(t.background).text_color(t.foreground)

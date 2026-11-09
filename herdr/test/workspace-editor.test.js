@@ -85,6 +85,19 @@ async function editorHarness(store = {}) {
 
 const editorCommit = letter => ({ sha: letter.repeat(40), shortSha: letter.repeat(7), subject: `Commit ${letter}`, at: 1700000000 });
 
+test('switching repositories replaces Git tabs while preserving file tabs', async () => {
+  const { editor, cx } = await editorHarness({ 'devkits.right-panel': 'diff' });
+  editor.render({ id: 'parent', folder: '/parent' }, cx);
+  editor.files.show('readme.md', cx);
+  editor.diff.openGraph(cx); editor.diff.openCommit(editorCommit('a'), cx);
+  editor.diff.onRepositoryChange(cx);
+  editor.diff.showChanges(cx);
+  assert.deepEqual(editor.session.git, [{ kind: 'changes' }]);
+  assert.deepEqual(editor.session.order, ['file:readme.md', 'changes']);
+  assert.equal(editor.session.active, 'changes');
+  assert.equal(editor.files.file, 'readme.md');
+});
+
 test('Git output requests return from a file to the previous Git tab and reject another project', async () => {
   const { editor, cx, store, drain } = await editorHarness({ 'devkits.right-panel': 'diff' });
   const project = { id: 'one', folder: '/repo' };

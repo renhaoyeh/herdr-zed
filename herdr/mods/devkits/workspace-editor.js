@@ -18,6 +18,13 @@ export default class WorkspaceEditor {
     this.diff = new DiffViewer(); this.diff.init(cx); this.diff.managedTabs = true;
     this.files.onOpen = (info, cx) => this.fileOpened(info, cx);
     this.diff.onOpen = (item, cx) => this.gitOpened(item || { kind: 'changes' }, cx);
+    this.diff.onRepositoryChange = () => {
+      // Git tabs belong to the previously selected repository. Keep file tabs.
+      this.session.git = [];
+      this.session.order = this.session.order.filter(key => key.startsWith('file:'));
+      this.session.history = this.session.history.filter(key => key.startsWith('file:'));
+      this.diffItemKey = null; this.restoreQueued = null;
+    };
     cx.bind_keys([
       { keystroke: 'ctrl-tab', action: 'devkits-next-file', context: 'DevkitsFiles' },
       { keystroke: 'ctrl-shift-tab', action: 'devkits-prev-file', context: 'DevkitsFiles' },
@@ -116,6 +123,7 @@ export default class WorkspaceEditor {
     else {
       const item = this.session.git.find(item => editorItemKey(item) === key);
       if (!item) return;
+      if (this.diff.discovering) { this.record(key); cx.notify(); return; }
       if (item.kind === 'graph') this.diff.openGraph(cx);
       else if (item.kind === 'changes') this.diff.showChanges(cx);
       else this.diff.openCommit(item.commit, cx, item.preview);
@@ -175,7 +183,7 @@ export default class WorkspaceEditor {
     const diff = kind === 'diff' || dock === 'diff' ? this.diff.render(project, cx, true) : null;
     if (diff) this.diffProjectKey = this.projectKey;
     this.capturePreview();
-    if (kind === 'diff' && this.diffItemKey !== active && this.restoreQueued !== active) {
+    if (kind === 'diff' && !this.diff.discovering && this.diffItemKey !== active && this.restoreQueued !== active) {
       const key = this.projectKey;
       this.restoreQueued = active;
       cx.spawn(async cx => {
