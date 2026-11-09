@@ -19,6 +19,34 @@ export function quotaResetLabel(window, now = Date.now()) {
   return `Resets in ${hours ? `${hours}h ` : ''}${minutes % 60}m`;
 }
 
+// Auto starts the member with the most room: its plan multiplier times quota left per time left,
+// in its tightest window (1 = on pace). Members at a limit go last, soonest reset first;
+// members without readings count as on pace.
+export const autoLauncherKey = 'auto';
+export const autoMultipliers = [1, 5, 20];
+// Plan size by price tier: Plus/Business and Claude Pro x1, Pro $100 (prolite) and Max 5x x5, Pro $200 and Max 20x x20.
+const planSizes = { pro: 20, prolite: 5, claude_max: 5, claude_max_20x: 20, claude_max_5x: 5 };
+const planNames = { plus: 'Plus', team: 'Team', business: 'Business', enterprise: 'Enterprise', edu: 'Edu', go: 'Go', free: 'Free',
+  prolite: 'Pro Lite', pro: 'Pro', claude_pro: 'Pro', claude_max: 'Max', claude_max_5x: 'Max 5x', claude_max_20x: 'Max 20x' };
+export const planMultiplier = plan => planSizes[plan] || 1;
+export const planLabel = plan => !plan ? null : planNames[plan] || plan;
+export const autoMultiplier = (key, account, saved = {}) => saved[key] || planMultiplier(account?.plan);
+export function autoRank(account, multiplier = 1, now = Date.now()) {
+  const windows = (account?.windows || [])
+    .filter(window => Number.isFinite(window.usedPercent) && !(window.resetsAt > 0 && window.resetsAt * 1000 <= now));
+  const full = windows.filter(window => window.usedPercent >= 100);
+  if (full.length) return { full: true, resetsAt: Math.max(...full.map(window => window.resetsAt > 0 ? window.resetsAt : Infinity)) };
+  const rates = windows.map(window => (100 - window.usedPercent) / Math.max(1, 100 - (quotaElapsedPercent(window, now) ?? 0)));
+  return { full: false, known: windows.length > 0, room: multiplier * (rates.length ? Math.min(...rates) : 1) };
+}
+export function autoAgent(members, usage = [], now = Date.now(), multipliers = {}) {
+  const ranked = members.map((agent, index) => [agent,
+    autoRank(usage.find(account => account.key === agent.key),
+      autoMultiplier(agent.key, usage.find(account => account.key === agent.key), multipliers), now), index]);
+  ranked.sort(([, a, i], [, b, j]) => a.full - b.full || (a.full ? a.resetsAt - b.resetsAt : b.room - a.room) || i - j);
+  return ranked[0]?.[0] || null;
+}
+
 export const codexPermissionModes = [
   { key: 'default', label: 'Default', description: 'Use this launcher’s existing Codex settings.', args: [] },
   { key: 'read-only', label: 'Read only', description: 'Read files. Request approval when additional access is needed.',
