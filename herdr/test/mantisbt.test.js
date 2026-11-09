@@ -232,13 +232,32 @@ test('MantisBT table and detail metadata use the values supplied by the tracker'
   assert.equal(detail.noteCount, 1); assert.equal(detail.attachmentCount, 1);
 });
 
-test('connection validation failures retain the previous credentials and project bindings', async () => {
-  const { MantisPanel, files, writes, memory, taskSourceOptions } = await load({ fetch: async () => reply(401, null) });
+test('MantisBT saves credentials without network validation and retains them after a failed read', async () => {
+  let requests = 0;
+  const { MantisPanel, files, writes, memory, taskSourceOptions, searchProjects, readMantisConnection } = await load({ fetch: async () => {
+    requests++; return reply(401, null);
+  } });
   files['/herdr/data/devkits/mantisbt.json'] = JSON.stringify(connection);
   memory['devkits.mantisbt-projects'] = { saved: { gid: '1', name: 'Demo', server: connection.url } };
   const { cx, settle } = harness(), panel = new MantisPanel(taskSourceOptions('mantisbt')); panel.init(cx); panel.open({ folder: '/app' }, cx); await settle();
   panel.openSettings(cx); panel.serverInput.set_value('https://another.test'); panel.tokenInput.set_value('invalid');
   panel.saveToken(cx); await settle();
-  assert.equal(panel.token, 'secret'); assert.equal(panel.server, connection.url); assert.equal(panel.tokenBusy, false);
-  assert.match(panel.error, /rejected/); assert.equal(writes.length, 0); assert.equal(memory['devkits.mantisbt-projects'].saved.name, 'Demo');
+  assert.equal(panel.token, 'invalid'); assert.equal(panel.server, 'https://another.test'); assert.equal(panel.tokenBusy, false);
+  assert.equal(requests, 0); assert.equal(panel.settingsOpen, false); assert.equal(writes.length, 1);
+  const saved = { url: 'https://another.test', token: 'invalid' };
+  assert.deepEqual(await readMantisConnection(), saved);
+  await assert.rejects(searchProjects(saved, ''), /rejected/);
+  assert.deepEqual(await readMantisConnection(), saved);
+  panel.openSettings(cx);
+  assert.equal(panel.tokenInput.value(), saved.token); assert.equal(panel.serverInput.value(), saved.url);
+  assert.equal(memory['devkits.mantisbt-projects'].saved.name, 'Demo');
+});
+
+test('MantisBT still validates the URL before saving credentials', async () => {
+  const { MantisPanel, writes, taskSourceOptions } = await load();
+  const { cx, settle } = harness(), panel = new MantisPanel(taskSourceOptions('mantisbt')); panel.init(cx);
+  panel.serverInput.set_value('invalid-url'); panel.tokenInput.set_value('secret');
+  panel.saveToken(cx); await settle();
+  assert.match(panel.error, /server URL/); assert.equal(writes.length, 0);
+  assert.equal(panel.tokenInput.value(), 'secret');
 });

@@ -223,10 +223,10 @@ export default class MantisPanel extends TaskSourceController {
       .child(row('API Token', h_flex().gap(8).items_center()
         .child(field(this.tokenInput, 'mantis-token', 'MantisBT personal access token').flex_1().min_w(0))
         .child(button('mantis-copy-token', this.tokenCopied ? 'Copied' : 'Copy', (_event, cx) => this.copyToken(cx), { disabled: !this.tokenInput.value().trim() }))))
-      .child(div().p(12).child('Create an API Token in MantisBT → My Account → API Tokens.'))
+      .child(div().p(12).child('Create an API Token in MantisBT → My Account → API Tokens. Save keeps your settings even if the connection fails.'))
       .when(Boolean(this.error), el => el.child(div().p(12).text_color(mantisTheme.destructive).child(this.error)))
       .child(h_flex().p(12).gap(8).bg('#eeeeee')
-        .child(button('mantis-save-token', this.tokenBusy ? 'Connecting…' : this.token ? 'Save token' : 'Connect', (_event, cx) => this.saveToken(cx), { primary: true, disabled: this.tokenBusy }))
+        .child(button('mantis-save-token', this.tokenBusy ? 'Saving…' : 'Save', (_event, cx) => this.saveToken(cx), { primary: true, disabled: this.tokenBusy }))
         .child(button('mantis-cancel-token', 'Cancel', (_event, cx) => this.token ? back(cx) : close(), { disabled: this.tokenBusy }))
         .when(Boolean(this.token), el => el.child(button('mantis-clear-token', 'Clear saved token', (_event, cx) => this.clearToken(cx), { disabled: this.tokenBusy }))));
   }
