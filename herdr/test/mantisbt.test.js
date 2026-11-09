@@ -176,13 +176,16 @@ test('MantisBT retains connection and import behavior while using its own issue 
   const { MantisPanel, TaskSourceController, MantisProjectPicker, memory, files, writes, taskPrompt, taskSourceOptions } = context;
   files['/herdr/data/devkits/mantisbt.json'] = JSON.stringify(connection);
   memory['devkits.asana-projects'] = { other: { gid: '1', name: 'Asana' } };
+  memory['devkits.mantisbt-tab'] = 'mine';
   const { cx, settle } = harness(), panel = new MantisPanel(taskSourceOptions('mantisbt')); panel.init(cx);
+  assert.equal(panel.tab, 'all');
   assert.ok(panel instanceof TaskSourceController); assert.equal(panel.tokenInput.masked, true);
   const project = { folder: '/app' }, render = () => panel.render(project, cx);
   render(); await settle(); render(); assert.equal(urls.length, 0);
   const picker = new MantisProjectPicker(taskSourceOptions('mantisbt', { folder: '/app', overlay: 'picker' })); picker.init({ folder: '/app', overlay: 'picker' }, cx); await settle();
   picker.choose(picker.projects[0]); render(); await settle();
   assert.equal(panel.rows()[0].task.name, 'Issue 1');
+  assert.ok(urls.some(url => url.includes('/issues?') && !url.includes('filter_id=')));
   assert.ok(urls.some(url => url.includes('filter_id=assigned')));
   panel.show(panel.mine[0], cx); await settle();
   const selected = panel.detail, reads = urls.length; panel.show(panel.mine[0], cx); await settle();
@@ -197,6 +200,7 @@ test('MantisBT retains connection and import behavior while using its own issue 
 test('MantisBT searches issue numbers and metadata, combines status filtering, and invalidates a detail read when returning to the list', async () => {
   const { MantisPanel, memory, taskSourceOptions } = await load(), { cx } = harness();
   const panel = new MantisPanel(taskSourceOptions('mantisbt')); panel.init(cx);
+  panel.chooseView('mine', cx);
   panel.mine = [
     { gid: '1', name: 'Email form', category: 'Accounts', section: 'confirmed', assignee: 'Amy' },
     { gid: '2', name: 'Search API', category: 'Backend', section: 'new', assignee: 'Rick' },

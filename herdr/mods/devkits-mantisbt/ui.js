@@ -65,6 +65,7 @@ export default class MantisPanel extends TaskSourceController {
 
   init(cx) {
     super.init(cx);
+    this.tab = 'all';
     this.statusFilter = null;
     this.filtersOpen = false;
     this.issueSearch = InputState.new({ placeholder: 'Search' });
