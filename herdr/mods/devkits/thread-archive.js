@@ -53,33 +53,37 @@ async function threadSession(thread) {
 // Archive only inactive conversations. Running/waiting agents expose Stop instead; terminal
 // threads retain Close. Claude and Codex conversations can be resumed from the archive. Mixed into the Devkits view.
 export const threadArchive = {
-  prepareThreadArchive(thread, cx) {
-    if (!cx?.spawn || !archivable(thread, terminals())) return;
+  prepareThreadArchive(thread, cx, live = terminals()) {
+    if (!cx?.spawn || !archivable(thread, live)) return;
     const tab = thread.tab.id;
-    if (this.threadBusy(thread)) {
+    if (this.threadBusy(thread, live)) {
       this.archiveChecks?.delete(tab); this.closeOnlyThreads?.delete(tab);
       return;
     }
-    const live = terminals();
     const version = JSON.stringify(thread.agents.map(agent => [agent.address, agent.seq, agent.status,
       live.find(terminal => terminal.address === agent.address)?.foreground?.pid,
       live.find(terminal => terminal.address === agent.address)?.created_ms]));
     this.archiveChecks ||= new Map();
-    if (this.archiveChecks.get(tab)?.version === version) return;
+    const previous = this.archiveChecks.get(tab);
+    if (previous?.version === version && (previous.pending || !previous.retryAt || previous.retryAt > Date.now())) return;
     const check = { version, pending: true };
-    this.archiveChecks.set(tab, check); this.closeOnlyThreads?.delete(tab);
+    this.archiveChecks.set(tab, check);
     cx.spawn(async cx => {
       let resumable = false;
       try { resumable = Boolean((await threadSession(thread)).id); } catch {}
       if (this.archiveChecks.get(tab) !== check || this.threadBusy(thread)) return;
       check.pending = false;
-      if (!resumable) (this.closeOnlyThreads ||= new Set()).add(tab);
+      if (resumable) this.closeOnlyThreads?.delete(tab);
+      else {
+        (this.closeOnlyThreads ||= new Set()).add(tab);
+        // Core/process metadata and transcript files may arrive after app startup.
+        check.retryAt = Date.now() + 5000;
+      }
       cx.notify();
     });
   },
 
-  threadBusy(thread) {
-    const live = terminals();
+  threadBusy(thread, live = terminals()) {
     return ['working', 'blocked'].includes(thread.status) || thread.agents.some(agent =>
       ['working', 'blocked'].includes(live.find(terminal => terminal.address === agent.address)?.status || agent.status));
   },
