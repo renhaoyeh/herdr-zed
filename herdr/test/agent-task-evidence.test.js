@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { agentCommand } from '../mods/devkits/model.js';
-import { taskStatus } from '../mods/devkits-tasks/agent-board-model.js';
+import { taskStatus, reconcileBoardRecords } from '../mods/devkits-tasks/agent-board-model.js';
 
 async function evidenceHost(options = {}) {
   const source = await readFile(new URL('../mods/devkits-tasks/agent-task-evidence.js', import.meta.url), 'utf8');
@@ -83,9 +83,30 @@ test('empty idle threads remain without input, then real input is detected and c
   assert.equal(h.requests.length, count);
   // A new agent process in the same terminal must not inherit the previous session's evidence.
   h.setPid(43); h.setHasMessage(false); terminals = [{ address: 't1', foreground: { pid: 43 } }];
-  assert.equal(h.withTaskInputEvidence([agent], terminals)[0].hasInput, false);
+  assert.equal(h.withTaskInputEvidence([agent], terminals)[0].hasInput, null);
   h.observeTaskInput([agent], terminals, h.cx); await h.settle();
   assert.equal(h.withTaskInputEvidence([agent], terminals)[0].hasInput, false);
   h.observeTaskInput([], terminals, h.cx);
   assert.deepEqual(h.store['devkits.task-input-evidence'], {});
+});
+
+test('startup discovery retries an unresolved idle session and preserves known completed work', async () => {
+  const h = await evidenceHost({ platform: 'windows' });
+  const agent = { address: 't1', app: 'codex', status: 'idle', seq: 0 };
+  const terminals = [{ address: 't1', foreground: { pid: 42 } }];
+  h.setFileExists(false);
+  h.observeTaskInput([agent], terminals, h.cx); await h.settle();
+  const evidence = h.withTaskInputEvidence([agent], terminals);
+  assert.equal(evidence[0].hasInput, null);
+  const previous = { gid: 'task', source: 'thread', hasInput: true, seenWorking: true, status: 'done' };
+  const status = taskStatus(previous, evidence, true);
+  const next = reconcileBoardRecords({ task: previous }, [{ ...previous, status, agents: evidence }]).task;
+  assert.equal(next.status, 'done'); assert.equal(next.hasInput, true); assert.equal(next.seenWorking, true);
+  const count = h.requests.length;
+  h.observeTaskInput([agent], terminals, h.cx); await h.settle();
+  assert.equal(h.requests.length, count, 'Missing discovery is throttled');
+  h.setFileExists(true); h.setHasMessage(true);
+  h.store['devkits.task-input-evidence'].t1.at -= 5001;
+  h.observeTaskInput([agent], terminals, h.cx); await h.settle();
+  assert.equal(h.withTaskInputEvidence([agent], terminals)[0].hasInput, true, 'Recovery does not require an agent status change');
 });

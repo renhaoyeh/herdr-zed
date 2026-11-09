@@ -9,7 +9,7 @@ import DiffViewer from './diff.js';
 import { GitResultToast, clearGitToast } from './git-result-toast.js';
 import WorkspaceEditor from './workspace-editor.js';
 import XcodeStorage from './xcode-storage.js';
-import { TaskHost, openTaskComposer, requestTaskOpen, requestTaskSource, requestTaskStart, projectBoardTasks, threadBoardStatus, threadTaskArchived, threadVisibleInSidebar, threadBoardTask, taskLinkForTab, sessionThreadTitle, taskActions, boardStatuses } from './components/tasks.js';
+import { TaskHost, withTaskSnapshot, openTaskComposer, requestTaskOpen, requestTaskSource, requestTaskStart, projectBoardTasks, threadBoardStatus, threadTaskArchived, threadVisibleInSidebar, threadBoardTask, taskLinkForTab, sessionThreadTitle, taskActions, boardStatuses } from './components/tasks.js';
 import { sessionMenu } from './session-menu.js';
 import { agentProfiles } from './agent-profiles.js';
 import { accountActions } from './account-actions.js';
@@ -106,6 +106,9 @@ export default class Devkits extends View {
     }
     if (!props()?.view && cx) {
       this.taskHost.init(cx);
+      cx.timer.every(5000, cx => {
+        if ([...(this.archiveChecks?.values() || [])].some(check => !check.pending && check.retryAt <= Date.now())) cx.notify();
+      });
       // Shared values survive restarts; discover once for this app session.
       setShared('devkits.agent-cache', {});
       this.usageClient.init(cx);
@@ -214,7 +217,7 @@ export default class Devkits extends View {
   }
 
   projects() {
-    return projectCatalog(spaces(), shared('devkits.projects') || [], shared('devkits.project-roots') || {}, shared('devkits.selected-project'), shared('devkits.project-order') || []);
+    return this.renderModel?.projects || projectCatalog(spaces(), shared('devkits.projects') || [], shared('devkits.project-roots') || {}, shared('devkits.selected-project'), shared('devkits.project-order') || []);
   }
 
   moveProject(id, direction) {
@@ -534,7 +537,7 @@ export default class Devkits extends View {
 
   groupedThreads(space, threads, t, live) {
     threads = threads.filter(thread => threadVisibleInSidebar(space, thread));
-    const tasks = space.machine ? [] : projectBoardTasks(space, agents()).filter(task => !task.tabs.length && !task.archived && task.source !== 'thread');
+    const tasks = space.machine ? [] : projectBoardTasks(space).filter(task => !task.tabs.length && !task.archived && task.source !== 'thread');
     const sessions = threads.filter(thread => threadBoardStatus(space, thread) === null);
     return [...sessions.map(thread => this.renderThreadGroup(thread, t, live)), ...boardStatuses.flatMap(status => {
       const cards = tasks.filter(task => task.status === status.key);
@@ -717,17 +720,18 @@ export default class Devkits extends View {
   }
 
   threadRow(thread, t, trunk = null) {
-    const members = panes().filter(pane => pane.tab === thread.tab.id);
+    const live = this.renderModel?.terminals || terminals();
+    const members = (this.renderModel?.panes || panes()).filter(pane => pane.tab === thread.tab.id);
     const primary = members.find(pane => pane.terminal === thread.agents[0]?.address) || members[0];
     const primaryAgent = thread.agents.find(agent => agent.address === primary?.terminal) || thread.agent;
     if (primaryAgent && primaryAgent !== thread.agent)
       thread = { ...thread, agent: primaryAgent, title: sessionThreadTitle(thread.tab, primaryAgent, this.projects().find(project => project.id === thread.space)) };
     const working = thread.status === 'working' || thread.agents.some(agent => agent.status === 'working')
-      || terminalWorking(terminals().find(terminal => terminal.address === primary?.terminal));
+      || terminalWorking(live.find(terminal => terminal.address === primary?.terminal));
     const isFocused = shared('devkits.board-project') !== thread.space && thread.active && (!members.some(pane => pane.focused) || Boolean(primary?.focused));
-    const p = threadProgram(thread, terminals(), primary?.program);
-    const canArchive = archivable(thread, terminals());
-    const stopping = canArchive && this.threadBusy(thread);
+    const p = threadProgram(thread, live, primary?.program);
+    const canArchive = archivable(thread, live);
+    const stopping = canArchive && this.threadBusy(thread, live);
     const archive = canArchive && !stopping && !this.closeOnlyThreads?.has(thread.tab.id);
     const checkingArchive = archive && Boolean(this.archiveChecks?.get(thread.tab.id)?.pending);
     const project = this.projects().find(project => project.id === thread.space);
@@ -778,7 +782,7 @@ export default class Devkits extends View {
   }
 
   paneEntries(thread, live) {
-    const allPanes = panes(), members = allPanes.filter(pane => pane.tab === thread.tab.id);
+    const allPanes = this.renderModel?.panes || panes(), members = allPanes.filter(pane => pane.tab === thread.tab.id);
     const primary = members.find(pane => pane.terminal === thread.agents[0]?.address) || members[0];
     const byAddress = new Map(members.filter(pane => pane.terminal).map(pane => [pane.terminal, pane]));
     const external = new Set(allPanes.filter(pane => pane.tab !== thread.tab.id).map(pane => pane.terminal));
@@ -852,6 +856,12 @@ export default class Devkits extends View {
   }
 
   render(cx) {
+    this.renderModel = null;
+    try { return withTaskSnapshot(() => this.renderView(cx)); }
+    finally { this.renderModel = null; }
+  }
+
+  renderView(cx) {
     const t = theme();
     if (props()?.view === 'ui-settings') return this.interfaceSettings.render(t);
     if (props()?.view === 'system-display-menu') return this.systemDisplayMenu.render(t);
@@ -937,11 +947,12 @@ export default class Devkits extends View {
     for (const group of groups) for (const thread of group.threads)
       if (thread.tab.id === defaults[group.space.id] && !thread.agent) thread.title = 'Terminal';
     const live = terminals();
+    this.renderModel = { projects: workspaces, panes: modelPanes, terminals: live };
     const openTabs = new Set(groups.flatMap(group => group.threads.map(thread => thread.tab.id)));
     for (const tab of this.archiveChecks?.keys() || []) if (!openTabs.has(tab)) {
       this.archiveChecks.delete(tab); this.closeOnlyThreads?.delete(tab);
     }
-    for (const { threads } of groups) for (const thread of threads) this.prepareThreadArchive(thread, cx);
+    for (const { threads } of groups) for (const thread of threads) this.prepareThreadArchive(thread, cx, live);
     const visible = groups.filter(g => !this.folded.has(g.space.id)).flatMap(g => g.threads.filter(thread => threadVisibleInSidebar(g.space, thread)).flatMap(thread => thread.agents));
     setAgentOrder(visible.map(a => a.address));
     return this.systemDisplay.sidebarContainer(Sidebar(t))

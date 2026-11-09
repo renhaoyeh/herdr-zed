@@ -4,7 +4,16 @@ import { taskProjectKey, taskIndex } from './tasks-model.js';
 import { threadTitle, configuredAgents } from './session-model.js';
 export { boardStatuses } from './tasks-model.js';
 const copy = value => JSON.parse(JSON.stringify(value));
-export const tasksSnapshot = () => shared('devkits.tasks.snapshot') || { projects: {} };
+let renderSnapshot = null;
+export const tasksSnapshot = () => renderSnapshot || shared('devkits.tasks.snapshot') || { projects: {} };
+// Native shared reads deserialize the full projection. Reuse it for one synchronous
+// render, then release it so callbacks and later frames always see current state.
+export function withTaskSnapshot(render) {
+  // A native execution-budget interruption can leave script state behind. Never
+  // seed a new frame from the previous frame's retained snapshot.
+  renderSnapshot = shared('devkits.tasks.snapshot') || { projects: {} };
+  try { return render(); } finally { renderSnapshot = null; }
+}
 const projectSnapshot = project => tasksSnapshot().projects[taskProjectKey(project)] || {};
 export const listTasks = () => taskIndex(tasksSnapshot());
 export const projectBoardTasks = project => projectSnapshot(project).tasks || [];

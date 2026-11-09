@@ -15,6 +15,45 @@ const context = () => {
   return { cx, timers, async settle() { while (pending.length) await Promise.all(pending.splice(0)); } };
 };
 
+test('task rendering reads one native snapshot and releases it after each frame or error', async () => {
+  const project = { folder: '/project' }, thread = { tab: { id: 'thread' } };
+  let reads = 0, status = 'doing';
+  const client = await evaluateNative('../mods/devkits/components/tasks.js', { ...identity, ...sessions,
+    shared(key) {
+      assert.equal(key, 'devkits.tasks.snapshot'); reads++;
+      return { projects: { [identity.taskProjectKey(project)]: {
+        tasks: [{ gid: 'task' }], threads: { thread: { status, task: { archived: false } } },
+      } } };
+    },
+  }, 'withTaskSnapshot, projectBoardTasks, threadBoardStatus, threadVisibleInSidebar');
+  client.withTaskSnapshot(() => {
+    for (let i = 0; i < 50; i++) {
+      assert.equal(client.projectBoardTasks(project).length, 1);
+      assert.equal(client.threadBoardStatus(project, thread), 'doing');
+      assert.equal(client.threadVisibleInSidebar(project, thread), true);
+    }
+  });
+  assert.equal(reads, 1, 'All rows share a single deserialization');
+  status = 'done';
+  assert.throws(() => client.withTaskSnapshot(() => {
+    assert.equal(client.threadBoardStatus(project, thread), 'done');
+    throw new Error('render failed');
+  }), /render failed/);
+  status = 'todo';
+  assert.equal(client.threadBoardStatus(project, thread), 'todo', 'Callbacks read fresh state after a failed render');
+  assert.equal(reads, 3);
+});
+
+test('a frame refreshes task groups even when a native interruption left an empty snapshot behind', async () => {
+  const project = { folder: '/project' }, thread = { tab: { id: 'thread' } };
+  const client = await evaluateNative('../mods/devkits/components/tasks.js', { ...identity, ...sessions,
+    shared: () => ({ projects: { [identity.taskProjectKey(project)]: { threads: { thread: { status: 'done' } } } } }),
+  }, 'withTaskSnapshot, threadBoardStatus, interrupt: () => { renderSnapshot = { projects: {} }; }');
+  // Simulate the state left when native execution is terminated before JS cleanup.
+  client.interrupt();
+  client.withTaskSnapshot(() => assert.equal(client.threadBoardStatus(project, thread), 'done'));
+});
+
 test('MCP creates persisted Todos and children through the authoritative Tasks owner', async () => {
   const h = await modules(), clock = context(); h.runtime.init(clock.cx);
   const project = tasksMcpCall(h.runtime, 'list_projects').projects[0].key;

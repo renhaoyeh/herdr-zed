@@ -61,8 +61,11 @@ export function observeTaskInput(agents, terminals, cx) {
     if (inputProbes.get(agent.address)?.identity === identity) continue;
     if (current?.identity === identity && current.seq === agent.seq && current.hasInput === true
       && !current.needsInput && agent.status !== 'working') continue;
-    if (current?.identity === identity && current.seq === agent.seq
-      && ((agent.status !== 'working' && !current.needsInput) || Date.now() - current.at < 1400)) continue;
+    if (current?.identity === identity && current.seq === agent.seq) {
+      const unresolved = current.hasInput == null;
+      const retryAfter = unresolved && agent.status !== 'working' ? 5000 : 1400;
+      if ((!unresolved && agent.status !== 'working' && !current.needsInput) || Date.now() - current.at < retryAfter) continue;
+    }
     const probe = { identity };
     inputProbes.set(agent.address, probe);
     cx.spawn(async cx => {
@@ -84,7 +87,7 @@ export function withTaskInputEvidence(agents, terminals = []) {
     const terminal = terminals.find(terminal => terminal.address === agent.address);
     const identity = `${agent.app}:${terminal?.foreground?.pid || terminal?.created_ms || terminal?.pid || ''}`;
     const evidence = all[agent.address];
-    return { ...agent, inputTracked: true, hasInput: evidence?.identity === identity && evidence.hasInput === true,
+    return { ...agent, inputTracked: true, hasInput: evidence?.identity === identity ? evidence.hasInput ?? null : null,
       needsInput: evidence?.identity === identity && evidence.needsInput === true };
   });
 }
