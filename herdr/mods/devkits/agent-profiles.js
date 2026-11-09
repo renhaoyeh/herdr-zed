@@ -1,5 +1,5 @@
 import { div } from 'gpui-kit';
-import { h_flex, v_flex, InputState, Input } from 'gpui-base';
+import { h_flex, v_flex, InputState, Input, TextareaState, Textarea } from 'gpui-base';
 import { shared, setShared, props, openOverlay, closeOverlay } from 'herdr';
 import { sessionKind, permissionModes, launcherChoices, launcherLabel, launcherOption, sessionChoices, effortLabel, claudeModels } from './model.js';
 import { Button } from './components/button.js';
@@ -42,6 +42,9 @@ export const agentProfiles = {
     this.configName = InputState.new({ placeholder: 'Profile name', value: this.profileDraft.name });
     this.configName.set_value(this.profileDraft.name);
     this.configName.on('change', (_event, cx) => { this.profileError = null; cx.notify(); });
+    this.configInstructions = TextareaState.new({ placeholder: 'Extra instructions for this agent…', rows: 5 });
+    this.configInstructions.set_value(config?.instructions || '');
+    this.configInstructions.on('change', (_event, cx) => { this.profileError = null; cx.notify(); });
     if (key && !config) this.profileError = 'This agent profile no longer exists.';
   },
 
@@ -58,9 +61,11 @@ export const agentProfiles = {
     if (this.profileSaving || this.profileSaved) return;
     const draft = this.profileDraft, account = this.profileEditorAccounts().find(item => item.key === draft.profileKey);
     const name = this.configName.value().trim(), configs = shared('devkits.agent-configs') || [], existing = props().configKey;
+    const instructions = this.configInstructions.value().trim();
     let error;
     if (existing && !configs.some(item => item.key === existing)) error = 'This agent profile no longer exists.';
     else if (!name || Array.from(name).length > 48 || /[\u0000-\u001f\u007f-\u009f]/.test(name)) error = 'Use a name of 1–48 characters without control characters.';
+    else if (instructions.includes('\u0000')) error = 'Instructions cannot contain null characters.';
     else if (!account) error = 'Choose an account.';
     else {
       const choices = sessionChoices(sessionKind(account), this.profileModels(account), shared('devkits.session-options')?.[sessionKind(account)] || {}, draft.model);
@@ -72,8 +77,6 @@ export const agentProfiles = {
     this.profileSaving = true;
     let number = configs.length + 1, key = existing || `devkits-preset-${Date.now().toString(36)}-${number}`;
     while (!existing && configs.some(item => item.key === key)) key = `devkits-preset-${Date.now().toString(36)}-${++number}`;
-    // Profile instructions are paused: no field edits them and launches ignore them, but saving keeps stored text.
-    const instructions = configs.find(item => item.key === existing)?.instructions;
     const config = { key, profileKey: account.key, name, ...(instructions ? { instructions } : {}) };
     const sessions = shared('devkits.profile-sessions') || {};
     setShared('devkits.profile-sessions', { ...sessions, [key]: { ...sessions[key], model: draft.model, effort: draft.effort,
@@ -122,6 +125,11 @@ export const agentProfiles = {
               return { ...option, label, color: label === noAccount ? t.muted : t.foreground }; })], 'Account',
             key => this.chooseProfileAccount(key), t, { width: 240, boxed: true })))
         .when(Boolean(account), el => el.child(this.configurationFields(account, t, draft)))
+        .child(v_flex().flex_none().gap(6)
+          .child(div().text_size(13).child('Additional system instructions'))
+          .child(div().text_size(12).text_color(t.muted).child('Added after your global Rules for new sessions using this profile; both apply. Leave blank to use global Rules only.'))
+          .child(Textarea.new(this.configInstructions).id('agent-profile-instructions').accessibility_label('Additional system instructions')
+            .w_full().h(112).p(8).border(1).border_color(t.input).rounded(0).text_size(12)))
         .when(!accounts.length, el => el.child(div().text_size(12).text_color(t.muted).child('Install Claude Code or Codex CLI first.')))
         .when(Boolean(this.profileError), el => el.child(div().id('agent-profile-error').text_size(12)
           .text_color(t.destructive || t.ansi1).child(this.profileError))))
@@ -146,7 +154,7 @@ export const agentProfiles = {
         .child(Button('add-agent-configuration', t, { variant: 'secondary' }).h(28).px(10).gap(6)
           .disabled(!canAdd)
           .on_click(() => this.openAgentProfileEditor()).child(glyph('plus')).child('Add')))
-      .child(DialogDescription(t).flex_none().child(canAdd ? 'Optional saved setups: an account with its own model, effort and permissions. Each appears in Add session.' : 'Install Claude Code or Codex CLI to add a profile.'))
+      .child(DialogDescription(t).flex_none().child(canAdd ? 'Optional saved setups: an account with its own model, effort, permissions and instructions. Each appears in Add session.' : 'Install Claude Code or Codex CLI to add a profile.'))
       .child(v_flex().id('agent-profiles-table').flex_1().min_h(0).border(1).border_color(t.border)
         .child(columns('NAME', 'ACCOUNT', 'MODEL', 'EFFORT', 'SPEED', '').h(32).flex_none().text_size(11).text_color(t.muted)
           .border_b(1).border_color(t.border))
