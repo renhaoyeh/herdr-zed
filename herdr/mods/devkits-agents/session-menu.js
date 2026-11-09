@@ -121,7 +121,10 @@ export const sessionMenu = {
                   .accessibility_label(`Add a ${group.name} account`).on_click(() => this.addAccount(group.kind)).child(glyph('plus')))))
               .when(!group.accounts.length, el => el.child(div().py(4).text_size(12).text_color(t.muted)
                 .child(this.loading ? 'Loading agents…' : `${group.kind === 'claude' ? 'Claude Code' : 'Codex CLI'} is not installed.`)))
-              .children(group.accounts.map(item => Button(`account-${item.key}`, t, { variant: 'ghost' }).w_full().h(32).px(8).gap(8).justify_start()
+              .children(group.accounts.flatMap((item, index) => [
+                ...(index > 0 && group.accounts[index - 1].key === group.kind
+                  ? [DropdownMenuSeparator(t).id(`accounts-${group.kind}-default-separator`)] : []),
+                Button(`account-${item.key}`, t, { variant: 'ghost' }).w_full().h(32).px(8).gap(8).justify_start()
                 .bg(item.key === agent?.key ? t.selected : t.popover).text_color(item.key === agent?.key ? t.foreground : t.muted)
                 .accessibility_label(`${launcherLabel(item.name || group.kind)}${item.key === agent?.key ? ', selected' : ''}`)
                 .on_click((_event, cx) => {
@@ -131,7 +134,7 @@ export const sessionMenu = {
                 .child(AgentIcon(item, t).flex_none())
                 .child(div().id(`account-list-name-${item.key}`).flex_1().min_w(0).truncate().text_size(13)
                   .when(this.accountName(item, launcherLabel(item.name || group.kind)) === noAccount, el => el.text_color(t.muted))
-                  .child(this.accountName(item, launcherLabel(item.name || group.kind))))));
+                  .child(this.accountName(item, launcherLabel(item.name || group.kind))))]));
           })))
         .child(agent ? this.accountDetail(agent, usage, t, cx)
           : div().flex_1().p(12).text_size(12).text_color(t.muted).child(this.loading ? 'Loading agents…' : 'Install Claude Code or Codex CLI to manage accounts.')));

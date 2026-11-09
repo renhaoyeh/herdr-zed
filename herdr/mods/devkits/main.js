@@ -909,10 +909,6 @@ export default class Devkits extends View {
           .h_full().rounded(0).bg(this.archiveOpen ? t.selected : t.chrome)
           .on_click((_event, cx) => { this.archiveOpen = !this.archiveOpen; cx.notify(); }).child(glyph('clock')))
         .child(div().flex_1())
-        .child(Button('open-agent-settings', t, { variant: 'ghost' }).h_full().px(8).gap(6)
-          .accessibility_label('Agent settings')
-          .on_click(() => openAgentSettings(this.projects().find(project => project.active && !project.pending)?.id || null, 'accounts'))
-          .child(glyph('agent')).child('Agents'))
         .child(Button('open-interface-settings', t, { variant: 'ghost' }).h_full().px(8).gap(6)
           .accessibility_label('Interface settings').on_click(() => openInterfaceSettings())
           .child(glyph('settings')).child('Interface settings')));
