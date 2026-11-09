@@ -56,9 +56,12 @@ async function editorHarness(store = {}) {
       }
       return { content: 'file', panel: 'tree' };
     }
+    refresh(project) { this.context = project; this.render(project); }
     tabBar(_t, options) { this.options = options; return element(); }
     activate(path, cx) { this.file = path; this.onOpen({ path }, cx); }
-    show(path, cx, replaced) {
+    show(path, cx, replaced, options) {
+      if (replaced === true) replaced = undefined;
+      this.lastOptions = options;
       if (replaced) this.tabs = this.tabs.filter(tab => tab.path !== replaced);
       if (!this.tabs.some(tab => tab.path === path)) this.tabs.push({ path });
       this.file = path; this.onOpen({ path, replaced }, cx);
@@ -161,4 +164,25 @@ test('editor tabs restore independently across projects and late commit results 
   editor.files.show('second.js', cx); editor.render(first, cx); await drain();
   assert.equal(editor.session.active, 'graph'); assert.equal(editor.diff.graphMode, true);
   editor.render(second, cx); assert.equal(editor.session.active, 'file:second.js');
+});
+
+
+test('opening an absolute file uses ordinary file tabs alongside Git views', async () => {
+  const { editor, cx } = await editorHarness();
+  const project = { id: 'one', folder: '/repo', machine: 'server' };
+  const path = '/outside/notes.md';
+  editor.openFile(project, path, cx, { on: null });
+  assert.equal(editor.session.active, `file:${path}`);
+  assert.equal(editor.files.context, project);
+  assert.deepEqual(editor.files.lastOptions, { on: null });
+  editor.render(project, cx);
+  assert.equal(editor.files.options.fileActive, true);
+  assert.deepEqual(editor.files.options.extra, []);
+  editor.diff.openGraph(cx);
+  editor.openFile(project, path, cx, { on: null });
+  assert.deepEqual(editor.session.order, [`file:${path}`, 'graph']);
+  assert.equal(editor.files.tabs.length, 1);
+  assert.doesNotThrow(() => editor.render(project, { ...cx, notify() { assert.fail('Cannot notify during render'); } }));
+  editor.closeActiveTab(cx);
+  assert.equal(editor.session.active, 'graph');
 });

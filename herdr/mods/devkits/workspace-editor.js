@@ -33,6 +33,13 @@ export default class WorkspaceEditor {
 
   focus() { this.handle.focus(); }
 
+  openFile(project, path, cx, options) {
+    this.switchProject(project);
+    if (this.files.context?.id !== project.id || this.files.context?.folder !== project.folder || this.files.context?.machine !== project.machine)
+      this.files.refresh(project, cx);
+    this.files.show(path, cx, true, options);
+  }
+
   close() { this.capturePreview(); this.remember(); this.files.close(); this.diff.close(); }
 
   capturePreview() {

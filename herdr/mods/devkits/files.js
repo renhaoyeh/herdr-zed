@@ -14,7 +14,8 @@ const PER_FOLDER = 500, TOTAL = 5000;
 // Open tabs are remembered per project folder across reloads and restarts.
 // Persisted keys must not contain NUL: Herdr's shared store cuts a key there.
 const projectKey = project => JSON.stringify([project.machine || null, project.folder]);
-const openDocument = path => ({ path, code: null, markdown: null, error: null, loaded: false, stale: false, request: 0 });
+const absolutePath = path => /^(?:[/\\]|[A-Za-z]:[/\\])/.test(path);
+const openDocument = (path, on) => ({ path, ...(on !== undefined ? { on } : {}), code: null, markdown: null, error: null, loaded: false, stale: false, request: 0 });
 
 export async function directory(path, on) {
   // Paths are positional arguments; filenames never become shell code.
@@ -63,6 +64,7 @@ export async function gitStatus(folder, on) {
 }
 
 export function fullPath(folder, path) {
+  if (absolutePath(path)) return path;
   const joined = `${folder.replace(/[/\\]+$/, '')}/${path}`;
   return /^(?:[A-Za-z]:|\\\\|\/\/)/.test(folder) ? joined.replaceAll('/', '\\') : joined;
 }
@@ -156,6 +158,8 @@ export default class FileViewer {
     if (!this.context?.folder) return;
     const key = projectKey(this.context), all = shared('devkits.files-tabs') || {};
     const session = this.tabs.length ? { paths: this.tabs.map(doc => doc.path), file: this.file, preview: this.preview, history: this.activationHistory } : undefined;
+    const sources = this.tabs.filter(doc => doc.on !== undefined).map(doc => [doc.path, doc.on]);
+    if (session && sources.length) session.sources = Object.fromEntries(sources);
     if (JSON.stringify(all[key]) === JSON.stringify(session)) return;
     const next = { ...all };
     session ? next[key] = session : delete next[key];
@@ -171,7 +175,7 @@ export default class FileViewer {
     this.observe(cx); this.loadFolder('', cx); this.loadStatus(cx);
     const session = shared('devkits.files-tabs')?.[projectKey(project)];
     if (session?.paths?.length) {
-      this.tabs = session.paths.map(openDocument); this.preview = session.preview;
+      this.tabs = session.paths.map(path => openDocument(path, Object.hasOwn(session.sources || {}, path) ? session.sources[path] : undefined)); this.preview = session.preview;
       this.activationHistory = (session.history || []).filter(path => session.paths.includes(path));
       // refresh also runs during render; restore state without the interactive activate notification.
       this.file = this.tabs.some(doc => doc.path === session.file) ? session.file : this.tabs[0].path;
@@ -200,9 +204,9 @@ export default class FileViewer {
         }
       } catch { if (this.context === context) this.watchFailed = true; }
     });
-    // Remote folders and platforms where native watching fails use a data timer.
+    // Remote folders, files outside the watched project and failed native watches use the polling fallback.
     this.poll = cx.timer.every(10000, cx => {
-      if (this.context === context && (context.machine || this.watchFailed)) this.reload(cx);
+      if (this.context === context && (context.machine || this.watchFailed || this.tabs.some(doc => absolutePath(doc.path)))) this.reload(cx);
     });
   }
 
@@ -268,16 +272,17 @@ export default class FileViewer {
   }
 
   /** Opens a file as Zed does: a single click reuses the italic preview tab; pinning keeps it. */
-  show(path, cx, pin = false) {
+  show(path, cx, pin = false, { on } = {}) {
     let doc = this.tabs.find(doc => doc.path === path);
     let replaced;
     if (!doc) {
-      doc = openDocument(path);
+      doc = openDocument(path, on);
       const previewIndex = this.tabs.findIndex(other => other.path === this.preview);
       if (!pin && previewIndex >= 0) { replaced = this.tabs[previewIndex].path; this.tabs[previewIndex].code?.release(); this.tabs[previewIndex] = doc; }
       else this.tabs.push(doc);
       if (!pin) this.preview = path;
     } else if (pin && this.preview === path) this.preview = null;
+    if (on !== undefined) doc.on = on;
     this.file = path; this.tabSwitch = null;
     this.recordActivation();
     this.onOpen?.({ path, replaced }, cx);
@@ -344,7 +349,7 @@ export default class FileViewer {
     const current = () => request === doc.request && this.context === context && this.tabs.includes(doc);
     cx.spawn(async cx => {
       try {
-        const text = await readTextFile(`${context.folder}/${doc.path}`, { on: context.machine });
+        const text = await readTextFile(fullPath(context.folder, doc.path), { on: doc.on === undefined ? context.machine : doc.on });
         if (!current()) return;
         if (text === null) throw new Error('This file is no longer available.');
         if (text.includes('\0')) throw new Error('Binary file — no text preview.');
@@ -449,7 +454,7 @@ export default class FileViewer {
   }
 
   tabBar(t, { extra = [], fileActive = true, order = [], closeFile } = {}) {
-    const wrap = this.wrapTabs, name = path => path.slice(path.lastIndexOf('/') + 1);
+    const wrap = this.wrapTabs, name = path => path.split(/[/\\]/).at(-1);
     const counts = new Map();
     for (const doc of this.tabs) counts.set(name(doc.path), (counts.get(name(doc.path)) || 0) + 1);
     const items = [...this.tabs.map(doc => ({ key: `file:${doc.path}`, path: doc.path })), ...extra];

@@ -454,3 +454,36 @@ test('closing a tab follows recent activation and Ctrl+Tab keeps a stable recent
   view.finishTabSwitch();
   view.cycleTab(-1, cx); assert.equal(view.file, 'b.ts');
 });
+
+
+test('absolute file tabs retain their source machine, normal Markdown preview and restore behavior', async () => {
+  const reads = [];
+  let text = '# Notes';
+  const { view, cx, drain } = await scenario(async (path, options) => { reads.push([path, options]); return text; });
+  const path = '/outside/notes.md';
+  view.show('repo.md', cx, true); await drain();
+  view.show(path, cx, true, { on: null }); await drain();
+  assert.deepEqual(reads.at(-1), [path, { on: null }]);
+  assert.equal(view.markdown, '# Notes');
+  assert.equal(view.code, null);
+  assert.equal(view.preview, null);
+  view.show(path, cx, true, { on: null }); await drain();
+  assert.deepEqual(view.tabs.map(doc => doc.path), ['repo.md', path]);
+  view.refresh({ ...project, id: 'other', folder: '/other' }, cx); await drain();
+  view.refresh(project, cx); await drain();
+  assert.equal(view.file, path);
+  assert.deepEqual(reads.at(-1), [path, { on: null }]);
+  view.activate('repo.md', cx); await drain();
+  assert.deepEqual(reads.at(-1), ['/project/repo.md', { on: 'server' }]);
+  view.activate(path, cx);
+  text = '# Updated'; view.reload(cx); await drain();
+  assert.equal(view.markdown, '# Updated');
+  view.closeTab(path, cx); assert.equal(view.file, 'repo.md');
+});
+
+test('absolute paths resolve without project prefixes on Unix and Windows', async () => {
+  const { fullPath } = await load();
+  assert.equal(fullPath('/repo', '/outside/notes.md'), '/outside/notes.md');
+  assert.equal(fullPath('C:\\repo', 'D:\\outside\\notes.md'), 'D:\\outside\\notes.md');
+  assert.equal(fullPath('/repo', 'src/notes.md'), '/repo/src/notes.md');
+});
