@@ -2,6 +2,8 @@ import { div, svg } from 'gpui-kit';
 import { h_flex, v_flex, v_virtual_list, Scrollbar, VirtualListScrollHandle, Editor, EditorState } from 'gpui-base';
 import { watchFolder, settings, theme, shared, setShared, notify } from 'herdr';
 import { execShell } from './shell.js';
+import { readBuildRules, withBuildRulesFile } from './diff-ignore.js';
+import { openBuildRules } from './diff-ignore-settings.js';
 import { utf8ByteLength } from './utf8.js';
 import { Button } from './components/button.js';
 import { DropdownMenu, DropdownMenuState } from './components/dropdown-menu.js';
@@ -69,7 +71,9 @@ const INDEX_SCRIPT = 'cd "$1" || exit 2; git rev-parse --is-inside-work-tree >/d
   + 'base=$(git rev-parse --verify -q HEAD) || base=$(git hash-object -t tree /dev/null); '
   + 'printf "%s\\0%s\\0" "$base" "$PWD"; '
   + '{ git diff --no-ext-diff --no-textconv --find-renames --raw --numstat -z "$base" -- || exit; '
-  + 'printf "\\0"; git ls-files -z --others --exclude-standard; } | head -c ' + (MAX_BYTES + 1);
+  + 'printf "\\0"; git ls-files -z --others --exclude-standard; printf "\\0"; '
+  + 'if [ -n "$2" ]; then git ls-files -z --others --exclude-standard '
+  + '| git -c core.excludesFile="$2" check-ignore --no-index --stdin -z; fi; } | head -c ' + (MAX_BYTES + 1);
 const PATCH_SCRIPT = 'cd "$1" || exit 2; '
   + '{ if [ "$3" = untracked ]; then '
   + 'git -c core.quotepath=false diff --no-color --no-ext-diff --no-textconv --no-index -U3 -- /dev/null "$4"; '
@@ -202,17 +206,24 @@ function* parseDiffIndexBatches(text) {
       }
     }
   }
-  while ((record = field()) !== null) if (record) {
+  while ((record = field())) {
     if (++batch % 128 === 0) yield;
-    if (files.length >= MAX_ROWS) { truncated = true; break; }
-    files.push({ path: record, oldPath: null, status: 'added', added: 0, removed: 0,
-      binary: false, untracked: true, hunks: [], deferred: true });
+    if (files.length >= MAX_ROWS) { truncated = true; continue; }
+    const file = { path: record, oldPath: null, status: 'added', added: 0, removed: 0,
+      binary: false, untracked: true, buildOutput: false, hunks: [], deferred: true };
+    files.push(file); byPath.set(record, file);
+  }
+  while ((record = field())) {
+    if (++batch % 128 === 0) yield;
+    const file = byPath.get(record);
+    if (file?.untracked) file.buildOutput = true;
   }
   return { base, root, files: files.sort((a, b) => Number(a.untracked) - Number(b.untracked) || a.path.localeCompare(b.path)), truncated };
 }
 
 export async function readDiffIndex(folder, on, options = {}) {
-  const result = await execShell(['-c', INDEX_SCRIPT, 'devkits-diff-index', folder], { on });
+  const result = await withBuildRulesFile(options.buildRules, on,
+    path => execShell(['-c', INDEX_SCRIPT, 'devkits-diff-index', folder, path], { on }));
   if (result.code !== 0 || /(^|\n)(fatal|error):/.test(result.stderr || '')) throw new Error(result.stderr.trim() || 'Cannot read changes.');
   const parser = parseDiffIndexBatches(result.stdout);
   let next;
@@ -231,25 +242,26 @@ export async function readDiffIndex(folder, on, options = {}) {
  * One process response at a time; never retain a second repository-wide patch.
  */
 export async function readDiff(folder, on, options = {}) {
-  const index = await readDiffIndex(folder, on, options);
+  const index = options.index || await readDiffIndex(folder, on, options);
   if (!index) return null;
   const { base, root, files, truncated: indexTruncated } = index;
   const previous = new Map((options.previous || []).map(file => [file.path, file]));
   const pause = async () => { await options.yield?.(); return !options.cancelled?.(); };
   if (!await pause()) return null;
   options.onIndex?.(files.slice(), indexTruncated);
-  let bytes = 0, lines = 0, truncated = indexTruncated, completed = 0;
+  const budget = options.budget || { bytes: 0, lines: 0 };
+  let truncated = indexTruncated, completed = 0;
   const priority = files.find(file => file.path === options.priority);
   const ordered = priority ? [priority, ...files.filter(file => file !== priority)] : files;
   for (const file of ordered) {
     if (!await pause()) return null;
-    if (bytes >= MAX_BYTES || lines >= MAX_ROWS || options.include && !options.include(file)) {
+    if (budget.bytes >= MAX_BYTES || budget.lines >= MAX_ROWS || options.include && !options.include(file)) {
       if (!options.include || options.include(file)) truncated = true;
       continue;
     }
     // Bound both short-line/object explosions and long lines before they cross
     // the native/JS boundary. One extra byte/line detects a truncated response.
-    const remaining = MAX_BYTES - bytes, remainingLines = MAX_ROWS - lines;
+    const remaining = MAX_BYTES - budget.bytes, remainingLines = MAX_ROWS - budget.lines;
     const result = await execShell(['-c', PATCH_SCRIPT, 'devkits-diff-file', root, base,
       file.untracked ? 'untracked' : 'tracked', file.path, file.oldPath || file.path,
       String(remainingLines + 64), String(remaining + 1)], { on });
@@ -267,7 +279,7 @@ export async function readDiff(folder, on, options = {}) {
       if (value === 10) outputLines++;
       hash = Math.imul(hash ^ value, 16777619); check = Math.imul(check, 33) ^ value;
     }
-    const signature = `${text.length}:${hash}:${check}:${file.untracked}:${file.status}:${file.added}:${file.removed}:${file.oldPath}`;
+    const signature = `${text.length}:${hash}:${check}:${file.untracked}:${file.buildOutput}:${file.status}:${file.added}:${file.removed}:${file.oldPath}`;
     const old = previous.get(file.path);
     if (old?.signature === signature && !old.deferred) Object.assign(file, old);
     else {
@@ -282,8 +294,8 @@ export async function readDiff(folder, on, options = {}) {
       file.deferred = false; file.signature = signature;
       file.truncated = next.value.truncated || outputLines >= remainingLines + 64 || fileBytes > remaining;
     }
-    bytes += fileBytes;
-    for (const hunk of file.hunks) lines += hunk.lines.length;
+    budget.bytes += fileBytes;
+    for (const hunk of file.hunks) budget.lines += hunk.lines.length;
     truncated ||= Boolean(file.truncated);
     if (++completed % 4 === 0) options.progress?.(files.slice(), truncated);
   }
@@ -291,7 +303,7 @@ export async function readDiff(folder, on, options = {}) {
   const stable = files.map(file => {
     const old = previous.get(file.path);
     const same = old && (file.deferred && old.deferred
-      ? ['status', 'oldPath', 'added', 'removed', 'binary', 'untracked'].every(key => file[key] === old[key])
+      ? ['status', 'oldPath', 'added', 'removed', 'binary', 'untracked', 'buildOutput'].every(key => file[key] === old[key])
       : !file.deferred && old.signature === file.signature);
     return same ? old : file;
   });
@@ -397,11 +409,11 @@ export function changeSections(files) {
  * Zed's Git panel tree: folders first, and a folder whose only child is a folder
  * shares its row (`apps/desktop`). `prefix` keeps each section's folder keys apart.
  */
-export function changeTree(files, collapsed = new Set(), prefix = '') {
+export function changeTree(files, collapsed = new Set(), prefix = '', pathFor = file => file.path) {
   const root = { children: new Map() };
   for (const file of files) {
     let node = root;
-    const parts = file.path.split('/');
+    const parts = pathFor(file).split('/');
     for (const name of parts.slice(0, -1)) {
       if (!node.children.has(name)) node.children.set(name, { name, children: new Map() });
       node = node.children.get(name);
@@ -436,6 +448,8 @@ const splitPath = path => {
 // Match dependency lockfiles by basename, including nested workspaces.
 export const isLockFile = path => /(?:\.lock|(?:^|-)lock\.(?:json|ya?ml)|^npm-shrinkwrap\.json|^bun\.lockb)$/i.test(path.split(/[\\/]/).at(-1));
 
+export const isBuildOutput = file => Boolean(file.untracked && file.buildOutput);
+
 // A non-repository workspace can contain independent repositories. Inspect only
 // immediate children, including worktrees whose .git marker is a file.
 export async function readRepositories(folder, on) {
@@ -451,6 +465,63 @@ export async function readRepositories(folder, on) {
 
 const repositoryProjectKey = project => JSON.stringify([project.machine || null, project.folder]);
 const repositoryFolder = (project, name) => name === '.' ? project.folder : `${project.folder.replace(/[/\\]+$/, '')}/${name}`;
+// NUL cannot be a directory name, so this never collides with a repository.
+const ALL_REPOSITORIES = '\0all';
+
+/** Read all indexes before patches, retaining repository identity and one shared budget. */
+export async function readAllDiff(project, repositories, options = {}) {
+  const groups = [], errors = [], budget = { bytes: 0, lines: 0 };
+  const previous = new Map((options.previous || []).map(file => [file.path, file]));
+  let truncated = false;
+  const scoped = (name, files) => files.map(file => {
+    const path = `${name}/${file.path}`, old = previous.get(path);
+    return old?.sourceFile === file ? old : { ...file, path, repository: name, sourcePath: file.path,
+      oldPath: file.oldPath ? `${name}/${file.oldPath}` : file.oldPath, sourceFile: file };
+  });
+  const collect = () => groups.flatMap(group => group.files);
+  for (const name of repositories) {
+    await options.yield?.();
+    if (options.cancelled?.()) return null;
+    try {
+      const index = await readDiffIndex(repositoryFolder(project, name), project.machine, options);
+      if (!index || options.cancelled?.()) return null;
+      truncated ||= index.truncated;
+      groups.push({ name, index, files: scoped(name, index.files) });
+    } catch (error) {
+      if (options.cancelled?.()) return null;
+      errors.push(`${name}: ${error.message || error}`);
+      groups.push({ name, files: (options.previous || []).filter(file => file.repository === name) });
+    }
+  }
+  options.onIndex?.(collect(), truncated);
+  const priority = groups.find(group => group.files.some(file => file.path === options.priority));
+  for (const group of priority ? [priority, ...groups.filter(group => group !== priority)] : groups) {
+    if (!group.index) continue;
+    const name = group.name;
+    try {
+      const result = await readDiff(repositoryFolder(project, name), project.machine, {
+        ...options, index: group.index, budget,
+        previous: (options.previous || []).filter(file => file.repository === name).map(file => file.sourceFile),
+        priority: group.files.find(file => file.path === options.priority)?.sourcePath,
+        onIndex: undefined,
+        progress: (files, limited) => {
+          group.files = scoped(name, files); truncated ||= limited;
+          options.progress?.(collect(), truncated);
+        },
+      });
+      if (!result || options.cancelled?.()) return null;
+      group.files = scoped(name, result.files); truncated ||= result.truncated;
+      options.progress?.(collect(), truncated);
+    } catch (error) {
+      if (options.cancelled?.()) return null;
+      errors.push(`${name}: ${error.message || error}`);
+      group.files = (options.previous || []).filter(file => file.repository === name);
+    }
+  }
+  const files = collect();
+  return { files: files.length === options.previous?.length && files.every((file, i) => file === options.previous[i])
+    ? options.previous : files, truncated, error: errors.join('\n') || null };
+}
 
 export default class DiffViewer {
   init(cx) {
@@ -468,6 +539,7 @@ export default class DiffViewer {
     this.fileViewMenu = new DropdownMenuState(cx);
     this.repositoryMenu = new SelectState(cx);
     this.repositories = [];
+    this.rulesRevision = shared('devkits.diff-build-rules-revision') || 0;
     this.panelTab = 'changes';
     this.history = new CommitHistory(cx, (text, cx, cancelled) => {
       this.rowCache = null; this.collapsed.clear(); this.selected = null;
@@ -492,7 +564,7 @@ export default class DiffViewer {
     this.visibleRows = null; this.pendingReveal = null;
     this.rowStart = null;
     this.visible = null; this.jump = null;
-    this.files = []; this.rowCache = null; this.lockFileCache = null; this.treeCache = null;
+    this.files = []; this.rowCache = null; this.filteredFileCache = null; this.treeCache = null;
     this.toastTimer?.cancel(); this.toastTimer = null; clearGitToast(this.context);
     this.output?.release(); this.output = null;
     this.watcher?.cancel(); this.poll?.cancel(); this.queued?.cancel();
@@ -513,12 +585,16 @@ export default class DiffViewer {
     this.project = project ? { ...project } : null;
     this.repositories = selection?.repositories || [];
     this.context = project ? { ...project } : null;
-    if (selection) this.context.folder = repositoryFolder(project, selection.name);
+    if (selection) {
+      this.context.allRepositories = selection.name === ALL_REPOSITORIES;
+      this.context.folder = this.context.allRepositories ? project.folder : repositoryFolder(project, selection.name);
+    }
     if (project) this.context.workspaceFolder = project.folder;
     this.discovering = Boolean(project?.folder && !selection);
     this.nativeBranch = this.context?.folder === project?.folder ? project?.branch || null : null;
-    this.history.reset(this.context);
-    this.graph?.reset(this.context);
+    this.history.reset(this.allRepositories ? null : this.context);
+    this.graph?.reset(this.allRepositories ? null : this.context);
+    if (this.allRepositories) this.panelTab = 'changes';
     this.files = []; this.collapsed.clear(); this.folders.clear(); this.rowCache = null; this.selected = null;
     this.error = null; this.loaded = false; this.indexLoaded = false; this.truncated = false;
     this.loading = false; this.dirty = false;
@@ -541,10 +617,13 @@ export default class DiffViewer {
             if (this.context !== context) return;
             this.repositories = repositories;
             const saved = shared('devkits.git-repository')?.[repositoryProjectKey(project)];
-            const name = repositories.includes(saved) ? saved : repositories[0];
-            if (name) context.folder = repositoryFolder(project, name);
+            const name = saved === ALL_REPOSITORIES && repositories.some(name => name !== '.')
+              ? saved : repositories.includes(saved) ? saved : repositories[0];
+            context.allRepositories = name === ALL_REPOSITORIES;
+            if (name && !this.allRepositories) context.folder = repositoryFolder(project, name);
+            if (this.allRepositories) this.panelTab = 'changes';
             this.nativeBranch = context.folder === project.folder ? project.branch || null : null;
-            this.history.reset(context); this.graph?.reset(context);
+            this.history.reset(this.allRepositories ? null : context); this.graph?.reset(this.allRepositories ? null : context);
           } catch (error) {
             if (this.context !== context) return;
             this.discovering = false;
@@ -554,15 +633,15 @@ export default class DiffViewer {
         this.discovering = false;
         this.observe(cx);
         this.reload(cx);
-        if (this.panelTab === 'history') this.history.load(cx);
+        if (this.panelTab === 'history' && !this.allRepositories) this.history.load(cx);
         cx.notify();
       });
     }
   }
 
   selectRepository(name, cx) {
-    if (!this.project || !this.repositories.includes(name)) return;
-    if (repositoryFolder(this.project, name) === this.context?.folder) return;
+    if (!this.project || !(name === ALL_REPOSITORIES && this.repositories.some(name => name !== '.') || this.repositories.includes(name))) return;
+    if (name === ALL_REPOSITORIES ? this.allRepositories : !this.allRepositories && repositoryFolder(this.project, name) === this.context?.folder) return;
     const project = this.project, repositories = this.repositories;
     setShared('devkits.git-repository', { ...(shared('devkits.git-repository') || {}), [repositoryProjectKey(project)]: name });
     this.refresh(project, cx, { repositories, name });
@@ -570,6 +649,8 @@ export default class DiffViewer {
     this.showChanges(cx);
     cx.notify();
   }
+
+  get allRepositories() { return Boolean(this.context?.allRepositories); }
 
   observe(cx) {
     const context = this.context;
@@ -589,7 +670,16 @@ export default class DiffViewer {
       } catch { if (this.context === context) this.watchFailed = true; }
     });
     this.poll = cx.timer.every(10000, cx => {
-      if (this.context === context && (context.machine || this.watchFailed)) this.reload(cx);
+      if (this.context !== context) return;
+      if (context.machine || this.watchFailed) this.reload(cx);
+      else cx.spawn(async cx => {
+        try {
+          const rules = await readBuildRules();
+          if (this.context === context && rules.text !== this.buildRulesText) this.reload(cx);
+        } catch (error) {
+          if (this.context === context) { this.error = error.message; cx.notify(); }
+        }
+      });
     });
   }
 
@@ -601,10 +691,14 @@ export default class DiffViewer {
     let changed = !this.loaded;
     cx.spawn(async cx => {
       try {
+        const buildRules = await readBuildRules();
+        if (request !== this.request || this.context !== context) return;
+        this.buildRulesText = buildRules?.text;
         const [diff, state] = await Promise.all([
-          readDiff(context.folder, context.machine, {
-            previous: this.files, priority: this.selected,
-            include: file => !this.hideLockFiles || !isLockFile(file.path),
+          (this.allRepositories ? options => readAllDiff(this.project, this.repositories, options)
+            : options => readDiff(context.folder, context.machine, options))({
+            previous: this.files, priority: this.selected, buildRules,
+            include: file => this.includeFile(file),
             yield: () => cx.sleep?.(0),
             cancelled: () => request !== this.request || this.context !== context,
             onIndex: (files, truncated) => {
@@ -616,7 +710,8 @@ export default class DiffViewer {
               this.files = files; this.truncated = truncated; this.rowCache = null; cx.notify();
             },
           }),
-          readPushState(context.folder, context.machine).then(value => ({ value }), error => ({ error: String(error.message || error) })),
+          this.allRepositories ? Promise.resolve({ value: null })
+            : readPushState(context.folder, context.machine).then(value => ({ value }), error => ({ error: String(error.message || error) })),
         ]);
         if (!diff || request !== this.request || this.context !== context) return;
         if (JSON.stringify(state.value) !== JSON.stringify(this.pushState) || (state.error || null) !== this.pushStateError) {
@@ -626,9 +721,9 @@ export default class DiffViewer {
           if (changedHead) this.loadLatestCommit(state.value?.revision, cx);
         }
         // Like Zed, keep what is shown until the result actually differs; most events change nothing.
-        if (diff.files !== this.files || diff.truncated !== this.truncated || this.error) {
+        if (diff.files !== this.files || diff.truncated !== this.truncated || (diff.error || null) !== this.error) {
           this.files = diff.files; this.truncated = diff.truncated;
-          this.error = null; this.rowCache = null; changed = true;
+          this.error = diff.error || null; this.rowCache = null; changed = true;
         }
       } catch (error) {
         if (request === this.request && this.context === context) {
@@ -719,6 +814,7 @@ export default class DiffViewer {
   }
 
   pushUnavailable(action = 'push') {
+    if (this.allRepositories) return 'Select a repository for Git operations';
     if (!this.pushState) return this.pushStateError || (this.loaded ? 'Git branch unavailable' : 'Loading branch…');
     if (action !== 'fetch' && action !== 'push-tags' && !this.pushState.branch) return 'Check out a branch first';
     if (action !== 'fetch' && action !== 'push-tags' && !this.pushState.committed) return 'Create a commit first';
@@ -727,6 +823,7 @@ export default class DiffViewer {
   }
 
   loadAccounts(cx) {
+    if (this.allRepositories) return;
     if (this.accountsLoading) return;
     const context = this.context;
     this.accountsLoading = true; this.accountsError = null;
@@ -914,6 +1011,7 @@ export default class DiffViewer {
         .child(expanded ? message : message.split('\n')[0]));
   }
   get hideLockFiles() { return shared('devkits.diff-hide-lock-files') !== false; }
+  get hideBuildOutput() { return (shared('devkits.diff-hide-build-output') ?? shared('devkits.diff-hide-x64-output')) !== false; }
   get fileView() { return shared('devkits.diff-file-view') === 'list' ? 'list' : 'tree'; }
 
   setFileView(view, cx) {
@@ -921,21 +1019,61 @@ export default class DiffViewer {
     cx.notify();
   }
 
+  includeFile(file) {
+    return !(this.hideLockFiles && isLockFile(file.path) || this.hideBuildOutput && isBuildOutput(file));
+  }
+
   visibleFiles(files) {
-    if (!this.hideLockFiles) return files;
-    this.lockFileCache ||= new WeakMap();
-    if (!this.lockFileCache.has(files)) this.lockFileCache.set(files, files.filter(file => !isLockFile(file.path)));
-    return this.lockFileCache.get(files);
+    if (!this.hideLockFiles && !this.hideBuildOutput) return files;
+    this.filteredFileCache ||= new WeakMap();
+    let cache = this.filteredFileCache.get(files);
+    if (!cache) { cache = new Map(); this.filteredFileCache.set(files, cache); }
+    const key = `${this.hideLockFiles}:${this.hideBuildOutput}`;
+    if (!cache.has(key)) {
+      const visible = files.filter(file => this.includeFile(file));
+      cache.set(key, visible.length === files.length ? files : visible);
+    }
+    return cache.get(key);
   }
 
   get displayFiles() { return this.visibleFiles(this.commitPreview?.files || this.files); }
 
   toggleLockFiles(cx) {
     setShared('devkits.diff-hide-lock-files', !this.hideLockFiles);
+    this.filtersChanged(cx);
+  }
+
+  toggleBuildOutput(cx) {
+    setShared('devkits.diff-hide-build-output', !this.hideBuildOutput);
+    this.filtersChanged(cx);
+  }
+
+  filtersChanged(cx) {
     this.rowCache = null; this.selected = null; this.pendingReveal = null; this.rowStart = null;
     this.scroll.scroll_to_item(0, 'top');
     if (this.context && this.files.some(file => file.deferred)) this.reload(cx);
     cx.notify();
+  }
+
+  panelSettingsItems() {
+    const files = this.panelTab === 'history' ? this.commitPreview?.files || [] : this.files;
+    const countLabel = (checked, count) => `${count} ${checked ? 'hidden' : count === 1 ? 'file' : 'files'}`;
+    return [
+      { key: 'list', label: 'List', checked: this.fileView === 'list' },
+      { key: 'tree', label: 'Tree', checked: this.fileView === 'tree' },
+      { key: 'hide-lock-files', label: 'Hide lock files', checked: this.hideLockFiles, separator: true,
+        description: countLabel(this.hideLockFiles, files.filter(file => isLockFile(file.path)).length) },
+      { key: 'hide-build-output', label: 'Hide build output', checked: this.hideBuildOutput,
+        description: countLabel(this.hideBuildOutput, files.filter(isBuildOutput).length) },
+      { key: 'build-rules', label: 'Edit build filter rules…' },
+    ];
+  }
+
+  choosePanelSetting(key, cx) {
+    if (key === 'hide-lock-files') this.toggleLockFiles(cx);
+    else if (key === 'hide-build-output') this.toggleBuildOutput(cx);
+    else if (key === 'build-rules') openBuildRules();
+    else if (key === 'list' || key === 'tree') this.setFileView(key, cx);
   }
 
   showChanges(cx) {
@@ -948,7 +1086,7 @@ export default class DiffViewer {
   }
 
   openCommit(commit, cx, preview) {
-    if (this.discovering) return;
+    if (this.discovering || this.allRepositories) return;
     this.rowCache = null; this.selected = null; this.pendingReveal = null; this.rowStart = null;
     if (preview) {
       this.history.selection++;
@@ -960,7 +1098,7 @@ export default class DiffViewer {
   }
 
   openGraph(cx) {
-    if (this.discovering) return;
+    if (this.discovering || this.allRepositories) return;
     if (!this.graph) {
       this.graph = new GitGraph(cx, (text, cx, cancelled) => cx?.sleep ? parseDiffAsync(text, cx, cancelled) : parseDiff(text));
       this.graph.visibleFiles = files => this.visibleFiles(files);
@@ -981,6 +1119,7 @@ export default class DiffViewer {
   }
 
   setPanelTab(tab, cx) {
+    if (tab === 'history' && this.allRepositories) return;
     if (this.panelTab === tab) { cx.notify(); return; }
     this.panelTab = tab;
     if (tab === 'history' && !this.discovering) { this.history.load(cx); this.history.focus?.focus(); }
@@ -991,13 +1130,17 @@ export default class DiffViewer {
     const folders = [...this.folders].join('\0'), view = this.fileView;
     if (this.treeCache?.files === files && this.treeCache.folders === folders && this.treeCache.view === view) return this.treeCache.rows;
     const rows = [];
-    for (const section of changeSections(files)) {
+    const sections = this.allRepositories
+      ? this.repositories.flatMap(name => changeSections(files.filter(file => file.repository === name))
+        .map(section => ({ ...section, label: `${name} · ${section.label}` })))
+      : changeSections(files);
+    for (const section of sections) {
       const path = `section:${section.label}`, open = !this.folders.has(path);
       rows.push({ kind: 'section', key: path, path, section, open });
       if (!open) continue;
       const entries = view === 'list'
-        ? section.files.map(file => ({ kind: 'file', name: file.path, depth: 0, path: file.path, file }))
-        : changeTree(section.files, this.folders, `${section.label}:`);
+        ? section.files.map(file => ({ kind: 'file', name: file.sourcePath || file.path, depth: 0, path: file.path, file }))
+        : changeTree(section.files, this.folders, `${section.label}:`, file => file.sourcePath || file.path);
       for (const row of entries) rows.push({ ...row, key: `${row.kind}:${row.path}` });
     }
     this.treeCache = { files, folders, view, rows };
@@ -1040,12 +1183,13 @@ export default class DiffViewer {
       .when(this.repositories.some(name => name !== '.'), el => el.child(h_flex().h(32).flex_none().min_w(0).px(8)
         .border_b(1).border_color(t.border)
         .child(Select('git-repository', this.repositoryMenu,
-          this.repositories.find(name => repositoryFolder(this.project, name) === this.context?.folder),
-          this.repositories.map(name => ({ key: name, label: name, icon: 'folder', color: t.muted })),
+          this.allRepositories ? ALL_REPOSITORIES : this.repositories.find(name => repositoryFolder(this.project, name) === this.context?.folder),
+          [{ key: ALL_REPOSITORIES, label: 'All', icon: 'folder', color: t.muted },
+            ...this.repositories.map(name => ({ key: name, label: name, icon: 'folder', color: t.muted }))],
           'Git repository', (name, cx) => this.selectRepository(name, cx), t, { fullWidth: true }))))
       .child(h_flex().h(32).flex_none().items_center().border_b(1).border_color(t.border).text_size(12)
         .child(tab('changes', this.indexLoaded || this.loaded || files.length ? `Changes (${files.length})` : 'Changes'))
-        .child(tab('history', 'History')))
+        .child(tab('history', 'History').disabled(this.allRepositories)))
       .when(this.panelTab !== 'history', el => el.child(h_flex().id('diff-files-toolbar').h(32).flex_none().gap(0)
         .items_center().border_b(1).border_color(t.border)
         .child(Button('diff-view', t, { variant: 'ghost' }).h_full().px(8).gap(4).text_size(12).text_color(t.muted)
@@ -1058,10 +1202,12 @@ export default class DiffViewer {
         .child(div().flex_1())
         .child(DropdownMenu('diff-file-view', this.fileViewMenu,
           Button('diff-file-view-trigger', t, { variant: 'ghost', size: 'icon' }).h_full().w(32)
-            .accessibility_label('Change file view').child(icon('settings')),
-          [{ key: 'list', label: 'List', checked: this.fileView === 'list' },
-            { key: 'tree', label: 'Tree', checked: this.fileView === 'tree' }],
-          (key, cx) => this.setFileView(key, cx), t, { offset: { x: 0, y: 9 }, fullHeight: true })))) // 8px below the toolbar's bottom border
+            .accessibility_label('Git panel settings').child(icon('settings')),
+          this.panelSettingsItems(), (key, cx) => this.choosePanelSetting(key, cx), t,
+          { offset: { x: 0, y: 9 }, fullHeight: true })))) // 8px below the toolbar's bottom border
+      .when(this.panelTab !== 'history' && this.files.length > files.length, el => el.child(h_flex().h(24).flex_none().px(8)
+        .items_center().text_size(11).text_color(t.muted)
+        .child(div().min_w(0).truncate().child(`${this.files.length - files.length} hidden · Filters in settings`))))
       .child(this.panelTab === 'history' ? this.history.render(t) : v_flex().id('diff-files').relative().flex_1().min_h(0).py(4)
         .child(v_virtual_list('diff-files-list', fileRows.length, 28, index => fileRows[index].key,
           range => fileRows.slice(range.start, range.end).map(row => this.fileRow(row, t)))
@@ -1070,7 +1216,10 @@ export default class DiffViewer {
             else this.toggleFolder(key.startsWith('dir:') ? key.slice(4) : key, cx);
           }))
         .child(Scrollbar.vertical('diff-files-list').absolute().inset_0()))
-      .when(this.panelTab !== 'history', el => el.child(this.pushFooter(t)))
+      .when(this.panelTab !== 'history', el => el.child(this.allRepositories
+        ? h_flex().h(38).flex_none().px(10).items_center().border_t(1).border_color(t.border).text_size(11).text_color(t.muted)
+          .child(div().min_w(0).truncate().child('Select a repository for Git operations'))
+        : this.pushFooter(t)))
       .when(this.panelTab === 'changes' && Boolean(this.latestCommit), el => el.child(h_flex().id('git-latest-commit').h(32).flex_none()
         .border_t(1).border_color(t.border)
         .child(Button('git-view-latest-commit', t, { variant: 'ghost' }).flex_1().min_w(0).h_full().px(10).justify_start()
@@ -1258,6 +1407,11 @@ export default class DiffViewer {
   }
 
   render(project, cx, parts = false) {
+    const revision = shared('devkits.diff-build-rules-revision') || 0;
+    if (revision !== this.rulesRevision) {
+      this.rulesRevision = revision;
+      cx.spawn(async cx => { await cx.sleep(0); if (this.context && !this.discovering) this.reload(cx); });
+    }
     const workspace = this.project || this.context;
     if (workspace?.id !== project?.id || workspace?.folder !== project?.folder || workspace?.machine !== project?.machine) this.refresh(project, cx);
     this.nativeBranch = this.context?.folder === project?.folder ? project?.branch || null : null;
@@ -1287,10 +1441,11 @@ export default class DiffViewer {
           .child(DropdownMenu('diff-options', this.optionsMenu,
             Button('diff-options-trigger', t, { variant: 'ghost', size: 'icon' }).h_full().w(32)
               .accessibility_label('Diff options').child(icon('ellipsis')),
-            [{ key: 'wrap', label: 'Wrap', checked: this.wrap },
-              { key: 'hide-lock-files', label: 'Hide lock files', checked: this.hideLockFiles }],
-            (key, cx) => key === 'wrap' ? this.toggleWrap(cx) : this.toggleLockFiles(cx), t, { offset: { x: 8, y: 9 }, fullHeight: true })))
+            [{ key: 'wrap', label: 'Wrap', checked: this.wrap }],
+            (_key, cx) => this.toggleWrap(cx), t, { offset: { x: 8, y: 9 }, fullHeight: true })))
         .when(Boolean(preview), el => el.child(this.commitHeader(preview, t)))
+        .when(!preview && this.allRepositories && Boolean(this.error) && rows.length > 0,
+          el => el.child(div().flex_none().px(12).py(6).text_size(12).text_color(t.muted).child(this.error)))
         .when(this.panelTab === 'history' && Boolean(this.history.previewError), el => el.child(div().flex_none().px(12).py(8).text_size(12).text_color(t.muted)
           .child(this.history.previewError)))
         .when((preview ? preview.truncated : this.truncated) || limited, el => el.child(div().flex_none().px(12).py(6).text_size(11).text_color(t.muted).border_b(1).border_color(t.border)
@@ -1323,7 +1478,7 @@ export default class DiffViewer {
               .on_item_click((key, cx) => { if (key.startsWith('file:')) this.toggle(key.slice(5), cx); })))
             .child(Scrollbar.vertical('diff-rows').absolute().inset_0())
           : Empty(t).flex_1().p(24).gap(4).font_family('Geist')
-            .child(EmptyDescription(t).text_size(13).child(preview?.pending ? 'Loading commit…' : this.rowJob ? 'Loading changes…' : !this.displayFiles.length && (preview?.files || this.files).length ? 'All changed files are hidden by Hide lock files' : preview ? this.history.previewError ? 'Commit changes unavailable' : 'No file changes in this commit' : this.error ? 'Changes unavailable' : this.loaded ? 'No uncommitted changes' : 'Loading changes…'))
+            .child(EmptyDescription(t).text_size(13).child(preview?.pending ? 'Loading commit…' : this.rowJob ? 'Loading changes…' : !this.displayFiles.length && (preview?.files || this.files).length ? 'All changed files are hidden by filters in Git panel settings' : preview ? this.history.previewError ? 'Commit changes unavailable' : 'No file changes in this commit' : this.error ? 'Changes unavailable' : this.loaded ? 'No uncommitted changes' : 'Loading changes…'))
             .when(!preview && Boolean(this.error), el => el.child(EmptyDescription(t).child(this.error))));
     const body = div().id('diff-viewer').relative().size_full().min_h(0).bg(t.background).text_color(t.foreground)
       .child(content);

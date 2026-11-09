@@ -8,7 +8,7 @@ import { execFile } from 'node:child_process';
 
 async function load(host = {}) {
   const memory = {};
-  host = { SelectState: class { constructor() { this.open = false; } }, shared: key => memory[key], setShared: (key, value) => { memory[key] = value; }, TextEncoder: undefined, TextDecoder: undefined,
+  host = { readBuildRules: async () => null, withBuildRulesFile: (rules, _on, read) => read(rules?.path || ''), openBuildRules() {}, SelectState: class { constructor() { this.open = false; } }, shared: key => memory[key], setShared: (key, value) => { memory[key] = value; }, TextEncoder: undefined, TextDecoder: undefined,
     v_virtual_list: (_id, count, _sizes, _key, render) => { render({ start: 0, end: count }); return host.div(); },
     Scrollbar: { vertical: () => host.div() }, ...host };
   const source = await readFile(new URL('../mods/devkits/diff.js', import.meta.url), 'utf8');
@@ -21,7 +21,7 @@ async function load(host = {}) {
   const utf8 = await readFile(new URL('../mods/devkits/utf8.js', import.meta.url), 'utf8');
   const toast = await readFile(new URL('../mods/devkits/git-result-toast.js', import.meta.url), 'utf8');
   return new Function(...Object.keys(host), (utf8 + '\n' + command + '\n' + shell + '\n' + menu + '\n' + history + '\n' + auth + '\n' + sidePanel + '\n' + toast + '\n' + source).replace(/^import .*;\r?\n/gm, '')
-    .replace('export default class', 'class').replace(/^export /gm, '') + '\nreturn { DiffViewer, readRepositories, DropdownMenu, DropdownMenuState, showGitToast, clearGitToast, utf8ByteLength, parseDiff, parseDiffBatches, parseDiffAsync, parseDiffIndex, readDiff, readPushState, pushBranch, gitRemoteAction, affectsDiff, pairLines, changedRanges, changeSections, changeTree, wrapLine, isLockFile };')(...Object.values(host));
+    .replace('export default class', 'class').replace(/^export /gm, '') + '\nreturn { DiffViewer, ALL_REPOSITORIES, readAllDiff, readRepositories, DropdownMenu, DropdownMenuState, showGitToast, clearGitToast, utf8ByteLength, parseDiff, parseDiffBatches, parseDiffAsync, parseDiffIndex, readDiff, readPushState, pushBranch, gitRemoteAction, affectsDiff, pairLines, changedRanges, changeSections, changeTree, wrapLine, isLockFile, isBuildOutput };')(...Object.values(host));
 }
 const run = promisify(execFile);
 const indexFor = path => `${'a'.repeat(40)}\0/repo\0:100644 100644 abc def M\0${path}\0` + `1\t1\t${path}\0\0`;
@@ -96,6 +96,115 @@ test('child repository selection scopes reads, remembers the choice and discards
   assert.equal(view.context.folder, '/parent/alpha', 'A missing saved repository falls back to an available one');
 });
 
+test('All reads every index first, keeps identical paths distinct and preserves successful repositories on errors', async () => {
+  const calls = [];
+  let failed = false;
+  const { readAllDiff, DiffViewer } = await load({
+    VirtualListScrollHandle: { new: () => ({ scroll_to_item() {} }) },
+    exec: async (_cmd, args, options) => {
+      assert.equal(options.on, 'remote');
+      if (args.includes('devkits-diff-index')) {
+        const folder = args[3]; calls.push(`index:${folder}`);
+        if (failed && folder.endsWith('/beta')) return { code: 1, stdout: '', stderr: 'Unavailable' };
+        return { code: 0, stdout: indexFor('src/same.js').replace('/repo', folder) };
+      }
+      assert.ok(args.includes('devkits-diff-file'));
+      calls.push(`patch:${args[3]}:${args[6]}`);
+      return { code: 0, stdout: `diff --git a/src/same.js b/src/same.js\n--- a/src/same.js\n+++ b/src/same.js\n@@ -1 +1 @@\n-old\n+${args[3]}\n` };
+    },
+  });
+  const project = { folder: '/parent', machine: 'remote' };
+  let indexed;
+  const first = await readAllDiff(project, ['alpha', 'beta'], { onIndex: files => { indexed = files; assert.equal(calls.length, 2); } });
+  assert.deepEqual(calls, ['index:/parent/alpha', 'index:/parent/beta', 'patch:/parent/alpha:src/same.js', 'patch:/parent/beta:src/same.js']);
+  assert.deepEqual(indexed.map(file => file.path), ['alpha/src/same.js', 'beta/src/same.js']);
+  assert.deepEqual(first.files.map(file => file.hunks[0].lines.at(-1).text), ['/parent/alpha', '/parent/beta']);
+  const stable = await readAllDiff(project, ['alpha', 'beta'], { previous: first.files });
+  assert.equal(stable.files, first.files);
+  const view = new DiffViewer(); view.init(); view.context = { ...project, allRepositories: true };
+  view.repositories = ['alpha', 'beta']; view.files = first.files;
+  assert.deepEqual(view.fileRows(first.files).filter(row => row.kind === 'section').map(row => row.section.label), ['alpha · Tracked', 'beta · Tracked']);
+  assert.deepEqual(view.fileRows(first.files).filter(row => row.kind === 'dir').map(row => row.name), ['src', 'src']);
+  view.reveal('beta/src/same.js', { notify() {} });
+  assert.equal(view.selected, 'beta/src/same.js');
+  assert.equal(view.rows().rows.filter(row => row.kind === 'file').length, 2);
+  failed = true;
+  const partial = await readAllDiff(project, ['alpha', 'beta'], { previous: first.files });
+  assert.match(partial.error, /beta: Unavailable/);
+  assert.equal(partial.files, first.files);
+  assert.equal(await readAllDiff(project, ['alpha', 'beta'], { cancelled: () => true }), null);
+});
+
+test('All shares the source-line budget and prioritizes a selected file without changing repository order', async () => {
+  const calls = [];
+  const { readAllDiff } = await load({ exec: async (_cmd, args) => {
+    if (args.includes('devkits-diff-index')) return { code: 0, stdout: indexFor('same').replace('/repo', args[3]) };
+    calls.push(args[3]);
+    const count = Math.min(6000, Number(args[8]) - 64);
+    return { code: 0, stdout: `diff --git a/same b/same\n--- a/same\n+++ b/same\n@@ -0,0 +1,${count} @@\n` + '+new\n'.repeat(count) };
+  } });
+  const result = await readAllDiff({ folder: '/parent' }, ['alpha', 'beta'], { priority: 'beta/same' });
+  assert.deepEqual(calls, ['/parent/beta', '/parent/alpha']);
+  assert.deepEqual(result.files.map(file => file.path), ['alpha/same', 'beta/same']);
+  assert.equal(result.files[1].hunks[0].lines.length, 6000);
+  assert.equal(result.files.reduce((sum, file) => sum + file.hunks.reduce((n, hunk) => n + hunk.lines.length, 0), 0), 10000);
+});
+
+test('All selection is remembered, scopes history and remote operations, and restores single-repository behavior', async () => {
+  const memory = {}, tasks = [];
+  const { DiffViewer, ALL_REPOSITORIES } = await load({
+    shared: key => memory[key], setShared: (key, value) => { memory[key] = value; },
+    VirtualListScrollHandle: { new: () => ({ scroll_to_item() {} }) },
+    exec: async () => ({ code: 0, stdout: 'alpha\0beta\0' }),
+  });
+  const cx = { sleep: async () => {}, notify() {}, spawn(fn) { tasks.push(fn(cx)); } };
+  const drain = async () => { while (tasks.length) await Promise.all(tasks.splice(0)); };
+  const view = new DiffViewer(); view.init(); view.observe = () => {}; view.reload = () => {};
+  const project = { id: 'parent', folder: '/parent' };
+  view.refresh(project, cx); await drain();
+  view.panelTab = 'history'; view.selectRepository(ALL_REPOSITORIES, cx); await drain();
+  assert.equal(view.allRepositories, true); assert.equal(view.context.folder, '/parent');
+  assert.equal(view.history.context, null); assert.equal(view.panelTab, 'changes');
+  assert.match(view.pushUnavailable('fetch'), /Select a repository/);
+  view.setPanelTab('history', cx); view.openGraph(cx); view.openCommit({ sha: 'abc' }, cx);
+  assert.equal(view.panelTab, 'changes'); assert.equal(view.graphMode, false); assert.equal(view.previewMode, false);
+  view.refresh(project, cx); await drain(); assert.equal(view.allRepositories, true);
+  view.selectRepository('beta', cx); await drain();
+  assert.equal(view.allRepositories, false); assert.equal(view.context.folder, '/parent/beta');
+  assert.equal(view.history.context.folder, '/parent/beta');
+});
+
+test('All panel exposes the saved choice, disables History and omits branch and remote controls', async () => {
+  const nodes = new Map(); let selection;
+  const element = () => {
+    const data = {};
+    const el = new Proxy(data, { get(target, key) {
+      if (key in target) return target[key];
+      if (key === 'when') return (condition, render) => { if (condition) render(el); return el; };
+      return (...args) => {
+        if (key === 'id') nodes.set(args[0], data);
+        if (key === 'disabled') data.disabledValue = args[0];
+        return el;
+      };
+    } });
+    return el;
+  };
+  const { DiffViewer, ALL_REPOSITORIES } = await load({
+    div: element, svg: element, h_flex: element, v_flex: element,
+    Button: id => element().id(id), Popup: { new: id => element().id(id) },
+    Select: (_id, _state, value, options) => { selection = { value, options }; return element(); },
+    VirtualListScrollHandle: { new: () => ({}) },
+  });
+  const view = new DiffViewer(); view.init(); view.project = { folder: '/parent' };
+  view.context = { folder: '/parent', allRepositories: true }; view.repositories = ['alpha', 'beta'];
+  view.panel({});
+  assert.equal(selection.value, ALL_REPOSITORIES);
+  assert.deepEqual(selection.options.map(option => option.label), ['All', 'alpha', 'beta']);
+  assert.equal(nodes.get('git-tab-history').disabledValue, true);
+  assert.equal(nodes.has('diff-push'), false);
+  assert.equal(nodes.has('git-open-graph'), false);
+});
+
 test('lockfile preference filters working changes and history without discarding Git data', async () => {
   const memory = {};
   const { DiffViewer, isLockFile, parseDiff } = await load({
@@ -129,6 +238,124 @@ test('lockfile preference filters working changes and history without discarding
   assert.equal(view.files.length, 2);
   const reopened = new DiffViewer(); reopened.init();
   assert.equal(reopened.hideLockFiles, false);
+});
+
+test('build filtering follows Git classification, preserves tracked changes and retains preferences', async () => {
+  const memory = {};
+  const { DiffViewer, isBuildOutput } = await load({
+    shared: key => memory[key], setShared: (key, value) => { memory[key] = value; },
+    VirtualListScrollHandle: { new: () => ({ scroll_to_item() {} }) },
+  });
+  assert.equal(isBuildOutput({ path: 'custom/output', untracked: true, buildOutput: true }), true);
+  assert.equal(isBuildOutput({ path: 'custom/output', untracked: false, buildOutput: true }), false);
+  assert.equal(isBuildOutput({ path: 'anything.obj', untracked: true, buildOutput: false }), false);
+  const view = new DiffViewer(); view.init();
+  view.files = [
+    { path: 'Cargo.lock' }, { path: 'src/main.cpp' },
+    { path: 'repo/x64/Debug/main.obj', sourcePath: 'x64/Debug/main.obj', untracked: true, buildOutput: true },
+    { path: 'repo/x64/Debug/tracked.dll', untracked: false },
+  ];
+  const visible = view.displayFiles;
+  assert.deepEqual(visible.map(file => file.path), ['src/main.cpp', 'repo/x64/Debug/tracked.dll']);
+  view.toggleBuildOutput({ notify() {} });
+  assert.equal(memory['devkits.diff-hide-build-output'], false);
+  assert.equal(view.displayFiles.length, 3);
+  view.toggleLockFiles({ notify() {} }); assert.equal(view.displayFiles, view.files);
+  view.toggleBuildOutput({ notify() {} }); assert.equal(view.displayFiles.length, 3);
+  view.toggleLockFiles({ notify() {} }); assert.equal(view.displayFiles, visible, 'Each combination has stable filtering');
+  const reopened = new DiffViewer(); reopened.init(); assert.equal(reopened.hideBuildOutput, true);
+});
+
+test('hidden output skips patch reads and turning its switch off loads deferred contents', async () => {
+  const memory = {}, tasks = [], patches = [];
+  const { DiffViewer } = await load({
+    shared: key => memory[key], setShared: (key, value) => { memory[key] = value; },
+    VirtualListScrollHandle: { new: () => ({ scroll_to_item() {} }) },
+    exec: async (_cmd, args) => {
+      if (args.includes('devkits-diff-index')) return { code: 0, stdout: indexFor('src/main.cpp') + 'x64/Debug/main.obj\0Cargo.lock\0\0x64/Debug/main.obj\0' };
+      if (!args.includes('devkits-diff-file')) return { code: 0, stdout: '' };
+      const path = args[6]; patches.push(path);
+      return { code: 0, stdout: `diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n@@ -0,0 +1 @@\n+new\n` };
+    },
+  });
+  const cx = { sleep: async () => {}, notify() {}, spawn(fn) { tasks.push(fn(cx)); } };
+  const drain = async () => { while (tasks.length) await Promise.all(tasks.splice(0)); };
+  const view = new DiffViewer(); view.init(); view.context = { folder: '/repo' };
+  view.reload(cx); await drain();
+  assert.deepEqual(patches, ['src/main.cpp']);
+  assert.deepEqual(view.displayFiles.map(file => file.path), ['src/main.cpp']);
+  assert.equal(view.files.find(file => file.path === 'x64/Debug/main.obj').deferred, true);
+  view.toggleBuildOutput(cx); await drain();
+  assert.equal(view.files.find(file => file.path === 'x64/Debug/main.obj').deferred, false);
+  assert.equal(view.displayFiles.length, 2);
+  assert.ok(patches.includes('x64/Debug/main.obj')); assert.ok(!patches.includes('Cargo.lock'));
+  view.toggleLockFiles(cx); await drain();
+  assert.equal(view.displayFiles.length, 3); assert.ok(patches.includes('Cargo.lock'));
+});
+
+test('Git evaluates downloaded templates and user exceptions without hiding tracked files or lockfiles', async t => {
+  const folder = await mkdtemp(join(tmpdir(), "devkits gitignore ' $(literal) "));
+  t.after(() => rm(folder, { recursive: true, force: true }));
+  const git = (...args) => run('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args]);
+  await git('init', '-q', folder);
+  await writeFile(join(folder, 'tracked.obj'), 'original');
+  await git('-C', folder, 'add', 'tracked.obj');
+  await git('-C', folder, 'commit', '-qm', 'initial');
+  await writeFile(join(folder, 'tracked.obj'), 'changed');
+  for (const path of ['Debug/build.obj', 'new.custom', 'keep.obj', 'Cargo.lock', 'package-lock.json', 'strange 中文 $(literal).obj']) {
+    await mkdir(join(folder, path, '..'), { recursive: true });
+    await writeFile(join(folder, path), 'contents');
+  }
+  const templates = await Promise.all(['VisualStudio', 'Qt'].map(name => readFile(new URL(`../mods/devkits/assets/gitignore/${name}.gitignore`, import.meta.url), 'utf8')));
+  const rulesPath = join(folder, '..', `rules-${Date.now()}.gitignore`);
+  t.after(() => rm(rulesPath, { force: true }));
+  await writeFile(rulesPath, templates.join('\n') + '\n*.custom\n!keep.obj\n');
+  const { readDiff } = await load({ exec: async (command, args) => {
+    try { return { code: 0, ...await run(command, args) }; }
+    catch (error) { if (typeof error.code !== 'number') throw error; return { code: error.code, stdout: error.stdout, stderr: error.stderr }; }
+  } });
+  const options = { buildRules: { path: rulesPath.replaceAll('\\', '/') }, include: file => !file.buildOutput };
+  const first = await readDiff(folder.replaceAll('\\', '/'), null, options);
+  const classified = new Map(first.files.map(file => [file.path, file]));
+  for (const name of ['Debug/build.obj', 'new.custom', 'strange 中文 $(literal).obj']) {
+    assert.equal(classified.get(name).buildOutput, true, name);
+    assert.equal(classified.get(name).deferred, true, name);
+  }
+  for (const name of ['keep.obj', 'Cargo.lock', 'package-lock.json', 'tracked.obj']) {
+    assert.ok(!classified.get(name).buildOutput, name);
+    assert.equal(classified.get(name).deferred, false, name);
+  }
+  await writeFile(rulesPath, templates.join('\n') + '\n!*.obj\n');
+  const second = await readDiff(folder.replaceAll('\\', '/'), null, { ...options, previous: first.files });
+  assert.equal(second.files.find(file => file.path === 'Debug/build.obj').buildOutput, true, 'An excluded parent directory still wins, following Git semantics');
+  assert.equal(second.files.find(file => file.path === 'strange 中文 $(literal).obj').deferred, false);
+  assert.equal(second.files.find(file => file.path === 'new.custom').deferred, false);
+});
+
+test('Git panel settings keep lockfile and build filters independent and display matching counts', async () => {
+  const memory = { 'devkits.diff-hide-x64-output': false };
+  const { DiffViewer } = await load({
+    shared: key => memory[key], setShared: (key, value) => { memory[key] = value; },
+    VirtualListScrollHandle: { new: () => ({ scroll_to_item() {} }) },
+  });
+  const view = new DiffViewer(); view.init();
+  view.files = [{ path: 'Cargo.lock' }, { path: 'debug/build.tlog', untracked: true, buildOutput: true }, { path: 'src/main.cpp' }];
+  let options = view.panelSettingsItems();
+  assert.equal(options.find(item => item.key === 'hide-lock-files').description, '1 hidden');
+  assert.equal(options.find(item => item.key === 'hide-build-output').description, '1 file');
+  assert.equal(view.hideBuildOutput, false, 'Preserve the previous x64 filter choice');
+  view.choosePanelSetting('hide-build-output', { notify() {} });
+  assert.equal(memory['devkits.diff-hide-build-output'], true);
+  assert.equal(view.hideLockFiles, true);
+  assert.equal(view.displayFiles.length, 1);
+  view.choosePanelSetting('hide-lock-files', { notify() {} });
+  assert.equal(view.hideBuildOutput, true);
+  assert.deepEqual(view.displayFiles.map(file => file.path), ['Cargo.lock', 'src/main.cpp']);
+  options = view.panelSettingsItems();
+  assert.equal(options.find(item => item.key === 'hide-lock-files').description, '1 file');
+  assert.equal(options.find(item => item.key === 'hide-build-output').description, '1 hidden');
+  view.choosePanelSetting('hide-build-output', { notify() {} });
+  assert.equal(view.displayFiles, view.files);
 });
 
 test('push reads clean, unborn and detached branches and respects Git push configuration', async t => {
