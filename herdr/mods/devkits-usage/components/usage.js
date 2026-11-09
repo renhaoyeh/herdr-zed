@@ -1,12 +1,15 @@
 // Shared: edit mods/devkits/components/usage.js, then npm run sync:shared.
 import { div } from 'gpui-kit';
 import { v_flex, h_flex } from 'gpui-base';
-import { shared, openOverlay, run } from 'herdr';
+import { shared, openOverlay, run, layout } from 'herdr';
 import { launcherLabel, quotaResetLabel, quotaElapsedPercent } from './session-model.js';
 import { Button } from './button.js';
 import { Progress } from './progress.js';
 import { glyph, AgentIcon } from './icon.js';
 export const usageClientPrefix = 'usage-client:';
+const usageServiceMounted = (node = layout()) => Boolean(node && (
+  node.content?.mod === 'devkits-usage' && node.content.props?.view === 'service'
+  || node.children?.some(child => usageServiceMounted(child))));
 export const usageRefreshPrefix = 'usage-refresh:';
 export const usageCommand = (prefix, payload) => prefix + encodeURIComponent(JSON.stringify(payload));
 export function usageMessage(command, prefix) {
@@ -20,10 +23,18 @@ export class UsageClient {
     this.context = context; this.active = active; this.clientId = `usage:${Date.now()}:${Math.random().toString(36).slice(2)}`;
   }
   init(cx) { this.started = true; this.heartbeat(); cx.timer.every(1000, () => this.heartbeat()); cx.timer.every(60000, cx => cx.notify()); }
-  heartbeat() { this.contextSignature = JSON.stringify([Boolean(this.active()), this.context()?.machine || null]); run('devkits-usage.' + usageCommand(usageClientPrefix, { id: this.clientId, active: Boolean(this.active()), machine: this.context()?.machine || null })); }
+  heartbeat() {
+    if (!this.started || !usageServiceMounted()) return false;
+    this.contextSignature = JSON.stringify([Boolean(this.active()), this.context()?.machine || null]);
+    run('devkits-usage.' + usageCommand(usageClientPrefix, { id: this.clientId, active: Boolean(this.active()), machine: this.context()?.machine || null }));
+    return true;
+  }
   sync() { if (this.contextSignature !== JSON.stringify([Boolean(this.active()), this.context()?.machine || null])) this.heartbeat(); }
-  close() { this.started = false; run('devkits-usage.' + usageCommand(usageClientPrefix, { id: this.clientId, active: false, machine: this.context()?.machine || null })); }
-  refresh() { this.heartbeat(); run('devkits-usage.' + usageCommand(usageRefreshPrefix, { id: this.clientId })); }
+  close() {
+    // Native close commands can outlive their provider; let the five-second lease expire.
+    this.started = false;
+  }
+  refresh() { if (this.heartbeat()) run('devkits-usage.' + usageCommand(usageRefreshPrefix, { id: this.clientId })); }
   snapshot() {
     const machine = this.context()?.machine || null;
     return shared('devkits.usage.snapshot')?.contexts?.[JSON.stringify(machine)] || { machine, choices: [], usage: [], loading: false, error: null };

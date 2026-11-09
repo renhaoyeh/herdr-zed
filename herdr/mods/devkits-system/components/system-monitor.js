@@ -1,11 +1,14 @@
 // Shared: edit mods/devkits/components/system-monitor.js, then npm run sync:shared.
 import { div, svg, PathBuilder } from 'gpui-kit';
 import { h_flex, v_flex } from 'gpui-base';
-import { shared, openOverlay, run, nextCommand } from 'herdr';
+import { shared, openOverlay, run, nextCommand, layout } from 'herdr';
 import { Button } from './button.js';
 import { hardwareModules, hardwarePreferences, selectedHardwareCores, hardwareBytes, hardwarePercent, hardwareSpeed, hardwarePower, hardwareSensorSummary, hardwarePoint, hardwareChartPoints, hardwareChartScale, hardwareDisplayItems, hardwareDisplayHistory } from './system-monitor-model.js';
 import { processorLabel } from './system-monitor-topology.js';
 const hardwareConfig = () => hardwarePreferences(shared('devkits.system-monitor'));
+const systemServiceMounted = (node = layout()) => Boolean(node && (
+  node.content?.mod === 'devkits-system' && node.content.props?.view === 'service'
+  || node.children?.some(child => systemServiceMounted(child))));
 export const systemClientPrefix = 'system-client:';
 export const systemSnapshotPrefix = 'system-snapshot:';
 export const systemCommand = (prefix, value) => prefix + encodeURIComponent(JSON.stringify(value));
@@ -135,6 +138,7 @@ export class SystemMonitor {
     this.clientId = `system:${Date.now()}:${Math.random().toString(36).slice(2)}`;
   }
   init(cx) {
+    this.started = true;
     cx.spawn(async cx => {
       for (;;) {
         const snapshot = systemMessage(await nextCommand(), systemSnapshotPrefix);
@@ -152,13 +156,15 @@ export class SystemMonitor {
     this.onSnapshot?.(snapshot);
   }
   poll() {
-    if (!this.receiver) return;
+    if (!this.started || !this.receiver || !systemServiceMounted()) return;
     run('devkits-system.' + systemCommand(systemClientPrefix, {
       id: this.clientId, receiver: this.receiver, active: Boolean(this.active()),
     }));
   }
   close() {
-    if (this.receiver) run('devkits-system.' + systemCommand(systemClientPrefix, { id: this.clientId, receiver: this.receiver, active: false }));
+    // Native close commands are dispatched after teardown, when the provider may already be gone.
+    // Stop renewing the existing five-second lease instead.
+    this.started = false;
   }
   snapshot() {
     const config = hardwareConfig();

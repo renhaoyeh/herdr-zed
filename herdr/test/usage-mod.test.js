@@ -21,6 +21,7 @@ async function setup(options = {}) {
   const endpoint = name => {
     const endpoint = { name, queue: [], waiting: null }; endpoints.push(endpoint);
     return { ...model,
+      layout: () => ({ content: { mod: 'devkits-usage', props: { view: 'service' } } }),
       globalThis: { window: { sessionStorage: { getItem: () => null, setItem() {} } } },
       shared: key => clone(memory[key]), setShared: (key, value) => { memory[key] = clone(value); writes.push(key); },
       appHome: () => '/herdr', home: () => '/home', readTextFile: async () => null,
@@ -56,7 +57,8 @@ async function setup(options = {}) {
   return { memory, writes, queries, discoveries, errors, available, owner, service, serviceClock, client };
 }
 
-test('one Usage service serves isolated consumers, coalesces quota queries and publishes only display data', async () => {
+test('one Usage service serves isolated consumers, coalesces quota queries and publishes only display data', async t => {
+  let now = Date.now(); t.mock.method(Date, 'now', () => now);
   const h = await setup(); assert.equal(h.queries.length, 0);
   const one = await h.client(), two = await h.client(); await flush();
   assert.equal(h.queries.length, 1); assert.equal(one.snapshot().usage[0].windows[0].usedPercent, 42);
@@ -65,7 +67,10 @@ test('one Usage service serves isolated consumers, coalesces quota queries and p
   assert.equal(one.snapshot().choices[0].agent.run, undefined);
   const changed = h.writes.length; one.snapshot(); two.snapshot(); assert.equal(h.writes.length, changed, 'Reading a snapshot never queries or writes state');
   one.close(); await flush(); assert.equal(h.service.active(null), true);
-  two.close(); await flush(); assert.equal(h.service.active(null), false); assert.deepEqual(h.errors, []);
+  two.close(); now += 5001;
+  for (const timer of h.serviceClock.timers) timer.tick(h.serviceClock.cx);
+  await flush(); assert.equal(h.service.active(null), false); assert.deepEqual(h.errors, []);
+  assert.equal(h.queries.length, 1, 'Expired leases never trigger another quota read');
 });
 
 test('the host controls visibility and disabling during discovery prevents a provider query', async () => {

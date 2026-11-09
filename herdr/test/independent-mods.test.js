@@ -89,6 +89,7 @@ test('SYSTEM samples in its service only and broadcasts snapshots to isolated mo
   const endpoint = mod => {
     const endpoint = { mod, waiting: null }; endpoints.push(endpoint);
     return { globalThis: { window: { sessionStorage: storage() } }, shared: () => null, setShared: (...args) => sharedWrites.push(args),
+      layout: () => ({ content: { mod: 'devkits-system', props: { view: 'service' } } }),
       appHome: () => '/herdr', Button() {}, glyph() {},
       nextCommand: () => new Promise(resolve => { endpoint.waiting = resolve; }),
       run: command => { const dot = command.indexOf('.'), receiver = command.slice(0, dot), message = command.slice(dot + 1);
