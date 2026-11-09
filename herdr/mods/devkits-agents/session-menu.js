@@ -11,6 +11,7 @@ import { ToggleGroup, ToggleGroupItem } from './components/toggle-group.js';
 import { DialogContent, DialogTitle, DialogDescription, DialogFooter } from './components/dialog.js';
 import { glyph, AgentIcon } from './components/icon.js';
 import { Select, SelectState } from './components/select.js';
+import { accountStorageDirectory, storageGroups, storageSize } from './account-storage-model.js';
 
 const launcherSections = ['Terminal', 'Agents', 'Your accounts', 'Agent profiles'];
 import { openAgentSettings, noAccount } from './components/agents.js';
@@ -99,7 +100,7 @@ export const sessionMenu = {
 
   // Like macOS and Zed settings: accounts grouped by provider on the left, the selected account on the right.
   // Its session defaults choose from the provider's shared Models in menus, so both sit together.
-  accountsPage(t) {
+  accountsPage(t, cx) {
     const agents = this.availableAgents(this.launchers).filter(agent => !agent.profileKey);
     const usage = shared('devkits.usage.snapshot')?.contexts?.[JSON.stringify(null)]?.usage || [];
     const order = shared('devkits.launcher-order') || [];
@@ -132,16 +133,22 @@ export const sessionMenu = {
                   .when(this.accountName(item, launcherLabel(item.name || group.kind)) === noAccount, el => el.text_color(t.muted))
                   .child(this.accountName(item, launcherLabel(item.name || group.kind))))));
           })))
-        .child(agent ? this.accountDetail(agent, usage, t)
+        .child(agent ? this.accountDetail(agent, usage, t, cx)
           : div().flex_1().p(12).text_size(12).text_color(t.muted).child(this.loading ? 'Loading agents…' : 'Install Claude Code or Codex CLI to manage accounts.')));
   },
 
-  accountDetail(agent, usage, t) {
+  accountDetail(agent, usage, t, cx) {
+    if (cx) this.loadAccountStorage(agent, cx);
+    const storageBeside = (this.accountDetailWidth || 0) >= 590;
     const kind = sessionKind(agent), name = kind === 'claude' ? 'Claude' : 'Codex';
     const label = this.accountName(agent, launcherLabel(agent.name || kind)), identity = this.accountIdentity(agent);
     // On the name's line: a named account's address, then the plan (a Default account already uses its address as the name).
     const about = [identity.email !== label && identity.email, planLabel(identity.plan)].filter(Boolean).join(' · ');
     return v_flex().id(`account-detail-${agent.key}`).flex_1().min_w(0).h_full().min_h(0).overflow_y_scroll().gap(12)
+      .on_size_change((size, cx) => {
+        if (this.accountDetailWidth === size.width) return;
+        this.accountDetailWidth = size.width; cx.notify();
+      })
       .child(h_flex().flex_none().gap(10).items_center()
         .child(AgentIcon(agent, t).flex_none())
         // One centered line: name · address · plan, the details muted.
@@ -154,15 +161,69 @@ export const sessionMenu = {
             .on_click(() => this.renameAccount(agent)).child('Rename'))
           .child(Button(`account-actions-${agent.key}-remove`, t, { variant: 'secondary' }).h(28)
             .text_color(t.destructive || t.ansi1).on_click(() => this.confirmRemoveAccount(agent)).child('Remove'))))
-      .child(v_flex().id(`account-defaults-panel-${agent.key}`).flex_none().gap(8).mt(4)
-        .child(DropdownMenuLabel(t).px(0).child('SESSION DEFAULTS'))
-        .child(div().text_size(12).text_color(t.muted).child(`For new sessions started with ${label}. Model choices come from the list below.`))
-        .child(this.configurationFields(agent, t)))
+      .child((storageBeside ? h_flex() : v_flex()).id(`account-settings-storage-${agent.key}`).flex_none().gap(16)
+        .when(storageBeside, el => el.items_start())
+        .child(v_flex().id(`account-defaults-panel-${agent.key}`).min_w(0).gap(8).mt(4)
+          .when(storageBeside, el => el.flex_1()).when(!storageBeside, el => el.flex_none())
+          .child(DropdownMenuLabel(t).px(0).child('SESSION DEFAULTS'))
+          .child(div().text_size(12).text_color(t.muted).child(`For new sessions started with ${label}. Model choices come from the list below.`))
+          .child(this.configurationFields(agent, t, null, storageBeside ? 200 : 240)))
+        .child(div().id(`account-storage-position-${agent.key}`).min_w(0).flex_none()
+          .when(storageBeside, el => el.w(250)).when(!storageBeside, el => el.w_full())
+          .child(this.accountStoragePanel(agent, t))))
       .child(v_flex().flex_none().gap(8).mt(8)
         .child(DropdownMenuLabel(t).px(0).child(`MODELS IN MENUS · ALL ${name.toUpperCase()} ACCOUNTS`))
         .child(div().text_size(12).text_color(t.muted)
           .child(`Which models and efforts every ${name} Model and Effort menu offers, including profiles. Drag to reorder.`))
         .children(this.sessionOptions([kind], t)));
+  },
+
+  loadAccountStorage(agent, cx, refresh = false) {
+    const target = accountStorageDirectory(agent, home());
+    if (!target || this.storageClosed) return;
+    this.accountStorage ||= new Map();
+    const key = JSON.stringify(target), previous = this.accountStorage.get(key);
+    if (previous?.loading || (previous && !refresh)) return;
+    const state = { ...previous, loading: true, error: null };
+    this.accountStorage.set(key, state);
+    cx.spawn(async cx => {
+      try {
+        const result = await exec('node', [`${appHome()}/mods/devkits-agents/account-storage-reader.js`, target.directory], { timeout: 15000 });
+        if (result.code !== 0) throw new Error('Could not read local data sizes.');
+        const data = JSON.parse(result.stdout);
+        if (!Number.isFinite(data.bytes) || !data.groups) throw new Error('Could not read local data sizes.');
+        if (this.storageClosed || this.accountStorage.get(key) !== state) return;
+        state.data = data;
+      } catch { if (!this.storageClosed) state.error = 'Could not read local data sizes. Try Refresh.'; }
+      if (this.storageClosed) return;
+      state.loading = false;
+      cx.notify();
+    });
+  },
+
+  accountStoragePanel(agent, t) {
+    const target = accountStorageDirectory(agent, home());
+    const key = JSON.stringify(target), state = this.accountStorage?.get(key), data = state?.data;
+    const summary = data ? `${data.partial ? 'At least ' : ''}${storageSize(data.bytes)}` : state?.error ? 'Unavailable' : 'Calculating…';
+    return v_flex().id(`account-storage-${agent.key}`).flex_none().gap(8).mt(4)
+      .child(h_flex().items_center().gap(8)
+        .child(DropdownMenuLabel(t).px(0).flex_1().child('STORAGE ON THIS COMPUTER'))
+        .child(Button(`account-storage-refresh-${agent.key}`, t, { variant: 'ghost' }).h(28).px(6)
+          .disabled(Boolean(state?.loading)).on_click((_event, cx) => { this.loadAccountStorage(agent, cx, true); cx.notify(); })
+          .child(state?.loading && data ? 'Refreshing…' : 'Refresh')))
+      .child(v_flex().id(`account-storage-breakdown-${agent.key}`).flex_none().border(1).border_color(t.border)
+        .child(h_flex().h(36).px(12).items_center().gap(12)
+          .child(div().flex_1().text_size(13).font_medium().child('Total for this account'))
+          .child(div().id(`account-storage-total-${agent.key}`).flex_none().text_size(13).font_medium().child(summary)))
+        .children(storageGroups.map(([group, label]) => h_flex().h(28).px(12).items_center().gap(12).border_t(1).border_color(t.border)
+          .child(div().flex_1().text_size(12).text_color(t.muted).child(label))
+          .child(div().flex_none().text_size(12).child(data ? storageSize(data.groups[group]) : '—')))))
+      .child(div().text_size(12).text_color(t.muted).child('All profiles using this account share these files. Adding a profile does not duplicate them.'))
+      .when(Boolean(data), el => el.child(div().text_size(12).text_color(t.muted).child(data.missing ? 'No saved data yet.'
+        : data.partial ? 'Some files could not be counted. Sizes are incomplete.'
+        : data.skippedLinks ? 'Estimated file sizes. Linked files and folders are excluded.'
+        : 'Estimated file sizes. Actual space on disk may differ.')))
+      .when(Boolean(state?.error), el => el.child(div().text_size(12).text_color(t.destructive || t.ansi1).child(state.error)));
   },
 
   configurationAccountPicker(profiles, profile, choose, t) {
@@ -175,7 +236,7 @@ export const sessionMenu = {
         }, t, { width: 240, boxed: true }));
   },
 
-  configurationFields(agent, t, draft = null) {
+  configurationFields(agent, t, draft = null, width = 240) {
     const colors = [t.muted, t.done, t.working, t.ansi1];
     return v_flex().id('agent-settings-fields').flex_none().gap(12)
       .children(this.providerDefaults(agent, draft).map(section => {
@@ -191,7 +252,7 @@ export const sessionMenu = {
         return h_flex().flex_none().gap(12).items_center()
           .child(div().w(108).flex_none().text_size(13).child(section.label))
           .child(Select(`defaults-${section.id}`, this.defaultSelects[section.id], value, options, `Default ${section.label.toLowerCase()}`,
-            key => section.items.find(item => item.key === key)?.choose(), t, { width: 240, boxed: true }));
+            key => section.items.find(item => item.key === key)?.choose(), t, { width, boxed: true }));
       }));
   },
 
@@ -322,7 +383,7 @@ export const sessionMenu = {
     });
   },
 
-  manageLaunchers(t) {
+  manageLaunchers(t, cx) {
     const hidden = shared('devkits.hidden-launchers') || [];
     const choices = launcherChoices(this.availableAgents(this.launchers, spaces().find(space => space.id === (props() || {}).space)?.machine), shared('devkits.launcher-order') || []);
     const local = !spaces().find(space => space.id === (props() || {}).space)?.machine;
@@ -379,7 +440,7 @@ export const sessionMenu = {
             .on_click((_event, cx) => { this.settingsPage = item.id; cancelDrag(cx); cx.notify(); })
             .child(div().size(16).flex_none().flex().items_center().justify_center().child(item.icon)).child(item.label))))
         .child(v_flex().h_full().flex_1().min_w(0).min_h(0).gap(8)
-          .when(page === 'accounts', el => el.child(this.accountsPage(t)))
+          .when(page === 'accounts', el => el.child(this.accountsPage(t, cx)))
           .when(page === 'agents', el => el.child(DialogDescription(t).flex_none().child('Choose what Add session and Usage show, in one order. Drag to reorder; changes save automatically. Agents using the same account share its quota.'))
             .child(this.agentsPage(choices, hidden, toggle, move, cancelDrag, t)))
           .when(page === 'agent-profiles', el => el.child(this.agentProfilesPage(t)))))

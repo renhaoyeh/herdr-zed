@@ -30,7 +30,7 @@ export default class AgentsMod extends View {
       type: 'start', agent, target: { overlay, space, folder, projectName, machine, task }, options, expiresAt: Date.now() + 10000,
     }]);
   }
-  async close() { await this.login?.close(); }
+  async close() { this.storageClosed = true; await this.login?.close(); }
   render(cx) {
     const t = theme(), view = props()?.view;
     if (view === 'service') { this.service?.poll(cx); return div().size_full(); }
@@ -41,7 +41,7 @@ export default class AgentsMod extends View {
     if (view === 'agent-profile-editor') return this.agentProfileEditor(t);
     if (view === 'launcher') return this.launcher(t);
     this.syncAccountChanges(cx);
-    return this.manageLaunchers(t);
+    return this.manageLaunchers(t, cx);
   }
 }
 Object.assign(AgentsMod.prototype, sessionMenu, accountActions, agentProfiles, sharedMcpSettings, agentSelection);

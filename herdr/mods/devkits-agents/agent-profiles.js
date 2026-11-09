@@ -154,7 +154,7 @@ export const agentProfiles = {
         .child(Button('add-agent-configuration', t, { variant: 'secondary' }).h(28).px(10).gap(6)
           .disabled(!canAdd)
           .on_click(() => this.openAgentProfileEditor()).child(glyph('plus')).child('Add')))
-      .child(DialogDescription(t).flex_none().child(canAdd ? 'Optional saved setups: an account with its own model, effort, permissions and instructions. Each appears in Add session.' : 'Install Claude Code or Codex CLI to add a profile.'))
+      .child(DialogDescription(t).flex_none().child(canAdd ? 'Saved model, effort, permissions and instructions for an account. Profiles share the account’s local data without copying it. Each appears in Add session.' : 'Install Claude Code or Codex CLI to add a profile.'))
       .child(v_flex().id('agent-profiles-table').flex_1().min_h(0).border(1).border_color(t.border)
         .child(columns('NAME', 'ACCOUNT', 'MODEL', 'EFFORT', 'SPEED', '').h(32).flex_none().text_size(11).text_color(t.muted)
           .border_b(1).border_color(t.border))
