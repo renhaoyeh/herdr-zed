@@ -15,6 +15,7 @@ import { agentProfiles } from './agent-profiles.js';
 import { accountActions } from './account-actions.js';
 import { sharedMcpSettings } from './shared-mcp-settings.js';
 import { sessionMcpArgv } from './components/shared-mcp.js';
+import { taskReportingInstructions } from './components/tasks-model.js';
 import { UsageClient } from './components/usage.js';
 import { SystemMonitor } from './components/system-monitor.js';
 import { SystemDisplay, SystemDisplayMenu, openSystemDetails } from './system-display.js';
@@ -470,7 +471,7 @@ export default class Devkits extends View {
     if (argv && !spaces().find(space => space.id === target.space)?.machine) {
       let rules = null;
       try { rules = await sessionRules(); } catch {}
-      argv = rulesArgv(agent, argv, rules, config?.instructions);
+      argv = rulesArgv(agent, argv, rules, [config?.instructions, sessionKind(agent) && !target.machine ? taskReportingInstructions(appHome()) : ''].filter(Boolean).join('\n\n'));
       if (!target.machine) {
         try { argv = await sessionMcpArgv(agent, argv); }
         catch (error) { notify({ title: 'Could not load shared MCP settings', body: error.message, level: 'error' }); return; }
@@ -492,9 +493,9 @@ export default class Devkits extends View {
   openThread(target, name, argv, profile, task) {
     if (argv && !spaces().find(space => space.id === target.space)?.machine) argv = terminalArgv(argv, window()?.platform);
     // Commands do not return the new tab, so the sidebar matches it once it appears.
-    if (profile) setShared('devkits.pending-profiles', [...(shared('devkits.pending-profiles') || []), { key: profile,
+    if (profile || target.restoreArchiveId) setShared('devkits.pending-profiles', [...(shared('devkits.pending-profiles') || []), { key: profile,
       space: target.space || null, folder: target.folder, before: spaces().flatMap(space => space.tabs.map(tab => tab.id)), at: Date.now(),
-      ...(task ? { task } : {}) }]);
+      ...(task ? { task } : {}), ...(target.restoreArchiveId ? { restoreArchiveId: target.restoreArchiveId } : {}) }]);
     hidePanels();
     this.showConversation(true, { ...target, id: target.space, machine: spaces().find(space => space.id === target.space)?.machine });
     rememberPanel(target.space, null);
@@ -531,6 +532,7 @@ export default class Devkits extends View {
     } else if (event.type === 'launch') this.openThread(event.target, event.name, event.argv, event.profile, event.task);
     else if (event.type === 'archive-thread') cx.spawn(async cx => { await this.archiveThread(event.thread); cx.notify(); });
     else if (event.type === 'restore-thread') this.restoreThread(event.entry);
+    else if (event.type === 'stop-thread') cx.spawn(async cx => { await this.stopThread(event.thread); cx.notify(); });
   }
 
   accountUsage(t) { return this.usageClient.render(t); }
@@ -548,7 +550,8 @@ export default class Devkits extends View {
         ...cards.map(task => SidebarMenuButton(`board-task-${space.id}-${task.gid}`, false, t)
           .on_click(() => requestTaskOpen(space, task.gid))
           .child(glyph(status.icon, 14).text_color(status.color))
-          .child(div().min_w(0).truncate().text_size(13).child(task.name))),
+          .child(div().min_w(0).truncate().text_size(13).child(task.name))
+          .when(Boolean(task.attention), el => el.child(glyph('clock', 12).text_color(t.blocked).accessibility_label('Action Required')))),
         ...rows.map(thread => this.renderThreadGroup(thread, t, live))];
     })];
   }
@@ -695,7 +698,9 @@ export default class Devkits extends View {
         .when(Boolean(space), el => el.child(ToolbarButton('open-tasks', t, { selected: taskMode() })
             .accessibility_label('Tasks')
             .on_click(() => { if (taskMode()) this.closeBoard(); else this.openBoard(space); })
-            .child(glyph('columns-3')).child('Tasks'))))
+            .child(glyph('columns-3')).child('Tasks')
+            .when(projectBoardTasks(space).some(task => !task.archived && task.attention), el => el.child(div().text_color(t.blocked)
+              .child(String(projectBoardTasks(space).filter(task => !task.archived && task.attention).length)))))))
       .when(Boolean(space || simulator), el => el
         .child(div().w(1).h(16).flex_none().bg(t.border))
         .child(h_flex().id('status-panel-actions').flex_none().h_full().gap(0)
@@ -756,6 +761,7 @@ export default class Devkits extends View {
       .child(div().size(16).mr(8).flex_none().flex().items_center().justify_center().child(icon))
       .child(div().flex_1().min_w(0).truncate().text_size(13).text_color(t.foreground)
         .when(isFocused, el => el.font_medium()).child(thread.title))
+      .when(Boolean(project && threadBoardTask(project, thread).attention), el => el.child(glyph('clock', 12).text_color(t.blocked).accessibility_label('Action Required')))
       // Only a Claude or Codex conversation can be archived; terminals simply close.
       .child(Button(`${stopping ? 'stop' : archive ? 'archive' : 'close'}-thread-${thread.tab.id}`, t, { variant: 'row', size: 'icon-sm' })
         .ml(8).opacity(this.hovered === thread.tab.id && !archiveDisabled ? 1 : 0)
@@ -970,6 +976,10 @@ export default class Devkits extends View {
               .child(glyph(this.folded.has(space.id) ? 'chevron-right' : 'chevron-down', 12)))
             .when(Boolean(space.machine), el => el.child(div().text_size(9).text_color(t.muted).child(space.machine)))
             .child(div().flex_1())
+            .when(projectBoardTasks(space).some(task => !task.archived && task.attention), el => el.child(Button(`project-attention-${space.id}`, t, { variant: 'ghost' }).h(24).px(6)
+              .text_size(10).text_color(t.blocked).accessibility_label(`Action Required in ${space.name}`)
+              .child(String(projectBoardTasks(space).filter(task => !task.archived && task.attention).length))
+              .on_click((_event, cx) => { cx.stop_propagation(); this.openBoard(space); setShared('devkits.board-attention', space.id); })))
             .child(Button(`new-thread-${space.id}`, t, { variant: 'row', size: 'icon' }).h_full().w(32)
               .accessibility_label(`New thread in ${space.name}`)
               .on_click((_event, cx) => {

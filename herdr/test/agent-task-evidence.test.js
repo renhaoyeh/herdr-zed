@@ -38,7 +38,7 @@ test('task evidence reads structured user-message events, never terminal input o
   assert.equal((await host.probeTaskState(agent, {}, host.services)).hasInput, null);
 });
 
-test('Windows finds a wrapped Codex conversation, retains empty startup as Todo and moves submitted work to Doing', async () => {
+test('Windows discovers input evidence without treating a submitted message as progress', async () => {
   const h = await evidenceHost({ platform: 'windows' });
   let agent = { address: 't1', app: 'codex', status: 'working', seq: 1 };
   const terminals = [{ address: 't1', foreground: { pid: 42 } }];
@@ -51,7 +51,8 @@ test('Windows finds a wrapped Codex conversation, retains empty startup as Todo 
   assert.ok(!h.requests.some(([command]) => ['sh', 'powershell'].includes(command)));
   h.setHasMessage(true); agent = { ...agent, seq: 2 };
   h.observeTaskInput([agent], terminals, h.cx); await h.settle();
-  assert.equal(taskStatus({ source: 'thread' }, h.withTaskInputEvidence([agent], terminals)), 'doing');
+  assert.equal(h.withTaskInputEvidence([agent], terminals)[0].hasInput, true);
+  assert.equal(taskStatus({ source: 'thread' }, h.withTaskInputEvidence([agent], terminals)), 'todo');
   assert.equal(h.requests.filter(([, args]) => args[0].endsWith('/agent-session-windows.js')).length, 1, 'Cache the exact transcript instead of discovering it every poll');
   assert.equal(h.requests.filter(([, args]) => args[0].endsWith('/agent-task-events.cjs'))[1][1][1], 'C:\\Profile with spaces\\sessions\\rollout-example.jsonl');
 });

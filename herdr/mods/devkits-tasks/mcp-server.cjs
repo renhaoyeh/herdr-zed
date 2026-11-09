@@ -30,7 +30,7 @@ async function bridge(name, args) {
       } catch (error) { if (error.code !== 'ENOENT') throw error; }
       await delay(50);
     }
-    throw new Error('Tasks service did not reply. Open the Devkits layout in Herdr. Creation may have succeeded; list_tasks before retrying.');
+    throw new Error('Tasks service did not reply. Open the Devkits layout in Herdr. The operation may have succeeded; list_tasks before retrying.');
   } finally { await Promise.all([rm(file, { force: true }), rm(join(directory, `${id}.request.json`), { force: true })]); }
 }
 function start(input = process.stdin, output = process.stdout, call = bridge) {

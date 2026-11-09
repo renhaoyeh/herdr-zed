@@ -1,10 +1,10 @@
 import { View } from 'gpui-kit';
 import { props, closeOverlay } from 'herdr';
 import LocalCalendar from './calendar.js';
-import { listTasks, requestTaskOpen, taskRequestResult, cancelTaskRequest } from './components/tasks.js';
+import { listTasks, tasksSnapshot, requestTaskOpen, taskRequestResult, cancelTaskRequest } from './components/tasks.js';
 export default class CalendarMod extends View {
   init(_props, cx) {
-    this.calendar = new LocalCalendar({ tasks: listTasks, openTask: id => {
+    this.calendar = new LocalCalendar({ tasks: listTasks, deleted: () => tasksSnapshot().deleted || {}, openTask: id => {
       const task = listTasks().find(task => task.id === id);
       if (!task) return false;
       if (this.pending) cancelTaskRequest(this.pending);

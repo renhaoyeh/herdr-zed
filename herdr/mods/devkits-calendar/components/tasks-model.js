@@ -2,11 +2,14 @@
 export const boardStatuses = [
   { key: 'todo', label: 'Todo', icon: 'circle', color: '#96969f' },
   { key: 'doing', label: 'Doing', icon: 'circle-half', color: '#e5b454' },
-  { key: 'waiting', label: 'Needs your input', icon: 'clock', color: '#b39af5' },
   { key: 'done', label: 'Done', icon: 'circle-check', color: '#6b80ef' },
   { key: 'fail', label: 'Fail', icon: 'circle-alert', color: '#e57878' },
 ];
 export const taskFolderKey = folder => (folder || '').replace(/\\/g, '/').replace(/\/+$/, '');
+export function taskReportingInstructions(root) {
+  const cli = `node ${JSON.stringify(`${root}/mods/devkits-tasks/tasks-cli.cjs`)}`;
+  return `# Herdr task progress\n\nRead ${cli} --skill. When the user gives you actual work, report it with ${cli} report --status doing --message "Starting work". Without --run, the CLI binds the report to your own HC terminal and task. Do not report startup without a user task. Report waiting before asking the user a question, doing after receiving an answer, and done or fail with the final result. Ending a reply is not task completion. Do not edit Herdr shared.json or report for another terminal.`;
+}
 export const taskProjectKey = project => JSON.stringify([project.machine || '', taskFolderKey(project.folder)]);
 export const taskTokenId = (project, gid) => JSON.stringify(['task', project.machine || '', taskFolderKey(project.folder), gid]);
 export function taskTokenRef(id) {

@@ -1,16 +1,18 @@
 import { div } from 'gpui-kit';
 import { h_flex, v_flex, InputState, Input, TextareaState, Textarea, TextView } from 'gpui-base';
-import { shared, setShared, agents as currentAgents, spaces as currentSpaces } from 'herdr';
+import { shared, setShared, openOverlay, appHome, agents as currentAgents, spaces as currentSpaces } from 'herdr';
 import { SourceTaskReader } from './task-sources.js';
 import { TaskSession } from './task-session.js';
 import { boardStatuses, boardKey, liveVersion, boardPriorityOptions, boardPriorities, canStartTask, taskActions, taskManualStatusOptions, taskChildren, canAddSubtask } from './agent-board-model.js';
 import { launcherLabel, launcherOption } from './components/session-model.js';
-import { rememberBoardTask, projectBoardTasks, boardRecords, deleteLocalTask } from './agent-board-state.js';
+import { rememberBoardTask, projectBoardTasks, boardRecords, deleteLocalTask, setTaskDueDate } from './agent-board-state.js';
+import { taskTokenId, taskReportingInstructions } from './components/tasks-model.js';
 import { readTaskOutput, taskIdentifier, outputMarkdown } from './agent-board-details.js';
 import { glyph, AgentIcon } from './components/icon.js';
 import { Button } from './components/button.js';
 import { Select, SelectState } from './components/select.js';
 import { SidePanelLayout, SidePanelState } from './components/side-panel.js';
+import { DropdownMenu, DropdownMenuState } from './components/dropdown-menu.js';
 
 export { boardTheme } from './components/task-theme.js';
 import { boardTheme } from './components/task-theme.js';
@@ -26,6 +28,9 @@ export default class AgentBoard {
     this.title = InputState.new({ placeholder: 'Task title' });
     this.description = TextareaState.new({ placeholder: 'Add a description…' });
     this.description.set_auto_grow(4, 18);
+    this.dueDate = InputState.new({ placeholder: 'YYYY-MM-DD' });
+    this.dueDate.on('submit', (_e, cx) => this.saveDueDate(cx));
+    this.dueDate.on('blur', (_e, cx) => this.saveDueDate(cx));
     this.title.on('change', (_e, cx) => { this.saveField('name'); cx.notify(); });
     this.description.on('change', (_e, cx) => { this.saveField('notes'); cx.notify(); });
     this.title.on('blur', () => {
@@ -40,6 +45,7 @@ export default class AgentBoard {
       width => setShared('devkits.task-detail-width', width),
       { minWidth: 360, maxWidth: 880, defaultWidth: 500, minContentWidth: 320, label: 'Resize task details' });
     this.outputs = new Map();
+    this.cardMenu = new DropdownMenuState(cx);
     cx.timer.every(5000, cx => {
       if (shared('devkits.tasks-open') && this.project?.id === shared('devkits.board-project') && this.currentTask?.gid === this.selected)
         this.loadOutput(this.currentTask, this.project, cx);
@@ -86,13 +92,39 @@ export default class AgentBoard {
     if ((field === 'name' && !value) || (task[field] || '') === value) return;
     rememberBoardTask(project, task, { [field]: value });
   }
+  syncSchedule(task, project) {
+    const key = task && `${boardKey(project)}:${task.gid}`;
+    if ((this.scheduleEditor?.key || null) === key) return;
+    this.scheduleEditor = null; this.dueError = null;
+    if (this.deleteCandidate !== task?.gid) this.deleteCandidate = null;
+    this.dueDate.set_value(task?.dueDate || '');
+    if (task) this.scheduleEditor = { key, project, gid: task.gid };
+  }
+  saveDueDate(cx) {
+    if (!this.scheduleEditor) return;
+    const { project, gid } = this.scheduleEditor, task = this.latestTask(project, gid);
+    if ((task?.dueDate || '') === this.dueDate.value().trim()) return;
+    try { setTaskDueDate(project, task, this.dueDate.value()); this.dueError = null; }
+    catch (error) { this.dueError = error.message; }
+    cx?.notify();
+  }
+  scheduleTask(project, gid) {
+    const task = this.latestTask(project, gid);
+    if (!taskActions(task).canSchedule) return;
+    const today = new Date(), date = task.dueDate || `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+    openOverlay({ mod: 'devkits-calendar', kind: 'dialog', frame: 'none', modal: false, width: 560, height: 560,
+      props: { view: 'calendar', calendarCreate: true, draft: { title: task.name, startDate: date, endDate: date,
+        taskLink: { id: taskTokenId(project, task.gid), label: task.name } } } });
+  }
   setStatus(project, gid, status) {
     const task = this.latestTask(project, gid);
     if (!taskActions(task).canSetStatus || !['todo', 'done', 'fail'].includes(status)) return false;
-    rememberBoardTask(project, task, { status, manual: true, liveVersion: liveVersion(task.agents) });
+    rememberBoardTask(project, task, { status, manual: true, liveVersion: liveVersion(task.agents),
+      ...(task.execution ? { execution: null, runs: [...(task.runs || []), task.execution].slice(-30) } : {}) });
     return true;
   }
   deleteTask(project, gid, cx) {
+    if (this.deleteCandidate !== gid) { this.deleteCandidate = gid; cx.notify(); return; }
     const current = currentSpaces().find(item => item.id === project.id) || (project.pending ? project : null);
     if (!current || !deleteLocalTask(current, gid, currentAgents())) return;
     this.selected = null; this.currentTask = null; cx.notify();
@@ -155,6 +187,9 @@ export default class AgentBoard {
       this.drag = null; this.dropStatus = null; this.search.set_value('');
     }
     const t = boardTheme(), tasks = projectBoardTasks(project, agents);
+    if (shared('devkits.board-attention') === project.id) {
+      setShared('devkits.board-attention', null); this.attentionOnly = true; this.archived = false;
+    }
     const focus = shared('devkits.board-focus');
     if (focus) {
       setShared('devkits.board-focus', null);
@@ -163,14 +198,31 @@ export default class AgentBoard {
     }
     const query = this.search.value().trim().toLowerCase();
     const visible = tasks.filter(task => Boolean(task.archived) === Boolean(this.archived)
+      && (!this.attentionOnly || task.attention)
       && `${task.name} ${task.notes || ''} ${task.agentName || ''}`.toLowerCase().includes(query));
     const selected = tasks.find(task => task.gid === this.selected);
     if (!selected) this.detailPanel.end(cx);
     this.currentTask = selected || null;
+    this.syncSchedule(selected, project);
     this.syncEditor(selected?.source === 'local' && taskActions(selected).canEdit ? selected : null, project);
     const icon = key => { const s = boardStatuses.find(s => s.key === key); return glyph(s.icon, 14).text_color(s.color); };
     const card = task => {
       const children = taskChildren(tasks, task.gid), completed = children.filter(child => child.status === 'done').length;
+      const policy = taskActions(task);
+      const trigger = button(`board-card-actions-${task.gid}`, t, { size: 'icon' })
+        .accessibility_label(`Actions for ${task.name}`).child(glyph('ellipsis', 14))
+        .on_mouse_down('left', (_e, cx) => cx.stop_propagation())
+        .on_click((_e, cx) => { cx.stop_propagation(); this.cardMenuTask = task.gid; this.cardMenu.open = true; this.cardMenu.focus?.focus(); cx.notify(); });
+      const menu = this.cardMenuTask === task.gid ? DropdownMenu(`board-card-menu-${task.gid}`, this.cardMenu, trigger, [
+          ...(policy.canArchive || policy.canRestore ? [{ key: 'archive', label: task.archived ? 'Restore task' : 'Archive task' }] : []),
+          ...(policy.canSchedule ? [{ key: 'schedule', label: 'Schedule time' }] : []),
+          ...(policy.canDelete ? [{ key: 'delete', label: 'Delete task' }] : []),
+        ], (action, cx) => {
+          this.show(task, project, cx);
+          if (action === 'delete') this.deleteTask(project, task.gid, cx);
+          else if (action === 'schedule') this.scheduleTask(project, task.gid);
+          else task.archived ? actions.restore(task) : actions.archive(task, cx);
+        }, t) : trigger;
       return v_flex().id(`board-card-${task.gid}`).flex_none().p(12).gap(8).rounded(8).border(1)
       .border_color(this.selected === task.gid ? t.cardSelectedBorder : t.cardBorder)
       .bg(this.selected === task.gid ? t.cardSelected : t.card).text_size(13).cursor_default()
@@ -191,7 +243,7 @@ export default class AgentBoard {
         this.show(task, project, cx);
       })
       .child(h_flex().gap(6).items_center().text_size(10).text_color(t.muted)
-        .child(taskIdentifier(task)).child(div().flex_1())
+        .child(taskIdentifier(task)).child(div().flex_1()).child(menu)
         .when(Boolean(task.priority && task.priority !== 'none'), el => el.child(glyph(boardPriorities.find(priority => priority.key === task.priority)?.icon || 'priority-none', 14).text_color(task.priority === 'urgent' ? '#e4a45c' : t.muted).accessibility_label(`${task.priority} priority`))))
       .child(div().text_size(13).font_medium().child(task.name))
       .when(Boolean(task.parentTask), el => el.child(h_flex().gap(5).items_center().min_w(0).text_size(11).text_color(t.muted)
@@ -200,7 +252,10 @@ export default class AgentBoard {
         .child(this.assignment(task, launchers, t, 12).flex_1())
         .when(children.length > 0, el => el.child(h_flex().gap(4).items_center().accessibility_label(`${completed} of ${children.length} subtasks done`)
           .child(glyph('list-tree', 12)).child(`${completed}/${children.length}`)))
-        .when(task.status === 'waiting', el => el.child(glyph('clock', 12).text_color('#b39af5'))));
+        .when(Boolean(task.dueDate), el => el.child(div().text_size(10).child(task.dueDate)))
+        .when(Boolean(task.attention), el => el.child(glyph('clock', 12).text_color('#b39af5').accessibility_label('Action Required'))))
+      .when(Boolean(task.attention), el => el.child(div().text_size(11).text_color('#b39af5').child(`Action Required · ${task.attention.message}`)))
+      .when(Boolean(task.interrupted), el => el.child(div().text_size(11).text_color(t.muted).child('Session interrupted')));
     };
     const columns = h_flex().id('agent-board-columns').flex_1().h_full().min_w(0).min_h(0).overflow_x_scrollbar().px(8).gap(12)
       .on_click((_event, cx) => {
@@ -246,8 +301,9 @@ export default class AgentBoard {
         .child(button('board-new-task', t).pl(8).pr(10)
           .on_click(() => this.compose(project)).child(glyph('plus', 14)).child('New task')))
       .child(h_flex().h(44).flex_none().px(8).gap(4).items_center().text_size(12)
-        .child(tab('board-active', 'All tasks', !this.archived, () => { this.archived = false; this.selected = null; }))
-        .child(tab('board-archived', 'Archived', this.archived, () => { this.archived = true; this.selected = null; }))
+        .child(tab('board-active', 'All tasks', !this.archived && !this.attentionOnly, () => { this.archived = false; this.attentionOnly = false; this.selected = null; }))
+        .child(tab('board-archived', 'Archived', this.archived, () => { this.archived = true; this.attentionOnly = false; this.selected = null; }))
+        .child(tab('board-attention', `Action Required (${tasks.filter(task => !task.archived && task.attention).length})`, Boolean(this.attentionOnly), () => { this.archived = false; this.attentionOnly = !this.attentionOnly; }))
         .child(div().flex_1())
         .child(Input.new(this.search).id('board-search').accessibility_label('Search tasks').w(180).h(28).px(10)
           .rounded(999).bg(t.control).border(1).border_color(t.controlBorder).text_size(12)))
@@ -324,8 +380,18 @@ export default class AgentBoard {
           .child(property('Project', project.name)).child(property('Source', origin?.url
             ? button('board-asana-source', t).on_click((_e, cx) => cx.open_url(origin.url))
               .child(glyph('external-link', 14)).child(sourceName(task)) : sourceName(task)))
-          .child(property('Priority', priorityValue)))
-        .when(task.status === 'waiting', el => el.child(div().text_size(12).text_color('#b39af5').child('The agent needs your reply or approval.')))
+          .child(property('Priority', priorityValue))
+          .child(property('Due date', policy.canSchedule ? Input.new(this.dueDate).id('board-task-due-date').accessibility_label('Task due date, YYYY-MM-DD, blank to clear')
+            .w(145).h(28).px(8).rounded(6).border(1).border_color(t.controlBorder).bg(t.control).text_size(12) : task.dueDate || 'None'))
+          .when(policy.canSchedule, el => el.child(property('Calendar', button('board-schedule-task', t).h(28)
+            .on_click(() => this.scheduleTask(project, task.gid)).child(glyph('calendar', 13)).child('Schedule time')))))
+        .when(Boolean(this.dueError), el => el.child(div().text_size(12).text_color(t.destructive).child(this.dueError)))
+        .when(Boolean(task.attention), el => el.child(v_flex().id('board-action-required').gap(6)
+          .child(div().text_size(12).font_medium().text_color('#b39af5').child('Action Required'))
+          .child(div().text_size(13).child(task.attention.message))))
+        .when(Boolean(task.attention || task.agents.some(agent => ['working', 'blocked'].includes(agent.status))), el => el.child(button('board-stop-session', t).h(28).self_start()
+          .on_click(() => actions.stop?.(task)).child(glyph('square', 13)).child('Stop session')))
+        .when(Boolean(task.interrupted), el => el.child(div().text_size(12).text_color(t.muted).child('Session interrupted. Progress was preserved; choose Todo to start another attempt.')))
         .when(Boolean(this.detail.detailError), el => el.child(div().text_size(12).text_color(t.destructive).child(this.detail.detailError)))
         .when(!detail && !this.detail.detailError, el => el.child(div().text_size(12).text_color(t.muted).child('Loading description…')))
         .when(editable, el => el.child(v_flex().gap(10)
@@ -338,7 +404,22 @@ export default class AgentBoard {
         .child(this.subtasks(task, tasks, project, t))
         .when(Boolean(this.relatedError), el => el.child(div().id('board-related-error').text_size(12).text_color(t.destructive).child(this.relatedError)))
         .when(task.tabs.length > 0, el => el.children(task.tabs.map(tab => button(`board-thread-${tab.id}`, t, { variant: 'secondary' }).h(28)
-          .on_click(() => actions.thread(tab.id)).child(task.status === 'waiting' ? 'Respond to agent' : 'Open conversation').child(glyph('external-link', 12)))))
+          .on_click(() => actions.thread(tab.id)).child(task.attention ? 'Respond to agent' : 'Open conversation').child(glyph('external-link', 12)))))
+        .when(task.tabs.length > 0, el => el.child(button('board-copy-reporting', t).h(28).self_start()
+          .on_click((_e, cx) => { cx.write_to_clipboard(taskReportingInstructions(appHome())); this.copiedReportFor = task.gid; cx.notify(); })
+          .child(glyph('copy', 13)).child(this.copiedReportFor === task.gid ? 'Reporting instructions copied' : 'Copy reporting instructions')))
+        .when(Boolean(task.archiveId && !task.archived && !task.tabs.length), el => el.child(button('board-resume-session', t).h(28)
+          .on_click(() => actions.resume?.(task)).child(glyph('play', 13)).child('Resume session')))
+        .when(Boolean(task.execution || task.runs?.length), el => el.child(v_flex().id('board-run-history').gap(10)
+          .child(div().text_size(12).font_medium().child('Execution history'))
+          .children([...(task.runs || []), ...(task.execution ? [task.execution] : [])].slice().reverse().map(run => v_flex().gap(4)
+            .child(div().text_size(12).child(`${run.profileName || run.profile || 'Agent'} · ${run.status}${run.model ? ` · ${run.model}` : ''}`))
+            .child(div().text_size(12).text_color(t.muted).child(run.summary || 'No result reported'))))))
+        .when(Boolean(task.activity?.length), el => el.child(v_flex().id('board-task-activity').gap(10)
+          .child(div().text_size(12).font_medium().child('Activity'))
+          .children(task.activity.slice(-15).reverse().map(item => v_flex().gap(4)
+            .child(div().text_size(10).text_color(t.muted).child(`${new Date(item.at).toLocaleString()} · ${item.status}`))
+            .child(div().text_size(12).child(item.message))))))
         .when(task.agents.length > 0 || Boolean(text), el => el.child(v_flex().gap(12)
           .child(h_flex().gap(8).items_center().text_size(12).font_medium()
             .child('Latest output').child(div().flex_1())
@@ -352,6 +433,9 @@ export default class AgentBoard {
           .child(TextView.markdown(`board-comment-${comment.gid}`, comment.text).selectable(true).scrollable(false).w_full().text_size(13)))))
       .when(Boolean(launchRow) || policy.canArchive || policy.canRestore || policy.canDelete, el => el.child(v_flex().flex_none().px(24).py(14).gap(12).border_t(1).border_color(t.border)
         .when(Boolean(launchRow), el => el.child(launchRow))
+        .when(this.deleteCandidate === task.gid, el => el.child(v_flex().gap(8)
+          .child(div().text_size(12).text_color(t.muted).child('Delete this task? Conversations, files and subtasks are kept. Calendar events remain with an unavailable task link.'))
+          .child(button('board-cancel-delete', t).h(28).self_start().on_click((_event, cx) => { this.deleteCandidate = null; cx.notify(); }).child('Cancel'))))
         .child(h_flex().gap(12).items_center()
           .when(policy.canArchive || policy.canRestore, el => el.child(button('board-archive-task', t).h(28).justify_start()
             .on_click((_e, cx) => task.archived ? actions.restore(task) : actions.archive(task, cx))
@@ -360,6 +444,6 @@ export default class AgentBoard {
           .when(policy.canDelete, el => el.child(button('board-delete-task', t).h(28).gap(6).text_color(t.destructive)
             .hover(el => el.bg(t.hover).text_color(t.destructive))
             .on_click((_e, cx) => this.deleteTask(project, task.gid, cx))
-            .child(glyph('trash', 13)).child('Delete task'))))));
+            .child(glyph('trash', 13)).child(this.deleteCandidate === task.gid ? 'Confirm delete' : 'Delete task'))))));
   }
 }

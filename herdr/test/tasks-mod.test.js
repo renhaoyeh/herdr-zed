@@ -15,6 +15,139 @@ const context = () => {
   return { cx, timers, async settle() { while (pending.length) await Promise.all(pending.splice(0)); } };
 };
 
+test('an existing conversation adopts reporting with its own terminal and retains attempts across new work', async () => {
+  const h = await modules(), clock = context();
+  const project = h.state.projects[0];
+  project.tabs = [{ id: 'chat', name: 'Existing chat' }];
+  h.state.agents = [{ address: 't-chat', tab: 'chat', space: project.id, status: 'idle', program: { name: 'Codex' } }];
+  h.memory['devkits.thread-profiles'] = { chat: 'codex' };
+  h.runtime.init(clock.cx);
+  const report = (status, message) => h.runtime.reportTask(null, { terminal: 't-chat', status, message });
+  assert.throws(() => report('done', 'No attempt'), /Report doing/);
+  assert.throws(() => h.runtime.reportTask(null, { terminal: 'missing', status: 'doing', message: 'Other terminal' }), /no active Herdr task/);
+  report('doing', 'Starting actual work');
+  const first = h.owner.boardRecords(project)['thread:chat'].execution.id;
+  report('waiting', 'Which behavior?');
+  h.runtime.refresh(clock.cx);
+  assert.equal(h.client.listTasks()[0].status, 'doing');
+  assert.match(h.client.listTasks()[0].attention.message, /Which behavior/);
+  report('doing', 'Answer received'); report('done', 'Validated');
+  h.runtime.refresh(clock.cx);
+  assert.equal(h.client.listTasks()[0].status, 'done');
+  h.state.agents[0].status = 'working'; h.runtime.refresh(clock.cx);
+  assert.equal(h.client.listTasks()[0].status, 'done', 'Native work cannot reopen a finished task');
+  report('doing', 'New user request');
+  const task = h.owner.boardRecords(project)['thread:chat'];
+  assert.notEqual(task.execution.id, first);
+  assert.equal(task.runs[0].id, first); assert.equal(task.runs[0].summary, 'Validated');
+  assert.equal(task.execution.profile, 'codex'); assert.equal(task.execution.model, null);
+  assert.throws(() => h.runtime.reportTask(null, { run: first, status: 'done', message: 'Late result' }), /no longer active/);
+  assert.deepEqual(h.native, []);
+});
+
+test('reported work stays Doing across native idle/done, separates attention and rejects stale attempts', async () => {
+  const projectKey = '["","/project"]';
+  const task = { gid: 'local:report', name: 'Fix login', source: 'local', status: 'todo',
+    execution: { id: 'run:one', status: 'starting', startedAt: Date.now(), profile: 'implementer', profileName: 'Implementer', model: 'saved-model' } };
+  const h = await modules({ [projectKey]: { [task.gid]: task } });
+  const clock = context(); h.runtime.init(clock.cx);
+  const report = (status, message) => tasksMcpCall(h.runtime, 'report_task', { run: 'run:one', status, message });
+  report('doing', 'Investigating login'); h.runtime.refresh(clock.cx);
+  assert.equal(h.client.listTasks()[0].status, 'doing');
+  const project = h.state.projects[0]; project.tabs = [{ id: 'work', name: task.name }];
+  h.memory['devkits.thread-tasks'] = { work: { gid: task.gid, folder: '/project', name: task.name, source: 'local' } };
+  h.state.agents = [{ address: 't1', tab: 'work', app: 'pi', status: 'done', turn: 5 }];
+  h.runtime.refresh(clock.cx);
+  assert.equal(h.client.listTasks()[0].status, 'doing', 'Finishing a CLI turn never completes reported work');
+  report('waiting', 'Which redirect should expired logins use?'); h.runtime.refresh(clock.cx);
+  let card = h.client.listTasks()[0]; assert.equal(card.status, 'doing'); assert.match(card.attention.message, /redirect/);
+  assert.equal(card.policy.canDelete, false); assert.equal(card.policy.canArchive, false);
+  report('doing', 'User confirmed the login page'); h.runtime.refresh(clock.cx);
+  assert.equal(h.client.listTasks()[0].attention, null);
+  report('done', 'Fixed redirect; login tests passed'); h.runtime.refresh(clock.cx);
+  card = h.client.listTasks()[0]; assert.equal(card.status, 'done'); assert.equal(card.execution.model, 'saved-model');
+  const count = card.activity.length; report('done', 'Fixed redirect; login tests passed'); h.runtime.refresh(clock.cx);
+  assert.equal(h.client.listTasks()[0].activity.length, count, 'A retried final report is idempotent');
+  assert.throws(() => report('doing', 'Late reply'), /already finished/);
+  h.owner.setTaskArchived(project, card, true);
+  assert.throws(() => report('done', 'Changed result'), /no longer active/);
+  h.owner.setTaskArchived(project, card, false); h.runtime.refresh(clock.cx);
+  assert.equal(h.client.listTasks()[0].status, 'done'); assert.deepEqual(h.native, []);
+  assert.throws(() => tasksMcpCall(h.runtime, 'report_task', { run: 'old-run', status: 'done', message: 'Late' }), /no longer active/);
+  assert.throws(() => tasksMcpCall(h.runtime, 'report_task', { status: 'done', message: 'No ID' }), /run ID/);
+});
+
+test('Board restore never launches a session; due dates and deletion preserve unrelated events and conversations', async () => {
+  const key = '["","/project"]', task = { gid: 'local:dates', source: 'local', name: 'Plan', status: 'done', archived: true, archiveId: 'saved' };
+  const h = await modules({ [key]: { [task.gid]: task } }), project = h.state.projects[0];
+  h.memory['devkits.archived-threads'] = [{ id: 'saved', folder: project.folder, task, boardTask: task, argv: ['claude', '--resume', 'conversation'] }];
+  h.memory['devkits.calendar-events'] = { meeting: { title: 'Meeting', taskLink: { id: 'kept' } } };
+  h.runtime.agentBoard = { render: (_p, _a, _l, actions) => actions };
+  h.runtime.boardPanel(project, context().cx).restore(task);
+  assert.equal(h.owner.boardRecords(project)[task.gid].archived, false);
+  assert.equal(h.memory['devkits.tasks.navigation'], undefined);
+  assert.equal(h.memory['devkits.archived-threads'].length, 1);
+  const current = h.owner.projectBoardTasks(project)[0];
+  h.owner.setTaskDueDate(project, current, '2028-02-29');
+  assert.throws(() => h.owner.setTaskDueDate(project, current, '2026-02-29'), /valid date/);
+  assert.equal(h.owner.boardRecords(project)[task.gid].dueDate, '2028-02-29');
+  assert.equal(h.owner.deleteLocalTask(project, task.gid), true);
+  assert.deepEqual(h.memory['devkits.calendar-events'], { meeting: { title: 'Meeting', taskLink: { id: 'kept' } } });
+  assert.equal(h.memory['devkits.archived-threads'][0].boardTask, null);
+  assert.equal(h.memory['devkits.archived-threads'][0].argv[2], 'conversation');
+  assert.equal(h.owner.projectBoardTasks(project).length, 0);
+  assert.equal(h.memory['devkits.deleted-tasks'][key][task.gid].name, 'Plan');
+});
+
+test('explicit resume keeps the archive on launch failure and removes it only after a matching native tab appears', async () => {
+  const key = '["","/project"]', task = { gid: 'local:resume', source: 'local', name: 'Saved', archived: true, status: 'fail', archiveId: 'archive' };
+  const h = await modules({ [key]: { [task.gid]: task } });
+  const entry = { id: 'archive', folder: '/project', task, boardTask: task };
+  h.memory['devkits.archived-threads'] = [entry];
+  h.memory['devkits.pending-profiles'] = [{ key: 'old-profile', folder: '/project', before: [], at: Date.now(), restoreArchiveId: entry.id,
+    task: { gid: task.gid, name: task.name, folder: '/project', source: 'local' } }];
+  h.runtime.resolveSessions();
+  assert.deepEqual(h.memory['devkits.archived-threads'], [entry]);
+  assert.equal(h.owner.boardRecords(h.state.projects[0])[task.gid].archived, true);
+  h.state.projects[0].tabs = [{ id: 'resumed', name: 'Saved' }];
+  h.runtime.resolveSessions();
+  assert.deepEqual(h.memory['devkits.archived-threads'], [entry], 'Creating a tab alone does not prove the CLI started');
+  h.memory['devkits.pending-resumes'][0].at -= 2001;
+  h.state.agents = [{ address: 'resumed-agent', tab: 'resumed', app: 'pi', status: 'idle' }];
+  h.runtime.resolveSessions(); h.runtime.refresh(context().cx);
+  assert.deepEqual(h.memory['devkits.archived-threads'], []);
+  assert.equal(h.memory['devkits.thread-profiles'].resumed, 'old-profile');
+  assert.equal(h.memory['devkits.thread-tasks'].resumed.gid, task.gid);
+  assert.equal(h.client.listTasks()[0].status, 'fail'); assert.equal(h.client.listTasks()[0].archived, false);
+  assert.deepEqual(h.native, []);
+});
+
+test('a new local execution receives a real reporting manual and a unique run while retaining prior profile results', async () => {
+  const key = '["","/project"]', task = { gid: 'local:new-run', name: 'Implement login', notes: 'Keep the existing UI.', source: 'local', status: 'todo',
+    runs: [{ id: 'old', profile: 'old-profile', status: 'fail', summary: 'Missing test fixture' }] };
+  const h = await modules({ [key]: { [task.gid]: task } });
+  await h.runtime.startThread({ key: 'codex', name: 'Implementer', run: ['codex'], installed: true },
+    { space: 'p', folder: '/project', task }, { model: 'chosen-model', effort: 'high' });
+  const saved = h.owner.boardRecords(h.state.projects[0])[task.gid];
+  const launch = h.memory['devkits.tasks.navigation'].find(event => event.type === 'launch');
+  assert.match(launch.argv.at(-1), /tasks-cli\.cjs.*--skill/);
+  assert.ok(launch.argv.at(-1).includes(saved.execution.id));
+  assert.equal(saved.execution.profileName, 'Implementer'); assert.equal(saved.execution.model, 'chosen-model');
+  assert.equal(saved.runs[0].summary, 'Missing test fixture'); assert.deepEqual(h.native, []);
+});
+
+test('a resumed tab that exits before its agent starts never consumes the archive', async () => {
+  const task = { gid: 'local:failed-start', source: 'local', name: 'Saved', archived: true, status: 'fail' };
+  const h = await modules({ '["","/project"]': { [task.gid]: task } });
+  const archive = { id: 'saved', folder: '/project', boardTask: task };
+  h.memory['devkits.archived-threads'] = [archive];
+  h.memory['devkits.pending-resumes'] = [{ id: 'saved', folder: '/project', task, tab: 'exited', at: Date.now() - 3000 }];
+  h.runtime.resolveSessions();
+  assert.deepEqual(h.memory['devkits.pending-resumes'], []);
+  assert.deepEqual(h.memory['devkits.archived-threads'], [archive]);
+  assert.equal(h.owner.boardRecords(h.state.projects[0])[task.gid].archived, true);
+});
+
 test('task rendering reads one native snapshot and releases it after each frame or error', async () => {
   const project = { folder: '/project' }, thread = { tab: { id: 'thread' } };
   let reads = 0, status = 'doing';
@@ -90,7 +223,7 @@ async function modules(records = {}, projects = [{ id: 'p', folder: '/project', 
   Object.assign(owner, policy);
   Object.assign(owner, await evaluateNative('../mods/devkits-tasks/agent-task-evidence.js', owner, 'observeTaskInput, withTaskInputEvidence'));
   Object.assign(owner, await evaluateNative('../mods/devkits-tasks/agent-board-state.js', owner,
-    'projectBoardTasks, boardRecords, taskLinkForTab, threadBoardStatus, threadBoardTask, sessionThreadTitle, rememberBoardTask, setTaskArchived, deleteLocalTask, createLocalTask'));
+    'projectBoardTasks, boardRecords, taskLinkForTab, threadBoardStatus, threadBoardTask, sessionThreadTitle, rememberBoardTask, setTaskArchived, setTaskDueDate, deleteLocalTask, createLocalTask'));
   Object.assign(owner, await evaluateNative('../mods/devkits/components/source-channel.js', owner,
     'createSourceChannel, sourceChannels, consumeSourceEvents, closeSourceChannel'));
   Object.assign(owner, await evaluateNative('../mods/devkits-tasks/task-sources.js', owner, 'TaskSources'));
@@ -107,6 +240,8 @@ test('Tasks service publishes one authoritative Sidebar/Calendar projection whil
   assert.deepEqual(h.client.projectBoardTasks(project), []); assert.deepEqual(h.writes, []);
   const clock = context(); h.runtime.init(clock.cx);
   assert.equal(h.runtime.agentBoard, undefined, 'The service tracks work without constructing a board UI');
+  assert.equal(h.client.threadBoardStatus(project, { tab: { id: 'thread' } }), 'todo');
+  h.runtime.reportTask(null, { terminal: 't1', status: 'doing', message: 'Starting the submitted work' }); h.runtime.refresh(clock.cx);
   assert.equal(h.client.threadBoardStatus(project, { tab: { id: 'thread' } }), 'doing');
   assert.equal(h.client.threadBoardStatus(project, { tab: { id: 'shell' } }), null);
   assert.equal(h.client.listTasks().find(task => task.gid === 'thread:thread').status, 'doing');
@@ -114,7 +249,8 @@ test('Tasks service publishes one authoritative Sidebar/Calendar projection whil
   const count = h.writes.length; h.client.projectBoardTasks(project); h.client.listTasks(); h.client.threadBoardTask(project, { tab: { id: 'thread' } });
   assert.equal(h.writes.length, count, 'Consumers never reconcile or write task state');
   h.state.agents[0] = { ...h.state.agents[0], status: 'done', seq: 2, turn: 1 }; h.runtime.refresh(clock.cx);
-  assert.equal(h.client.threadBoardStatus(project, { tab: { id: 'thread' } }), 'done');
+  assert.equal(h.client.threadBoardStatus(project, { tab: { id: 'thread' } }), 'doing');
+  h.runtime.reportTask(null, { terminal: 't1', status: 'done', message: 'Completed with validation' }); h.runtime.refresh(clock.cx);
   h.state.agents[0].status = 'idle'; h.runtime.refresh(clock.cx);
   assert.equal(h.client.listTasks().find(task => task.gid === 'thread:thread').status, 'done');
   const settled = h.writes.length; h.runtime.refresh(clock.cx); assert.equal(h.writes.length, settled, 'Unchanged projections are not rewritten');
@@ -199,5 +335,5 @@ test('Tasks resolves native session handoffs before projecting their task and th
   assert.equal(h.memory['devkits.thread-profiles'].tab, 'codex');
   assert.deepEqual(h.client.taskLinkForTab('tab', h.state.projects[0]), task);
   const tasks = h.client.projectBoardTasks(h.state.projects[0]);
-  assert.equal(tasks.length, 1); assert.equal(tasks[0].gid, 'one'); assert.equal(tasks[0].status, 'doing');
+  assert.equal(tasks.length, 1); assert.equal(tasks[0].gid, 'one'); assert.equal(tasks[0].status, 'todo');
 });

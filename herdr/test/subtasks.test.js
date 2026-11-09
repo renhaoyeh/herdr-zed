@@ -46,7 +46,7 @@ test('agent-thread parents can have local subtasks without starting or changing 
   const child = s.createLocalTask(liveProject, 'Investigate edge cases', '', { parentId: 'thread:agent' }, agents);
   const tasks = s.projectBoardTasks(liveProject, agents);
   assert.equal(tasks.find(task => task.gid === child.gid).status, 'todo');
-  assert.equal(tasks.find(task => task.gid === 'thread:agent').status, 'doing');
+  assert.equal(tasks.find(task => task.gid === 'thread:agent').status, 'todo', 'Starting an agent does not report task progress');
   assert.equal(board.canAddSubtask(tasks.find(task => task.gid === 'thread:agent')), true);
   assert.equal(board.canAddSubtask({ archived: true }), false); assert.equal(board.canAddSubtask(null), false);
 });

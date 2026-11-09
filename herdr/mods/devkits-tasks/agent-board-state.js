@@ -36,7 +36,9 @@ export function projectBoardTasks(project, agents = []) {
       status: snapshot?.status || 'todo', archived: true, archiveId: entry.id,
       agentKey: snapshot?.agentKey || entry.profile || null };
   }
-  const tasks = boardTasks(project, [], records, shared('devkits.thread-tasks') || {}, project.tabs || [], withTaskInputEvidence(agentsWithTurns(agents, terminals()), terminals()), sessionThreadTitle);
+  const deleted = shared('devkits.deleted-tasks')?.[boardKey(project)] || {};
+  const tasks = boardTasks(project, [], records, shared('devkits.thread-tasks') || {}, project.tabs || [], withTaskInputEvidence(agentsWithTurns(agents, terminals()), terminals()), sessionThreadTitle)
+    .filter(task => !deleted[task.gid]);
   const next = reconcileBoardRecords(records, tasks);
   if (JSON.stringify(next) !== JSON.stringify(boardRecords(project)))
     setShared('devkits.agent-board', { ...(shared('devkits.agent-board') || {}), [boardKey(project)]: next });
@@ -45,6 +47,7 @@ export function projectBoardTasks(project, agents = []) {
 export function threadBoardStatus(project, thread) {
   const task = shared('devkits.thread-tasks')?.[thread.tab.id];
   const record = boardRecords(project)[task?.gid || threadTaskId(thread.tab.id)];
+  if (shared('devkits.deleted-tasks')?.[boardKey(project)]?.[task?.gid || threadTaskId(thread.tab.id)]) return null;
   if (!task && !thread.agents.length && !record) return null;
   return taskStatus({ ...record, source: record?.source || (task ? task.source || 'asana' : 'thread') }, withTaskInputEvidence(agentsWithTurns(thread.agents, terminals()), terminals()), true);
 }
@@ -65,7 +68,22 @@ export function createLocalTask(project, name, notes = '', options = {}, agents 
 }
 
 export function setTaskArchived(project, task, archived, archiveId = null) {
-  rememberBoardTask(project, task, { archived, status: boardRecords(project)[task.gid]?.status || task.status || 'todo', ...(archiveId ? { archiveId } : {}) });
+  const current = boardRecords(project)[task.gid] || task;
+  rememberBoardTask(project, current, { archived, status: current.status || 'todo', ...(archiveId ? { archiveId } : {}),
+    ...(!archived && !current.execution && ['todo', 'done', 'fail'].includes(current.status) ? { manual: true } : {}),
+    ...(!archived && current.execution?.status === 'waiting' ? { execution: { ...current.execution, status: 'doing', summary: 'Restored; open the conversation to continue.' } } : {}) });
+}
+
+export function setTaskDueDate(project, task, value) {
+  if (!taskActions(task).canSchedule) throw new Error('This task is archived or unavailable.');
+  const dueDate = String(value || '').trim();
+  if (dueDate) {
+    const date = new Date(dueDate + 'T12:00:00');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dueDate) || !Number.isFinite(date.getTime())
+      || `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}` !== dueDate)
+      throw new Error('Use a valid date in YYYY-MM-DD format.');
+  }
+  rememberBoardTask(project, task, { dueDate: dueDate || null });
 }
 
 // Delete only local task metadata. Native conversations and their archive entries stay resumable.
@@ -76,6 +94,9 @@ export function deleteLocalTask(project, gid, agents = []) {
   if ((shared('devkits.pending-profiles') || []).some(entry => matches(entry.task) && Date.now() - entry.at < 60000)) return false;
   const all = shared('devkits.agent-board') || {}, records = { ...boardRecords(project) };
   delete records[gid];
+  const allDeleted = shared('devkits.deleted-tasks') || {}, deleted = { ...(allDeleted[boardKey(project)] || {}) };
+  for (const id of [gid, ...task.tabs.map(tab => threadTaskId(tab.id))]) deleted[id] = { name: task.name, at: Date.now() };
+  setShared('devkits.deleted-tasks', { ...allDeleted, [boardKey(project)]: deleted });
   // Removing a parent keeps every child, its progress and its conversation.
   const detach = value => value?.parentId === gid ? { ...value, parentId: null } : value;
   for (const [id, record] of Object.entries(records)) records[id] = detach(record);

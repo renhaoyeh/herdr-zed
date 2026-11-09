@@ -4,12 +4,44 @@ import { readFile } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { dayKey, nextDay, localDate, monthDays, weekDays, timelineEvents, timelineMinute, rangeDraft, eventsOnDay, eventTime, eventFromDraft, eventDraft, saveEvent, deleteEvent } from '../mods/devkits-calendar/calendar-model.js';
-import { calendarContent, taskTokenId, taskTokenRef, mentionTrigger } from '../mods/devkits-calendar/calendar-tasks.js';
+import { calendarContent, taskTokenId, taskTokenRef, mentionTrigger, calendarEntries, taskLinkState } from '../mods/devkits-calendar/calendar-tasks.js';
 
 import { taskIndex } from '../mods/devkits/components/tasks-model.js';
 import { boardTasks } from '../mods/devkits-tasks/agent-board-model.js';
 
 const draft = { title: 'Plan the next task', notes: 'Details', startDate: '2026-11-08', endDate: '2026-11-08', startTime: '09:00', endTime: '10:00', allDay: false };
+
+test('due dates project into Calendar without copying tasks or mutating independent scheduled events', () => {
+  const id = taskTokenId({ folder: '/project' }, 'local:one');
+  const task = { id, name: 'Fix login', dueDate: '2026-11-12', status: 'doing' };
+  const event = eventFromDraft({ ...draft, taskLink: { id, label: task.name } }, 'work', 'r1');
+  const records = [event], before = structuredClone(records);
+  let entries = calendarEntries(records, [task]);
+  assert.equal(entries.length, 2); assert.equal(entries[1].dueMarker, true);
+  assert.equal(entries[1].start, '2026-11-12'); assert.equal(entries[1].end, '2026-11-13');
+  assert.equal(taskLinkState(event.taskLink, [{ ...task, name: 'Renamed', status: 'done' }]).label, 'Renamed');
+  assert.equal(taskLinkState(event.taskLink, [{ ...task, status: 'done' }]).state, 'Done');
+  entries = calendarEntries(records, [{ ...task, archived: true }]);
+  assert.deepEqual(entries, records); assert.equal(taskLinkState(event.taskLink, [{ ...task, archived: true }]).state, 'Archived');
+  entries = calendarEntries(records, []); assert.deepEqual(entries, records);
+  assert.equal(taskLinkState(event.taskLink, [], { '["","/project"]': { 'local:one': { name: 'Fix login' } } }).state, 'Deleted task');
+  assert.deepEqual(records, before);
+  const moved = eventFromDraft({ ...eventDraft(event), startDate: '2026-11-10', endDate: '2026-11-10' }, event.id, 'r2');
+  assert.equal(task.dueDate, '2026-11-12'); assert.deepEqual(moved.taskLink, event.taskLink);
+  assert.equal(eventFromDraft({ ...eventDraft(moved), taskLink: null }, event.id, 'r3').taskLink, undefined);
+});
+
+test('scheduled task forms preserve the event when unlinking; due markers only navigate to Tasks', async () => {
+  const task = { id: taskTokenId({ folder: '/project' }, 'local:one'), name: 'Fix login', status: 'todo', dueDate: '2026-11-08' };
+  const h = await ui({}, { calendarCreate: true, draft: { ...draft, taskLink: { id: task.id, label: task.name } } }, { tasks: () => [task] });
+  h.render(); assert.ok(h.nodes.has('calendar-linked-task'));
+  h.nodes.get('calendar-unlink-task').click(null, h.cx); h.view.save(h.cx);
+  const event = Object.values(h.view.records())[0]; assert.equal(event.title, draft.title); assert.equal(event.taskLink, undefined);
+  const opened = [], calendar = await ui(h.memory, {}, { tasks: () => [task], openTask: id => { opened.push(id); return true; } });
+  const due = calendarEntries([], [task])[0]; calendar.view.edit(due, calendar.cx);
+  assert.deepEqual(opened, [task.id]); assert.equal(calendar.view.composing, undefined);
+  assert.deepEqual(calendar.view.records(), h.view.records());
+});
 
 test('the month grid starts on Monday, covers adjacent months and keeps date-only values local', () => {
   const weeks = monthDays(new Date(2026, 10, 8));
@@ -116,7 +148,7 @@ async function ui(memory = {}, target = {}, options = {}) {
       set_value: next => { assert.equal(rendering, false); value = typeof next === 'string' ? next : next.text; tokens = typeof next === 'string' ? [] : structuredClone(next.tokens); }, set_auto_grow() {} };
   } };
   const inputElement = state => { const el = element(); controls.push({ state, data: elements.get(el) }); return el; };
-  const host = { div: element, h_flex: element, v_flex: element, InputState: inputs, TextareaState: inputs, Input: { new: inputElement }, Textarea: { new: inputElement }, Popup: { new: (id, trigger) => element().id(id).child(trigger) }, mentionTrigger,
+  const host = { div: element, h_flex: element, v_flex: element, InputState: inputs, TextareaState: inputs, Input: { new: inputElement }, Textarea: { new: inputElement }, Popup: { new: (id, trigger) => element().id(id).child(trigger) }, mentionTrigger, calendarEntries, taskLinkState,
     shared: key => memory[key], setShared: (key, data) => { memory[key] = data; writes.push(key); }, props: () => ({ overlay: 'calendar', ...target }), openOverlay: options => { overlays.push(options); }, closeOverlay: () => { closed = true; }, boardTheme: () => ({}),
     Button: id => element().id(id), Checkbox: id => element().id(id), glyph: element, dayKey, nextDay, localDate, monthDays, weekDays, timelineEvents, timelineMinute, rangeDraft, eventsOnDay, eventTime, eventFromDraft, eventDraft, saveEvent, deleteEvent };
   const Type = new Function(...Object.keys(host), source.replace(/^import .*;\r?\n/gm, '').replace('export default class', 'return class'))(...Object.values(host));
@@ -402,7 +434,7 @@ test('calendar task inventory uses project-scoped IDs and includes saved, import
   const snapshot = { projects: Object.fromEntries([project, other, remote].map(project => [JSON.stringify([project.machine || '', project.folder]), { project, tasks: boardTasks(project, [], records[JSON.stringify(['', project.folder])] || {}, links, project.tabs || [], [{ tab: 'thread1', status: 'working' }]) }])) };
   const tasks = taskIndex(snapshot);
   assert.equal(tasks.length, 5); assert.equal(JSON.stringify({ records, links }), before);
-  assert.equal(tasks.find(task => task.gid === 'thread:thread1').status, 'doing');
+  assert.equal(tasks.find(task => task.gid === 'thread:thread1').status, 'todo');
   assert.equal(tasks.find(task => task.gid === 'old').archived, true, 'retain existing archived references for navigation');
   const sameNames = tasks.filter(task => task.name === 'Fix login');
   assert.equal(sameNames.length, 2); assert.notEqual(sameNames[0].id, sameNames[1].id);
@@ -482,7 +514,7 @@ test('saved task tokens navigate by stable identity after renames; missing tasks
   const reopened = await ui(h.memory, {}, { tasks: () => tasks, openTask: h.view.openTask }); reopened.view.edit(event, reopened.cx); reopened.render();
   const token = reopened.view.inputs.title.tokens()[0].token;
   reopened.nodes.get('calendar-input-title').token({ token, line_height: 24, available_width: 300 });
-  assert.ok(reopened.texts.includes('@Renamed'));
+  assert.ok(reopened.texts.includes('@Renamed · Archived'));
   reopened.nodes.get('calendar-input-title').tokenClick({ token }, reopened.cx);
   assert.equal(reopened.closed(), true); assert.deepEqual(opened, [token.id]);
   const missing = await ui(h.memory, {}, { tasks: () => [], openTask: () => false }); missing.view.edit(event, missing.cx); missing.render();

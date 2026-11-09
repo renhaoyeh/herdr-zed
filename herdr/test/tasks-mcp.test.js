@@ -6,6 +6,32 @@ import { tasksMcpCall } from '../mods/devkits-tasks/mcp-api.js';
 import { sessionArgv } from '../mods/devkits/components/session-model.js';
 import { evaluateNative } from './source-harness.js';
 const { start } = createRequire(import.meta.url)('../mods/devkits-tasks/mcp-server.cjs');
+const { main: tasksCli } = createRequire(import.meta.url)('../mods/devkits-tasks/tasks-cli.cjs');
+
+test('the reporting CLI explains lifecycle rules and passes a literal Unicode message to the owner', async () => {
+  assert.match(await tasksCli(['--skill']), /Finishing a reply is not task completion/);
+  const calls = [];
+  const result = await tasksCli(['report', '--run', 'run:one', '--status', 'waiting', '--message', '請選擇登入頁\n保留修改'], async (name, args) => { calls.push({ name, args }); return { ok: true }; });
+  assert.deepEqual(JSON.parse(result), { ok: true });
+  assert.deepEqual(calls, [{ name: 'report_task', args: { run: 'run:one', status: 'waiting', message: '請選擇登入頁\n保留修改' } }]);
+  await assert.rejects(tasksCli(['report', '--run', 'one', '--run', 'two']), /repeated/);
+  await assert.rejects(tasksCli(['report', '--message']), /--skill/);
+});
+
+test('ordinary conversation reports use only their inherited HC terminal identity', async () => {
+  const previous = process.env.HC_TERMINAL_ID, calls = [];
+  try {
+    process.env.HC_TERMINAL_ID = 't-own';
+    await tasksCli(['report', '--status', 'doing', '--message', 'Working'], async (_name, args) => { calls.push(args); return {}; });
+    assert.deepEqual(calls, [{ terminal: 't-own', status: 'doing', message: 'Working' }]);
+    await assert.rejects(tasksCli(['report', '--terminal', 't-other', '--status', 'doing', '--message', 'Working']), /Unknown/);
+    delete process.env.HC_TERMINAL_ID;
+    await assert.rejects(tasksCli(['report', '--status', 'doing', '--message', 'Working']), /inside the task/);
+  } finally {
+    if (previous === undefined) delete process.env.HC_TERMINAL_ID;
+    else process.env.HC_TERMINAL_ID = previous;
+  }
+});
 
 test('MCP uses exact project identity and validates creation fields before calling the owner', () => {
   const calls = [], runtime = { snapshot: () => ({ projects: { local: { project: { folder: '/repo' }, tasks: [] }, remote: { project: { folder: '/repo', machine: 'remote' }, tasks: [] } } }),

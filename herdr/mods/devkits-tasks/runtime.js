@@ -24,6 +24,50 @@ export class TaskRuntime {
   openThread(target, name, argv, profile, task) { this.navigate({ type: 'launch', target, name, argv, profile, task }); }
   archiveThread(thread) { this.navigate({ type: 'archive-thread', thread }); }
   restoreThread(entry) { this.navigate({ type: 'restore-thread', entry }); }
+  reportTask(project, args) {
+    if (!['doing', 'waiting', 'done', 'fail'].includes(args.status)) throw new Error('Invalid progress state.');
+    if (typeof args.message !== 'string' || !args.message.trim() || args.message.length > 4000)
+      throw new Error('Provide a progress message of 1–4000 characters.');
+    if (!args.run) {
+      if (typeof args.terminal !== 'string' || !args.terminal) throw new Error('A task run ID or your live HC terminal is required.');
+      const all = agents(), sender = all.find(agent => agent.address === args.terminal);
+      project = sender && this.projects().find(item => !item.machine && item.tabs?.some(tab => tab.id === sender.tab));
+      const task = project && projectBoardTasks(project, all).find(task => task.agents.some(agent => agent.address === sender.address));
+      if (!task || task.archived) throw new Error('This terminal has no active Herdr task.');
+      const current = boardRecords(project)[task.gid];
+      if (!current.execution || ['done', 'fail', 'stopped'].includes(current.execution.status) && args.status === 'doing') {
+        if (args.status !== 'doing') throw new Error('Report doing to begin a task attempt before reporting an outcome.');
+        const profile = shared('devkits.thread-profiles')?.[sender.tab] || current.agentKey || null;
+        const launcher = this.taskAssignees(project).find(agent => agent.key === profile);
+        rememberBoardTask(project, current, { status: 'doing', manual: false, hasInput: true,
+          execution: { id: `run:${Date.now()}:${Math.random().toString(36).slice(2)}`, status: 'doing',
+            profile, profileName: launcher?.name || current.agentName || sender.program?.name || 'Agent', model: null, effort: null,
+            startedAt: Date.now(), summary: '' },
+          runs: [...(current.runs || []), ...(current.execution ? [current.execution] : [])].slice(-30) });
+      }
+      args = { ...args, task: current.gid, run: boardRecords(project)[current.gid].execution.id };
+    }
+    if (typeof args.run !== 'string' || !args.run) throw new Error('A task run ID is required.');
+    project ||= this.projects().find(item => Object.values(boardRecords(item)).some(task => task.execution?.id === args.run));
+    if (!project) throw new Error('This task run is no longer active.');
+    if (project.machine) throw new Error('Progress reporting currently supports local tasks.');
+    const task = args.task ? boardRecords(project)[args.task] : Object.values(boardRecords(project)).find(task => task.execution?.id === args.run);
+    if (!task || task.archived || !task.execution || task.execution.id !== args.run)
+      throw new Error('This task run is no longer active. Refresh the task before reporting.');
+    const execution = task.execution;
+    if (args.status === execution.status && args.message.trim() === execution.summary) return task;
+    if (['done', 'fail', 'stopped'].includes(execution.status)) {
+      if (args.status === execution.status && args.message.trim() === execution.summary) return task;
+      throw new Error('This run has already finished. Start a new attempt to report more work.');
+    }
+    const at = Date.now(), summary = args.message.trim();
+    const next = { ...execution, status: args.status, summary, updatedAt: at,
+      ...(['done', 'fail'].includes(args.status) ? { finishedAt: at } : {}) };
+    const activity = [...(task.activity || []), { run: execution.id, status: args.status, message: summary, at }].slice(-100);
+    rememberBoardTask(project, task, { execution: next, activity,
+      status: args.status === 'waiting' ? 'doing' : args.status, manual: false });
+    return boardRecords(project)[task.gid];
+  }
   snapshot() {
     const all = agents(), projects = {};
     for (const project of this.projects()) {
@@ -33,13 +77,13 @@ export class TaskRuntime {
       for (const thread of projectGroups([project], all, {}, sessionThreadTitle).flatMap(group => group.threads)) {
         const task = threadBoardTask(project, thread), current = tasks.find(item => item.gid === task.gid);
         threads[thread.tab.id] = { link: shared('devkits.thread-tasks')?.[thread.tab.id] || null, name: sessionThreadTitle(thread.tab, thread.agent, project), status: threadBoardStatus(project, thread),
-          task: { ...task, policy: taskActions(current || { ...task, agents: thread.agents }) } };
+          task: { ...task, attention: current?.attention || null, interrupted: Boolean(current?.interrupted), policy: taskActions(current || { ...task, agents: thread.agents }) } };
       }
       projects[boardKey(project)] = { project: { id: project.id, folder: project.folder, name: project.name, machine: project.machine || null, pending: Boolean(project.pending) },
         tasks: tasks.map(task => { const { agents, tabs, ...data } = task; return { ...data, tabs: tabs.map(tab => ({ id: tab.id })), policy: taskActions(task) }; }),
         records: boardRecords(project), threads };
     }
-    return { projects };
+    return { projects, deleted: shared('devkits.deleted-tasks') || {} };
   }
   resolveSessions() {
     if (shared('devkits.pending-profiles')?.length) {
@@ -49,7 +93,24 @@ export class TaskRuntime {
         setShared('devkits.thread-profiles', resolved.profiles);
         setShared('devkits.thread-tasks', resolved.tasks);
         setShared('devkits.pending-profiles', resolved.pending);
+        if (resolved.restored?.length) setShared('devkits.pending-resumes', [...(shared('devkits.pending-resumes') || []), ...resolved.restored]);
       }
+    }
+    const confirming = shared('devkits.pending-resumes') || [];
+    if (confirming.length) {
+      const currentSpaces = spaces(), currentAgents = agents(), remaining = [];
+      for (const resumed of confirming) {
+        const exists = currentSpaces.some(space => space.tabs.some(tab => tab.id === resumed.tab));
+        // A tab may be created before its CLI fails. Require an agent that stays alive through startup.
+        if (exists && Date.now() - resumed.at >= 2000 && currentAgents.some(agent => agent.tab === resumed.tab && ['idle', 'working', 'done', 'blocked'].includes(agent.status))) {
+          if (resumed.task) {
+            const project = { folder: resumed.folder }, current = boardRecords(project)[resumed.task.gid];
+            if (current) setTaskArchived(project, current, false);
+          }
+          setShared('devkits.archived-threads', (shared('devkits.archived-threads') || []).filter(entry => entry.id !== resumed.id));
+        } else if (exists && Date.now() - resumed.at < 60000) remaining.push(resumed);
+      }
+      if (remaining.length !== confirming.length) setShared('devkits.pending-resumes', remaining);
     }
   }
   refresh(cx) {
@@ -139,11 +200,17 @@ export class TaskRuntime {
       const project = this.projects().find(item => item.id === target.space || (!item.machine && folderKey(item.folder) === folderKey(target.folder)));
       if (!project || !canStartTask(projectBoardTasks(project, agents()).find(item => item.gid === task.gid))) return;
     }
-    if (task) argv = [...argv, taskPrompt(task)];
+    const reporting = task && !target.machine && !spaces().find(space => space.id === target.space)?.machine
+      ? { cli: `${appHome()}/mods/devkits-tasks/tasks-cli.cjs`, project: boardKey({ folder: target.folder }), run: `run:${Date.now()}:${Math.random().toString(36).slice(2)}` } : null;
+    if (task) argv = [...argv, taskPrompt(task, reporting)];
     // Closing the launcher destroys its async context; finish reading rules first.
     if (target.overlay) this.navigate({ type: 'close-overlay', overlay: target.overlay });
     if (task) {
-      rememberBoardTask({ folder: target.folder }, task, { status: 'todo', manual: false, seenWorking: false, agentKey: agent.key, agentName: agent.name });
+      const previous = boardRecords({ folder: target.folder })[task.gid] || {};
+      rememberBoardTask({ folder: target.folder }, task, { status: 'todo', manual: false, seenWorking: false, agentKey: agent.key, agentName: agent.name,
+        ...(reporting ? { execution: { id: reporting.run, status: 'starting', profile: agent.key, profileName: agent.name,
+          model: session.model || null, effort: session.effort || null, startedAt: Date.now(), summary: 'Starting session' },
+          runs: [...(previous.runs || []), ...(previous.execution ? [previous.execution] : [])].slice(-30) } : {}) });
     }
     this.closeBoard();
     this.openThread(target, task?.name || agent?.name, argv, agent?.key, task ? { gid: task.gid, name: task.name, folder: target.folder, ...(task.source ? { source: task.source } : {}) } : null);
@@ -171,14 +238,23 @@ export class TaskRuntime {
         const current = projectBoardTasks(currentProject, agents()).find(item => item.gid === task.gid);
         if (!taskActions(current).canArchive) return;
         task = current;
-        if (!task.tabs.length) { setTaskArchived(project, task, true); return; }
-        const thread = projectGroups([project], agents(), {}, sessionThreadTitle).flatMap(group => group.threads).find(thread => task.tabs.some(tab => tab.id === thread.tab.id));
-        if (thread) eventCx.spawn(async cx => { await this.archiveThread(thread); cx.notify(); });
+        setTaskArchived(project, task, true);
       },
       restore: task => {
+        const current = projectBoardTasks(project, agents()).find(item => item.gid === task.gid);
+        if (current?.archived) setTaskArchived(project, current, false);
+      },
+      resume: task => {
         const entry = (shared('devkits.archived-threads') || []).find(entry => entry.id === task.archiveId);
         if (entry) this.restoreThread(entry);
-        else setTaskArchived(project, task, false);
+      },
+      stop: task => {
+        const current = projectBoardTasks(project, agents()).find(item => item.gid === task.gid);
+        if (!current) return;
+        if (current.execution && !['done', 'fail', 'stopped'].includes(current.execution.status))
+          rememberBoardTask(project, current, { execution: { ...current.execution, status: 'stopped', summary: 'Stopped by user', finishedAt: Date.now() } });
+        for (const thread of projectGroups([project], agents(), {}, sessionThreadTitle).flatMap(group => group.threads)
+          .filter(thread => current.tabs.some(tab => tab.id === thread.tab.id))) this.navigate({ type: 'stop-thread', thread });
       },
       close: () => this.closeBoard(),
       thread: id => {

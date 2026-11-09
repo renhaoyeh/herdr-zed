@@ -5,7 +5,7 @@ import { boardTheme } from './components/task-theme.js';
 import { Button } from './components/button.js';
 import { Checkbox } from './components/checkbox.js';
 import { glyph } from './components/icon.js';
-import { mentionTrigger } from './calendar-tasks.js';
+import { mentionTrigger, calendarEntries, taskLinkState } from './calendar-tasks.js';
 import { dayKey, nextDay, localDate, monthDays, weekDays, timelineEvents, timelineMinute, rangeDraft, eventsOnDay, eventTime, eventFromDraft, eventDraft, saveEvent, deleteEvent } from './calendar-model.js';
 
 const storageKey = 'devkits.calendar-events';
@@ -22,7 +22,7 @@ const weekdays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Frida
 const dateLabel = date => `${weekdays[date.getDay()]}, ${months[date.getMonth()]} ${date.getDate()}`;
 
 export default class LocalCalendar {
-  constructor({ tasks = () => [], openTask = () => false } = {}) { this.tasks = tasks; this.openTask = openTask; }
+  constructor({ tasks = () => [], openTask = () => false, deleted = () => ({}) } = {}) { this.tasks = tasks; this.openTask = openTask; this.deleted = deleted; }
 
   init(cx) {
     const now = new Date(); this.month = new Date(now.getFullYear(), now.getMonth(), 1); this.selected = dayKey(now);
@@ -59,6 +59,15 @@ export default class LocalCalendar {
   }
 
   records() { return shared(storageKey) || {}; }
+  taskEventLabel(event) {
+    const link = taskLinkState(event.taskLink, this.tasks(), this.deleted());
+    return `${link.label} · ${link.state}`;
+  }
+  eventLabel(event) {
+    if (!event.taskLink) return event.title;
+    const link = taskLinkState(event.taskLink, this.tasks(), this.deleted());
+    return event.dueMarker ? `Due · ${link.label} · ${link.state}` : `${event.title} · ${link.state}`;
+  }
 
   choose(date, cx, reveal = false) {
     this.selected = dayKey(date);
@@ -98,6 +107,7 @@ export default class LocalCalendar {
   }
 
   edit(event, cx, initial = {}, previewId = null) {
+    if (event?.dueMarker) { this.visitTask(event.taskLink.id, cx); return; }
     if (!event && !this.creating) {
       this.cancelRange(cx);
       try {
@@ -109,6 +119,7 @@ export default class LocalCalendar {
     }
     this.editing = event?.id || null; this.revision = event?.revision || null; this.composing = true; this.error = null; this.titleError = false;
     const draft = event ? eventDraft(event) : { title: '', notes: '', startDate: this.selected, endDate: this.selected, startTime: '09:00', endTime: '10:00', allDay: false, ...initial };
+    this.taskLink = draft.taskLink || null;
     this.mention = null;
     for (const [key, input] of Object.entries(this.inputs)) input.set_value(key === 'title' ? draft.titleContent || draft.title : draft[key]);
     this.notes.set_value(draft.notesContent || draft.notes || ''); this.allDay = draft.allDay;
@@ -175,7 +186,8 @@ export default class LocalCalendar {
     }
     try {
       const event = eventFromDraft({ ...Object.fromEntries(Object.entries(this.inputs).map(([key, input]) => [key, input.value().trim()])),
-        titleContent: this.inputs.title.content(), notes: this.notes.value(), notesContent: this.notes.content(), allDay: this.allDay }, this.editing || uid(), uid());
+        titleContent: this.inputs.title.content(), notes: this.notes.value(), notesContent: this.notes.content(), allDay: this.allDay,
+        taskLink: this.taskLink }, this.editing || uid(), uid());
       setShared(storageKey, saveEvent(this.records(), event, this.revision));
       this.choose(localDate(event.allDay ? event.start : dayKey(new Date(event.start))), cx, true);
       this.cancel(cx);
@@ -264,9 +276,10 @@ export default class LocalCalendar {
         return Popup.new(`calendar-${field}-mentions`, div().h(context.line_height).text_size(field === 'title' ? 20 : 13).child('@'))
           .relative().anchor('top_left').content(div().pt(4).child(this.mentionMenu(t)));
       const task = tasks.find(task => task.id === context.token.id);
+      const state = taskLinkState({ id: context.token.id, label: context.token.label || context.token.text.slice(1) }, tasks, this.deleted());
       return div().px(4).rounded(4).bg(context.selected ? t.solid : t.selected).text_color(context.selected ? t.solid_foreground : t.secondary)
         .max_w(context.available_width).truncate().text_size(Math.min(14, context.line_height * 0.7))
-        .child(`@${task?.name || context.token.label || context.token.text.slice(1)}`);
+        .child(`@${state.label}${!task || task.archived ? ` · ${state.state}` : ''}`);
     }).on_token_click((event, cx) => {
       if (event.token.id === this.mention?.anchor) this.mentionSearch.focus();
       else this.visitTask(event.token.id, cx);
@@ -321,6 +334,17 @@ export default class LocalCalendar {
         .child(h_flex().gap(12).child(field('startDate', 'Start date')).child(field('endDate', 'End date')))
         .when(!this.allDay, el => el.child(h_flex().gap(12).child(field('startTime', 'Start time')).child(field('endTime', 'End time'))))
         .child(div().text_size(11).text_color(t.muted).child(this.allDay ? 'Dates use YYYY-MM-DD. Includes the end date.' : 'Dates: YYYY-MM-DD · Times: HH:MM (24-hour)'))
+        .when(Boolean(this.taskLink), el => {
+          const link = taskLinkState(this.taskLink, this.tasks(), this.deleted());
+          return el.child(v_flex().id('calendar-linked-task').gap(6)
+            .child(div().text_size(11).text_color(t.muted).child('Scheduled task'))
+            .child(div().text_size(13).child(`${link.label} · ${link.state}`))
+            .child(h_flex().gap(6)
+              .when(!this.creating, row => row.child(Button('calendar-open-linked-task', t, { variant: 'ghost' }).child('Open task')
+                .on_click((_e, cx) => this.visitTask(this.taskLink.id, cx))))
+              .child(Button('calendar-unlink-task', t, { variant: 'ghost' }).child('Unlink')
+                .on_click((_e, cx) => { this.taskLink = null; cx.notify(); }))));
+        })
         .child(this.mentionField('notes', Textarea.new(this.notes).id('calendar-input-notes').accessibility_label('Event notes').w_full().text_size(13).bg(t.background).border(0), t))
         .child(div().text_size(11).text_color(t.muted).child('Type @ in the title or notes to link a task.'))
         .when(Boolean(this.error && !this.titleError), el => el.child(div().text_size(12).text_color(t.destructive).child(this.error))))
@@ -349,6 +373,8 @@ export default class LocalCalendar {
           .on_click((_event, cx) => this.edit(event, cx))
           .child(v_flex().flex_1().min_w(0).gap(6)
             .child(div().text_size(13).text_color(t.foreground).child(event.title))
+            .when(Boolean(event.taskLink), el => el.child(div().text_size(11).text_color(t.muted)
+              .child(this.taskEventLabel(event))))
             .child(div().text_size(11).text_color(t.muted).child(eventTime(event, day)))
             .when(Boolean(event.notes), el => el.child(div().truncate().text_size(12).text_color(t.muted).child(event.notes)))))));
   }
@@ -387,7 +413,7 @@ export default class LocalCalendar {
                 this.choose(date, cx); this.edit(event, cx);
               })
               .child(div().size(4).flex_none().rounded(2).bg(t.solid))
-              .child(div().min_w(0).truncate().text_size(11).child(event.title))))
+              .child(div().min_w(0).truncate().text_size(11).child(this.eventLabel(event)))))
             .when(items.length > 2, el => el.child(div().text_size(10).text_color(t.muted).child(`+${items.length - 2} more`)));
         }))));
   }
@@ -427,7 +453,7 @@ export default class LocalCalendar {
           .on_mouse_move((event, cx) => this.moveRange(date, event, cx))
           .on_mouse_up('left', (event, cx) => { this.moveRange(date, event, cx); this.finishRange(cx); })
           .children(eventsOnDay(events, date).filter(event => event.allDay).map(event => eventButton(event, date, `calendar-all-day-${dayKey(date)}-${event.id}`)
-            .child(div().min_w(0).truncate().text_size(11).child(event.title)))))))
+            .child(div().min_w(0).truncate().text_size(11).child(this.eventLabel(event))))))))
       .child(h_flex().id(`calendar-timeline-scroll-${this.view}`).flex_1().min_h(0).overflow_y_scroll().items_stretch()
         .on_hover((inside, cx) => { if (!inside && this.drag?.timed) this.cancelRange(cx); })
         .child(div().relative().w(52).h(hourHeight * 24).flex_none()
@@ -449,7 +475,7 @@ export default class LocalCalendar {
             .w(`${100 / row.columns}%`).h(row.height).px(2).pb(1)
             .child(eventButton(row.event, date, `calendar-timed-${dayKey(date)}-${row.event.id}`).h_full().items_start().overflow_hidden()
               .child(v_flex().flex_1().min_w(0).gap(2)
-                .child(div().min_w(0).truncate().text_size(11).font_medium().child(row.event.title))
+                .child(div().min_w(0).truncate().text_size(11).font_medium().child(this.eventLabel(row.event)))
                 .when(row.height >= 36, el => el.child(div().truncate().text_size(10).text_color(t.muted).child(eventTime(row.event, date)))))))))));
   }
 
@@ -463,7 +489,7 @@ export default class LocalCalendar {
   }
 
   render() {
-    const t = boardTheme(), events = Object.values(this.records()), close = () => closeOverlay(props().overlay);
+    const t = boardTheme(), events = calendarEntries(Object.values(this.records()), this.tasks()), close = () => closeOverlay(props().overlay);
     if (this.creating) return this.mentionKeyboard(v_flex().id('calendar-create-dialog').size_full().min_h(0).p(24).rounded(12).border(1).border_color(t.border)
       .bg(t.popover).font_family(t.fontFamily).text_color(t.foreground).role('dialog').accessibility_label('New event').track_focus(this.handle)
       .on_key_down((event, cx) => {

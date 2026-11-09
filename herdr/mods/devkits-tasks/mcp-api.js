@@ -4,6 +4,10 @@ export function tasksMcpCall(runtime, name, args = {}) {
   const snapshot = runtime.snapshot();
   const projects = Object.entries(snapshot.projects).map(([key, value]) => ({ key, ...value.project }));
   if (name === 'list_projects') return { projects };
+  if (name === 'report_task') {
+    const task = runtime.reportTask(null, args);
+    return { task: { gid: task.gid, status: task.status, run: task.execution.id, message: task.execution.summary } };
+  }
   const project = projects.find(project => project.key === args.project);
   if (!project) throw new Error('Unknown project. Use list_projects and pass its key.');
   if (name === 'list_tasks') return { tasks: snapshot.projects[project.key].tasks };

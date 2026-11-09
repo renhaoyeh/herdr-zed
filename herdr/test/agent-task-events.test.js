@@ -4,22 +4,23 @@ import { mkdtemp, writeFile, appendFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
-import { taskStatus, taskActions } from '../mods/devkits-tasks/agent-board-model.js';
+import { taskStatus, taskActions, taskAttention } from '../mods/devkits-tasks/agent-board-model.js';
 const { consumeTaskEvent, readTaskEvents } = createRequire(import.meta.url)('../mods/devkits-tasks/agent-task-events.cjs');
 const user = { type: 'event_msg', payload: { type: 'item_completed', item: { type: 'UserMessage', content: 'private task text' } } };
 const question = id => ({ type: 'response_item', payload: { type: 'function_call', name: 'request_user_input_async', call_id: id } });
 const accepted = id => ({ type: 'response_item', payload: { type: 'function_call_output', call_id: id, output: '{"accepted":true}' } });
 
-test('Action Required stays pending after async acceptance, overriding working and manual Done', () => {
+test('Action Required stays pending after async acceptance independently of stored progress', () => {
   const state = { hasInput: false, pending: {} };
   consumeTaskEvent(state, user); consumeTaskEvent(state, question('q1')); consumeTaskEvent(state, accepted('q1'));
   assert.equal(Object.keys(state.pending).length, 1);
   const agents = [{ status: 'working', inputTracked: true, hasInput: true, needsInput: true }];
-  assert.equal(taskStatus({ source: 'thread', status: 'done', manual: true }, agents), 'waiting');
+  assert.equal(taskStatus({ source: 'thread', status: 'done', manual: true }, agents), 'done');
+  assert.equal(taskAttention({}, agents).kind, 'native');
   assert.equal(taskActions({ status: 'waiting', agents }).canArchive, false);
   consumeTaskEvent(state, user);
   assert.deepEqual(state.pending, {});
-  assert.equal(taskStatus({ source: 'thread' }, [{ ...agents[0], needsInput: false }]), 'doing');
+  assert.equal(taskStatus({ source: 'thread' }, [{ ...agents[0], needsInput: false }]), 'todo');
 });
 test('blocking replies and rejected requests resolve; startup is not a submitted task', () => {
   const state = { hasInput: false, pending: {} };
@@ -31,7 +32,7 @@ test('blocking replies and rejected requests resolve; startup is not a submitted
   consumeTaskEvent(state, question('rejected'));
   consumeTaskEvent(state, { type: 'response_item', payload: { type: 'function_call_output', call_id: 'rejected', output: '{"accepted":false}' } });
   assert.deepEqual(state.pending, {});
-  assert.equal(taskStatus({ source: 'thread' }, [{ status: 'blocked', inputTracked: true, hasInput: false }]), 'waiting');
+  assert.equal(taskStatus({ source: 'thread' }, [{ status: 'blocked', inputTracked: true, hasInput: false }]), 'todo');
 });
 test('Claude metadata is not input, AskUserQuestion waits for the real result', () => {
   const state = { hasInput: false, pending: {} };

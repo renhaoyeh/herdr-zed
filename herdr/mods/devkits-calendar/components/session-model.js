@@ -286,17 +286,18 @@ export function threadTitle(tab, agent, space, { launcherName, taskName } = {}) 
 // A started session is the first tab that appears in its project afterwards; remember which profile ran it.
 // A session started from an Asana task also links its tab to that task.
 export function resolveThreadProfiles(spaces, pending = [], profiles = {}, now = Date.now(), tasks = {}) {
-  const next = { ...profiles }, links = { ...tasks };
+  const next = { ...profiles }, links = { ...tasks }, restored = [];
   const waiting = pending.filter(entry => {
     const space = spaces.find(space => entry.space ? space.id === entry.space
       : !space.machine && folderKey(space.folder) === folderKey(entry.folder));
     const tab = space?.tabs.find(tab => !entry.before.includes(tab.id) && !next[tab.id]);
     if (tab) next[tab.id] = entry.key;
     if (tab && entry.task) links[tab.id] = entry.task;
+    if (tab && entry.restoreArchiveId) restored.push({ id: entry.restoreArchiveId, folder: entry.folder, task: entry.task, tab: tab.id, at: now });
     return !tab && now - entry.at < 60000;
   });
   return { pending: waiting, profiles: Object.fromEntries(Object.entries(next).slice(-200)),
-    tasks: Object.fromEntries(Object.entries(links).slice(-200)) };
+    tasks: Object.fromEntries(Object.entries(links).slice(-200)), ...(restored.length ? { restored } : {}) };
 }
 
 // Threads started before profiles were recorded are still named after their launcher.

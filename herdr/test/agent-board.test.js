@@ -3,25 +3,26 @@ import assert from 'node:assert/strict';
 import { taskStatus, liveVersion, boardTasks, boardKey, agentsWithTurns, reconcileBoardRecords } from '../mods/devkits-tasks/agent-board-model.js';
 
 const live = (status, seq = 1) => [{ address: 't1', status, seq, tab: 'tab1' }];
-test('new idle threads are Todo; only actual work is Doing and finished runs are Done', () => {
+test('native terminal activity and turn counts never invent task progress', () => {
   assert.equal(taskStatus({}, []), 'todo');
-  assert.equal(taskStatus({}, live('working')), 'doing');
-  assert.equal(taskStatus({}, live('blocked')), 'waiting');
-  assert.equal(taskStatus({}, live('done')), 'done');
+  assert.equal(taskStatus({}, live('working')), 'todo');
+  assert.equal(taskStatus({}, live('blocked')), 'todo');
+  assert.equal(taskStatus({}, live('done')), 'todo');
   assert.equal(taskStatus({}, live('idle')), 'todo');
   assert.equal(taskStatus({}, [], true), 'todo');
-  assert.equal(taskStatus({}, [{ ...live('idle')[0], turn: 1 }]), 'done');
-  assert.equal(taskStatus({ seenWorking: true }, live('idle')), 'done');
-  assert.equal(taskStatus({}, [...live('working'), { address: 't2', status: 'blocked' }]), 'waiting');
+  assert.equal(taskStatus({}, [{ ...live('idle')[0], turn: 1 }]), 'todo');
+  assert.equal(taskStatus({ seenWorking: true }, live('idle')), 'todo');
+  assert.equal(taskStatus({}, [...live('working'), { address: 't2', status: 'blocked' }]), 'todo');
 });
-test('manual outcomes cannot override a working or blocked agent, and invalid manual activity normalizes', () => {
+test('stored progress is independent of native activity while action permissions still protect busy sessions', () => {
   for (const status of ['todo', 'done', 'fail']) {
     const record = { status, manual: true };
-    assert.equal(taskStatus(record, live('working')), 'doing');
-    assert.equal(taskStatus(record, live('blocked')), 'waiting');
+    assert.equal(taskStatus(record, live('working')), status);
+    assert.equal(taskStatus(record, live('blocked')), status);
     assert.equal(taskStatus(record, live('idle')), status);
   }
-  for (const status of ['doing', 'waiting']) assert.equal(taskStatus({ status, manual: true }, []), 'todo');
+  assert.equal(taskStatus({ status: 'doing' }, []), 'doing');
+  assert.equal(taskStatus({ status: 'invalid' }, []), 'todo');
 });
 test('Saved and launched tasks share one card and project links remain isolated', () => {
   const project = { folder: '/app/', tabs: [] };
@@ -31,7 +32,8 @@ test('Saved and launched tasks share one card and project links remain isolated'
     [{ id: 'tab1' }], live('blocked'));
   assert.equal(cards.length, 3);
   assert.equal(cards.find(t => t.gid === 'a').name, 'Renamed');
-  assert.equal(cards.find(t => t.gid === 'a').status, 'waiting');
+  assert.equal(cards.find(t => t.gid === 'a').status, 'doing');
+  assert.equal(cards.find(t => t.gid === 'a').attention.kind, 'native');
   assert.equal(cards.find(t => t.gid === 'a').tabs[0].id, 'tab1');
   assert.equal(cards.find(t => t.gid === 'done').status, 'done');
   assert.equal(cards.find(t => t.gid === 'new').status, 'todo');
@@ -48,7 +50,7 @@ test('unlinked agent threads appear on the board while plain terminals do not', 
   assert.equal(cards[0].gid, 'thread:tab1');
   assert.equal(cards[0].name, 'Fix login');
   assert.equal(cards[0].source, 'thread');
-  assert.equal(cards[0].status, 'doing');
+  assert.equal(cards[0].status, 'todo');
   assert.equal(cards[0].tabs[0].id, 'tab1');
   const records = { 'thread:tab1': { ...cards[0], status: 'done', manual: true, liveVersion: liveVersion(live('working')) } };
   assert.equal(boardTasks(project, [], records, {}, tabs, live('idle'))[0].status, 'done');
@@ -79,12 +81,12 @@ test('local task creation needs no Asana connection and survives storage roundtr
   state.setTaskArchived(project, archivedCard, false);
   assert.equal(state.projectBoardTasks(project)[0].archived, false);
   assert.equal(state.threadBoardStatus(project, { tab: { id: 'shell' }, agents: [] }), null);
-  assert.equal(state.threadBoardStatus(project, { tab: { id: 'tab1' }, agents: live('working') }), 'doing');
-  assert.equal(state.threadBoardStatus(project, { tab: { id: 'tab1' }, agents: live('blocked') }), 'waiting');
+  assert.equal(state.threadBoardStatus(project, { tab: { id: 'tab1' }, agents: live('working') }), 'todo');
+  assert.equal(state.threadBoardStatus(project, { tab: { id: 'tab1' }, agents: live('blocked') }), 'todo');
 });
 
 
-test('finished runs stay Done after reading or restarting, and new work reopens them', () => {
+test('reported progress survives reads and restarts without following native turn endings', () => {
   let record = {};
   const task = agents => ({ gid: 'thread:tab1', source: 'thread', threadId: 'tab1', name: 'Fix login',
     agents, status: taskStatus(record, agents, true) });
@@ -94,23 +96,25 @@ test('finished runs stay Done after reading or restarting, and new work reopens 
     return next.status;
   };
   assert.equal(observe(live('idle')), 'todo');
-  assert.equal(observe(live('working', 2)), 'doing');
-  assert.equal(observe(live('done', 3)), 'done');
-  assert.equal(observe(live('idle', 4)), 'done');
+  assert.equal(observe(live('working', 2)), 'todo');
+  record.status = 'doing';
+  assert.equal(observe(live('done', 3)), 'doing');
+  assert.equal(observe(live('idle', 4)), 'doing');
   assert.equal(observe(live('working', 5)), 'doing');
-  assert.equal(observe(live('blocked', 6)), 'waiting');
+  assert.equal(observe(live('blocked', 6)), 'doing');
   assert.equal(observe(live('working', 7)), 'doing');
-  // Focused agents may finish straight to idle, without an unread done event.
-  assert.equal(observe(live('idle', 8)), 'done');
+  assert.equal(observe(live('idle', 8)), 'doing');
+  record.status = 'done';
+  assert.equal(observe(live('working', 9)), 'done');
 });
 
-test('core turn history distinguishes previously finished idle threads on first observation', () => {
+test('core turn history is activity metadata, never completion evidence', () => {
   const neverRan = agentsWithTurns(live('idle'), [{ address: 't1', turn: 0 }]);
   const finished = agentsWithTurns(live('idle'), [{ address: 't1', turn: 3 }]);
   assert.equal(taskStatus({}, neverRan, true), 'todo');
-  assert.equal(taskStatus({}, finished, true), 'done');
-  assert.equal(taskStatus({}, agentsWithTurns(live('blocked'), [{ address: 't1', turn: 3 }]), true), 'waiting');
-  assert.equal(taskStatus({}, agentsWithTurns(live('working'), [{ address: 't1', turn: 3 }]), true), 'doing');
+  assert.equal(taskStatus({}, finished, true), 'todo');
+  assert.equal(taskStatus({}, agentsWithTurns(live('blocked'), [{ address: 't1', turn: 3 }]), true), 'todo');
+  assert.equal(taskStatus({}, agentsWithTurns(live('working'), [{ address: 't1', turn: 3 }]), true), 'todo');
 });
 
 test('only unstarted active Todo tasks can expose execution controls', async () => {
@@ -121,18 +125,18 @@ test('only unstarted active Todo tasks can expose execution controls', async () 
   assert.equal(canStartTask({ status: 'todo', tabs: [], archived: true }), false);
 });
 
-test('an empty thread stays Todo through startup, including previously misclassified Done records', () => {
+test('input evidence controls empty-thread cleanup without changing stored task progress', () => {
   const record = { source: 'thread', status: 'done', seenWorking: true, manual: false };
   for (const status of ['working', 'idle', 'done']) {
     const agents = [{ ...live(status)[0], inputTracked: true, hasInput: false, turn: 1 }];
-    assert.equal(taskStatus(record, agents), 'todo');
+    assert.equal(taskStatus(record, agents), 'done');
     const updated = reconcileBoardRecords({ t: record }, [{ ...record, gid: 't', agents, status: 'todo' }]).t;
-    assert.equal(updated.seenWorking, false); assert.equal(updated.hasInput, false);
+    assert.equal(updated.hasInput, false);
   }
   const real = [{ ...live('working')[0], inputTracked: true, hasInput: true, turn: 1 }];
-  assert.equal(taskStatus(record, real), 'doing');
+  assert.equal(taskStatus(record, real), 'done');
   assert.equal(taskStatus(record, [{ ...real[0], status: 'idle' }]), 'done');
-  assert.equal(taskStatus({ source: 'local' }, [{ ...real[0], hasInput: false }]), 'doing');
+  assert.equal(taskStatus({ source: 'local' }, [{ ...real[0], hasInput: false }]), 'todo');
 });
 
 test('closing an empty thread removes its Todo card across reloads without hiding real tasks or archives', () => {
@@ -161,16 +165,16 @@ test('closing an empty thread removes its Todo card across reloads without hidin
 test('all task action permissions agree with progress, archive visibility and live busy state', async () => {
   const { taskActions } = await import('../mods/devkits-tasks/agent-board-model.js');
   assert.deepEqual(taskActions({ status: 'todo', agents: [], tabs: [] }),
-    { canStart: true, canEdit: true, canSetStatus: true, canArchive: true, canRestore: false, canDelete: false });
-  for (const status of ['doing', 'waiting']) assert.deepEqual(taskActions({ status, agents: [], tabs: [] }),
-    { canStart: false, canEdit: false, canSetStatus: false, canArchive: false, canRestore: false, canDelete: false });
+    { canStart: true, canEdit: true, canSetStatus: true, canArchive: true, canRestore: false, canDelete: false, canSchedule: true });
+  assert.deepEqual(taskActions({ status: 'doing', agents: [], tabs: [] }),
+    { canStart: false, canEdit: false, canSetStatus: true, canArchive: true, canRestore: false, canDelete: false, canSchedule: true });
   for (const status of ['done', 'fail']) assert.deepEqual(taskActions({ status, agents: [], tabs: [] }),
-    { canStart: false, canEdit: false, canSetStatus: true, canArchive: true, canRestore: false, canDelete: false });
+    { canStart: false, canEdit: false, canSetStatus: true, canArchive: true, canRestore: false, canDelete: false, canSchedule: true });
   for (const status of ['todo', 'done', 'fail']) for (const running of ['working', 'blocked']) {
     const permissions = taskActions({ status, agents: live(running), tabs: [] });
     assert.equal(permissions.canStart, false); assert.equal(permissions.canArchive, false);
     assert.equal(permissions.canEdit, false); assert.equal(permissions.canSetStatus, false);
   }
   assert.deepEqual(taskActions({ status: 'done', archived: true, agents: [], tabs: [] }),
-    { canStart: false, canEdit: false, canSetStatus: false, canArchive: false, canRestore: true, canDelete: false });
+    { canStart: false, canEdit: false, canSetStatus: false, canArchive: false, canRestore: true, canDelete: false, canSchedule: false });
 });
