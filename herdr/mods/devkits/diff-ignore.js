@@ -1,25 +1,76 @@
 import { appHome, readTextFile, writeTextFile } from 'herdr';
 import { execShell } from './shell.js';
 
-export const buildRulesPath = () => `${appHome()}/data/devkits/diff-build-output.gitignore`;
+const DEFAULT_TEMPLATES = ['VisualStudio.gitignore', 'Qt.gitignore', 'C++.gitignore', 'CMake.gitignore', 'Node.gitignore', 'Python.gitignore'];
+// Lockfiles start as ordinary Custom rules, so like every rule here they hide only untracked files.
+const DEFAULT_CUSTOM = `# Lock files
+*.lock
+lock.json
+*-lock.json
+lock.yaml
+*-lock.yaml
+lock.yml
+*-lock.yml
+npm-shrinkwrap.json
+bun.lockb
+`;
 
-/** Seed once from the unmodified downloaded templates. Never replace saved edits or emptiness. */
-export async function readBuildRules() {
-  const path = buildRulesPath();
-  let text = await readTextFile(path);
-  if (text === null) {
-    const names = ['VisualStudio.gitignore', 'Qt.gitignore'];
-    const templates = await Promise.all(names.map(name => readTextFile(`${appHome()}/mods/devkits/assets/gitignore/${name}`)));
-    if (templates.some(value => value === null)) throw new Error('Build filter templates are missing.');
-    const initial = '# Herdr display filter: untracked files only. Git configuration is unchanged.\n'
-      + '# Edit these rules or append patterns and !exceptions below.\n\n'
-      + templates.map((value, i) => `# github/gitignore/${names[i]}\n${value}\n`).join('\n')
-      + '\n# Additional rules and exceptions\n';
-    try { await writeTextFile(path, initial, null); text = initial; }
+const templatePath = file => `${appHome()}/mods/devkits/assets/gitignore/${file}`;
+/** Git reads this generated file; the filters file is the editable source. */
+export const buildRulesPath = () => `${appHome()}/data/devkits/diff-build-output.gitignore`;
+export const buildFiltersPath = () => `${appHome()}/data/devkits/diff-build-filters.json`;
+
+/** Bundled github/gitignore templates, in provenance order. */
+export async function readBuildTemplates() {
+  const sources = await readTextFile(templatePath('sources.json'));
+  if (sources === null) throw new Error('Build filter templates are missing.');
+  const files = JSON.parse(sources).files.map(entry => entry.file).filter(file => file.endsWith('.gitignore'));
+  const texts = await Promise.all(files.map(file => readTextFile(templatePath(file))));
+  if (texts.some(text => text === null)) throw new Error('Build filter templates are missing.');
+  return files.map((file, i) => ({ file, label: file.replace(/\.gitignore$/, ''), text: texts[i] }));
+}
+
+const normalize = (value, templates) => {
+  const chosen = new Set(Array.isArray(value?.templates) ? value.templates : []);
+  return { templates: templates.map(entry => entry.file).filter(file => chosen.has(file)),
+    custom: typeof value?.custom === 'string' ? value.custom : '' };
+};
+
+export const serializeBuildFilters = filters => JSON.stringify(filters, null, 2) + '\n';
+
+/** Saved filters, created with the default templates and lockfile rules when missing. `original` is the on-disk revision for saving. */
+export async function readBuildFilters(templates) {
+  templates ||= await readBuildTemplates();
+  const path = buildFiltersPath();
+  let original = await readTextFile(path);
+  if (original === null) {
+    const initial = serializeBuildFilters({ templates: DEFAULT_TEMPLATES, custom: DEFAULT_CUSTOM });
+    try { await writeTextFile(path, initial, null); original = initial; }
     catch (error) {
-      text = await readTextFile(path);
-      if (text === null) throw error;
+      original = await readTextFile(path);
+      if (original === null) throw error;
     }
+  }
+  let value;
+  try { value = JSON.parse(original); } catch { throw new Error(`Cannot read ${path}: invalid JSON.`); }
+  return { path, original, templates, filters: normalize(value, templates) };
+}
+
+export function composeBuildRules(templates, filters) {
+  const chosen = templates.filter(entry => filters.templates.includes(entry.file));
+  return '# Herdr display filter for untracked files, generated from Build filter rules. Edit it there.\n\n'
+    + chosen.map(entry => `# github/gitignore/${entry.file}\n${entry.text}\n`).join('\n')
+    + '\n# Custom rules and exceptions\n' + filters.custom;
+}
+
+/** Compose checked templates and custom rules, refreshing the generated file Git reads when it differs. */
+export async function readBuildRules() {
+  const { filters, templates } = await readBuildFilters();
+  const path = buildRulesPath(), text = composeBuildRules(templates, filters);
+  const current = await readTextFile(path);
+  if (current !== text) {
+    try { await writeTextFile(path, text, current); }
+    catch (error) { if (await readTextFile(path) !== text) throw error; }
   }
   return { path: path.replaceAll('\\', '/'), text };
 }

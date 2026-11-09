@@ -287,7 +287,7 @@ export class GitGraph {
 
   detailPanel(t) {
     const commit = this.selected, preview = this.details.preview?.commit.sha === commit.sha ? this.details.preview : null;
-    const files = this.visibleFiles?.(preview?.files || []) || preview?.files || [];
+    const files = preview?.files || [];
     const tree = shared('devkits.graph-file-tree') !== false;
     const rows = tree && this.fileRows ? this.fileRows(files, this.collapsedFolders)
       : files.map(file => ({ kind: 'file', name: file.path, path: file.path, depth: 0, file }));
@@ -334,8 +334,7 @@ export class GitGraph {
       .when(Boolean(preview?.truncated), el => el.child(div().px(8).py(4).text_size(11).text_color(t.muted).child('Diff limited to 4 MB.')))
       .child(v_flex().id('graph-changed-files').relative().flex_1().min_h(0)
         .when(this.details.pending === commit.sha, el => el.child(div().p(12).text_color(t.muted).child('Loading…')))
-        .when(Boolean(preview) && !files.length, el => el.child(div().p(12).text_color(t.muted)
-          .child(preview.files.length ? 'All changed files are hidden by Hide lock files' : 'No file changes in this commit')))
+        .when(Boolean(preview) && !files.length, el => el.child(div().p(12).text_color(t.muted).child('No file changes in this commit')))
         .when(rows.length > 0, el => el.child(v_virtual_list('graph-commit-files', rows.length, 28, index => `${rows[index].kind}:${rows[index].path}`,
           range => rows.slice(range.start, range.end).map(row => {
             const file = row.file;

@@ -445,9 +445,6 @@ const splitPath = path => {
   return { name: path.slice(slash + 1), folder: slash > 0 ? path.slice(0, slash) : '' };
 };
 
-// Match dependency lockfiles by basename, including nested workspaces.
-export const isLockFile = path => /(?:\.lock|(?:^|-)lock\.(?:json|ya?ml)|^npm-shrinkwrap\.json|^bun\.lockb)$/i.test(path.split(/[\\/]/).at(-1));
-
 export const isBuildOutput = file => Boolean(file.untracked && file.buildOutput);
 
 // A non-repository workspace can contain independent repositories. Inspect only
@@ -1010,8 +1007,6 @@ export default class DiffViewer {
         .when(expanded, el => el.max_h(240).overflow_y_scrollbar())
         .child(expanded ? message : message.split('\n')[0]));
   }
-  get hideLockFiles() { return shared('devkits.diff-hide-lock-files') !== false; }
-  get hideBuildOutput() { return (shared('devkits.diff-hide-build-output') ?? shared('devkits.diff-hide-x64-output')) !== false; }
   get fileView() { return shared('devkits.diff-file-view') === 'list' ? 'list' : 'tree'; }
 
   setFileView(view, cx) {
@@ -1020,59 +1015,31 @@ export default class DiffViewer {
   }
 
   includeFile(file) {
-    return !(this.hideLockFiles && isLockFile(file.path) || this.hideBuildOutput && isBuildOutput(file));
+    return !isBuildOutput(file);
   }
 
   visibleFiles(files) {
-    if (!this.hideLockFiles && !this.hideBuildOutput) return files;
     this.filteredFileCache ||= new WeakMap();
-    let cache = this.filteredFileCache.get(files);
-    if (!cache) { cache = new Map(); this.filteredFileCache.set(files, cache); }
-    const key = `${this.hideLockFiles}:${this.hideBuildOutput}`;
-    if (!cache.has(key)) {
+    if (!this.filteredFileCache.has(files)) {
       const visible = files.filter(file => this.includeFile(file));
-      cache.set(key, visible.length === files.length ? files : visible);
+      this.filteredFileCache.set(files, visible.length === files.length ? files : visible);
     }
-    return cache.get(key);
+    return this.filteredFileCache.get(files);
   }
 
   get displayFiles() { return this.visibleFiles(this.commitPreview?.files || this.files); }
 
-  toggleLockFiles(cx) {
-    setShared('devkits.diff-hide-lock-files', !this.hideLockFiles);
-    this.filtersChanged(cx);
-  }
-
-  toggleBuildOutput(cx) {
-    setShared('devkits.diff-hide-build-output', !this.hideBuildOutput);
-    this.filtersChanged(cx);
-  }
-
-  filtersChanged(cx) {
-    this.rowCache = null; this.selected = null; this.pendingReveal = null; this.rowStart = null;
-    this.scroll.scroll_to_item(0, 'top');
-    if (this.context && this.files.some(file => file.deferred)) this.reload(cx);
-    cx.notify();
-  }
-
   panelSettingsItems() {
     const files = this.panelTab === 'history' ? this.commitPreview?.files || [] : this.files;
-    const countLabel = (checked, count) => `${count} ${checked ? 'hidden' : count === 1 ? 'file' : 'files'}`;
     return [
       { key: 'list', label: 'List', checked: this.fileView === 'list' },
       { key: 'tree', label: 'Tree', checked: this.fileView === 'tree' },
-      { key: 'hide-lock-files', label: 'Hide lock files', checked: this.hideLockFiles, separator: true,
-        description: countLabel(this.hideLockFiles, files.filter(file => isLockFile(file.path)).length) },
-      { key: 'hide-build-output', label: 'Hide build output', checked: this.hideBuildOutput,
-        description: countLabel(this.hideBuildOutput, files.filter(isBuildOutput).length) },
-      { key: 'build-rules', label: 'Edit build filter rules…' },
+      { key: 'filter-rules', label: 'Filter rules…', separator: true, description: `${files.length - this.visibleFiles(files).length} hidden` },
     ];
   }
 
   choosePanelSetting(key, cx) {
-    if (key === 'hide-lock-files') this.toggleLockFiles(cx);
-    else if (key === 'hide-build-output') this.toggleBuildOutput(cx);
-    else if (key === 'build-rules') openBuildRules();
+    if (key === 'filter-rules') openBuildRules();
     else if (key === 'list' || key === 'tree') this.setFileView(key, cx);
   }
 
@@ -1101,7 +1068,6 @@ export default class DiffViewer {
     if (this.discovering || this.allRepositories) return;
     if (!this.graph) {
       this.graph = new GitGraph(cx, (text, cx, cancelled) => cx?.sleep ? parseDiffAsync(text, cx, cancelled) : parseDiff(text));
-      this.graph.visibleFiles = files => this.visibleFiles(files);
       this.graph.fileRows = changeTree;
       this.graph.reset(this.context);
       this.graph.onClose = cx => { this.graphMode = false; cx.notify(); };

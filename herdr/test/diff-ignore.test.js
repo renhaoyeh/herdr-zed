@@ -8,30 +8,53 @@ const run = promisify(execFile);
 async function load(host = {}) {
   const source = await readFile(new URL('../mods/devkits/diff-ignore.js', import.meta.url), 'utf8');
   return new Function(...Object.keys(host), source.replace(/^import .*;\r?\n/gm, '').replace(/^export /gm, '')
-    + '\nreturn { readBuildRules, withBuildRulesFile };')(...Object.values(host));
+    + '\nreturn { readBuildRules, readBuildFilters, withBuildRulesFile };')(...Object.values(host));
 }
 
-test('downloaded templates seed once, and saved edits or an intentionally empty rules file remain authoritative', async () => {
-  const files = new Map(), writes = [];
-  const names = ['VisualStudio.gitignore', 'Qt.gitignore'];
-  const templates = await Promise.all(names.map(name => readFile(new URL(`../mods/devkits/assets/gitignore/${name}`, import.meta.url), 'utf8')));
-  names.forEach((name, i) => files.set(`/home/mods/devkits/assets/gitignore/${name}`, templates[i]));
-  const { readBuildRules } = await load({ appHome: () => '/home', readTextFile: async path => files.get(path) ?? null,
-    writeTextFile: async (path, text, expected) => { assert.equal(files.get(path) ?? null, expected); files.set(path, text); writes.push(path); } });
-  const first = await readBuildRules();
-  templates.forEach(text => assert.ok(first.text.includes(text), 'Keep the downloaded template intact'));
-  files.set(first.path, '*.custom\n!important.custom\n');
-  assert.equal((await readBuildRules()).text, '*.custom\n!important.custom\n');
-  files.set(first.path, ''); assert.equal((await readBuildRules()).text, '');
-  assert.equal(writes.length, 1);
+const assets = new URL('../mods/devkits/assets/gitignore/', import.meta.url);
+async function bundled(files) {
+  const sources = await readFile(new URL('sources.json', assets), 'utf8');
+  files.set('/home/mods/devkits/assets/gitignore/sources.json', sources);
+  for (const { file } of JSON.parse(sources).files) files.set(`/home/mods/devkits/assets/gitignore/${file}`, await readFile(new URL(file, assets), 'utf8'));
+  return files;
+}
+const host = files => ({ appHome: () => '/home', readTextFile: async path => files.get(path) ?? null,
+  writeTextFile: async (path, text, expected) => {
+    if ((files.get(path) ?? null) !== expected) throw new Error('Changed on disk');
+    files.set(path, text);
+  } });
+const RULES = '/home/data/devkits/diff-build-output.gitignore', FILTERS = '/home/data/devkits/diff-build-filters.json';
+
+test('bundled templates match their recorded provenance hashes', async () => {
+  const { createHash } = await import('node:crypto');
+  for (const { file, sha256 } of JSON.parse(await readFile(new URL('sources.json', assets), 'utf8')).files)
+    assert.equal(createHash('sha256').update(await readFile(new URL(file, assets))).digest('hex'), sha256, file);
 });
 
-test('another window winning the initial rules creation is preserved', async () => {
-  let calls = 0;
-  const { readBuildRules } = await load({ appHome: () => '/home',
-    readTextFile: async path => path.endsWith('diff-build-output.gitignore') ? ++calls === 1 ? null : 'other window' : '# template',
-    writeTextFile: async () => { throw new Error('Changed on disk'); } });
-  assert.equal((await readBuildRules()).text, 'other window');
+test('checked templates compose in bundled order with custom rules last, regenerating the file Git reads', async () => {
+  const files = await bundled(new Map());
+  const { readBuildRules } = await load(host(files));
+  const first = await readBuildRules();
+  const seeded = JSON.parse(files.get(FILTERS));
+  assert.deepEqual(seeded.templates, ['VisualStudio.gitignore', 'Qt.gitignore', 'C++.gitignore', 'CMake.gitignore', 'Node.gitignore', 'Python.gitignore']);
+  assert.match(seeded.custom, /^# Lock files\n(?:.*\n)*\*-lock\.json\n/, 'Lockfiles start as editable Custom rules');
+  assert.ok(first.text.endsWith(seeded.custom));
+  for (const name of ['VisualStudio.gitignore', 'Qt.gitignore']) assert.ok(first.text.includes(files.get(`/home/mods/devkits/assets/gitignore/${name}`)));
+  assert.equal(files.get(RULES), first.text);
+  files.set(FILTERS, JSON.stringify({ templates: ['Node.gitignore', 'CMake.gitignore', 'Missing.gitignore'], custom: '!keep.log\n' }));
+  const next = await readBuildRules();
+  assert.ok(next.text.indexOf('# github/gitignore/CMake.gitignore') < next.text.indexOf('# github/gitignore/Node.gitignore'));
+  assert.ok(!next.text.includes('VisualStudio.gitignore') && !next.text.includes('Missing'));
+  assert.ok(next.text.endsWith('# Custom rules and exceptions\n!keep.log\n'));
+  assert.equal(files.get(RULES), next.text);
+});
+
+test('another window winning the initial filters creation is preserved', async () => {
+  const files = await bundled(new Map());
+  const other = JSON.stringify({ templates: ['Python.gitignore'], custom: 'other window' });
+  const { readBuildFilters } = await load({ ...host(files),
+    writeTextFile: async path => { files.set(path, other); throw new Error('Changed on disk'); } });
+  assert.deepEqual((await readBuildFilters()).filters, { templates: ['Python.gitignore'], custom: 'other window' });
 });
 
 test('remote rules preserve literal Unicode and shell punctuation and remove temporary files after success or failure', async () => {
@@ -56,13 +79,17 @@ test('remote rules preserve literal Unicode and shell punctuation and remove tem
   }
 });
 
-test('rules editor compares revisions, retains failed drafts and publishes only successful saves', async () => {
+test('rules editor saves checked templates and custom rules with revision checks, publishing only successful saves', async () => {
   const source = await readFile(new URL('../mods/devkits/diff-ignore-settings.js', import.meta.url), 'utf8');
-  const tasks = [], closed = [], memory = {}; let value = '', conflict = true;
+  const tasks = [], closed = [], memory = {}, writes = []; let conflict = true;
+  const editor = ({ value = '' }) => ({ set_value(text) { value = text; }, value: () => value, release() {} });
   const host = {
-    EditorState: { new: () => ({ set_value: text => { value = text; }, value: () => value, release() {} }) },
-    readBuildRules: async () => ({ text: 'original rules' }), buildRulesPath: () => '/rules',
-    writeTextFile: async (path, text, expected) => { assert.deepEqual([path, text, expected], ['/rules', 'new rules', 'original rules']); if (conflict) throw new Error('Changed on disk'); },
+    EditorState: { new: editor },
+    readBuildFilters: async () => ({ path: '/filters.json', original: 'original',
+      templates: [{ file: 'A.gitignore', label: 'A', text: 'a' }, { file: 'B.gitignore', label: 'B', text: 'b' }],
+      filters: { templates: ['B.gitignore'], custom: 'mine' } }),
+    serializeBuildFilters: value => JSON.stringify(value),
+    writeTextFile: async (path, text, expected) => { writes.push([path, JSON.parse(text), expected]); if (conflict) throw new Error('Changed on disk'); },
     shared: key => memory[key], setShared: (key, next) => { memory[key] = next; },
     props: () => ({ overlay: 'dialog' }), closeOverlay: id => closed.push(id),
   };
@@ -70,9 +97,11 @@ test('rules editor compares revisions, retains failed drafts and publishes only 
     + '\nreturn { BuildRulesSettings };')(...Object.values(host));
   const cx = { notify() {}, spawn(fn) { tasks.push(fn(cx)); } };
   const view = new BuildRulesSettings(); view.init(cx); await Promise.all(tasks.splice(0));
-  value = 'new rules'; view.save(cx); await Promise.all(tasks.splice(0));
-  assert.match(view.error, /Changed on disk/); assert.equal(value, 'new rules'); assert.deepEqual(closed, []);
-  assert.deepEqual(memory, {});
+  assert.equal(view.page, 'B.gitignore'); assert.equal(view.preview.value(), 'b');
+  view.checked.add('A.gitignore'); view.custom.set_value('mine\n!keep');
+  view.save(cx); await Promise.all(tasks.splice(0));
+  assert.match(view.error, /Changed on disk/); assert.deepEqual(closed, []); assert.deepEqual(memory, {});
+  assert.deepEqual(writes[0], ['/filters.json', { templates: ['A.gitignore', 'B.gitignore'], custom: 'mine\n!keep' }, 'original']);
   conflict = false; view.save(cx); await Promise.all(tasks.splice(0));
   assert.deepEqual(closed, ['dialog']); assert.equal(memory['devkits.diff-build-rules-revision'], 1);
 });

@@ -21,7 +21,7 @@ async function load(host = {}) {
   const utf8 = await readFile(new URL('../mods/devkits/utf8.js', import.meta.url), 'utf8');
   const toast = await readFile(new URL('../mods/devkits/git-result-toast.js', import.meta.url), 'utf8');
   return new Function(...Object.keys(host), (utf8 + '\n' + command + '\n' + shell + '\n' + menu + '\n' + history + '\n' + auth + '\n' + sidePanel + '\n' + toast + '\n' + source).replace(/^import .*;\r?\n/gm, '')
-    .replace('export default class', 'class').replace(/^export /gm, '') + '\nreturn { DiffViewer, ALL_REPOSITORIES, readAllDiff, readRepositories, DropdownMenu, DropdownMenuState, showGitToast, clearGitToast, utf8ByteLength, parseDiff, parseDiffBatches, parseDiffAsync, parseDiffIndex, readDiff, readPushState, pushBranch, gitRemoteAction, affectsDiff, pairLines, changedRanges, changeSections, changeTree, wrapLine, isLockFile, isBuildOutput };')(...Object.values(host));
+    .replace('export default class', 'class').replace(/^export /gm, '') + '\nreturn { DiffViewer, ALL_REPOSITORIES, readAllDiff, readRepositories, DropdownMenu, DropdownMenuState, showGitToast, clearGitToast, utf8ByteLength, parseDiff, parseDiffBatches, parseDiffAsync, parseDiffIndex, readDiff, readPushState, pushBranch, gitRemoteAction, affectsDiff, pairLines, changedRanges, changeSections, changeTree, wrapLine, isBuildOutput };')(...Object.values(host));
 }
 const run = promisify(execFile);
 const indexFor = path => `${'a'.repeat(40)}\0/repo\0:100644 100644 abc def M\0${path}\0` + `1\t1\t${path}\0\0`;
@@ -205,42 +205,7 @@ test('All panel exposes the saved choice, disables History and omits branch and 
   assert.equal(nodes.has('git-open-graph'), false);
 });
 
-test('lockfile preference filters working changes and history without discarding Git data', async () => {
-  const memory = {};
-  const { DiffViewer, isLockFile, parseDiff } = await load({
-    shared: key => memory[key], setShared: (key, value) => { memory[key] = value; },
-    VirtualListScrollHandle: { new: () => ({ scroll_to_item() {} }) },
-  });
-  for (const name of ['Cargo.lock', 'nested/Cargo.lock', 'yarn.lock', 'package-lock.json', 'pnpm-lock.yaml',
-    'npm-shrinkwrap.json', 'bun.lock', 'bun.lockb', 'Pipfile.lock', 'poetry.lock', 'composer.lock', 'Gemfile.lock']) {
-    assert.equal(isLockFile(name), true, name);
-  }
-  for (const name of ['Cargo.toml', 'package.json', 'src/lock.json.ts', 'src/clock.json', 'src/locksmith.yaml', 'Cargo.lock/README.md']) {
-    assert.equal(isLockFile(name), false, name);
-  }
-  const patch = name => [`diff --git a/${name} b/${name}`, `--- a/${name}`, `+++ b/${name}`, '@@ -1 +1 @@', '-old', '+new'].join('\n');
-  const view = new DiffViewer(); view.init();
-  view.files = parseDiff(patch('Cargo.lock') + '\n' + patch('Cargo.toml'));
-  assert.deepEqual(view.displayFiles.map(file => file.path), ['Cargo.toml']);
-  assert.equal(view.displayFiles, view.displayFiles, 'Stable filtering preserves the asynchronous row cache');
-  assert.deepEqual(view.rows().rows.filter(row => row.kind === 'file').map(row => row.file.path), ['Cargo.toml']);
-  view.panelTab = 'history'; view.previewMode = true;
-  view.history.preview = { files: parseDiff(patch('package-lock.json')) };
-  const previewFiles = view.displayFiles;
-  view.visibleFiles(view.files);
-  assert.equal(view.displayFiles, previewFiles, 'Panel rendering must not invalidate the commit row cache');
-  assert.equal(view.rows().rows.length, 0);
-  view.toggleLockFiles({ notify() {} });
-  assert.equal(memory['devkits.diff-hide-lock-files'], false);
-  assert.equal(view.rows().rows[0].file.path, 'package-lock.json');
-  view.panelTab = 'changes'; view.previewMode = false;
-  assert.equal(view.displayFiles, view.files);
-  assert.equal(view.files.length, 2);
-  const reopened = new DiffViewer(); reopened.init();
-  assert.equal(reopened.hideLockFiles, false);
-});
-
-test('build filtering follows Git classification, preserves tracked changes and retains preferences', async () => {
+test('build filtering follows Git classification and preserves tracked changes', async () => {
   const memory = {};
   const { DiffViewer, isBuildOutput } = await load({
     shared: key => memory[key], setShared: (key, value) => { memory[key] = value; },
@@ -256,23 +221,18 @@ test('build filtering follows Git classification, preserves tracked changes and 
     { path: 'repo/x64/Debug/tracked.dll', untracked: false },
   ];
   const visible = view.displayFiles;
-  assert.deepEqual(visible.map(file => file.path), ['src/main.cpp', 'repo/x64/Debug/tracked.dll']);
-  view.toggleBuildOutput({ notify() {} });
-  assert.equal(memory['devkits.diff-hide-build-output'], false);
-  assert.equal(view.displayFiles.length, 3);
-  view.toggleLockFiles({ notify() {} }); assert.equal(view.displayFiles, view.files);
-  view.toggleBuildOutput({ notify() {} }); assert.equal(view.displayFiles.length, 3);
-  view.toggleLockFiles({ notify() {} }); assert.equal(view.displayFiles, visible, 'Each combination has stable filtering');
-  const reopened = new DiffViewer(); reopened.init(); assert.equal(reopened.hideBuildOutput, true);
+  assert.deepEqual(visible.map(file => file.path), ['Cargo.lock', 'src/main.cpp', 'repo/x64/Debug/tracked.dll'], 'Tracked lockfiles stay visible');
+  assert.equal(view.displayFiles, visible, 'Stable filtering preserves the asynchronous row cache');
 });
 
-test('hidden output skips patch reads and turning its switch off loads deferred contents', async () => {
+test('hidden output skips patch reads and saved filter rules that reveal files load deferred contents', async () => {
   const memory = {}, tasks = [], patches = [];
+  let rules = { path: '/rules', text: '*.obj\n*.lock' };
   const { DiffViewer } = await load({
-    shared: key => memory[key], setShared: (key, value) => { memory[key] = value; },
+    shared: key => memory[key], setShared: (key, value) => { memory[key] = value; }, readBuildRules: async () => rules,
     VirtualListScrollHandle: { new: () => ({ scroll_to_item() {} }) },
     exec: async (_cmd, args) => {
-      if (args.includes('devkits-diff-index')) return { code: 0, stdout: indexFor('src/main.cpp') + 'x64/Debug/main.obj\0Cargo.lock\0\0x64/Debug/main.obj\0' };
+      if (args.includes('devkits-diff-index')) return { code: 0, stdout: indexFor('src/main.cpp') + 'x64/Debug/main.obj\0Cargo.lock\0\0' + (rules.text ? 'x64/Debug/main.obj\0Cargo.lock\0' : '') };
       if (!args.includes('devkits-diff-file')) return { code: 0, stdout: '' };
       const path = args[6]; patches.push(path);
       return { code: 0, stdout: `diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n@@ -0,0 +1 @@\n+new\n` };
@@ -285,12 +245,10 @@ test('hidden output skips patch reads and turning its switch off loads deferred 
   assert.deepEqual(patches, ['src/main.cpp']);
   assert.deepEqual(view.displayFiles.map(file => file.path), ['src/main.cpp']);
   assert.equal(view.files.find(file => file.path === 'x64/Debug/main.obj').deferred, true);
-  view.toggleBuildOutput(cx); await drain();
+  rules = { ...rules, text: '' }; view.reload(cx); await drain();
   assert.equal(view.files.find(file => file.path === 'x64/Debug/main.obj').deferred, false);
-  assert.equal(view.displayFiles.length, 2);
-  assert.ok(patches.includes('x64/Debug/main.obj')); assert.ok(!patches.includes('Cargo.lock'));
-  view.toggleLockFiles(cx); await drain();
-  assert.equal(view.displayFiles.length, 3); assert.ok(patches.includes('Cargo.lock'));
+  assert.equal(view.displayFiles.length, 3);
+  assert.ok(patches.includes('x64/Debug/main.obj')); assert.ok(patches.includes('Cargo.lock'));
 });
 
 test('Git evaluates downloaded templates and user exceptions without hiding tracked files or lockfiles', async t => {
@@ -332,30 +290,20 @@ test('Git evaluates downloaded templates and user exceptions without hiding trac
   assert.equal(second.files.find(file => file.path === 'new.custom').deferred, false);
 });
 
-test('Git panel settings keep lockfile and build filters independent and display matching counts', async () => {
-  const memory = { 'devkits.diff-hide-x64-output': false };
+test('Git panel settings open filter rules and display the hidden count', async () => {
+  const memory = {}; let opened = 0;
   const { DiffViewer } = await load({
-    shared: key => memory[key], setShared: (key, value) => { memory[key] = value; },
+    shared: key => memory[key], setShared: (key, value) => { memory[key] = value; }, openBuildRules: () => { opened++; },
     VirtualListScrollHandle: { new: () => ({ scroll_to_item() {} }) },
   });
   const view = new DiffViewer(); view.init();
   view.files = [{ path: 'Cargo.lock' }, { path: 'debug/build.tlog', untracked: true, buildOutput: true }, { path: 'src/main.cpp' }];
   let options = view.panelSettingsItems();
-  assert.equal(options.find(item => item.key === 'hide-lock-files').description, '1 hidden');
-  assert.equal(options.find(item => item.key === 'hide-build-output').description, '1 file');
-  assert.equal(view.hideBuildOutput, false, 'Preserve the previous x64 filter choice');
-  view.choosePanelSetting('hide-build-output', { notify() {} });
-  assert.equal(memory['devkits.diff-hide-build-output'], true);
-  assert.equal(view.hideLockFiles, true);
-  assert.equal(view.displayFiles.length, 1);
-  view.choosePanelSetting('hide-lock-files', { notify() {} });
-  assert.equal(view.hideBuildOutput, true);
-  assert.deepEqual(view.displayFiles.map(file => file.path), ['Cargo.lock', 'src/main.cpp']);
-  options = view.panelSettingsItems();
-  assert.equal(options.find(item => item.key === 'hide-lock-files').description, '1 file');
-  assert.equal(options.find(item => item.key === 'hide-build-output').description, '1 hidden');
-  view.choosePanelSetting('hide-build-output', { notify() {} });
-  assert.equal(view.displayFiles, view.files);
+  assert.deepEqual(options.map(item => item.key), ['list', 'tree', 'filter-rules']);
+  assert.equal(options.at(-1).description, '1 hidden');
+  view.choosePanelSetting('filter-rules', { notify() {} });
+  assert.equal(opened, 1);
+  assert.deepEqual(memory, {}, 'The menu no longer stores filter switches');
 });
 
 test('push reads clean, unborn and detached branches and respects Git push configuration', async t => {
@@ -1167,6 +1115,7 @@ test('List and Tree menu choices persist and preserve selection, collapsed folde
   assert.deepEqual(scrolled, []);
   treeRows.length = 0; view.render(view.context, cx);
   assert.deepEqual(treeRows.filter(row => row.id.startsWith('diff-tree-')), [
+    { id: 'diff-tree-Cargo.lock', depth: 1, selected: false },
     { id: 'diff-tree-src/deep/a.js', depth: 1, selected: true },
     { id: 'diff-tree-new/b.js', depth: 1, selected: false },
   ]);
