@@ -439,7 +439,8 @@ export default class Devkits extends View {
     const allowed = shared('devkits.session-options')?.[sessionKind(agent)] || {};
     if (allowed.models?.includes(session.model)) session.model = null;
     if (allowed.efforts?.includes(session.effort)) session.effort = null;
-    try { argv = agent && sessionArgv(agent, launcherArgv(agent, shared('devkits.codex-permissions')?.[settingsKey(agent)]), session); }
+    try { argv = agent && sessionArgv(agent, launcherArgv(agent, shared('devkits.codex-permissions')?.[settingsKey(agent)]), { ...session,
+      tasksMcpHome: !target.machine && !spaces().find(space => space.id === target.space)?.machine ? appHome() : null }); }
     catch (error) { notify({ title: 'Could not start session', body: error.message, level: 'error' }); return; }
     // Global rules live on this computer, so only local sessions get them.
     if (argv && !spaces().find(space => space.id === target.space)?.machine) {

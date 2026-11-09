@@ -4,6 +4,7 @@ import * as sessions from '../mods/devkits/components/session-model.js';
 import * as identity from '../mods/devkits/components/tasks-model.js';
 import * as policy from '../mods/devkits-tasks/agent-board-model.js';
 import { evaluateNative } from './source-harness.js';
+import { tasksMcpCall } from '../mods/devkits-tasks/mcp-api.js';
 
 const clone = value => value == null ? value : JSON.parse(JSON.stringify(value));
 const input = { new: () => { let value = ''; return { value: () => value, set_value(next) { value = next; }, on() {}, focus() {}, set_auto_grow() {} }; } };
@@ -13,6 +14,24 @@ const context = () => {
     timer: { every(ms, tick) { timers.push({ ms, tick }); } }, spawn(fn) { const promise = fn(cx); pending.push(promise); return promise; } };
   return { cx, timers, async settle() { while (pending.length) await Promise.all(pending.splice(0)); } };
 };
+
+test('MCP creates persisted Todos and children through the authoritative Tasks owner', async () => {
+  const h = await modules(), clock = context(); h.runtime.init(clock.cx);
+  const project = tasksMcpCall(h.runtime, 'list_projects').projects[0].key;
+  const parent = tasksMcpCall(h.runtime, 'create_task', { project, name: ' 規劃 ', notes: '說明', priority: 'high' }).task;
+  const child = tasksMcpCall(h.runtime, 'create_task', { project, name: '子任務', parentId: parent.gid }).task;
+  h.runtime.refresh(clock.cx);
+  assert.equal(h.client.listTasks().length, 2);
+  assert.equal(h.client.listTasks().find(task => task.gid === parent.gid).priority, 'high');
+  assert.equal(h.client.listTasks().find(task => task.gid === child.gid).parentId, parent.gid);
+  assert.equal(parent.name, '規劃'); assert.equal(parent.status, 'todo');
+  assert.equal(h.memory['devkits.agent-board'][project][parent.gid].notes, '說明');
+  assert.throws(() => tasksMcpCall(h.runtime, 'create_task', { project, name: 'Invalid child', parentId: 'missing' }), /parent task/);
+  h.owner.setTaskArchived(h.state.projects[0], parent, true);
+  assert.throws(() => tasksMcpCall(h.runtime, 'create_task', { project, name: 'Invalid child', parentId: parent.gid }), /parent task/);
+  assert.equal(h.memory['devkits.tasks.navigation'], undefined);
+  assert.deepEqual(h.native, []);
+});
 async function modules(records = {}, projects = [{ id: 'p', folder: '/project', name: 'Project', active: true, tabs: [] }]) {
   const memory = { 'devkits.agent-board': clone(records), 'devkits.agent-cache': { null: [] } }, writes = [], overlays = [], native = [], closed = [];
   const state = { projects, agents: [] };

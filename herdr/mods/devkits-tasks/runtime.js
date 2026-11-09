@@ -1,7 +1,7 @@
 import { agents, spaces, terminals, shared, setShared, readTextFile, appHome, notify, props } from 'herdr';
 import { projectCatalog, projectGroups, folderKey, launcherChoices, launcherLabel, isAccountLauncher, launcherArgv, sessionArgv, sessionKind, rulesArgv, settingsKey, configuredAgents, resolveThreadProfiles } from './components/session-model.js';
 import { boardKey, taskActions, canStartTask } from './agent-board-model.js';
-import { projectBoardTasks, rememberBoardTask, setTaskArchived, threadBoardTask, threadBoardStatus, sessionThreadTitle, boardRecords } from './agent-board-state.js';
+import { projectBoardTasks, rememberBoardTask, setTaskArchived, threadBoardTask, threadBoardStatus, sessionThreadTitle, boardRecords, createLocalTask } from './agent-board-state.js';
 import { observeTaskInput } from './agent-task-evidence.js';
 import { taskPrompt } from './task-prompt.js';
 import { TaskSources } from './task-sources.js';
@@ -17,6 +17,7 @@ export class TaskRuntime {
   availableAgents(available, machine) { return machine ? available : configuredAgents(available, shared('devkits.agent-configs') || []); }
   navigate(event) { publishTaskNavigation(event); }
   closeBoard() { this.navigate({ type: 'close' }); }
+  createTask(project, args) { return createLocalTask(project, args.name, args.notes || '', { priority: args.priority || 'none', ...(args.parentId ? { parentId: args.parentId } : {}) }, agents()); }
   selectProject(project) { this.navigate({ type: 'project', project }); }
   showConversation(_shown, project) { this.navigate({ type: 'thread', project, tab: project.tabs?.find(tab => tab.active)?.id }); }
   openThread(target, name, argv, profile, task) { this.navigate({ type: 'launch', target, name, argv, profile, task }); }
@@ -119,7 +120,8 @@ export class TaskRuntime {
     const allowed = shared('devkits.session-options')?.[sessionKind(agent)] || {};
     if (allowed.models?.includes(session.model)) session.model = null;
     if (allowed.efforts?.includes(session.effort)) session.effort = null;
-    try { argv = agent && sessionArgv(agent, launcherArgv(agent, shared('devkits.codex-permissions')?.[settingsKey(agent)]), session); }
+    try { argv = agent && sessionArgv(agent, launcherArgv(agent, shared('devkits.codex-permissions')?.[settingsKey(agent)]), { ...session,
+      tasksMcpHome: !target.machine && !spaces().find(space => space.id === target.space)?.machine ? appHome() : null }); }
     catch (error) { notify({ title: 'Could not start session', body: error.message, level: 'error' }); return; }
     // Global rules live on this computer, so only local sessions get them.
     if (argv && !spaces().find(space => space.id === target.space)?.machine) {

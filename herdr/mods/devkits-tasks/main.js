@@ -1,13 +1,14 @@
 import { View, div } from 'gpui-kit';
 import { props, shared, knownAgents, setShared, notify, closeOverlay, theme } from 'herdr';
 import { TaskRuntime } from './runtime.js';
+import { TasksMcpBridge } from './mcp-bridge.js';
 import AgentBoard from './agent-board.js';
 import TaskComposer from './task-composer.js';
 import { boardTheme } from './components/task-theme.js';
 export default class TasksMod extends View {
   init(_props, cx) {
     this.runtime = new TaskRuntime(); this.target = props() || {};
-    if (this.target.view === 'service') { this.runtime.init(cx); return; }
+    if (this.target.view === 'service') { this.runtime.init(cx); new TasksMcpBridge().init(this.runtime, cx); return; }
     if (this.target.overlay && this.target.view !== 'task-composer') {
       const navigate = this.runtime.navigate.bind(this.runtime);
       this.runtime.navigate = event => {

@@ -169,16 +169,21 @@ export function moveOption(keys, key, target) {
   return next;
 }
 
-export function sessionArgv(agent, argv, { model, effort, serviceTier } = {}) {
+export function sessionArgv(agent, argv, { model, effort, serviceTier, tasksMcpHome } = {}) {
   const kind = isCodexLauncher(agent) ? 'codex' : isClaudeLauncher(agent) ? 'claude' : null;
   const fast = kind === 'codex' && serviceTier === 'fast';
-  if (!kind || (!model && !effort && !fast)) return argv;
+  if (!kind || (!model && !effort && !fast && !tasksMcpHome)) return argv;
   const executable = argv.findIndex(arg => !arg.includes('=') && permissionFlags[kind].executable.test(arg));
   if (executable < 0) throw new Error(`Could not find ${permissionFlags[kind].name} in this launcher. Choose Default for session settings.`);
   const flags = kind === 'claude'
     ? [...(model ? ['--model', model] : []), ...(effort ? ['--effort', effort] : [])]
     : [...(model ? ['-m', model] : []), ...(effort ? ['-c', `model_reasoning_effort="${effort}"`] : []),
       ...(fast ? ['-c', 'service_tier="fast"'] : [])];
+  if (tasksMcpHome) {
+    const server = { command: 'node', args: [`${tasksMcpHome.replace(/\\/g, '/')}/mods/devkits-tasks/mcp-server.cjs`], env: { HERDR_APP_HOME: tasksMcpHome } };
+    if (kind === 'claude') flags.push('--mcp-config', JSON.stringify({ mcpServers: { herdr_tasks: server } }));
+    else flags.push('-c', `mcp_servers.herdr_tasks={command="node",args=${JSON.stringify(server.args)},env={HERDR_APP_HOME=${JSON.stringify(tasksMcpHome)}}}`);
+  }
   const rest = [];
   const overridesConfig = value => (model && /^model\s*=/.test(value)) || (effort && /^model_reasoning_effort\s*=/.test(value)) ||
     (fast && /^service_tier\s*=/.test(value));
