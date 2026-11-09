@@ -145,7 +145,7 @@ test('the local calendar creates, edits, persists across views, cancels and dele
   const first = Object.values(h.view.records())[0]; assert.equal(first.title, draft.title); assert.equal(form.closed(), true);
   form.view.save(form.cx); assert.equal(Object.keys(h.view.records()).length, 1, 'a queued second submit cannot create a duplicate event');
   const reopened = await ui(h.memory); assert.equal(Object.values(reopened.view.records())[0].id, first.id);
-  h.render(); h.nodes.get(`calendar-agenda-${first.id}`).click(null, h.cx);
+  h.view.choose(localDate(draft.startDate), h.cx, true); h.render(); h.nodes.get(`calendar-agenda-${first.id}`).click(null, h.cx);
   h.view.inputs.title.set_value('Changed'); h.view.save(h.cx);
   assert.equal(h.view.records()[first.id].title, 'Changed');
   h.view.edit(h.view.records()[first.id], h.cx); h.view.inputs.title.set_value('Discard this'); h.view.cancel(h.cx);
