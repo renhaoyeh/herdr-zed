@@ -3,7 +3,7 @@
 # so each needs its own copy.
 button.js: devkits-simulator devkits-system devkits-asana devkits-mantisbt devkits-tasks devkits-calendar devkits-usage
 dropdown-menu.js: devkits-simulator devkits-asana devkits-mantisbt devkits-tasks
-checkbox.js: devkits-system devkits-tasks devkits-calendar
+checkbox.js: devkits-system devkits-tasks devkits-calendar devkits-asana devkits-mantisbt
 toggle-group.js: devkits-system
 dialog.js: devkits-system devkits-asana devkits-usage
 icon.js: devkits-system devkits-tasks devkits-calendar devkits-usage
