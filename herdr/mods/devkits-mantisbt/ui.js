@@ -140,6 +140,8 @@ export default class MantisPanel extends TaskSourceController {
 
   issueList(cx) {
     const tasks = this.issueTasks();
+    const loading = this.tab === 'mine' ? this.loading : this.loadingMore;
+    const loaded = this.tab === 'mine' ? this.mine !== null : this.all.loaded;
     const header = h_flex().h(30).flex_none().items_center().bg('#f1f1f1').border_b(1).border_color(mantisTheme.border)
       .child(cell('P', 38, true)).child(cell('ID', 82, true)).child(cell('#', 34, true)).child(cell('Category', 92, true))
       .child(cell('Severity', 80, true)).child(cell('Status', 190, true)).child(cell('Updated', 104, true)).child(cell('Summary', null, true));
@@ -156,8 +158,11 @@ export default class MantisPanel extends TaskSourceController {
       .child(widgetHeader('mantis-issues-header', this.tab === 'mine' ? 'Assigned to Me' : 'Viewing Issues', 'columns-3')
         .child(div().px(9).rounded(10).bg('#aabac3').text_size(12).child(`${tasks.length ? '1' : '0'} - ${tasks.length}${this.tab === 'all' && this.all.next ? ' +' : ''}`)))
       .child(v_flex().min_w(820).child(header).children(tasks.map(row)))
-      .when(!tasks.length, el => el.child(div().p(18).text_color(mantisTheme.muted).child(this.issueSearch.value() || this.statusFilter
-        ? 'No issues match the current filter.' : this.tab === 'mine' ? 'No open issues assigned to you.' : 'No open issues in this project.')))
+      .when(loading, el => el.child(div().p(12).text_color(mantisTheme.muted).child(this.tab === 'mine'
+        ? 'Loading issues assigned to you…' : this.all.loaded ? 'Loading more issues…' : 'Loading issues…')))
+      .when(!tasks.length && loaded && !loading && !this.error, el => el.child(div().p(18).text_color(mantisTheme.muted).child(this.issueSearch.value() || this.statusFilter
+        ? 'No loaded issues match the current filter.' : this.tab === 'mine' ? 'No open issues assigned to you.'
+          : this.all.next ? 'No open issues on the loaded pages. Load more issues to continue.' : 'No open issues in this project.')))
       .when(this.tab === 'all' && Boolean(this.all.next), el => el.child(h_flex().p(8).bg('#eeeeee')
         .child(button('mantis-more', this.loadingMore ? 'Loading…' : 'Load more issues', (_event, cx) => this.more(cx), { disabled: this.loadingMore }))));
   }
@@ -261,8 +266,7 @@ export default class MantisPanel extends TaskSourceController {
               .child(div().p(18).child('Select a MantisBT project from the project menu.'))))
             .when(ready && Boolean(this.binding()), el => el
               .when(Boolean(this.selected), el => el.child(this.detailPage(importTask)))
-              .when(!this.selected, el => el.child(this.filters()).child(this.issueList(cx))
-                .when(this.loading, el => el.child(div().p(12).child('Loading issues…')))))
+              .when(!this.selected, el => el.child(this.filters()).child(this.issueList(cx))))
             .child(div().min_h(24).flex_1())
             .child(h_flex().mt(24).pt(10).border_t(1).border_color('#dddddd').gap(4).text_size(12)
               .child('Powered by').child(div().text_color(mantisTheme.accent).child('MantisBT'))))));

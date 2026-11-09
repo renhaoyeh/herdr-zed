@@ -106,15 +106,61 @@ test('project search flattens subprojects once and searches names and their pare
   assert.deepEqual(projects, [{ gid: '2', name: 'API', workspace: 'Product', workspaceGid: '2', server: connection.url }]);
 });
 
-test('All skips raw pages of resolved issues and honors the project’s configured resolved threshold', async () => {
+test('project searches share in-flight requests and cache by server and token, with failed requests retried', async () => {
+  const { searchProjects } = await load();
+  let calls = 0, release;
+  const pending = new Promise(resolve => { release = resolve; });
+  const request = async () => { calls++; return pending; };
+  const first = searchProjects(connection, 'demo', request), second = searchProjects(connection, 'other', request);
+  assert.equal(calls, 1);
+  release(reply(200, { projects: [{ id: 1, name: 'Demo' }, { id: 2, name: 'Other' }] }));
+  assert.deepEqual((await first).map(p => p.gid), ['1']);
+  assert.deepEqual((await second).map(p => p.gid), ['2']);
+  assert.equal((await searchProjects(connection, '', request)).length, 2); assert.equal(calls, 1);
+  await searchProjects({ ...connection, token: 'another' }, '', request);
+  await searchProjects({ ...connection, url: 'https://other.test' }, '', request);
+  assert.equal(calls, 3);
+  const failed = { ...connection, token: 'failed' };
+  await assert.rejects(searchProjects(failed, '', async () => { throw new Error('Offline'); }), /Offline/);
+  await assert.rejects(searchProjects(failed, '', async () => reply(200, {})), /MantisBT projects/);
+  assert.equal((await searchProjects(failed, '', request)).length, 2); assert.equal(calls, 4);
+});
+
+test('issue lists show loading until the active view finishes, then show an appropriate empty state', async () => {
+  const text = [];
+  const tracked = () => new Proxy(() => {}, { get: (_target, key) => key === 'when'
+    ? (condition, render) => condition ? render(tracked()) : tracked()
+    : key === 'child' ? value => { if (typeof value === 'string') text.push(value); return tracked(); } : () => tracked() });
+  const { MantisPanel, taskSourceOptions } = await load({ div: tracked, v_flex: tracked, h_flex: tracked });
+  const { cx } = harness(), panel = new MantisPanel(taskSourceOptions('mantisbt')); panel.init(cx);
+  panel.loading = false; panel.loadingMore = true; panel.issueList(cx);
+  assert.ok(text.includes('Loading issues…')); assert.ok(!text.some(t => t.startsWith('No ')));
+  text.length = 0; panel.loadingMore = false; panel.all.loaded = true; panel.all.next = 2; panel.issueList(cx);
+  assert.ok(text.includes('No open issues on the loaded pages. Load more issues to continue.'));
+  text.length = 0; panel.all.next = null; panel.issueList(cx);
+  assert.ok(text.includes('No open issues in this project.'));
+  text.length = 0; panel.error = 'Offline'; panel.issueList(cx);
+  assert.ok(!text.some(t => t.startsWith('No ')));
+  text.length = 0; panel.error = null; panel.chooseView('mine', cx); panel.mine = null; panel.loading = true; panel.issueList(cx);
+  assert.ok(text.includes('Loading issues assigned to you…')); assert.ok(!text.some(t => t.startsWith('No ')));
+});
+
+test('All returns one small page at a time even when it contains only resolved issues', async () => {
   const urls = [], { projectTasksPage } = await load();
   const result = await projectTasksPage(connection, '1', null, async url => {
     urls.push(url);
     if (url.includes('/config?')) return config(100);
-    if (url.includes('page=1')) return reply(200, { issues: Array.from({ length: 100 }, (_, i) => issue(i, { status: { id: 100 } })) });
+    if (url.includes('page=1')) return reply(200, { issues: Array.from({ length: 20 }, (_, i) => issue(i, { status: { id: 100 } })) });
     return reply(200, { issues: [issue(101, { status: { id: 80, name: 'testing' } }), issue(102, { project: { id: 2 } })] });
   });
-  assert.deepEqual(result.tasks.map(task => task.gid), ['101']); assert.equal(result.next, null);
+  assert.deepEqual(result.tasks, []); assert.equal(result.next, 2);
+  assert.equal(urls.filter(url => url.includes('/issues?')).length, 1);
+  const next = await projectTasksPage(connection, '1', result.next, async url => {
+    urls.push(url);
+    assert.ok(url.includes('page=2')); assert.ok(url.includes('page_size=20'));
+    return reply(200, { issues: [issue(101, { status: { id: 80, name: 'testing' } }), issue(102, { project: { id: 2 } })] });
+  });
+  assert.deepEqual(next.tasks.map(task => task.gid), ['101']); assert.equal(next.next, null);
   assert.equal(urls.filter(url => url.includes('/config?')).length, 1);
   assert.ok(urls.some(url => url.includes('page=2')));
 });
@@ -124,12 +170,13 @@ test('All exposes the next page; Mine uses the assigned server filter across eve
   const request = async url => {
     urls.push(url);
     if (url.includes('/config?')) return config(80);
-    return reply(200, { issues: url.includes('page=1') ? Array.from({ length: 100 }, (_, i) => issue(i + 1)) : [issue(101)] });
+    assert.ok(url.includes('page_size=20'));
+    return reply(200, { issues: url.includes('page=1') ? Array.from({ length: 20 }, (_, i) => issue(i + 1)) : [issue(101)] });
   };
   const page = await projectTasksPage(connection, '1', null, request);
-  assert.equal(page.tasks.length, 100); assert.equal(page.next, 2);
+  assert.equal(page.tasks.length, 20); assert.equal(page.next, 2);
   const mine = await myProjectTasks(connection, '1', null, request);
-  assert.equal(mine.length, 101);
+  assert.equal(mine.length, 21);
   assert.equal(urls.filter(url => url.includes('filter_id=assigned')).length, 2);
 });
 

@@ -1,7 +1,8 @@
 
 const authSchemes = new Map();
 const configurations = new Map();
-const pageSize = 100;
+const projectLists = new Map();
+const pageSize = 20;
 const id = value => encodeURIComponent(String(value));
 
 export function normalizeUrl(value) {
@@ -48,7 +49,17 @@ export async function validateConnection(connection, request = fetch) {
 }
 
 export async function searchProjects(connection, query, request = fetch) {
-  const body = await mantisRequest(connection, '/projects', request), projects = [], seen = new Set();
+  const key = JSON.stringify([normalizeUrl(connection.url), String(connection.token || '').trim()]);
+  let cached = projectLists.get(key);
+  if (!cached || cached.expires <= Date.now()) {
+    cached = { expires: Date.now() + 300_000 };
+    cached.pending = mantisRequest(connection, '/projects', request).then(body => {
+      if (!Array.isArray(body.projects)) throw new Error('The server did not return MantisBT projects. Check the server URL.');
+      return body;
+    }).catch(error => { if (projectLists.get(key) === cached) projectLists.delete(key); throw error; });
+    projectLists.set(key, cached);
+  }
+  const body = await cached.pending, projects = [], seen = new Set();
   const visit = (items, parent = '') => {
     for (const project of items || []) {
       const gid = String(project.id);
@@ -114,12 +125,7 @@ async function issuesPage(connection, project, page, filter, request) {
 }
 
 export async function projectTasksPage(connection, project, offset = null, request = fetch) {
-  let page = Number(offset) || 1, result;
-  // A raw page can contain only resolved issues or issues in subprojects.
-  // Advance it so the existing empty state cannot hide the next open page.
-  do { result = await issuesPage(connection, project, page, '', request); page = result.next; }
-  while (!result.tasks.length && page);
-  return result;
+  return issuesPage(connection, project, Number(offset) || 1, '', request);
 }
 
 export async function myProjectTasks(connection, project, _workspace, request = fetch) {
