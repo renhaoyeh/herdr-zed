@@ -1,5 +1,5 @@
 import { appHome, readTextFile, writeTextFile } from 'herdr';
-import { normalizeUrl } from './api.js';
+import { normalizeUrl } from './rest.js';
 const connectionPath = () => `${appHome()}/data/devkits/mantisbt.json`;
 export async function readMantisConnection() {
   try {

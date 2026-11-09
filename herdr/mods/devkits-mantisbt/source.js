@@ -1,5 +1,5 @@
 import { readMantisConnection, saveMantisConnection } from './connection.js';
-import { normalizeUrl, searchProjects, projectTasksPage, myProjectTasks, openSubtasks, taskDetails, taskComments, projectFields } from './api.js';
+import { normalizeUrl, searchProjects, projectTasksPage, myProjectTasks, openSubtasks, taskDetails, taskComments, projectFields } from './source-api.js';
 export const mantisSource = {
   key: 'mantisbt', name: 'MantisBT', server: true, normalizeUrl,
   tokenHelp: 'Paste an API token from MantisBT → My Account → API Tokens to connect.',

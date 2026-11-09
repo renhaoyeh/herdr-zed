@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { evaluateNative } from './source-harness.js';
-import * as asana from '../mods/devkits-asana/api.js';
-import * as mantis from '../mods/devkits-mantisbt/api.js';
+import * as asana from '../mods/devkits-asana/source-api.js';
+import * as mantis from '../mods/devkits-mantisbt/source-api.js';
 
 const reply = data => ({ ok: true, status: 200, json: async () => data });
 const cx = { notify() {} };

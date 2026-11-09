@@ -9,7 +9,9 @@ const names = ['asanaTheme', 'AsanaPanel', 'AsanaProjectPicker', 'previewWidthAt
 async function load(host = {}) {
   host = { fetch: () => assert.fail('unexpected request'), Button: () => {}, claudeModels, claudeEfforts, codexHome, codexModels, isClaudeLauncher, isCodexLauncher, sessionKind, shownOptions, orderedOptions, effortLabel, settingsKey, launcherOption, accountAddresses, folderKey,
     glyph: () => element(), home: () => '/home', shared: () => null, setShared() {}, closeOverlay() {}, Select: () => element(), SelectState: class {}, ...host };
-  Object.assign(host, await evaluateNative('../mods/devkits-asana/api.js', host, 'searchProjects, projectTasksPage, myProjectTasks, projectWorkspace, openSubtasks, taskDetails, taskComments, projectFields'));
+  Object.assign(host, await evaluateNative('../mods/devkits-asana/rest.js', host, 'asanaRequest'));
+  host.asanaApi = await evaluateNative('../mods/devkits-asana/api.js', host, 'getUser, getProject, searchWorkspaceProjects, listProjectTasks, listTasks, listSubtasks, getTask, listStories');
+  Object.assign(host, await evaluateNative('../mods/devkits-asana/source-api.js', host, 'searchProjects, projectTasksPage, myProjectTasks, projectWorkspace, openSubtasks, taskDetails, taskComments, projectFields'));
   Object.assign(host, await evaluateNative('../mods/devkits-asana/connection.js', host, 'readAsanaToken, saveAsanaToken'));
   Object.assign(host, await evaluateNative('../mods/devkits-asana/source.js', host, 'asanaSource'));
   Object.assign(host, await evaluateNative('../mods/devkits/components/task-source-model.js', host, 'filterTasks, sourceTaskSnapshot, relativeTime, previewWidthAt, statusKind, avatarColor, initials, dueLabel, sourcePathKey'));

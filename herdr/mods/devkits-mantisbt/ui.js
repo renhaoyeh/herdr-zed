@@ -2,7 +2,7 @@ import { div, svg } from 'gpui-kit';
 import { h_flex, v_flex, Input, InputState } from 'gpui-base';
 import { TaskSourceController, TaskSourceProjectPicker } from './components/task-source.js';
 import { mantisSource } from './source.js';
-import { filterProjects } from './api.js';
+import { filterProjects } from './source-api.js';
 import { readMantisProjects, saveMantisProjects, readMantisIssues, saveMantisIssues } from './connection.js';
 import { Button } from './components/button.js';
 import { Checkbox } from './components/checkbox.js';

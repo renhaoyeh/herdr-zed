@@ -27,7 +27,9 @@ async function load(options = {}) {
     fetch: () => assert.fail('Unexpected network request'),
     readTextFile: async path => files[path] ?? null,
     writeTextFile: async (path, text, expected) => { writes.push({ path, expected }); files[path] = text; }, ...options };
-  Object.assign(host, await evaluateNative('../mods/devkits-mantisbt/api.js', host, 'normalizeUrl, filterProjects, searchProjects, projectTasksPage, myProjectTasks, taskDetails, taskComments, openSubtasks, validateConnection, projectFields'));
+  Object.assign(host, await evaluateNative('../mods/devkits-mantisbt/rest.js', host, 'mantisRequest, normalizeUrl'));
+  host.mantisApi = await evaluateNative('../mods/devkits-mantisbt/api.js', host, 'getUser, listProjects, getProject, getConfig, listIssues, getIssue');
+  Object.assign(host, await evaluateNative('../mods/devkits-mantisbt/source-api.js', host, 'normalizeUrl, filterProjects, searchProjects, projectTasksPage, myProjectTasks, taskDetails, taskComments, openSubtasks, validateConnection, projectFields'));
   Object.assign(host, await evaluateNative('../mods/devkits-mantisbt/connection.js', host, 'readMantisConnection, saveMantisConnection, readMantisProjects, saveMantisProjects, readMantisIssues, saveMantisIssues'));
   Object.assign(host, await evaluateNative('../mods/devkits-mantisbt/source.js', host, 'mantisSource'));
   Object.assign(host, await evaluateNative('../mods/devkits/components/task-source-model.js', host, 'filterTasks, sourceTaskSnapshot'));
