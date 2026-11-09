@@ -399,11 +399,12 @@ export default class Devkits extends View {
     const pending = (async () => {
       let agents = (await knownAgents({ on: machine }))
         .filter(agent => agent.installed && (!machine || !isAccountLauncher(agent)));
-      // The native program table may still contain old labels just after a write.
+      // Native discovery can lag programs.json after a rename or removal.
       if (!machine) {
         const source = await readTextFile(`${appHome()}/programs.json`);
         const programs = source === null ? {} : JSON.parse(source).programs || {};
-        agents = agents.map(agent => typeof programs[agent.key]?.name === 'string'
+        agents = agents.filter(agent => !isAccountLauncher(agent) || Object.hasOwn(programs, agent.key))
+          .map(agent => typeof programs[agent.key]?.name === 'string'
           ? { ...agent, name: programs[agent.key].name } : agent);
       }
       setShared('devkits.agent-cache', { ...(shared('devkits.agent-cache') || {}), [key]: agents });

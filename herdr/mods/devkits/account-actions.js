@@ -103,6 +103,7 @@ export const accountActions = {
             for (const item of removed) delete saved[item];
             setShared(setting, saved);
           }
+          setShared('devkits.profile-revision', (shared('devkits.profile-revision') || 0) + 1);
           this.removing = false; back();
         } catch (error) { this.removing = false; this.removeError = error.message; cx.notify(); }
       });
