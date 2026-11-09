@@ -6,7 +6,7 @@ const REQUESTS = 'devkits.agents.requests', RESULTS = 'devkits.agents.results';
 export const rulesPath = () => `${appHome()}/data/devkits/AGENTS.md`;
 export const noAccount = noAccountLabel;
 export const openAgentSettings = (space = null, page = 'accounts') => openOverlay({ mod: 'devkits-agents', kind: 'dialog', frame: 'none', modal: false,
-  width: 1040, height: 0.8, props: { view: 'manage-launchers', space, page } });
+  width: 1040, height: 0.86, props: { view: 'manage-launchers', space, page } });
 export const openAgentLauncher = (target, at) => openOverlay({ mod: 'devkits-agents', kind: 'popup', frame: 'none', width: 280, at,
   props: { ...target, view: 'launcher' } });
 export const openSharedMcp = agent => openOverlay({ mod: 'devkits-agents', kind: 'dialog', frame: 'none', modal: true, width: 720, height: 0.8,
