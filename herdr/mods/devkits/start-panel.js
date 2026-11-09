@@ -1,7 +1,7 @@
 import { div } from 'gpui-kit';
 import { v_flex, h_flex } from 'gpui-base';
 import { shared, setShared } from 'herdr';
-import { launcherChoices, launcherLabel, isAccountLauncher } from './components/session-model.js';
+import { launcherChoices, launcherLabel, isAccountLauncher, accountAddresses } from './components/session-model.js';
 import { Button } from './components/button.js';
 import { DropdownMenuLabel } from './components/dropdown-menu.js';
 import { Empty, EmptyTitle, EmptyDescription } from './components/empty.js';
@@ -47,6 +47,7 @@ export const startPanel = {
   // No project is open: open a folder, and see which agents this computer has.
   welcomeView(t, cx) {
     const agents = this.startAgents(null, cx);
+    const address = accountAddresses(shared);
     const accounts = (agents || []).filter(agent => isAccountLauncher(agent) && !agent.profileKey).length;
     const profiles = (agents || []).filter(agent => agent.profileKey).length;
     const summary = [accounts && `${accounts} account${accounts === 1 ? '' : 's'}`, profiles && `${profiles} profile${profiles === 1 ? '' : 's'}`]
@@ -65,7 +66,7 @@ export const startPanel = {
               const agent = agents.find(item => item.key === provider.key);
               return v_flex().flex_none().when(index > 0, el => el.border_t(1).border_color(t.border))
                 .child(this.row(`welcome-agent-${provider.key}`, agent ? AgentIcon(agent, t) : glyph('circle-dashed'),
-                  provider.name, agent ? this.accountIdentity(agent).email || 'Ready' : 'Not installed', t))
+                  provider.name, agent ? address(agent.key) || 'Ready' : 'Not installed', t))
                 .when(!agent, el => el.child(div().px(12).pb(10).pl(38).text_size(12).font_family('Geist Mono').text_color(t.muted)
                   .child(provider.install)));
             })))
