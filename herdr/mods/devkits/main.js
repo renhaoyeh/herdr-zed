@@ -15,7 +15,6 @@ import { agentProfiles } from './agent-profiles.js';
 import { accountActions } from './account-actions.js';
 import { sharedMcpSettings } from './shared-mcp-settings.js';
 import { sessionMcpArgv } from './components/shared-mcp.js';
-import { taskReportingInstructions } from './components/tasks-model.js';
 import { UsageClient } from './components/usage.js';
 import { SystemMonitor } from './components/system-monitor.js';
 import { SystemDisplay, SystemDisplayMenu, openSystemDetails } from './system-display.js';
@@ -471,7 +470,7 @@ export default class Devkits extends View {
     if (argv && !spaces().find(space => space.id === target.space)?.machine) {
       let rules = null;
       try { rules = await sessionRules(); } catch {}
-      argv = rulesArgv(agent, argv, rules, [config?.instructions, sessionKind(agent) && !target.machine ? taskReportingInstructions(appHome()) : ''].filter(Boolean).join('\n\n'));
+      argv = rulesArgv(agent, argv, rules, config?.instructions);
       if (!target.machine) {
         try { argv = await sessionMcpArgv(agent, argv); }
         catch (error) { notify({ title: 'Could not load shared MCP settings', body: error.message, level: 'error' }); return; }

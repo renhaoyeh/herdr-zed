@@ -1,12 +1,12 @@
 import { div } from 'gpui-kit';
 import { h_flex, v_flex, InputState, Input, TextareaState, Textarea, TextView } from 'gpui-base';
-import { shared, setShared, openOverlay, appHome, agents as currentAgents, spaces as currentSpaces } from 'herdr';
+import { shared, setShared, openOverlay, appHome, readTextFile, agents as currentAgents, spaces as currentSpaces } from 'herdr';
 import { SourceTaskReader } from './task-sources.js';
 import { TaskSession } from './task-session.js';
 import { boardStatuses, boardKey, liveVersion, boardPriorityOptions, boardPriorities, canStartTask, taskActions, taskManualStatusOptions, taskChildren, canAddSubtask } from './agent-board-model.js';
 import { launcherLabel, launcherOption } from './components/session-model.js';
 import { rememberBoardTask, projectBoardTasks, boardRecords, deleteLocalTask, setTaskDueDate } from './agent-board-state.js';
-import { taskTokenId, taskReportingInstructions } from './components/tasks-model.js';
+import { taskTokenId } from './components/tasks-model.js';
 import { readTaskOutput, taskIdentifier, outputMarkdown } from './agent-board-details.js';
 import { glyph, AgentIcon } from './components/icon.js';
 import { Button } from './components/button.js';
@@ -406,8 +406,15 @@ export default class AgentBoard {
         .when(task.tabs.length > 0, el => el.children(task.tabs.map(tab => button(`board-thread-${tab.id}`, t, { variant: 'secondary' }).h(28)
           .on_click(() => actions.thread(tab.id)).child(task.attention ? 'Respond to agent' : 'Open conversation').child(glyph('external-link', 12)))))
         .when(task.tabs.length > 0, el => el.child(button('board-copy-reporting', t).h(28).self_start()
-          .on_click((_e, cx) => { cx.write_to_clipboard(taskReportingInstructions(appHome())); this.copiedReportFor = task.gid; cx.notify(); })
-          .child(glyph('copy', 13)).child(this.copiedReportFor === task.gid ? 'Reporting instructions copied' : 'Copy reporting instructions')))
+          .on_click((_e, cx) => cx.spawn(async cx => {
+            try {
+              const guide = await readTextFile(`${appHome()}/data/devkits/AGENTS.md`);
+              if (!guide?.trim()) throw new Error('The global Agent Guide is empty or unavailable.');
+              cx.write_to_clipboard(guide); this.copiedReportFor = task.gid; this.relatedError = null;
+            } catch (error) { this.relatedError = error.message; }
+            cx.notify();
+          }))
+          .child(glyph('copy', 13)).child(this.copiedReportFor === task.gid ? 'Agent Guide copied' : 'Copy Agent Guide')))
         .when(Boolean(task.archiveId && !task.archived && !task.tabs.length), el => el.child(button('board-resume-session', t).h(28)
           .on_click(() => actions.resume?.(task)).child(glyph('play', 13)).child('Resume session')))
         .when(Boolean(task.execution || task.runs?.length), el => el.child(v_flex().id('board-run-history').gap(10)

@@ -5,7 +5,7 @@ import { appHome, home, readTextFile, writeTextFile } from 'herdr';
 // Shared startup rules for sessions launched from Devkits on this computer.
 export const rulesPath = () => `${appHome()}/data/devkits/AGENTS.md`;
 
-const defaultRules = `# Global rules
+const defaultRules = root => `# Global rules
 
 Shared startup instructions for Herdr Devkits agent sessions.
 
@@ -18,6 +18,14 @@ Use HC background child terminals for slow commands, including builds, test suit
 When agent delegation is authorized, use HC child terminals rather than built-in subagent tools, so Herdr can track and display them. This does not authorize delegation on its own.
 
 Use \`hc read\` and \`hc wait\` to monitor work and follow the manual for reporting and cleanup. Do not disturb terminals or agents you did not start.
+
+## Herdr task progress
+
+For local Herdr tasks, read the reporting manual with \`node ${JSON.stringify(`${root.replace(/\\/g, '/')}/mods/devkits-tasks/tasks-cli.cjs`)} --skill\` before starting actual user work. Use the reporting CLI directly from your own agent terminal; do not run it in an HC background child, which has a different terminal identity.
+
+Report \`doing\` before work and when resuming after an answer. Report \`waiting\` before asking the user a question, with the exact question in the message. Report \`done\` only when the whole task is complete, including its result, validation and remaining limitations; report \`fail\` when the attempt cannot be completed, explaining why and what was preserved. Ending a reply or a native terminal turn is not task completion. Do not report startup without a user task.
+
+Use \`report --status <state> --message <text>\`. When the task prompt supplies a run ID, include \`--run <id>\` unchanged for that attempt. Otherwise omit \`--run\`: \`HC_TERMINAL_ID\` binds reports to your own live Herdr task. Never report for another terminal or edit Herdr shared.json directly. If reporting fails, continue authorized work and mention the failure in your final response.
 
 ## MCP installation
 
@@ -38,7 +46,7 @@ export async function sessionRules() {
 
 // Writes the starting rules once; a file the person emptied stays empty.
 export async function ensureRules() {
-  if (await readTextFile(rulesPath()) === null) await writeTextFile(rulesPath(), defaultRules, null);
+  if (await readTextFile(rulesPath()) === null) await writeTextFile(rulesPath(), defaultRules(appHome()), null);
 }
 
 // The rules, read only, on the Rules page of Settings; it rereads the file every few seconds so edits made elsewhere appear.
