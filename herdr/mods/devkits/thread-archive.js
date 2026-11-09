@@ -138,18 +138,25 @@ export const threadArchive = {
 
   // Reopens the conversation in its project, under its archived title, and leaves the archive.
   restoreThread(entry) {
+    const currentEntry = archived().find(item => item.id === entry.id);
+    if (!currentEntry) return;
+    entry = currentEntry;
+    if (!Array.isArray(entry.argv) || !entry.argv.length) {
+      notify({ title: 'Cannot resume conversation', body: 'The saved launch command is unavailable. The archive was preserved.', level: 'error' }); return;
+    }
+    if ((shared('devkits.pending-profiles') || []).some(item => item.restoreArchiveId === entry.id && Date.now() - item.at < 60000)) return;
+    if ((shared('devkits.pending-resumes') || []).some(item => item.id === entry.id && Date.now() - item.at < 60000)) return;
     const project = this.projects().find(project => !project.machine && folderKey(project.folder) === folderKey(entry.folder));
     if (!project) {
       const saved = shared('devkits.projects') || [];
       if (!saved.some(folder => folderKey(folder) === folderKey(entry.folder))) setShared('devkits.projects', [...saved, entry.folder]);
     }
-    setShared('devkits.archived-threads', archived().filter(item => item.id !== entry.id));
     this.archiveOpen = false;
     const boardTask = entry.boardTask || entry.task
       || Object.values(boardRecords({ folder: entry.folder })).find(task => task.archiveId === entry.id);
-    if (boardTask) setTaskArchived({ folder: entry.folder }, boardTask, false);
+    // Preserve the archive until the new native tab is observed by Tasks. Failed starts remain retryable.
     this.openThread({ space: project && !project.pending ? project.id : null, folder: entry.folder,
-      projectName: project?.name || entry.projectName }, entry.title, entry.argv, entry.profile, entry.task || (boardTask ? { gid: boardTask.gid, name: entry.title, folder: entry.folder, source: boardTask.source || 'thread' } : null));
+      projectName: project?.name || entry.projectName, restoreArchiveId: entry.id }, entry.title, entry.argv, entry.profile, entry.task || (boardTask ? { gid: boardTask.gid, name: boardTask.name || entry.title, folder: entry.folder, source: boardTask.source || 'thread' } : null));
   },
 
   removeArchived(entry) {
