@@ -27,8 +27,8 @@ async function load(options = {}) {
     fetch: () => assert.fail('Unexpected network request'),
     readTextFile: async path => files[path] ?? null,
     writeTextFile: async (path, text, expected) => { writes.push({ path, expected }); files[path] = text; }, ...options };
-  Object.assign(host, await evaluateNative('../mods/devkits-mantisbt/api.js', host, 'normalizeUrl, searchProjects, projectTasksPage, myProjectTasks, taskDetails, taskComments, openSubtasks, validateConnection'));
-  Object.assign(host, await evaluateNative('../mods/devkits-mantisbt/connection.js', host, 'readMantisConnection, saveMantisConnection'));
+  Object.assign(host, await evaluateNative('../mods/devkits-mantisbt/api.js', host, 'normalizeUrl, filterProjects, searchProjects, projectTasksPage, myProjectTasks, taskDetails, taskComments, openSubtasks, validateConnection'));
+  Object.assign(host, await evaluateNative('../mods/devkits-mantisbt/connection.js', host, 'readMantisConnection, saveMantisConnection, readMantisProjects, saveMantisProjects'));
   Object.assign(host, await evaluateNative('../mods/devkits-mantisbt/source.js', host, 'mantisSource'));
   Object.assign(host, await evaluateNative('../mods/devkits/components/task-source-model.js', host, 'filterTasks, sourceTaskSnapshot'));
   Object.assign(host, await evaluateNative('../mods/devkits/components/task-source.js', host, 'TaskSourceController, TaskSourceProjectPicker'));
@@ -213,6 +213,75 @@ test('connection storage is separate from Asana and uses version checked file wr
   assert.equal(files['/herdr/data/devkits/asana.json'], '{"token":"asana-secret"}');
 });
 
+const cachedProject = (gid, name) => ({ gid, name, workspace: '', workspaceGid: gid, server: connection.url });
+
+test('project snapshots persist compact rows only and are isolated to the saved connection', async () => {
+  const { files, saveMantisConnection, readMantisConnection, saveMantisProjects, readMantisProjects } = await load();
+  await saveMantisConnection(connection);
+  const projects = [cachedProject('1', 'Demo')], fetchedAt = Date.now();
+  await saveMantisProjects(connection, [{ ...projects[0], custom_fields: ['unneeded'] }], fetchedAt);
+  assert.deepEqual(await readMantisProjects(connection), { projects, fetchedAt });
+  assert.deepEqual(await readMantisConnection(), connection);
+  assert.ok(!files['/herdr/data/devkits/mantisbt.json'].includes('custom_fields'));
+  assert.equal(await readMantisProjects({ ...connection, token: 'other' }), null);
+  await saveMantisConnection({ ...connection, token: 'new-token' });
+  await saveMantisProjects(connection, projects, fetchedAt);
+  assert.equal(await readMantisProjects({ ...connection, token: 'new-token' }), null);
+  assert.equal((await readMantisConnection()).token, 'new-token');
+  files['/herdr/data/devkits/mantisbt.json'] = JSON.stringify({ ...connection, projectCache: { fetchedAt, projects: [{}] } });
+  assert.equal(await readMantisProjects(connection), null);
+});
+
+test('the project picker opens a fresh disk snapshot without a network request', async () => {
+  const { MantisProjectPicker, files, taskSourceOptions } = await load();
+  files['/herdr/data/devkits/mantisbt.json'] = JSON.stringify({ ...connection,
+    projectCache: { fetchedAt: Date.now(), projects: [cachedProject('1', 'Demo'), cachedProject('2', 'Other')] } });
+  const { cx, settle } = harness(), picker = new MantisProjectPicker(taskSourceOptions('mantisbt'));
+  picker.init({}, cx); await settle();
+  assert.equal(picker.projects.length, 2); assert.equal(picker.loading, false);
+  picker.search.set_value('other'); picker.find(cx); await settle();
+  assert.deepEqual(picker.projects.map(p => p.gid), ['2']); assert.equal(picker.error, null);
+});
+
+test('the project picker displays stale projects during refresh and applies the latest search to new data', async () => {
+  let release, calls = 0;
+  const pending = new Promise(resolve => { release = resolve; });
+  const { MantisProjectPicker, files, taskSourceOptions, readMantisProjects } = await load({ fetch: async () => { calls++; return pending; } });
+  files['/herdr/data/devkits/mantisbt.json'] = JSON.stringify({ ...connection,
+    projectCache: { fetchedAt: Date.now() - 300_001, projects: [cachedProject('1', 'Saved')] } });
+  const { cx, settle } = harness(), picker = new MantisProjectPicker(taskSourceOptions('mantisbt'));
+  picker.init({}, cx); await new Promise(setImmediate);
+  assert.equal(picker.projects[0].name, 'Saved'); assert.equal(picker.loading, false); assert.equal(picker.refreshing, true);
+  picker.search.set_value('new'); picker.find(cx);
+  assert.deepEqual(picker.projects, []); assert.equal(calls, 1);
+  release(reply(200, { projects: [{ id: 1, name: 'Saved' }, { id: 2, name: 'New' }] }));
+  await settle();
+  assert.deepEqual(picker.projects.map(p => p.name), ['New']); assert.equal(picker.refreshing, false);
+  assert.equal((await readMantisProjects(connection)).projects.length, 2);
+});
+
+test('failed background project refreshes retain searchable saved projects', async () => {
+  const { MantisProjectPicker, files, taskSourceOptions } = await load({ fetch: async () => { throw new Error('Offline'); } });
+  files['/herdr/data/devkits/mantisbt.json'] = JSON.stringify({ ...connection,
+    projectCache: { fetchedAt: Date.now() - 300_001, projects: [cachedProject('1', 'Saved')] } });
+  const { cx, settle } = harness(), picker = new MantisProjectPicker(taskSourceOptions('mantisbt'));
+  picker.init({}, cx); await settle();
+  assert.equal(picker.projects[0].name, 'Saved'); assert.match(picker.error, /Showing saved projects.*Offline/);
+  picker.search.set_value('saved'); picker.find(cx);
+  assert.equal(picker.projects.length, 1); assert.equal(picker.loading, false);
+});
+
+test('closing a project picker ignores a late refresh response', async () => {
+  let release;
+  const pending = new Promise(resolve => { release = resolve; });
+  const { MantisProjectPicker, files, writes, taskSourceOptions } = await load({ fetch: async () => pending });
+  files['/herdr/data/devkits/mantisbt.json'] = JSON.stringify(connection);
+  const { cx, settle } = harness(), picker = new MantisProjectPicker(taskSourceOptions('mantisbt'));
+  picker.init({}, cx); await new Promise(setImmediate); picker.close();
+  release(reply(200, { projects: [{ id: 1, name: 'Late' }] })); await settle();
+  assert.deepEqual(picker.projects, []); assert.equal(writes.length, 0);
+});
+
 test('MantisBT retains connection and import behavior while using its own issue views', async () => {
   const urls = [], context = await load({ fetch: async url => {
     urls.push(url);
@@ -239,7 +308,7 @@ test('MantisBT retains connection and import behavior while using its own issue 
   assert.equal(panel.detail, selected); assert.equal(urls.length, reads);
   assert.equal(selected.source, 'mantisbt'); assert.equal(selected.comments[0].text, 'Keep this comment');
   assert.match(taskPrompt({ source: 'local', name: selected.name, notes: 'Edited instructions', mantisbt: selected }), /Work on this MantisBT task/);
-  assert.equal(writes.length, 0); assert.equal(memory['devkits.asana-projects'].other.name, 'Asana');
+  assert.equal(writes.length, 1); assert.equal(memory['devkits.asana-projects'].other.name, 'Asana');
   assert.ok(!JSON.stringify(memory).includes('secret'));
   panel.server = 'https://another.test'; assert.equal(panel.binding(), null);
 });

@@ -2,6 +2,8 @@ import { div, svg } from 'gpui-kit';
 import { h_flex, v_flex, Input, InputState } from 'gpui-base';
 import { TaskSourceController, TaskSourceProjectPicker } from './components/task-source.js';
 import { mantisSource } from './source.js';
+import { filterProjects } from './api.js';
+import { readMantisProjects, saveMantisProjects } from './connection.js';
 import { Button } from './components/button.js';
 import { DropdownMenuTrigger } from './components/dropdown-menu.js';
 
@@ -37,6 +39,47 @@ const cell = (value, width, header = false) => div().when(Boolean(width), el => 
 export class MantisProjectPicker extends TaskSourceProjectPicker {
   constructor(options = {}) { super({ ...options, source: mantisSource }); }
 
+  close() { this.closed = true; super.close(); }
+
+  applyProjects(projects, cx) {
+    const selected = this.projects[this.index]?.gid;
+    this.projectList = projects;
+    this.projects = filterProjects(projects, this.search.value());
+    this.index = Math.max(0, this.projects.findIndex(project => project.gid === selected));
+    cx.notify();
+  }
+
+  find(cx) {
+    this.index = 0;
+    if (this.projectList) { this.applyProjects(this.projectList, cx); return; }
+    if (this.projectLoad) return;
+    this.projectLoad = true; this.loading = true; cx.notify();
+    cx.spawn(async cx => {
+      try {
+        const connection = await this.source.readConnection();
+        if (this.closed) return;
+        if (!connection?.token) throw new Error('Connect MantisBT first.');
+        const cached = await readMantisProjects(connection);
+        if (this.closed) return;
+        if (cached) {
+          this.applyProjects(cached.projects, cx); this.loading = false;
+          const age = Date.now() - cached.fetchedAt;
+          if (age >= 0 && age < 300_000) { this.projectLoad = false; cx.notify(); return; }
+          this.refreshing = true; cx.notify();
+        }
+        const projects = await this.source.searchProjects(connection, '');
+        if (this.closed) return;
+        this.applyProjects(projects, cx); this.error = null;
+        try { await saveMantisProjects(connection, projects, Date.now()); } catch {}
+      } catch (error) {
+        if (!this.closed) this.error = this.projectList
+          ? `Could not update projects. Showing saved projects. ${error.message}` : error.message;
+      }
+      if (this.closed) return;
+      this.loading = false; this.refreshing = false; this.projectLoad = false; cx.notify();
+    });
+  }
+
   render() {
     return v_flex().id('mantis-project-picker').w_full().h(360).p(4).gap(4).border(1).border_color(mantisTheme.border)
       .bg('#ffffff').text_color(mantisTheme.foreground).font_family('Open Sans').text_size(13).track_focus(this.handle)
@@ -55,8 +98,9 @@ export class MantisProjectPicker extends TaskSourceProjectPicker {
           .on_hover((inside, cx) => { if (inside) { this.index = index; cx.notify(); } })
           .on_click(() => this.choose(project)).child(glyph('folder')).child(project.name)))
         .when(this.loading && !this.projects.length, el => el.child(div().p(8).child('Loading projects…')))
+        .when(this.refreshing, el => el.child(div().p(8).child('Updating projects…')))
         .when(Boolean(this.error), el => el.child(div().p(8).text_color(mantisTheme.destructive).child(this.error)))
-        .when(!this.loading && !this.error && !this.projects.length, el => el.child(div().p(8).child('No matching projects.'))));
+        .when(!this.loading && !this.refreshing && !this.error && !this.projects.length, el => el.child(div().p(8).child('No matching projects.'))));
   }
 }
 

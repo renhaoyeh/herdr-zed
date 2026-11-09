@@ -55,24 +55,31 @@ export async function searchProjects(connection, query, request = fetch) {
     cached = { expires: Date.now() + 300_000 };
     cached.pending = mantisRequest(connection, '/projects', request).then(body => {
       if (!Array.isArray(body.projects)) throw new Error('The server did not return MantisBT projects. Check the server URL.');
-      return body;
+      return compactProjects(connection, body.projects);
     }).catch(error => { if (projectLists.get(key) === cached) projectLists.delete(key); throw error; });
     projectLists.set(key, cached);
   }
-  const body = await cached.pending, projects = [], seen = new Set();
+  return filterProjects(await cached.pending, query);
+}
+
+export function filterProjects(projects, query) {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  return projects.filter(project => words.every(word => `${project.name} ${project.workspace}`.toLowerCase().includes(word)));
+}
+
+function compactProjects(connection, items) {
+  const projects = [], seen = new Set(), server = normalizeUrl(connection.url);
   const visit = (items, parent = '') => {
     for (const project of items || []) {
       const gid = String(project.id);
       if (seen.has(gid)) continue;
       seen.add(gid);
-      projects.push({ gid, name: project.name, workspace: parent, workspaceGid: gid, server: normalizeUrl(connection.url) });
+      projects.push({ gid, name: project.name, workspace: parent, workspaceGid: gid, server });
       visit(project.subProjects || project.subprojects, project.name);
     }
   };
-  if (!Array.isArray(body.projects)) throw new Error('The server did not return MantisBT projects. Check the server URL.');
-  visit(body.projects);
-  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
-  return projects.filter(project => words.every(word => `${project.name} ${project.workspace}`.toLowerCase().includes(word)));
+  visit(items);
+  return projects;
 }
 
 async function resolvedThreshold(connection, project, request) {
