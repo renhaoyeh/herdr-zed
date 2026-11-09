@@ -2,7 +2,7 @@
 import { appHome, home, readTextFile, exec } from 'herdr';
 import { parseSharedMcp, mcpToml } from './shared-mcp-model.js';
 export { parseSharedMcp, mcpToml } from './shared-mcp-model.js';
-import { sessionKind } from './session-model.js';
+import { sessionKind, tasksMcpServer } from './session-model.js';
 
 export const sharedMcpPath = () => `${appHome()}/data/devkits/codex-mcp.json`;
 export function sharedMcpArgv(agent, argv, config) {
@@ -19,9 +19,11 @@ export function sharedMcpArgv(agent, argv, config) {
 export async function sessionMcpArgv(agent, argv) {
   if (sessionKind(agent) !== 'codex' || !argv) return argv;
   const config = parseSharedMcp(await readTextFile(sharedMcpPath()));
-  // Persist account defaults before starting Codex so background naming sees transports.
+  // Background naming disables MCPs using enabled-only overrides, without launch transports.
+  // Persist the built-in Tasks transport as well as the user-managed shared defaults.
+  const servers = { ...config.servers, herdr_tasks: tasksMcpServer(appHome()) };
   const directory = argv.find(arg => arg.startsWith('CODEX_HOME='))?.slice(11) || `${home()}/.codex`;
-  const result = await exec('node', [`${appHome()}/mods/devkits/shared-mcp-sync.js`, directory, JSON.stringify(config.servers)], { timeout: 60000 });
+  const result = await exec('node', [`${appHome()}/mods/devkits/shared-mcp-sync.js`, directory, JSON.stringify(servers)], { timeout: 60000 });
   if (result.code !== 0) throw new Error(result.stderr?.trim() || 'Could not synchronize shared MCP settings.');
   return sharedMcpArgv(agent, argv, config);
 }

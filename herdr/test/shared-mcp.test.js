@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { sessionKind, settingsKey } from '../mods/devkits/components/session-model.js';
+import { sessionKind, settingsKey, sessionArgv, tasksMcpServer } from '../mods/devkits/components/session-model.js';
 import { evaluateNative } from './source-harness.js';
 import { parseSharedMcp, mcpToml } from '../mods/devkits/components/shared-mcp-model.js';
 import { syncSharedMcp } from '../mods/devkits/shared-mcp-sync.js';
@@ -13,7 +13,7 @@ import { migrateSharedMcp } from '../mods/devkits/shared-mcp-migrate.js';
 
 const config = { version: 1, servers: { vs: { command: 'bridge', args: ['繁體中文', 'C:\\with spaces\\bridge', 'quote"'] }, ic: { url: 'http://127.0.0.1:18765/mcp' } },
   profiles: { work: { ic: false }, review: { vs: { command: 'review-bridge' } } } };
-const host = { parseSharedMcp, mcpToml, home: () => '/home', exec: async () => ({ code: 0 }), sessionKind, settingsKey, appHome: () => '/herdr', readTextFile: async () => JSON.stringify(config) };
+const host = { parseSharedMcp, mcpToml, home: () => '/home', exec: async () => ({ code: 0 }), sessionKind, tasksMcpServer, settingsKey, appHome: () => '/herdr', readTextFile: async () => JSON.stringify(config) };
 const load = extra => evaluateNative('../mods/devkits/components/shared-mcp.js', { ...host, ...extra }, 'parseSharedMcp, sharedMcpArgv, sessionMcpArgv, mcpToml');
 
 test('shared MCP ignores legacy account and agent exceptions and preserves explicit CLI precedence', async () => {
@@ -36,7 +36,7 @@ test('launch preparation synchronizes account defaults before returning argv and
   const reads = [], { sessionMcpArgv } = await load({ exec: async (...args) => { calls.push(args); return { code: 0 }; }, readTextFile: async path => { reads.push(path); return JSON.stringify(config); } });
   await sessionMcpArgv({ key: 'review', profileKey: 'devkits-codex-work' }, ['env', 'CODEX_HOME=/account', 'codex']);
   assert.equal(calls[0][1][1], '/account');
-  assert.deepEqual(JSON.parse(calls[0][1][2]), config.servers);
+  assert.deepEqual(JSON.parse(calls[0][1][2]), { ...config.servers, herdr_tasks: tasksMcpServer('/herdr') });
   assert.deepEqual(reads, ['/herdr/data/devkits/codex-mcp.json']);
   await sessionMcpArgv({ key: 'claude' }, ['claude']);
   assert.equal(reads.length, 1);
@@ -131,4 +131,36 @@ test('real Codex config persists complete disabled transports and supports backg
 test('synchronization failure prevents launching with incomplete settings', async () => {
   const { sessionMcpArgv } = await load({ exec: async () => ({ code: 1, stderr: 'sync failed' }) });
   await assert.rejects(sessionMcpArgv({ key: 'codex' }, ['codex']), /sync failed/);
+});
+
+test('local launch persists Tasks transport without shared settings for background title generation', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'devkits-title-mcp-'));
+  await writeFile(join(directory, 'config.toml'), '# account settings\n[mcp_servers.own]\ncommand = "personal-server"\n[mcp_servers.herdr_tasks]\nenabled = false\n');
+  const appDirectory = 'C:\\Users\\A B\\herdr';
+  let synchronized = false;
+  const { sessionMcpArgv } = await load({
+    appHome: () => appDirectory, readTextFile: async () => null,
+    exec: async (_command, args) => {
+      assert.equal(args[1], directory);
+      await syncSharedMcp(args[1], JSON.parse(args[2]));
+      synchronized = true;
+      return { code: 0 };
+    },
+  });
+  const agent = { key: 'codex' };
+  const argv = sessionArgv(agent, ['env', `CODEX_HOME=${directory}`, 'codex'], { tasksMcpHome: appDirectory });
+  assert.deepEqual(await sessionMcpArgv(agent, argv), argv);
+  assert.equal(synchronized, true);
+  // Like the background title worker, supply only disabled flags, with no launch transports.
+  const result = await promisify(execFile)('codex', ['-c', 'mcp_servers.herdr_tasks.enabled=false',
+    '-c', 'mcp_servers.own.enabled=false', 'mcp', 'list', '--json'], {
+    env: { ...process.env, CODEX_HOME: directory }, timeout: 15000, windowsHide: true,
+  });
+  const servers = JSON.parse(result.stdout), tasks = servers.find(server => server.name === 'herdr_tasks');
+  assert.equal(tasks.enabled, false);
+  assert.equal(tasks.transport.command, 'node');
+  assert.deepEqual(tasks.transport.args, tasksMcpServer(appDirectory).args);
+  assert.deepEqual(tasks.transport.env, { HERDR_APP_HOME: appDirectory });
+  assert.equal(servers.find(server => server.name === 'own').transport.command, 'personal-server');
+  assert.match(await readFile(join(directory, 'config.toml'), 'utf8'), /# account settings/);
 });
