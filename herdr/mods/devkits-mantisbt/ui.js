@@ -262,11 +262,13 @@ export default class MantisPanel extends TaskSourceController {
     const control = ([key, label]) => {
       const state = this.filterMenus[key], chosen = this.filter[key];
       const values = [...new Set(tasks.map(task => filterValue(task, key)))].sort((a, b) => a.localeCompare(b));
+      // Statuses keep the colors shown in the table.
+      const colors = key === 'section' ? new Map(tasks.map(task => [task.section, statusColor(task)])) : null;
       return DropdownMenu(`mantis-filter-${key}`, state,
         Button(`mantis-filter-${key}-trigger`, mantisTheme, { variant: 'outline' }).w_full().h(28).px(8).rounded(0).gap(6).justify_between()
           .bg('#ffffff').text_color(mantisTheme.foreground).accessibility_label(`Filter by ${label}`)
           .child(div().min_w(0).truncate().child(chosen?.size ? [...chosen].join(', ') : '[any]')).child(glyph('chevron-down', 12)),
-        [{ key: '__any__', label: '[any]', checked: !chosen?.size }, ...values.map(value => ({ key: value, label: value, checked: Boolean(chosen?.has(value)) }))],
+        [{ key: '__any__', label: '[any]', checked: !chosen?.size }, ...values.map(value => ({ key: value, label: value, checked: Boolean(chosen?.has(value)), color: colors?.get(value) }))],
         (value, cx) => { state.open = true; this.toggleFilter(key, value === '__any__' ? null : value, cx); },
         mantisTheme, { align: 'start', offset: { x: 0, y: 4 } });
     };

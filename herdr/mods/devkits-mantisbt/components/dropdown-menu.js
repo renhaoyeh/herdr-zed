@@ -93,6 +93,7 @@ export function DropdownMenu(id, state, trigger, items, onSelect, t, { side = 'b
         .when(!item.disabled && state.index === index, el => el.bg(t.selected).aria_active_descendant())
         .on_hover((inside, cx) => { if (inside && !item.disabled) { state.index = index; cx.notify(); } })
         .on_click((_event, cx) => choose(item, cx))
+        .when(Boolean(item.color), el => el.child(div().size(14).flex_none().bg(item.color)))
         .child(v_flex().flex_1().min_w(0)
           .child(div().min_w(0).truncate().child(item.label))
           .when(Boolean(item.description), el => el.child(div().min_w(0).truncate().text_size(11).text_color(t.muted).child(item.description))))
