@@ -490,10 +490,10 @@ export const sessionMenu = {
               () => this.startThread(agent))
               .when(Boolean(agent && agent.key === last && shortcutLabel), el => el
                 .child(div().text_size(11).text_color(t.muted).child(shortcutLabel))),
-            // Auto picks its account when clicked, so the row names no account.
-            ...(choice.group === 0 && auto ? [row('start-auto', 'Auto', glyph('chart-column'),
+            // Preview the current pick; resolve again on click as quotas may change.
+            ...(choice.group === 0 && auto ? [row('start-auto', `Auto · ${launcherLabel(auto.name)}`, AgentIcon(auto, t),
               () => this.startThread(this.autoThreadAgent(this.launchers, machine), props(), { auto: true }))
-              .accessibility_label('Auto: start on the selected account with the most quota to spare')
+              .accessibility_label(`Auto: next account ${launcherLabel(auto.name)}`)
               .when(Boolean(last === 'auto' && shortcutLabel), el => el
                 .child(div().text_size(11).text_color(t.muted).child(shortcutLabel)))] : []),
           ];
