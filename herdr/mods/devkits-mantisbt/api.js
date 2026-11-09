@@ -20,8 +20,11 @@ async function mantisRequest(connection, path, request = fetch) {
   const send = scheme => request(`${url}/api/rest${path}`, {
     headers: { Authorization: scheme === 'token' ? token : `Bearer ${token}`, Accept: 'application/json' },
   });
-  let scheme = authSchemes.get(key) || 'bearer', response = await send(scheme);
-  if (response.status === 401 && !authSchemes.has(key)) { scheme = 'token'; response = await send(scheme); }
+  let scheme = authSchemes.get(key) || 'token', response = await send(scheme);
+  // Older MantisBT versions also return 403 for invalid token formats.
+  if ((response.status === 401 || response.status === 403) && !authSchemes.has(key)) {
+    scheme = 'bearer'; response = await send(scheme);
+  }
   if (response.status === 401) {
     authSchemes.delete(key);
     throw Object.assign(new Error('MantisBT rejected this token. Enter a new personal access token.'), { unauthorized: true });
@@ -29,7 +32,9 @@ async function mantisRequest(connection, path, request = fetch) {
   let body;
   try { body = await response.json(); } catch {}
   if (!response.ok) throw Object.assign(new Error(response.status === 403
-    ? 'This MantisBT account does not have permission to read this resource.'
+    ? authSchemes.has(key)
+      ? 'This MantisBT account does not have permission to read this resource.'
+      : 'MantisBT rejected the API token or denied access. Check the token and account permissions.'
     : body?.message || body?.description || `MantisBT returned ${response.status}.`), { status: response.status });
   if (!body || typeof body !== 'object') throw new Error('The server did not return MantisBT API data. Check the server URL and REST API configuration.');
   authSchemes.set(key, scheme);

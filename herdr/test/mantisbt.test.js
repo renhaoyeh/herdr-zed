@@ -51,7 +51,7 @@ test('server URLs preserve installation paths and accept an API URL without cred
     assert.throws(() => normalizeUrl(url), /server URL/);
 });
 
-test('Token authentication negotiates older bare-token servers and reuses that scheme', async () => {
+test('Token authentication uses bare tokens first for older servers', async () => {
   const headers = [];
   const { validateConnection, searchProjects } = await load();
   const request = async (url, options) => {
@@ -61,13 +61,39 @@ test('Token authentication negotiates older bare-token servers and reuses that s
     return reply(200, url.endsWith('/users/me') ? { id: 7, name: 'developer' } : { projects: [] });
   };
   await validateConnection(connection, request); await searchProjects(connection, '', request);
-  assert.deepEqual(headers, ['Bearer secret', 'secret', 'secret']);
+  assert.deepEqual(headers, ['secret', 'secret']);
+});
+
+for (const status of [401, 403]) test(`Token authentication retries Bearer after ${status} and remembers success`, async () => {
+  const headers = [], { validateConnection, searchProjects } = await load();
+  const request = async (url, options) => {
+    headers.push(options.headers.Authorization);
+    if (options.headers.Authorization === 'secret') return reply(status, null);
+    return reply(200, url.endsWith('/users/me') ? { id: 7 } : { projects: [] });
+  };
+  await validateConnection(connection, request);
+  await searchProjects(connection, '', request);
+  assert.deepEqual(headers, ['secret', 'Bearer secret', 'Bearer secret']);
+});
+
+test('a forbidden resource after successful authentication does not retry or invalidate the token', async () => {
+  const headers = [], { validateConnection, searchProjects } = await load();
+  const request = async (url, options) => {
+    headers.push(options.headers.Authorization);
+    return url.endsWith('/users/me') ? reply(200, { id: 7 }) : reply(403, {});
+  };
+  await validateConnection(connection, request);
+  await assert.rejects(searchProjects(connection, '', request), error =>
+    error.status === 403 && !error.unauthorized && /permission to read/.test(error.message));
+  await validateConnection(connection, request);
+  assert.deepEqual(headers, ['secret', 'secret', 'secret']);
 });
 
 test('invalid tokens, denied permissions and HTML responses have actionable errors', async () => {
   const { validateConnection } = await load();
   await assert.rejects(validateConnection(connection, async () => reply(401, null)), error => error.unauthorized && /rejected/.test(error.message));
-  await assert.rejects(validateConnection(connection, async () => reply(403, {})), error => !error.unauthorized && error.status === 403);
+  await assert.rejects(validateConnection(connection, async () => reply(403, {})), error =>
+    !error.unauthorized && error.status === 403 && /token.*or denied access/.test(error.message));
   await assert.rejects(validateConnection(connection, async () => ({ ...reply(200, null), json: async () => { throw new Error('HTML'); } })), /server URL/);
   await assert.rejects(validateConnection(connection, async () => reply(200, {})), /MantisBT user/);
 });
