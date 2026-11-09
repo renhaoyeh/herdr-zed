@@ -70,6 +70,12 @@ export class AsanaProjectPicker extends TaskSourceProjectPicker {
 export default class AsanaPanel extends TaskSourceController {
   constructor(options = {}) { super({ ...options, source: asanaSource }); }
 
+  clearSelection(cx) {
+    if (!this.selected) return;
+    this.selected = null; this.detail = null; this.detailError = null; this.detailRequest = null;
+    cx.notify();
+  }
+
   toolbar(t, close) {
     const ready = this.needsToken === false;
     const bound = this.binding();
@@ -157,13 +163,13 @@ export default class AsanaPanel extends TaskSourceController {
     const row = item => {
       if (item.group) return this.sectionLabel(item.group, t);
       if (!item.task) return h_flex().id('asana-load-more').h(36).flex_none().px(16).gap(8).items_center().text_size(12).text_color(t.muted)
-        .cursor_pointer().hover(el => el.bg(t.hover)).on_click((_event, cx) => this.more(cx))
+        .cursor_pointer().hover(el => el.bg(t.hover)).on_click((_event, cx) => { cx.stop_propagation(); this.more(cx); })
         .child(glyph('chevron-down', 12)).child(this.loadingMore ? 'Loading…' : 'Load more tasks');
       const { task, depth } = item;
       return h_flex().id(`asana-${item.key}`).h(38).flex_none().pl(24 + depth * 22).pr(24).gap(10).items_center().border_b(1).border_color(t.border).cursor_pointer()
         .accessibility_label(task.name)
         .bg(this.selected === task.gid ? t.selected : t.background).hover(el => el.bg(this.selected === task.gid ? t.selected : t.hover))
-        .on_click((_event, cx) => { this.handle.focus(); this.show(task, cx); })
+        .on_click((_event, cx) => { cx.stop_propagation(); this.handle.focus(); this.show(task, cx); })
         .child(glyph('circle-check', 16).text_color(t.muted))
         .child(div().flex_1().min_w(0).truncate().text_size(13).child(task.name))
         .when(item.nested && task.subtasks > 0, el => el.child(h_flex().id(`asana-expand-${task.gid}`).h(20).px(6).gap(4).flex_none().items_center()
@@ -176,6 +182,7 @@ export default class AsanaPanel extends TaskSourceController {
         .child(h_flex().w(120).h_full().pl(12).border_l(1).border_color(t.border).flex_none().items_center().child(this.due(task, t)));
     };
     return v_flex().id('asana-list').flex_1().min_h(0)
+      .on_click((_event, cx) => this.clearSelection(cx))
       .child(h_flex().h(34).px(24).gap(10).flex_none().items_center().border_b(1).border_color(t.border).text_size(12).text_color(t.muted)
         .child(div().flex_1().child('Task name'))
         .child(div().w(120).h_full().pl(12).border_l(1).border_color(t.border).flex_none().flex().items_center().child('Assignee'))
@@ -185,6 +192,7 @@ export default class AsanaPanel extends TaskSourceController {
 
   board(t) {
     return h_flex().id('asana-board').flex_1().min_h(0).overflow_x_scrollbar().bg(t.chrome).p(24).gap(16)
+      .on_click((_event, cx) => this.clearSelection(cx))
       .children(this.groups().map(group => v_flex().w(300).flex_none().h_full().min_h(0)
         .child(h_flex().h(40).flex_none().px(4).gap(8).items_center()
           .child(this.status(group.name, t))
@@ -194,7 +202,7 @@ export default class AsanaPanel extends TaskSourceController {
           .children(group.tasks.map(task => v_flex().id(`asana-card-${task.gid}`).flex_none().p(16).gap(12).rounded(8).cursor_pointer()
             .bg(this.selected === task.gid ? t.selected : t.background).border(1).border_color(this.selected === task.gid ? t.solid : t.border)
             .hover(el => el.border_color(t.solid)).accessibility_label(task.name)
-            .on_click((_event, cx) => { this.handle.focus(); this.show(task, cx); })
+            .on_click((_event, cx) => { cx.stop_propagation(); this.handle.focus(); this.show(task, cx); })
             .when(Boolean(task.parent), el => el.child(div().truncate().text_size(11).text_color(t.muted).child(`↳ ${task.parent}`)))
             .child(div().text_size(13).font_medium().child(task.name))
             .child(h_flex().gap(8).items_center()
@@ -205,7 +213,7 @@ export default class AsanaPanel extends TaskSourceController {
               .child(this.due(task, t))
               .child(this.avatar(task, t))))))))
       .when(this.tab === 'all' && Boolean(this.all.next), el => el.child(asanaButton('asana-load-more', t, { variant: 'outline' }).flex_none()
-        .on_click((_event, cx) => this.more(cx)).child(this.loadingMore ? 'Loading…' : 'Load more tasks')));
+        .on_click((_event, cx) => { cx.stop_propagation(); this.more(cx); }).child(this.loadingMore ? 'Loading…' : 'Load more tasks')));
   }
 
   connect(t, close) {
@@ -255,7 +263,7 @@ export default class AsanaPanel extends TaskSourceController {
           .child(asanaButton('asana-open', t, { variant: 'ghost' }).h(28).px(8).accessibility_label(`Open in ${this.source.name}`)
             .on_click((_event, cx) => cx.open_url(task.url)).child(`Open in ${this.source.name}`)))
         .child(asanaButton('asana-close-preview', t, { variant: 'ghost', size: 'icon' }).accessibility_label('Close preview')
-          .on_click((_event, cx) => { this.selected = null; this.detail = null; cx.notify(); }).child(glyph('close'))))
+          .on_click((_event, cx) => this.clearSelection(cx)).child(glyph('close'))))
       .child(v_flex().id(`asana-preview-${this.selected}`).flex_1().min_h(0).overflow_y_scrollbar().px(32).py(28).gap(24)
         .when(!task, el => el.child(div().text_size(13).text_color(this.detailError ? t.destructive || t.foreground : t.muted)
           .child(this.detailError || 'Loading…')))

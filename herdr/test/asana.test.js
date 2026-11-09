@@ -504,6 +504,52 @@ test('Copy copies the current token value while empty fields leave the clipboard
   assert.equal(copied.length, 1);
 });
 
+test('Asana list and board backgrounds dismiss previews while issue and load-more clicks preserve selection', async () => {
+  const clicks = new Map();
+  const node = initialId => {
+    let id = initialId;
+    const proxy = new Proxy({}, { get: (_target, key) => {
+      if (key === 'when') return (condition, render) => { if (condition) render(proxy); return proxy; };
+      return (...args) => {
+        if (key === 'id') id = args[0];
+        if (key === 'on_click') clicks.set(id, args[0]);
+        return proxy;
+      };
+    } });
+    return proxy;
+  };
+  const { AsanaPanel, taskSourceOptions } = await load({ ...ui, div: node, v_flex: node, h_flex: node, Button: node });
+  const panel = new AsanaPanel(taskSourceOptions('asana'));
+  panel.init({ focus_handle: () => ({ focus() {} }) });
+  const task = { gid: 'a1', name: 'Issue', subtasks: 1 };
+  panel.groups = () => [{ name: 'Todo', tasks: [task] }];
+  panel.tab = 'all'; panel.all.next = 'next';
+  panel.show = selected => { panel.selected = selected.gid; };
+  let more = 0, expanded = 0;
+  panel.more = () => more++;
+  panel.toggleExpanded = () => expanded++;
+  for (const view of ['list', 'board']) {
+    clicks.clear(); panel[view]({});
+    const background = `asana-${view}`;
+    const click = id => {
+      let stopped = false;
+      const cx = { notify() {}, stop_propagation() { stopped = true; } };
+      clicks.get(id)({}, cx);
+      if (id !== background && !stopped) clicks.get(background)({}, cx);
+    };
+    panel.selected = 'other';
+    click(view === 'list' ? 'asana-task:a1' : 'asana-card-a1');
+    assert.equal(panel.selected, 'a1');
+    click('asana-load-more'); assert.equal(panel.selected, 'a1');
+    if (view === 'list') { click('asana-expand-a1'); assert.equal(panel.selected, 'a1'); }
+    panel.detail = task; panel.detailError = 'Old failure'; panel.detailRequest = {};
+    click(background);
+    assert.equal(panel.selected, null); assert.equal(panel.detail, null);
+    assert.equal(panel.detailError, null); assert.equal(panel.detailRequest, null);
+  }
+  assert.equal(more, 2); assert.equal(expanded, 1);
+});
+
 test('local task prompts carry instructions without claiming an Asana source', async () => {
   const { taskPrompt } = await load();
   assert.equal(taskPrompt({ name: 'Fix login', notes: 'Add validation', source: 'local', comments: [] }),
