@@ -23,13 +23,25 @@ export function claudeUsageWindows(limits = {}) {
 export const claudeConfigDir = run => Array.isArray(run)
   ? run.find(arg => arg.startsWith('CLAUDE_CONFIG_DIR='))?.slice('CLAUDE_CONFIG_DIR='.length) || null : null;
 
-// Reads only what this profile's status line recorded; it never touches credentials or the network.
+// Claude Code keeps the signed-in account's plan in its profile file (not its credentials):
+// claude_pro, or claude_max with a 5x/20x rate-limit tier.
+export function claudePlan(profile) {
+  const account = profile?.oauthAccount, type = account?.organizationType;
+  if (typeof type !== 'string' || !type) return null;
+  const tier = /max_(\d+)x/.exec(`${account.organizationRateLimitTier || ''} ${account.userRateLimitTier || ''}`)?.[1];
+  return type === 'claude_max' && tier ? `claude_max_${tier}x` : type;
+}
+
+// Reads only what this profile's status line recorded and its account plan; it never touches credentials or the network.
 export async function readClaudeUsage(run, home = homedir()) {
-  const directory = claudeConfigDir(run) || `${home}/.claude`;
-  let saved;
+  const configured = claudeConfigDir(run), directory = configured || `${home}/.claude`;
+  let saved, profile;
   try { saved = JSON.parse(await readFile(`${directory}/${claudeUsageFile}`, 'utf8')); } catch {}
   if (!saved?.rate_limits) throw new Error('No usage yet. Start a session with this account to update it.');
-  return { windows: claudeUsageWindows(saved.rate_limits), fetchedAt: Number.isFinite(saved.capturedAt) ? saved.capturedAt : null };
+  try { profile = JSON.parse(await readFile(configured ? `${directory}/.claude.json` : `${home}/.claude.json`, 'utf8')); } catch {}
+  const plan = claudePlan(profile);
+  return { windows: claudeUsageWindows(saved.rate_limits), fetchedAt: Number.isFinite(saved.capturedAt) ? saved.capturedAt : null,
+    ...(plan ? { plan } : {}) };
 }
 
 export function usageWindows(result = {}) {
@@ -45,7 +57,10 @@ export function usageWindows(result = {}) {
     }));
 }
 
-export function readUsage(argv, timeout = 18000) {
+export const readUsage = async (argv, timeout) => (await readCodexUsage(argv, timeout)).windows;
+
+// Codex reports the account's plan (plus, team, prolite, pro, ...) with its rate limits.
+export function readCodexUsage(argv, timeout = 18000) {
   return new Promise((resolve, reject) => {
     const args = commandArgv(argv.filter(arg => arg !== '--no-daemon'), process.platform === 'win32' ? 'windows' : process.platform);
     const child = spawn(args[0], [...args.slice(1), 'app-server'], { stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true });
@@ -60,7 +75,8 @@ export function readUsage(argv, timeout = 18000) {
       const kill = setTimeout(() => child.kill('SIGKILL'), 800);
       kill.unref();
       child.once('close', () => clearTimeout(kill));
-      if (error) reject(new Error(error)); else resolve(usageWindows(result));
+      if (error) reject(new Error(error));
+      else resolve({ windows: usageWindows(result), plan: typeof result.rateLimits?.planType === 'string' ? result.rateLimits.planType : null });
     };
     const timer = setTimeout(() => finish('Usage request timed out'), timeout);
     const send = message => { if (!done) child.stdin.write(`${JSON.stringify(message)}\n`); };
@@ -88,7 +104,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   console.log(JSON.stringify(await Promise.all(accounts.map(async account => {
     try {
       if (account.provider === 'claude') return { key: account.key, name: account.name, ...await readClaudeUsage(account.run) };
-      return { key: account.key, name: account.name, windows: await readUsage(account.run), fetchedAt: Date.now() };
+      return { key: account.key, name: account.name, ...await readCodexUsage(account.run), fetchedAt: Date.now() };
     }
     catch (error) { return { key: account.key, name: account.name, error: error.message }; }
   }))));

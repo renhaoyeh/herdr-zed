@@ -1,7 +1,7 @@
 import { View, div, svg, image } from 'gpui-kit';
 import { v_flex, h_flex } from 'gpui-base';
 import { agents, spaces, panes, theme, run, props, window, openOverlay, closeOverlay, setAgentOrder, layout, settings, pickFolder, shared, setShared, knownAgents, notify, appHome, readTextFile, nextCommand, terminals } from 'herdr';
-import { projectGroups, projectCatalog, folderKey, launcherChoices, isAccountLauncher, launcherArgv, sessionArgv, sessionKind, threadProfile, threadProgram, archivable, rulesArgv, childTerminals, terminalLabel, terminalWorking, settingsKey } from './model.js';
+import { projectGroups, projectCatalog, folderKey, launcherChoices, isAccountLauncher, autoAgent, autoLauncherKey, launcherArgv, sessionArgv, sessionKind, threadProfile, threadProgram, archivable, rulesArgv, childTerminals, terminalLabel, terminalWorking, settingsKey } from './model.js';
 import { terminalArgv } from './shell-command.js';
 import AccountLogin, { accountLabel } from './account-login.js';
 import FileViewer, { FileMenu } from './files.js';
@@ -368,14 +368,33 @@ export default class Devkits extends View {
       this.files.closeTab(this.files.file, cx);
   }
 
-  defaultThreadAgent(project, agents) {
+  defaultThreadAgent(project, agents) { return this.defaultThreadChoice(project, agents).agent; }
+
+  // The remembered launcher for this project, or Auto's current pick when Auto was last used.
+  defaultThreadChoice(project, agents) {
     const key = JSON.stringify([project.machine || '', folderKey(project.folder) || project.id]);
     const hidden = shared('devkits.hidden-launchers') || [];
     const available = launcherChoices(agents, shared('devkits.launcher-order') || [])
       .filter(choice => choice.agent && choice.agent.installed !== false && !hidden.includes(choice.key))
       .map(choice => choice.agent);
-    return available.find(agent => agent.key === shared('devkits.last-thread-agents')?.[key])
-      || available.find(agent => agent.key === shared('devkits.last-thread-agent')) || available[0];
+    for (const remembered of [shared('devkits.last-thread-agents')?.[key], shared('devkits.last-thread-agent')]) {
+      const agent = remembered === autoLauncherKey ? this.autoThreadAgent(agents, project.machine)
+        : available.find(agent => agent.key === remembered);
+      if (agent) return { agent, auto: remembered === autoLauncherKey };
+    }
+    return { agent: available[0], auto: false };
+  }
+
+  // Auto chooses among your added accounts selected in Settings → Usage, by this computer's quota readings.
+  autoThreadAgent(agents, machine) {
+    if (machine) return null;
+    // Accounts hidden from Usage have no readings, so Auto leaves them out too.
+    const hidden = shared('devkits.hidden-usage-profiles') || [];
+    const members = (shared('devkits.auto-accounts') || []).filter(key => !hidden.includes(key));
+    const choices = launcherChoices(agents.filter(agent => isAccountLauncher(agent) && !agent.profileKey && agent.installed !== false && members.includes(agent.key)),
+      shared('devkits.launcher-order') || []).map(choice => choice.agent).filter(Boolean);
+    return autoAgent(choices, shared('devkits.usage.snapshot')?.contexts?.[JSON.stringify(null)]?.usage || [], Date.now(),
+      shared('devkits.auto-multipliers') || {});
   }
 
   async repeatThread(cx, projectId) {
@@ -383,9 +402,9 @@ export default class Devkits extends View {
     if (!project) return this.newThread(cx);
     const target = { space: project.pending ? null : project.id, folder: project.folder, projectName: project.name };
     try {
-      const agent = this.defaultThreadAgent(project, await this.cachedAgents(project.machine));
+      const { agent, auto } = this.defaultThreadChoice(project, await this.cachedAgents(project.machine));
       if (!agent) return this.newThread(cx, project.id);
-      await this.startThread(agent, target);
+      await this.startThread(agent, target, auto ? { auto } : {});
     } catch (error) {
       notify({ title: 'Could not start session', body: error.message, level: 'error' });
     }
@@ -460,8 +479,9 @@ export default class Devkits extends View {
     if (agent?.key) {
       const project = spaces().find(space => space.id === target.space);
       const key = JSON.stringify([project?.machine || '', folderKey(target.folder) || target.space]);
-      setShared('devkits.last-thread-agent', agent.key);
-      setShared('devkits.last-thread-agents', { ...(shared('devkits.last-thread-agents') || {}), [key]: agent.key });
+      const remembered = options.auto ? autoLauncherKey : agent.key;
+      setShared('devkits.last-thread-agent', remembered);
+      setShared('devkits.last-thread-agents', { ...(shared('devkits.last-thread-agents') || {}), [key]: remembered });
     }
   }
 

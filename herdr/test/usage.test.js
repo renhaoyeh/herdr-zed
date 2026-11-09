@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { usageWindows, readUsage } from '../mods/devkits-usage/usage-reader.js';
-import { quotaResetLabel } from '../mods/devkits/model.js';
+import { usageWindows, readUsage, readCodexUsage, claudePlan } from '../mods/devkits-usage/usage-reader.js';
+import { quotaResetLabel, autoAgent, planMultiplier, planLabel } from '../mods/devkits/model.js';
 
 test('resets count down in days/hours or hours/minutes; overdue and absent times stay explicit', () => {
   const now = Date.UTC(2026, 10, 6, 8);
@@ -48,13 +48,14 @@ test('usage reader performs handshake, ignores notifications, and closes its sub
       } else if (m.method === 'initialized') initialized = true;
       else if (m.method === 'account/rateLimits/read' && initialized) {
         console.log(JSON.stringify({ method: 'account/updated', params: {} }));
-        console.log(JSON.stringify({ id: 2, result: { rateLimits: {
+        console.log(JSON.stringify({ id: 2, result: { rateLimits: { planType: 'prolite',
           primary: { windowDurationMins: 300, usedPercent: 42, resetsAt: 1234 }
         } } }));
       }
     });
   `;
   assert.deepEqual(await readUsage([process.execPath, '-e', server, '--']), [{ bucket: 'codex', name: 'codex', slot: 'primary', minutes: 300, usedPercent: 42, resetsAt: 1234 }]);
+  assert.equal((await readCodexUsage([process.execPath, '-e', server, '--'])).plan, 'prolite');
 });
 
 test('usage reader handles missing binary, protocol errors, and timeout', async () => {
@@ -109,6 +110,9 @@ test('Claude usage comes only from the status line recording in the account dire
   assert.equal(record(JSON.stringify({ rate_limits: limits }), directory, 5000), '5h 13% · Week 32%');
   assert.deepEqual(JSON.parse(await readFile(`${directory}/devkits-usage.json`, 'utf8')), { capturedAt: 5000, rate_limits: limits });
   assert.deepEqual(await readClaudeUsage(run), { fetchedAt: 5000, windows: claudeUsageWindows(limits) });
+  const { writeFile } = await import('node:fs/promises');
+  await writeFile(`${directory}/.claude.json`, JSON.stringify({ oauthAccount: { organizationType: 'claude_max', organizationRateLimitTier: 'default_claude_max_20x' } }));
+  assert.equal((await readClaudeUsage(run)).plan, 'claude_max_20x');
   assert.equal(record(JSON.stringify({}), directory, 9000), '');
   assert.equal((await readClaudeUsage(run)).fetchedAt, 5000);
   assert.equal(statusText({ seven_day: { used_percentage: 7 } }), 'Week 7%');
@@ -130,4 +134,38 @@ test('a chained status line receives the same input and its output replaces the 
   const echo = `${JSON.stringify(process.execPath)} -e "process.stdin.pipe(process.stdout)"`;
   await writeFile(`${directory}/devkits-statusline-chain.json`, JSON.stringify({ type: 'command', command: echo }));
   assert.equal(chained('hello', directory), 'hello');
+});
+
+test('autoAgent prefers the most room per plan size, ignores expired windows and ranks full accounts last', () => {
+  const now = 1_800_000_000_000, at = seconds => now / 1000 + seconds;
+  const members = [{ key: 'a' }, { key: 'b' }, { key: 'c' }];
+  const usage = [
+    { key: 'a', windows: [{ minutes: 10080, usedPercent: 60, resetsAt: at(302400) }] },
+    { key: 'b', windows: [{ minutes: 10080, usedPercent: 20, resetsAt: at(302400) }, { minutes: 300, usedPercent: 100, resetsAt: at(600) }] },
+  ];
+  assert.equal(autoAgent(members, usage, now).key, 'c', 'unknown is on pace (1); a has 0.8; b is full');
+  assert.equal(autoAgent(members.slice(0, 2), usage, now).key, 'a');
+  assert.equal(autoAgent(members, usage, now, { a: 5 }).key, 'a', 'a x5 plan has 4 room');
+  usage[1].windows[1].resetsAt = at(-1);
+  assert.equal(autoAgent(members, usage, now).key, 'b', 'an expired limit no longer blocks');
+  assert.equal(autoAgent([{ key: 'x' }, { key: 'y' }], [
+    { key: 'x', windows: [{ minutes: 300, usedPercent: 100, resetsAt: at(900) }] },
+    { key: 'y', windows: [{ minutes: 300, usedPercent: 100, resetsAt: at(300) }] }], now).key, 'y');
+  assert.equal(autoAgent([], usage, now), null);
+});
+
+test('plans come from non-credential profile data and map to plan sizes by price tier', () => {
+  assert.equal(claudePlan({ oauthAccount: { organizationType: 'claude_pro', organizationRateLimitTier: 'default_claude_ai' } }), 'claude_pro');
+  assert.equal(claudePlan({ oauthAccount: { organizationType: 'claude_max', organizationRateLimitTier: 'default_claude_max_5x' } }), 'claude_max_5x');
+  assert.equal(claudePlan({ oauthAccount: { organizationType: 'claude_max' } }), 'claude_max');
+  assert.equal(claudePlan({}), null);
+  assert.deepEqual(['plus', 'team', 'claude_pro', 'prolite', 'claude_max', 'claude_max_5x', 'pro', 'claude_max_20x', 'unknown', null].map(planMultiplier),
+    [1, 1, 1, 5, 5, 5, 20, 20, 1, 1]);
+  assert.deepEqual(['team', 'prolite', 'claude_max_20x', 'new_plan', null].map(planLabel), ['Team', 'Pro Lite', 'Max 20x', 'new_plan', null]);
+  const now = 1_800_000_000_000, at = now / 1000 + 302400;
+  const usage = [{ key: 'small', plan: 'plus', windows: [{ minutes: 10080, usedPercent: 10, resetsAt: at }] },
+    { key: 'large', plan: 'prolite', windows: [{ minutes: 10080, usedPercent: 60, resetsAt: at }] }];
+  const members = [{ key: 'small' }, { key: 'large' }];
+  assert.equal(autoAgent(members, usage, now).key, 'large', 'Pro Lite x5 with 0.8 beats Plus with 1.8');
+  assert.equal(autoAgent(members, usage, now, { large: 1 }).key, 'small', 'a saved size overrides the plan');
 });

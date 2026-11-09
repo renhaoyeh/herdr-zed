@@ -1,7 +1,7 @@
 import { div } from 'gpui-kit';
 import { v_flex, h_flex } from 'gpui-base';
 import { shared, setShared, props, spaces, openOverlay, closeOverlay, home, readTextFile, keys, window } from 'herdr';
-import { launcherChoices, launcherLabel, launcherOption, permissionModes, sessionKind, claudeModels, claudeEfforts, codexHome, codexModels, mergeModels, orderedOptions, moveOption, effortLabel, sessionChoices, settingsKey, profileSettings, configuredAgents } from './model.js';
+import { launcherChoices, launcherLabel, launcherOption, permissionModes, sessionKind, claudeModels, claudeEfforts, codexHome, codexModels, mergeModels, orderedOptions, moveOption, effortLabel, sessionChoices, settingsKey, profileSettings, configuredAgents, autoRank, autoMultipliers, autoMultiplier, planMultiplier, planLabel, quotaResetLabel } from './model.js';
 import { DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from './components/dropdown-menu.js';
 import { Button } from './components/button.js';
 import { Checkbox } from './components/checkbox.js';
@@ -342,7 +342,62 @@ export const sessionMenu = {
                   const saved = shared('devkits.hidden-usage-profiles') || [];
                   setShared('devkits.hidden-usage-profiles', checked ? saved.filter(key => key !== choice.agent.key) : [...new Set([...saved, choice.agent.key])]);
                   cx.notify();
-                }).child(AgentIcon(choice.agent, t).flex_none()).child(div().truncate().text_size(13).child(choice.name))))))));
+                }).child(AgentIcon(choice.agent, t).flex_none()).child(div().truncate().text_size(13).child(choice.name))))))))
+      .child(this.autoAccountsSection(profiles, t));
+  },
+
+  // Auto in Add session starts one of these accounts, chosen by quota at each launch.
+  // The rules and each account's current standing are shown, so the pick is predictable.
+  autoAccountsSection(profiles, t) {
+    const members = shared('devkits.auto-accounts') || [];
+    const multipliers = shared('devkits.auto-multipliers') || {};
+    const hiddenUsage = shared('devkits.hidden-usage-profiles') || [];
+    const accounts = profiles.filter(choice => choice.group === 2 && !hiddenUsage.includes(choice.agent.key));
+    const usage = shared('devkits.usage.snapshot')?.contexts?.[JSON.stringify(null)]?.usage || [];
+    const next = this.autoThreadAgent(this.launchers || [], null)?.key;
+    const reading = key => usage.find(account => account.key === key);
+    const standing = key => {
+      const rank = autoRank(reading(key), autoMultiplier(key, reading(key), multipliers));
+      if (rank.full) return `At limit · ${quotaResetLabel({ resetsAt: rank.resetsAt })}`;
+      return `Room ${rank.room.toFixed(2)}${rank.known ? '' : ' · no reading'}`;
+    };
+    const rules = ['Each time Auto starts a session, it chooses among the selected accounts:',
+      '1. Skip accounts at their 5h or weekly limit. If every account is at a limit, use the one that resets soonest.',
+      '2. For each quota window, divide quota left by time left; 1 means on pace. An account uses its lowest window.',
+      '3. Multiply by the account’s plan size to get its Room, and start the account with the most Room. Ties follow Add session order.',
+      'Plan size follows each account’s detected plan: ×1 for ChatGPT Plus, Business or Claude Pro; ×5 for ChatGPT Pro $100 or Claude Max 5x; ×20 for ChatGPT Pro $200 or Claude Max 20x. Choose another size to override it, or the detected size to follow the plan again.',
+      'Only accounts shown in Usage above can join Auto. Accounts without a reading count as on pace. A session keeps the account it started with.'];
+    const setMultiplier = (key, value) => {
+      const saved = { ...(shared('devkits.auto-multipliers') || {}) };
+      if (value === planMultiplier(reading(key)?.plan)) delete saved[key]; else saved[key] = value;
+      setShared('devkits.auto-multipliers', saved);
+    };
+    return v_flex().id('auto-account-settings').flex_none().gap(4)
+      .child(DropdownMenuLabel(t).px(0).mt(8).child('AUTO'))
+      .child(v_flex().id('auto-account-rules').flex_none().gap(2)
+        .children(rules.map(rule => DialogDescription(t).flex_none().child(rule))))
+      .child(v_flex().flex_none().mt(4).border(1).border_color(t.border)
+        .children(accounts.map((choice, index) => {
+          const key = choice.agent.key, selected = members.includes(key), status = standing(key);
+          const plan = planLabel(reading(key)?.plan), size = autoMultiplier(key, reading(key), multipliers);
+          return h_flex().h(40).px(12).gap(12).items_center().when(index > 0, el => el.border_t(1).border_color(t.border))
+            .child(Checkbox(`auto-account-${key}`, selected, t).h_full().flex_1().min_w(0)
+              .accessibility_label(`Use ${choice.name} for Auto. ${status}`).on_change((checked, cx) => {
+                const saved = (shared('devkits.auto-accounts') || []).filter(item => item !== key);
+                setShared('devkits.auto-accounts', checked ? [...saved, key] : saved);
+                cx.notify();
+              }).child(AgentIcon(choice.agent, t).flex_none()).child(div().truncate().text_size(13).child(choice.name))
+              .when(Boolean(plan), el => el.child(div().id(`auto-plan-${key}`).flex_none().text_size(12).text_color(t.muted).child(plan))))
+            .when(selected && key === next, el => el.child(div().id(`auto-next-${key}`).flex_none()
+              .text_size(12).font_medium().text_color(t.foreground).child('Next')))
+            .child(div().id(`auto-standing-${key}`).flex_none().text_size(12).text_color(t.muted).child(status))
+            .child(ToggleGroup(`auto-multiplier-${key}`, `${choice.name} plan size`, t)
+              .children(autoMultipliers.map((value, position) => ToggleGroupItem(`auto-multiplier-${key}-${value}`,
+                size === value, position === 0, t)
+                .accessibility_label(`${choice.name} plan size ×${value}`)
+                .on_change((_pressed, cx) => { setMultiplier(key, value); cx.notify(); })
+                .child(`×${value}`))));
+        })));
   },
 
   agentsPage(choices, hidden, local, toggle, move, cancelDrag, t) {
@@ -403,7 +458,9 @@ export const sessionMenu = {
     const choices = launcherChoices(available, shared('devkits.launcher-order') || []).filter(choice => !hidden.includes(choice.key));
     const launchers = choices.filter(choice => choice.agent).map(choice => choice.agent);
     const target = props(), machine = spaces().find(space => space.id === target.space)?.machine || '';
-    const last = this.defaultThreadAgent({ id: target.space, folder: target.folder, machine }, this.launchers)?.key;
+    const remembered = this.defaultThreadChoice({ id: target.space, folder: target.folder, machine }, this.launchers);
+    const last = remembered.auto ? 'auto' : remembered.agent?.key;
+    const auto = this.autoThreadAgent(this.launchers, machine);
     // Show the binding only beside the agent that New thread will actually launch.
     const bindings = new Map();
     for (const section of ['global', 'layout:devkits', 'mod:devkits']) {
@@ -433,6 +490,12 @@ export const sessionMenu = {
               () => this.startThread(agent))
               .when(Boolean(agent && agent.key === last && shortcutLabel), el => el
                 .child(div().text_size(11).text_color(t.muted).child(shortcutLabel))),
+            // Auto picks its account when clicked, so the row names no account.
+            ...(choice.group === 0 && auto ? [row('start-auto', 'Auto', glyph('chart-column'),
+              () => this.startThread(this.autoThreadAgent(this.launchers, machine), props(), { auto: true }))
+              .accessibility_label('Auto: start on the selected account with the most quota to spare')
+              .when(Boolean(last === 'auto' && shortcutLabel), el => el
+                .child(div().text_size(11).text_color(t.muted).child(shortcutLabel)))] : []),
           ];
         }))
         .when(this.loading, el => el.child(div().p(10).text_size(12).text_color(t.muted).child('Loading agents…')))

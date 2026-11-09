@@ -30,7 +30,7 @@ async function setup(options = {}) {
         queries.push([command, args]);
         assert.match(args[0], /mods\/devkits-usage\/usage-reader.js$/);
         return { code: 0, stdout: JSON.stringify(JSON.parse(args[1]).map(account => ({ key: account.key, secret: 'hidden',
-          windows: [{ bucket: 'codex', name: 'Codex', minutes: 300, usedPercent: 42, resetsAt: Date.now() / 1000 + 1800, secret: 'hidden' }] }))) };
+          plan: 'plus', windows: [{ bucket: 'codex', name: 'Codex', minutes: 300, usedPercent: 42, resetsAt: Date.now() / 1000 + 1800, secret: 'hidden' }] }))) };
       },
       nextCommand: () => endpoint.queue.length ? Promise.resolve(endpoint.queue.shift()) : new Promise(resolve => { endpoint.waiting = resolve; }),
       run: command => {

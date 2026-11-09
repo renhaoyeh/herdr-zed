@@ -39,7 +39,7 @@ export class UsageMonitor extends UsageClient {
         provider: machine ? null : usageProvider(choice.agent) }));
     const selected = new Set(choices.map(choice => choice.agent.key));
     const usage = (this.usage || []).filter(entry => selected.has(entry.key)).map(entry => ({ key: entry.key,
-      checkedAt: entry.checkedAt, fetchedAt: entry.fetchedAt, error: entry.error,
+      checkedAt: entry.checkedAt, fetchedAt: entry.fetchedAt, error: entry.error, plan: entry.plan || null,
       windows: entry.windows?.map(window => ({ bucket: window.bucket, name: window.name, slot: window.slot, minutes: window.minutes, usedPercent: window.usedPercent, resetsAt: window.resetsAt })) }));
     return { machine, choices, usage, loading: Boolean(this.usageLoading), error: this.usageError || null };
   }
@@ -86,7 +86,9 @@ export class UsageMonitor extends UsageClient {
         }
         // Claude usage is a local file, so only provider queries are rate-limited by the cache.
         const stale = accounts.filter(account => manual || usageProvider(account) === 'claude'
-          || !(now - (cached()[account.key]?.checkedAt || 0) < usageCacheMs));
+          || !(now - (cached()[account.key]?.checkedAt || 0) < usageCacheMs)
+          // Readings cached before plans were recorded are read again once.
+          || (!cached()[account.key]?.error && !Object.hasOwn(cached()[account.key] || {}, 'plan')));
         this.usage = accounts.map(account => cached()[account.key]).filter(Boolean);
         if (stale.length) {
           if (!this.active()) return;
