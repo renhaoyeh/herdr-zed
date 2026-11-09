@@ -164,7 +164,7 @@ export default class WorkspaceEditor {
     this.activate(cycle.order[cycle.index], cx, true);
   }
 
-  render(project, cx) {
+  render(project, cx, { empty } = {}) {
     this.switchProject(project);
     const dock = shared('devkits.right-panel');
     const files = this.files.render(project, cx, true, false);
@@ -201,7 +201,9 @@ export default class WorkspaceEditor {
       .when(this.session.order.length > 0, el => el.child(this.files.tabBar(theme(), {
         extra, fileActive: kind === 'files', order: this.session.order, closeFile: (path, cx) => this.closeItem(`file:${path}`, cx),
       })))
-      .child(div().flex_1().min_w(0).min_h(0).child(kind === 'diff' ? diff.content : files.content));
+      .child(div().flex_1().min_w(0).min_h(0).child(kind === 'diff' ? diff.content
+        // With nothing open, the editor offers to start a thread, like Zed's empty agent panel.
+        : !this.files.doc && empty ? empty() : files.content));
     const body = dock ? SidePanelLayout('workspace-editor-split', this.files.sidePanel, content,
       dock === 'diff' ? diff.panel : files.panel) : content;
     return div().id('workspace-editor').track_focus(this.handle).key_context('DevkitsFiles').size_full().min_h(0).bg(theme().background)
