@@ -489,3 +489,14 @@ test('filters combine several values per field and across fields, and Reset clea
   panel.toggleFilter('assignee', null, cx); panel.toggleFilter('category', null, cx);
   assert.equal(panel.activeFilters(), 0); assert.deepEqual(ids(), ['1', '2', '3']);
 });
+
+test('status colors come from the server so custom statuses are not gray', async () => {
+  const { projectTasksPage, statusColor } = await load({ fetch: async url => url.includes('/config') ? config(90) : reply(200, { issues: [
+    issue(1, { status: { id: 75, name: 'hold', label: 'Hold', color: '#95CACA' } }),
+    issue(2, { status: { id: 82, name: 'releasetotest', label: 'Release to test' } }),
+  ] }) });
+  const { tasks } = await projectTasksPage(connection, '1');
+  assert.equal(statusColor(tasks[0]), '#95CACA');
+  assert.equal(statusColor(tasks[1]), '#e4e4e4');
+  assert.equal(statusColor({ statusName: 'resolved' }), '#d2f5b0');
+});

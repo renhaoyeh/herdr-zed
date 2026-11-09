@@ -25,7 +25,8 @@ const filterValue = (task, key) => task[key] || '[none]';
 const statusColors = { new: '#fcbdbd', feedback: '#e3b7eb', acknowledged: '#ffcd85', confirmed: '#fff494',
   assigned: '#c2dfff', resolved: '#d2f5b0', closed: '#c9ccc4' };
 export const issueNumber = gid => String(gid || '').padStart(7, '0');
-export const statusColor = task => statusColors[task.statusName] || statusColors[String(task.section || '').toLowerCase()] || '#e4e4e4';
+// The server reports each status's configured color, including custom statuses; the defaults cover older lists.
+export const statusColor = task => task.statusColor || statusColors[task.statusName] || statusColors[String(task.section || '').toLowerCase()] || '#e4e4e4';
 const glyph = (name, size = 14) => svg(`mods/devkits/assets/icons/${name}.svg`).size(size).flex_none();
 const localStamp = ms => { const d = new Date(ms), p = n => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };

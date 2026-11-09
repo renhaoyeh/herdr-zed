@@ -136,7 +136,7 @@ const normalize = (issue, connection, threshold) => {
     assigneeLogin: issue.handler?.name || '',
     assigneeGid: issue.handler?.id ? String(issue.handler.id) : null,
     section: issue.status?.label || issue.status?.name || 'New',
-    statusName: issue.status?.name || '', statusId: issue.status?.id || 0,
+    statusName: issue.status?.name || '', statusId: issue.status?.id || 0, statusColor: issue.status?.color || '',
     category: issue.category?.name || '', priority: issue.priority?.label || issue.priority?.name || '', priorityId: issue.priority?.id || 0,
     severity: issue.severity?.label || issue.severity?.name || '', resolution: issue.resolution?.label || issue.resolution?.name || '',
     reproducibility: issue.reproducibility?.label || issue.reproducibility?.name || '',
