@@ -6,6 +6,7 @@ import { terminalArgv } from './shell-command.js';
 import AccountLogin, { accountLabel } from './account-login.js';
 import FileViewer, { FileMenu } from './files.js';
 import DiffViewer from './diff.js';
+import { BuildRulesSettings } from './diff-ignore-settings.js';
 import { GitResultToast, clearGitToast } from './git-result-toast.js';
 import WorkspaceEditor from './workspace-editor.js';
 import XcodeStorage from './xcode-storage.js';
@@ -62,6 +63,9 @@ export default class Devkits extends View {
   taskHost = new TaskHost((event, cx) => this.taskNavigation(event, cx));
 
   init(_props, cx) {
+    if (props()?.view === 'diff-ignore-settings') {
+      this.buildRulesSettings = new BuildRulesSettings(); this.buildRulesSettings.init(cx); return;
+    }
     if (props()?.view === 'ui-settings') {
       this.interfaceSettings = new InterfaceSettings(); this.interfaceSettings.init(cx); return;
     }
@@ -556,6 +560,7 @@ export default class Devkits extends View {
   }
 
   async close() {
+    this.buildRulesSettings?.close();
     this.systemMonitor.close();
     this.usageClient.close();
     if (this.editor) this.editor.close();
@@ -868,6 +873,7 @@ export default class Devkits extends View {
 
   renderView(cx) {
     const t = theme();
+    if (props()?.view === 'diff-ignore-settings') return this.buildRulesSettings.render(t);
     if (props()?.view === 'ui-settings') return this.interfaceSettings.render(t);
     if (props()?.view === 'system-display-menu') return this.systemDisplayMenu.render(t);
     if (['calendar', 'google-calendar', 'task-composer'].includes(props()?.view)) return div();
