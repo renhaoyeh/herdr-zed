@@ -940,7 +940,7 @@ export default class Devkits extends View {
     if (props()?.view === 'agent-profile-editor') return this.agentProfileEditor(t);
     if (props()?.view === 'remove-account') return this.removeAccountPrompt(t);
     if (props()?.view === 'rename-account') return this.renameAccountPrompt(t);
-    if (props()?.view === 'project-empty') return this.projectStartView(this.projects().find(project => project.active), t, cx);
+    if (props()?.view === 'project-empty') return div().size_full().bg(t.canvas);
     if (props()?.view === 'close-project') return this.closePrompt(t);
     if (props()?.view === 'project-menu') return this.projectMenu(t);
     if (props()?.view === 'project-picker') return this.projectPicker(t);
@@ -973,11 +973,10 @@ export default class Devkits extends View {
       && !all.some(agent => agent.space === chosen.id && agent.tab === selectedTab.id)
       && modelPanes.filter(pane => pane.tab === selectedTab.id).length < 2;
     const content = chosen?.pending || defaultSelected ? 'project-empty' : 'main';
-    if (!taskMode() && this.shownContent !== content) {
-      this.shownContent = content;
-      run('layout.select', { stack: 'workspace-view', child: content });
-    }
     const conversation = layoutNode(layout(), 'workspace-view');
+    // Project selection and restored layouts can change the stack independently.
+    if (!taskMode() && conversation?.active !== content)
+      run('layout.select', { stack: 'workspace-view', child: content });
     const showConversation = !taskMode() && conversationVisible(chosen);
     if (conversation && Boolean(conversation.hidden) === showConversation)
       run(showConversation ? 'layout.show' : 'layout.hide', { id: 'workspace-view' });
