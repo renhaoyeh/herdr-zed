@@ -16,7 +16,7 @@ const input = () => {
 };
 const ui = { div: element, svg: element, v_flex: element, h_flex: element, Input: { new: element },
   InputState: { new: input }, SelectState: class {}, TextView: { markdown: element },
-  theme: () => ({}), Button: element, DialogDescription: element, DropdownMenuTrigger: element,
+  theme: () => ({}), Button: element, DialogDescription: element, DropdownMenuTrigger: element, DropdownMenu: element, DropdownMenuState: class {},
   DropdownMenuContent: element, DropdownMenuItem: element, DropdownMenuLabel: element };
 
 async function load(options = {}) {
@@ -344,7 +344,7 @@ test('MantisBT searches issue numbers and metadata, combines status filtering, a
   ];
   panel.issueSearch.set_value('0000002 backend');
   assert.deepEqual(panel.rows().map(row => row.task.gid), ['2']);
-  panel.statusFilter = 'confirmed'; assert.deepEqual(panel.rows(), []);
+  panel.toggleFilter('section', 'confirmed', cx); assert.deepEqual(panel.rows(), []);
   panel.issueSearch.set_value('Amy'); assert.deepEqual(panel.rows().map(row => row.task.gid), ['1']);
   panel.selected = '1'; panel.detail = { gid: '1' }; panel.detailRequest = { gid: '1' };
   panel.back(cx);
@@ -352,7 +352,7 @@ test('MantisBT searches issue numbers and metadata, combines status filtering, a
   panel.all = { tasks: [{ gid: '3', name: 'Unassigned', section: 'new' }], loaded: true, next: null };
   panel.chooseView('all', cx);
   assert.equal(memory['devkits.mantisbt-tab'], 'all');
-  panel.issueSearch.set_value(''); panel.statusFilter = null;
+  panel.issueSearch.set_value(''); panel.filter = {};
   assert.deepEqual(panel.rows().map(row => row.task.gid), ['3']);
   assert.equal(panel.view(), 'list'); // Legacy Board preferences cannot restore the Asana UI.
 });
@@ -469,4 +469,23 @@ test('Fetch all reads every page, saves the list, and sorting works on the loade
   pages.null = { tasks: [{ gid: '5', name: 'c', section: 'new' }], next: null };
   panel.fetchAll(cx, true); assert.equal(panel.all.tasks.length, 2); await settle();
   assert.deepEqual(panel.all.tasks.map(task => task.gid), ['5']);
+});
+
+test('filters combine several values per field and across fields, and Reset clears them', async () => {
+  const { MantisPanel, taskSourceOptions } = await load();
+  const { cx } = harness(), panel = new MantisPanel(taskSourceOptions('mantisbt')); panel.init(cx);
+  panel.tab = 'all';
+  panel.all = { loaded: true, next: null, tasks: [
+    { gid: '1', name: 'a', assignee: 'Molly', section: 'new', category: 'UI' },
+    { gid: '2', name: 'b', assignee: 'Luke', section: 'new', category: 'API' },
+    { gid: '3', name: 'c', assignee: null, section: 'assigned', category: 'UI' },
+  ] };
+  const ids = () => panel.rows().map(row => row.task.gid);
+  panel.toggleFilter('assignee', 'Molly', cx); panel.toggleFilter('assignee', 'Luke', cx);
+  assert.deepEqual(ids(), ['1', '2']);
+  panel.toggleFilter('category', 'UI', cx); assert.deepEqual(ids(), ['1']);
+  panel.toggleFilter('assignee', 'Molly', cx); panel.toggleFilter('assignee', 'Luke', cx); panel.toggleFilter('assignee', '[none]', cx);
+  assert.deepEqual(ids(), ['3']); assert.equal(panel.activeFilters(), 2);
+  panel.toggleFilter('assignee', null, cx); panel.toggleFilter('category', null, cx);
+  assert.equal(panel.activeFilters(), 0); assert.deepEqual(ids(), ['1', '2', '3']);
 });

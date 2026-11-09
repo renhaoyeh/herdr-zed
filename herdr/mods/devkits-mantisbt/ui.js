@@ -6,7 +6,7 @@ import { filterProjects } from './api.js';
 import { readMantisProjects, saveMantisProjects, readMantisIssues, saveMantisIssues } from './connection.js';
 import { Button } from './components/button.js';
 import { Checkbox } from './components/checkbox.js';
-import { DropdownMenuTrigger } from './components/dropdown-menu.js';
+import { DropdownMenu, DropdownMenuState, DropdownMenuTrigger } from './components/dropdown-menu.js';
 
 // Measured from the bundled MantisBT 2.28 web UI (Ace compact sidebar).
 export const mantisTheme = {
@@ -18,6 +18,10 @@ export const mantisTheme = {
   destructive: '#a94442',
 };
 const rule = '#c4c4c4';
+// MantisBT's filter fields. Values come from the loaded issues, so choosing them never asks the server.
+const filterFields = [['reporter', 'Reporter'], ['assignee', 'Assigned To'], ['section', 'Status'],
+  ['category', 'Category'], ['priority', 'Priority'], ['severity', 'Severity']];
+const filterValue = (task, key) => task[key] || '[none]';
 const statusColors = { new: '#fcbdbd', feedback: '#e3b7eb', acknowledged: '#ffcd85', confirmed: '#fff494',
   assigned: '#c2dfff', resolved: '#d2f5b0', closed: '#c9ccc4' };
 export const issueNumber = gid => String(gid || '').padStart(7, '0');
@@ -115,7 +119,7 @@ export default class MantisPanel extends TaskSourceController {
   init(cx) {
     super.init(cx);
     this.tab = 'all';
-    this.statusFilter = null; this.assigneeFilter = null;
+    this.filter = {}; this.filterMenus = Object.fromEntries(filterFields.map(([key]) => [key, new DropdownMenuState(cx)]));
     this.filtersOpen = true;
     this.fetchingAll = false; this.fetchedPages = 0; this.stopFetch = false;
     this.sortKey = null; this.sortDir = 'desc'; this.cacheTried = false;
@@ -123,12 +127,12 @@ export default class MantisPanel extends TaskSourceController {
     this.issueSearch.on('change', (_event, cx) => cx.notify());
   }
 
-  reset() { super.reset(); this.statusFilter = null; this.assigneeFilter = null; this.fetchingAll = false; this.stopFetch = true;
+  reset() { super.reset(); this.filter = {}; this.fetchingAll = false; this.stopFetch = true;
     this.sortKey = null; this.cacheTried = false; }
 
   open(project, cx) {
     super.open(project, cx);
-    this.statusFilter = null; this.assigneeFilter = null;
+    this.filter = {};
     this.issueSearch.set_value('');
   }
 
@@ -179,6 +183,15 @@ export default class MantisPanel extends TaskSourceController {
     super.more(cx);
   }
 
+  activeFilters() { return Object.keys(this.filter).length; }
+  toggleFilter(key, value, cx) {
+    const chosen = new Set(this.filter[key] || []);
+    if (value === null) chosen.clear(); else if (!chosen.delete(value)) chosen.add(value);
+    if (chosen.size) this.filter = { ...this.filter, [key]: chosen };
+    else { const { [key]: _removed, ...rest } = this.filter; this.filter = rest; }
+    cx.notify();
+  }
+
   sortBy(id, cx) {
     this.sortDir = this.sortKey === id ? (this.sortDir === 'asc' ? 'desc' : 'asc') : ['gid', 'createdAt', 'updatedAt'].includes(id) ? 'desc' : 'asc';
     this.sortKey = id; cx.notify();
@@ -206,7 +219,7 @@ export default class MantisPanel extends TaskSourceController {
   filteredTasks() {
     const words = this.issueSearch.value().toLowerCase().split(/\s+/).filter(Boolean);
     return (this.tab === 'mine' ? this.mine || [] : this.all.tasks).filter(task =>
-      (!this.statusFilter || task.section === this.statusFilter) && (!this.assigneeFilter || (task.assignee || 'Unassigned') === this.assigneeFilter) && words.every(word =>
+      Object.entries(this.filter).every(([key, chosen]) => chosen.has(filterValue(task, key))) && words.every(word =>
         [task.name, issueNumber(task.gid), task.section, task.assignee, task.category].filter(Boolean).join(' ').toLowerCase().includes(word)));
   }
   chooseView(tab, cx) {
@@ -244,15 +257,25 @@ export default class MantisPanel extends TaskSourceController {
 
   filters() {
     const tasks = this.tab === 'mine' ? this.mine || [] : this.all.tasks;
-    const sections = [...new Set(tasks.map(task => task.section))];
-    const assignees = [...new Set(tasks.map(task => task.assignee || 'Unassigned'))].sort((a, b) => a.localeCompare(b));
-    const chips = (title, values, current, choose, prefix) => h_flex().gap(6).items_center().flex_wrap()
-      .child(div().w(90).px(8).font_semibold().child(title))
-      .children([null, ...values].map(value => button(`mantis-filter-${prefix}-${value || 'all'}`, value || '[any]', (_event, cx) => {
-        choose(value); cx.notify();
-      }, { primary: current === value })));
+    const count = this.activeFilters();
+    const control = ([key, label]) => {
+      const state = this.filterMenus[key], chosen = this.filter[key];
+      const values = [...new Set(tasks.map(task => filterValue(task, key)))].sort((a, b) => a.localeCompare(b));
+      return DropdownMenu(`mantis-filter-${key}`, state,
+        Button(`mantis-filter-${key}-trigger`, mantisTheme, { variant: 'outline' }).w_full().h(28).px(8).rounded(0).gap(6).justify_between()
+          .bg('#ffffff').text_color(mantisTheme.foreground).accessibility_label(`Filter by ${label}`)
+          .child(div().min_w(0).truncate().child(chosen?.size ? [...chosen].join(', ') : '[any]')).child(glyph('chevron-down', 12)),
+        [{ key: '__any__', label: '[any]', checked: !chosen?.size }, ...values.map(value => ({ key: value, label: value, checked: Boolean(chosen?.has(value)) }))],
+        (value, cx) => { state.open = true; this.toggleFilter(key, value === '__any__' ? null : value, cx); },
+        mantisTheme, { align: 'start', offset: { x: 0, y: 4 } });
+    };
+    const group = fields => v_flex()
+      .child(h_flex().bg(mantisTheme.category).font_semibold().border_t(1).border_color(rule)
+        .children(fields.map((field, index) => div().flex_1().min_w(0).px(8).py(6).when(index < fields.length - 1, el => el.border_r(1).border_color(rule)).child(field[1]))))
+      .child(h_flex().border_t(1).border_color(rule)
+        .children(fields.map((field, index) => div().flex_1().min_w(0).p(6).when(index < fields.length - 1, el => el.border_r(1).border_color(rule)).child(control(field)))));
     return widget().id('mantis-filters').mb(22)
-      .child(widgetHeader('mantis-filters-header', `Filters${[this.statusFilter, this.assigneeFilter].filter(Boolean).map(value => `: ${value}`).join('')}`, 'list-todo')
+      .child(widgetHeader('mantis-filters-header', `Filters${count ? ` (${count})` : ''}`, 'list-todo')
         .child(div().flex_1())
         .child(field(this.issueSearch, 'mantis-search', 'Search MantisBT issues').w(190).h(24))
         .child(Button('mantis-toggle-filters', mantisTheme, { variant: 'ghost', size: 'icon' }).size(28).rounded(0).text_color('#ffffff')
@@ -269,9 +292,11 @@ export default class MantisPanel extends TaskSourceController {
           : this.allLoaded()
             ? `${this.all.tasks.length} open issues${this.all.fetchedAt ? ` · fetched ${localStamp(this.all.fetchedAt)}` : ''}`
             : 'Fetch every page to filter or sort by status or assignee.'))))
-      .when(this.filtersOpen && this.allLoaded(), el => el.child(v_flex().p(8).gap(8).border_t(1).border_color(rule)
-        .child(chips('Status', sections, this.statusFilter, value => { this.statusFilter = value; }, 'status'))
-        .child(chips('Assignee', assignees, this.assigneeFilter, value => { this.assigneeFilter = value; }, 'assignee'))));
+      .when(this.filtersOpen && this.allLoaded(), el => el
+        .child(group(filterFields.slice(0, 3))).child(group(filterFields.slice(3)))
+        .child(h_flex().p(8).gap(8).items_center().bg('#eeeeee').border_t(1).border_color(rule)
+          .child(button('mantis-filter-reset', 'Reset Filter', (_event, cx) => { this.filter = {}; cx.notify(); }, { disabled: !count }))
+          .child(div().text_color(mantisTheme.muted).child(`${this.issueTasks().length} of ${tasks.length} issues`))));
   }
 
   issueList(cx) {
@@ -309,7 +334,7 @@ export default class MantisPanel extends TaskSourceController {
         .child(v_flex().min_w(280 + columns.reduce((total, field) => total + field.width, 0)).child(header).children(tasks.map(row))))
       .when(loading, el => el.child(div().p(12).text_color(mantisTheme.muted).child(this.tab === 'mine'
         ? 'Loading issues assigned to you…' : this.all.loaded ? 'Loading more issues…' : 'Loading issues…')))
-      .when(!tasks.length && loaded && !loading && !this.error, el => el.child(div().p(18).text_color(mantisTheme.muted).child(this.issueSearch.value() || this.statusFilter || this.assigneeFilter
+      .when(!tasks.length && loaded && !loading && !this.error, el => el.child(div().p(18).text_color(mantisTheme.muted).child(this.issueSearch.value() || this.activeFilters()
         ? 'No loaded issues match the current filter.' : this.tab === 'mine' ? 'No open issues assigned to you.'
           : this.all.next ? 'No open issues on the loaded pages. Load more issues to continue.' : 'No open issues in this project.')))
       .when(this.tab === 'all' && Boolean(this.all.next), el => el.child(h_flex().p(8).bg('#eeeeee').border_t(1).border_color(rule)
