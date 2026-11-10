@@ -44,7 +44,15 @@ const toggleEditor = (_editor, name) => {
   setShared('devkits.right-panel', !maximized && shared('devkits.right-panel') === name ? null : name);
 };
 const conversationKey = project => JSON.stringify([project.machine || '', folderKey(project.folder) || project.id]);
-const conversationVisible = project => Boolean(project && shared('devkits.conversation-visible')?.[conversationKey(project)]);
+const hasConversation = (project, all, modelPanes) => {
+  const tab = project?.tabs?.find(tab => tab.active);
+  if (!tab || project.pending) return false;
+  if (tab.id !== shared('devkits.default-terminals')?.[project.id] && tab.name !== '__devkits_default_terminal__') return true;
+  return (all || agents()).some(agent => agent.space === project.id && agent.tab === tab.id)
+    || (modelPanes || panes()).filter(pane => pane.tab === tab.id).length > 1;
+};
+const conversationVisible = (project, all, modelPanes) => Boolean(hasConversation(project, all, modelPanes)
+  && shared('devkits.conversation-visible')?.[conversationKey(project)]);
 
 export default class Devkits extends View {
   agentClient = new AgentClient();
@@ -330,7 +338,7 @@ export default class Devkits extends View {
     if (visible && taskMode()) this.closeBoard();
     if (!visible) maximizeConversation(null, false);
     setShared('devkits.conversation-visible', { ...(shared('devkits.conversation-visible') || {}), [conversationKey(project)]: visible });
-    run(visible ? 'layout.show' : 'layout.hide', { id: 'workspace-view' });
+    run(visible && hasConversation(project) ? 'layout.show' : 'layout.hide', { id: 'workspace-view' });
     if (visible) {
       const pane = panes().find(pane => pane.tab === project.tabs?.find(tab => tab.active)?.id);
       if (pane) run('pane.focus', { pane: pane.pane });
@@ -597,7 +605,7 @@ export default class Devkits extends View {
     return h_flex().id('devkits-status').relative().size_full().pr(4).gap(8).items_center().bg(t.background)
       .text_size(11).text_color(t.muted)
       .when(Boolean(space && conversation), el => el
-        .child(ToolbarButton('open-conversation', t, { icon: true, disabled: taskMode(), selected: conversationVisible(space) })
+        .child(ToolbarButton('open-conversation', t, { icon: true, disabled: taskMode() || !hasConversation(space), selected: conversationVisible(space) })
           .accessibility_label(conversationVisible(space) ? 'Hide conversation' : 'Show conversation')
           .on_click(() => {
             this.showConversation(!conversationVisible(space));
@@ -831,17 +839,12 @@ export default class Devkits extends View {
     const chosen = workspaces.find(p => p.active);
     this.projectLayout ??= new ProjectLayout();
     this.projectLayout.sync(chosen);
-    const selectedTab = chosen?.tabs.find(tab => tab.active);
-    const defaultSelected = selectedTab && (selectedTab.id === shared('devkits.default-terminals')?.[chosen.id]
-      || selectedTab.name === '__devkits_default_terminal__')
-      && !all.some(agent => agent.space === chosen.id && agent.tab === selectedTab.id)
-      && modelPanes.filter(pane => pane.tab === selectedTab.id).length < 2;
-    const content = chosen?.pending || defaultSelected ? 'project-empty' : 'main';
+    const content = hasConversation(chosen, all, modelPanes) ? 'main' : 'project-empty';
     const conversation = layoutNode(layout(), 'workspace-view');
     // Project selection and restored layouts can change the stack independently.
     if (!taskMode() && conversation?.active !== content)
       run('layout.select', { stack: 'workspace-view', child: content });
-    const showConversation = !taskMode() && conversationVisible(chosen);
+    const showConversation = !taskMode() && conversationVisible(chosen, all, modelPanes);
     if (conversation && Boolean(conversation.hidden) === showConversation)
       run(showConversation ? 'layout.show' : 'layout.hide', { id: 'workspace-view' });
     const defaults = { ...(shared('devkits.default-terminals') || {}) };
