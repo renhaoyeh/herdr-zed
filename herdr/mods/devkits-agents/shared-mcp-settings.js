@@ -60,7 +60,7 @@ export const sharedMcpSettings = {
       .child(h_flex().items_center().justify_between()
         .child(div().text_size(12).child('Enable server'))
         .child(Switch('mcp-enabled', row.enabled, t).disabled(Boolean(this.mcpSaving))
-          .accessibility_label(`Enable ${row.name}`).on_click((_event, cx) => this.toggleMcpEnabled(row, cx))))
+          .accessibility_label(`Enable ${row.name}`).on_change((_checked, cx) => this.toggleMcpEnabled(row, cx))))
       .child(this.mcpProperty('Server name', row.name, t))
       .child(h_flex().h(28).px(8).gap(8).items_center().justify_between().border(1).border_color(t.border)
         .accessibility_label('Transport, read-only').text_size(12).text_color(t.muted)

@@ -35,9 +35,10 @@ export const sessionMenu = {
     if ((props() || {}).view && !['manage-launchers', 'agent-profile-editor'].includes((props() || {}).view)) return;
     this.loadCodexModels(cx);
     const page = (props() || {}).page;
-    this.settingsPage = ['accounts', 'agents', 'agent-profiles', 'global-rules', 'shared-mcp'].includes(page) ? page : 'agents';
+    this.settingsPage = ['accounts', 'agents', 'agent-profiles', 'global-rules', 'shared-mcp', 'ecc'].includes(page) ? page : 'agents';
     if (this.settingsPage === 'global-rules') this.initGlobalRules(cx);
     if (this.settingsPage === 'shared-mcp') this.initSharedMcp(cx);
+    if (this.settingsPage === 'ecc') this.initEcc(cx);
     this.defaultSelects = { permissions: new SelectState(cx), model: new SelectState(cx), effort: new SelectState(cx), profile: new SelectState(cx) };
     if ((props() || {}).view === 'agent-profile-editor') { this.initAgentProfileEditor(cx); return; }
   },
@@ -419,7 +420,8 @@ export const sessionMenu = {
       { id: 'agents', label: 'Agents', icon: glyph('square-plus') },
       ...(local ? [{ id: 'agent-profiles', label: 'Profiles', icon: glyph('agent') },
         { id: 'global-rules', label: 'Global Rules', icon: glyph('book-open') },
-        { id: 'shared-mcp', label: 'Shared MCP', icon: glyph('settings') }] : [])];
+        { id: 'shared-mcp', label: 'Shared MCP', icon: glyph('settings') },
+        { id: 'ecc', label: 'ECC', icon: glyph('agent') }] : [])];
     const page = pages.some(item => item.id === this.settingsPage) ? this.settingsPage : 'agents';
     return DialogContent('manage-launchers', t).accessibility_label('Settings')
       .on_mouse_up('left', (_event, cx) => cancelDrag(cx))
@@ -444,7 +446,7 @@ export const sessionMenu = {
           .children(pages.map(item => Button(`settings-page-${item.id}`, t, { variant: 'ghost' }).h(32).px(8).gap(8).justify_start()
             .bg(item.id === page ? t.selected : t.popover).text_color(item.id === page ? t.foreground : t.muted)
             .accessibility_label(`${item.label} settings${item.id === page ? ', selected' : ''}`)
-            .on_click((_event, cx) => { this.settingsPage = item.id; if (item.id === 'global-rules') this.initGlobalRules(cx); if (item.id === 'shared-mcp' && !this.mcpRows) this.initSharedMcp(cx); cancelDrag(cx); cx.notify(); })
+            .on_click((_event, cx) => { this.settingsPage = item.id; if (item.id === 'global-rules') this.initGlobalRules(cx); if (item.id === 'shared-mcp' && !this.mcpRows) this.initSharedMcp(cx); if (item.id === 'ecc' && !this.eccSource) this.initEcc(cx); cancelDrag(cx); cx.notify(); })
             .child(div().size(16).flex_none().flex().items_center().justify_center().child(item.icon)).child(item.label))))
         .child(v_flex().h_full().flex_1().min_w(0).min_h(0).gap(8)
           .when(page === 'accounts', el => el.child(this.accountsPage(t, cx)))
@@ -452,7 +454,8 @@ export const sessionMenu = {
             .child(this.agentsPage(choices, hidden, toggle, move, cancelDrag, t)))
           .when(page === 'agent-profiles', el => el.child(this.agentProfilesPage(t)))
           .when(page === 'global-rules', el => el.child(this.globalRulesPage(t)))
-          .when(page === 'shared-mcp', el => el.child(this.sharedMcpPage(t)))))
+          .when(page === 'shared-mcp', el => el.child(this.sharedMcpPage(t)))
+          .when(page === 'ecc', el => el.child(this.eccPage(t)))))
       .child(DialogFooter().flex_none().child(Button('manage-launchers-done', t).on_click(done).child('Done')));
   },
 

@@ -36,7 +36,7 @@ export class AgentClient {
   }
   request(action, args) {
     if (!this.started || !mounted(layout())) return Promise.reject(new Error('Agents service is unavailable in this layout.'));
-    const id = `agents:${Date.now()}:${Math.random().toString(36).slice(2)}`, expiresAt = Date.now() + 90000;
+    const id = `agents:${Date.now()}:${Math.random().toString(36).slice(2)}`, expiresAt = Date.now() + (action === 'prepare' ? 300000 : 90000);
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject, expiresAt });
       setShared(REQUESTS, [...(shared(REQUESTS) || []), { id, action, ...args, expiresAt }]);

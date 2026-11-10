@@ -6,7 +6,7 @@ import { configuredAgents } from '../mods/devkits/components/session-model.js';
 const profile = { key: 'codex', name: 'Codex', run: ['codex'] };
 const preset = { key: 'devkits-preset-review', profileKey: 'codex', name: 'Review', instructions: 'Use the current profile guide.' };
 
-async function load({ remote = false, rulesError = false, rulesGate = null, config = preset, saved = {}, options = {}, target = { space: 'local' } } = {}) {
+async function load({ eccInstructions = '', remote = false, rulesError = false, rulesGate = null, config = preset, saved = {}, options = {}, target = { space: 'local' } } = {}) {
   const calls = [], memory = {
     'devkits.agent-cache': { null: [{ ...profile, name: 'Current Codex' }] },
     'devkits.agent-configs': config ? [config] : [],
@@ -24,6 +24,7 @@ async function load({ remote = false, rulesError = false, rulesGate = null, conf
     sessionArgv: (agent, argv, settings) => { calls.push(['session', settings]); return [...argv, `model=${settings.model}`, `effort=${settings.effort}`, `tier=${settings.serviceTier}`, `tasks=${settings.tasksMcpHome}`]; },
     rulesArgv: (agent, argv, rules, instructions) => { calls.push(['rules', rules, instructions]); return [...argv, `rules=${rules?.text || ''}`, `instructions=${instructions || ''}`]; },
     sessionRules: async () => { calls.push(['read-rules']); if (rulesGate) await rulesGate; if (rulesError) throw Error('unreadable'); return { file: '/guide', text: 'Global rules' }; },
+    prepareEcc: async (agent, argv) => { calls.push(['ecc']); return { argv, instructions: eccInstructions }; },
     sessionMcpArgv: async (agent, argv) => { calls.push(['mcp']); return [...argv, 'shared-mcp']; },
   };
   const { prepareSession } = await evaluateNative('../mods/devkits-agents/session-preparation.js', host, 'prepareSession');
@@ -36,7 +37,7 @@ test('local preparation uses current profile instructions, saved settings and pe
   assert.deepEqual(result.session, { model: 'one-time-model', effort: null, serviceTier: 'fast', permission: 'workspace-write' });
   assert.ok(result.argv.includes('tasks=/herdr'));
   assert.ok(result.argv.includes('shared-mcp'));
-  assert.deepEqual(h.calls.filter(([name]) => ['rules', 'mcp'].includes(name)).map(([name]) => name), ['rules', 'mcp']);
+  assert.deepEqual(h.calls.filter(([name]) => ['rules', 'mcp', 'ecc'].includes(name)).map(([name]) => name), ['mcp', 'ecc', 'rules']);
   assert.equal(h.calls.find(([name]) => name === 'rules')[2], preset.instructions);
   assert.equal(h.calls.find(([name]) => name === 'launcher')[1], preset.key);
   assert.deepEqual(h.calls.find(([name]) => name === 'launcher')[3], ['codex']);
@@ -85,4 +86,14 @@ test('removing a profile while its global guide loads prevents the prepared laun
   release();
   await assert.rejects(pending, /configuration is unavailable/);
   assert.ok(!h.calls.some(([name]) => name === 'mcp'));
+});
+
+test('selected ECC guidance combines with global rules and profile instructions without replacing either', async () => {
+  const h = await load({ eccInstructions: 'Selected ECC rule' });
+  const result = await h.prepareSession({ key: preset.key, profileKey: 'codex', run: ['codex'] }, h.target, h.options);
+  assert.ok(result.argv.some(arg => arg.includes('Global rules') && arg.includes('Selected ECC rule')));
+  assert.ok(result.argv.includes('instructions=' + preset.instructions));
+  const remote = await load({ remote: true, eccInstructions: 'Should not load' });
+  await remote.prepareSession({ key: profile.key, run: ['codex'] }, remote.target, {});
+  assert.ok(!remote.calls.some(([name]) => name === 'ecc'));
 });
