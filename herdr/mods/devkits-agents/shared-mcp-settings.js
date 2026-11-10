@@ -1,7 +1,8 @@
 import { div } from 'gpui-kit';
 import { v_flex, h_flex } from 'gpui-base';
-import { props, readTextFile, writeTextFile, closeOverlay } from 'herdr';
+import { appHome, props, readTextFile, writeTextFile, closeOverlay } from 'herdr';
 import { sharedMcpPath, parseSharedMcp } from './components/shared-mcp.js';
+import { tasksMcpServer } from './components/session-model.js';
 import { Button } from './components/button.js';
 import { Switch } from './components/switch.js';
 import { glyph } from './components/icon.js';
@@ -23,13 +24,14 @@ export const sharedMcpSettings = {
         this.mcpConfig = parseSharedMcp(this.mcpOriginal);
         this.mcpRows = Object.entries(this.mcpConfig.servers).map(([name, server]) => ({ id: name, name, server,
           type: server.url === undefined ? 'command' : 'url', enabled: server.enabled !== false }));
+        this.mcpRows.push({ id: 'builtin:herdr_tasks', name: 'herdr_tasks', server: tasksMcpServer(appHome()), type: 'command', enabled: true, builtin: true });
         this.mcpSelected = this.mcpRows.find(row => row.id === selected)?.id || this.mcpRows[0]?.id;
       } catch (error) { this.mcpError = error.message; }
       finally { this.mcpLoading = false; cx.notify(); }
     });
   },
   toggleMcpEnabled(row, cx) {
-    if (this.mcpSaving || this.mcpLoading || !this.mcpConfig || !this.mcpRows.includes(row)) return;
+    if (row.builtin || this.mcpSaving || this.mcpLoading || !this.mcpConfig || !this.mcpRows.includes(row)) return;
     const enabled = !row.enabled;
     const config = { ...this.mcpConfig, servers: { ...this.mcpConfig.servers,
       [row.id]: { ...row.server, enabled } } };
@@ -57,10 +59,12 @@ export const sharedMcpSettings = {
     const server = row.server;
     const standard = ['enabled', 'command', 'args', 'env_vars', 'url', 'bearer_token_env_var', 'env_http_headers'];
     return v_flex().gap(12)
-      .child(h_flex().items_center().justify_between()
+      .when(row.builtin, el => el.child(div().text_size(12).text_color(t.muted).child('Built-in · Managed automatically by Devkits.'))
+        .child(div().text_size(12).text_color(t.muted).child('Task progress for new local Codex and Claude sessions.')))
+      .when(!row.builtin, el => el.child(h_flex().items_center().justify_between()
         .child(div().text_size(12).child('Enable server'))
         .child(Switch('mcp-enabled', row.enabled, t).disabled(Boolean(this.mcpSaving))
-          .accessibility_label(`Enable ${row.name}`).on_change((_checked, cx) => this.toggleMcpEnabled(row, cx))))
+          .accessibility_label(`Enable ${row.name}`).on_change((_checked, cx) => this.toggleMcpEnabled(row, cx)))))
       .child(this.mcpProperty('Server name', row.name, t))
       .child(h_flex().h(28).px(8).gap(8).items_center().justify_between().border(1).border_color(t.border)
         .accessibility_label('Transport, read-only').text_size(12).text_color(t.muted)
@@ -93,11 +97,11 @@ export const sharedMcpSettings = {
               .on_click((_event, cx) => { this.mcpSelected = row.id; cx.notify(); })
               .child(glyph(row.type === 'command' ? 'terminal' : 'external-link'))
               .child(v_flex().min_w(0).gap(2).child(div().truncate().child(row.name))
-                .child(div().text_size(11).text_color(t.muted).child(row.enabled ? 'Enabled' : 'Disabled')))))))
+                .child(div().text_size(11).text_color(t.muted).child(row.builtin ? 'Built-in' : row.enabled ? 'Enabled' : 'Disabled')))))))
         .child(v_flex().flex_1().min_w(0).min_h(0).h_full().id('mcp-server-details').overflow_y_scroll().gap(12)
           .when(Boolean(selected), el => el.child(this.mcpDetails(selected, t)))
           .when(!selected, el => el.child(v_flex().py(32).gap(8).child(div().text_size(16).font_family('Georgia').child('No shared servers'))
-            .child(div().text_size(12).text_color(t.muted).child('No local MCP servers are configured.')))))))
+            .child(div().text_size(12).text_color(t.muted).child('No additional shared MCP servers are configured.')))))))
       .when(Boolean(this.mcpError), el => el.child(div().text_size(12).text_color(t.ansi1).child(this.mcpError)))
       .child(DialogFooter().flex_none().child(Button('mcp-refresh', t, { variant: 'secondary' }).disabled(Boolean(this.mcpLoading || this.mcpSaving))
         .on_click((_event, cx) => this.initSharedMcp(cx)).child('Refresh'))
