@@ -212,12 +212,15 @@ export default class AgentBoard {
         .on_mouse_down('left', (_e, cx) => cx.stop_propagation())
         .on_click((_e, cx) => { cx.stop_propagation(); this.cardMenuTask = task.gid; this.cardMenu.open = true; this.cardMenu.focus?.focus(); cx.notify(); });
       const menu = this.cardMenuTask === task.gid ? DropdownMenu(`board-card-menu-${task.gid}`, this.cardMenu, trigger, [
+          ...((task.conversation || task.archiveId) && !task.archived && !task.tabs.length
+            ? [{ key: 'resume', label: 'Restore conversation', icon: 'rotate-ccw' }] : []),
           ...(policy.canSchedule ? [{ key: 'schedule', label: 'Schedule time…', icon: 'calendar' }] : []),
           ...(policy.canArchive || policy.canRestore ? [{ key: 'archive', label: task.archived ? 'Restore' : 'Archive', icon: task.archived ? 'rotate-ccw' : 'archive' }] : []),
           ...(policy.canDelete ? [{ key: 'delete', label: 'Delete…', icon: 'trash', destructive: true, separator: true }] : []),
         ], (action, cx) => {
           this.show(task, project, cx);
           if (action === 'delete') this.deleteTask(project, task.gid);
+          else if (action === 'resume') actions.resume?.(task);
           else if (action === 'schedule') this.scheduleTask(project, task.gid);
           else task.archived ? actions.restore(task) : actions.archive(task, cx);
         }, t) : trigger;
@@ -413,8 +416,6 @@ export default class AgentBoard {
             cx.notify();
           }))
           .child(glyph('copy', 13)).child(this.copiedReportFor === task.gid ? 'Agent Guide copied' : 'Copy Agent Guide')))
-        .when(Boolean(task.archiveId && !task.archived && !task.tabs.length), el => el.child(button('board-resume-session', t).h(28)
-          .on_click(() => actions.resume?.(task)).child(glyph('play', 13)).child('Resume session')))
         .when(Boolean(task.execution || task.runs?.length), el => el.child(v_flex().id('board-run-history').gap(10)
           .child(div().text_size(12).font_medium().child('Execution history'))
           .children([...(task.runs || []), ...(task.execution ? [task.execution] : [])].slice().reverse().map(run => v_flex().gap(4)
@@ -439,6 +440,8 @@ export default class AgentBoard {
       .when(Boolean(launchRow) || policy.canArchive || policy.canRestore || policy.canDelete, el => el.child(v_flex().flex_none().px(24).py(14).gap(12).border_t(1).border_color(t.border)
         .when(Boolean(launchRow), el => el.child(launchRow))
         .child(h_flex().gap(12).items_center()
+          .when(Boolean((task.archiveId || task.conversation) && !task.archived && !task.tabs.length), el => el.child(button('board-resume-session', t).h(28)
+            .on_click(() => actions.resume?.(task)).child(glyph('rotate-ccw', 13)).child('Restore conversation')))
           .when(policy.canArchive || policy.canRestore, el => el.child(button('board-archive-task', t).h(28).justify_start()
             .on_click((_e, cx) => task.archived ? actions.restore(task) : actions.archive(task, cx))
             .child(glyph(task.archived ? 'rotate-ccw' : 'archive', 13)).child(task.archived ? 'Restore task' : 'Archive task')))

@@ -223,7 +223,14 @@ export class TaskRuntime {
         if (current?.archived) setTaskArchived(project, current, false);
       },
       resume: task => {
-        const entry = (shared('devkits.archived-threads') || []).find(entry => entry.id === task.archiveId);
+        const current = projectBoardTasks(project, agents()).find(item => item.gid === task.gid);
+        if (!current || current.archived || current.tabs.length) return;
+        let entry = (shared('devkits.archived-threads') || []).find(entry => entry.id === current.archiveId);
+        if (!entry && current.conversation) {
+          entry = { ...current.conversation, title: current.name, folder: project.folder, projectName: project.name,
+            task: { gid: current.gid, name: current.name, folder: project.folder, source: current.source }, at: Date.now() };
+          setShared('devkits.archived-threads', [entry, ...(shared('devkits.archived-threads') || []).filter(item => item.id !== entry.id)]);
+        }
         if (entry) this.restoreThread(entry);
       },
       stop: task => {

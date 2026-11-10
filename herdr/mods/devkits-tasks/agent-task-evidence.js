@@ -1,5 +1,5 @@
 import { shared, setShared, hc, exec, readTextFile, home, appHome, window } from 'herdr';
-import { agentCommand } from './components/session-model.js';
+import { agentCommand, commandKind, codexSessionId, resumeArgv } from './components/session-model.js';
 
 const inputProbes = new Map();
 const INPUT_EVIDENCE = 'devkits.task-input-evidence';
@@ -18,8 +18,10 @@ async function locateTaskFile(agent, services) {
     const kind = agent.app === 'codex' ? 'codex' : 'claude';
     const prefix = kind === 'codex' ? 'CODEX_HOME=' : 'CLAUDE_CONFIG_DIR=';
     const directory = command.find(arg => arg.startsWith(prefix))?.slice(prefix.length) || `${services.home()}/.${kind}`;
-    const result = await services.exec('node', [`${services.appHome()}/mods/devkits-tasks/components/agent-session-windows.js`, String(pid), kind, directory]);
-    return result.code ? null : JSON.parse(result.stdout).file || null;
+    const resumedId = kind === 'codex' && command.includes('resume') ? command.findLast(arg => /^[a-f0-9-]{36}$/i.test(arg)) : null;
+    const result = await services.exec('node', [`${services.appHome()}/mods/devkits-tasks/components/agent-session-windows.js`, String(pid), kind, directory, ...(resumedId ? [resumedId] : [])]);
+    const file = result.code ? null : JSON.parse(result.stdout).file;
+    return file ? { file, command } : null;
   }
   let file;
   if (agent.app === 'codex') {
@@ -34,16 +36,17 @@ async function locateTaskFile(agent, services) {
     }
   }
   if (!file) return null;
-  return file || null;
+  return { file, command };
 }
 
 export async function probeTaskState(agent, previous = {}, services = { hc, exec, readTextFile, home, appHome, window }) {
-  const file = previous.file || await locateTaskFile(agent, services);
+  const located = previous.file && previous.command ? previous : await locateTaskFile(agent, services);
+  const { file, command } = located || {};
   if (!file) return { hasInput: null, needsInput: false };
   const result = await services.exec('node', [`${services.appHome()}/mods/devkits-tasks/agent-task-events.cjs`, file,
     agent.app === 'codex' ? 'codex' : 'claude', JSON.stringify(previous.file === file ? previous.cursor || {} : {})]);
-  if (result.code) return { hasInput: previous.hasInput ?? null, needsInput: Boolean(previous.needsInput), file, cursor: previous.cursor };
-  return { ...JSON.parse(result.stdout), file };
+  if (result.code) return { hasInput: previous.hasInput ?? null, needsInput: Boolean(previous.needsInput), file, command, cursor: previous.cursor };
+  return { ...JSON.parse(result.stdout), file, command };
 }
 
 export function observeTaskInput(agents, terminals, cx) {
@@ -59,9 +62,9 @@ export function observeTaskInput(agents, terminals, cx) {
     const terminal = terminals.find(terminal => terminal.address === agent.address);
     const identity = `${agent.app}:${terminal?.foreground?.pid || terminal?.created_ms || terminal?.pid || ''}`;
     if (inputProbes.get(agent.address)?.identity === identity) continue;
-    if (current?.identity === identity && current.seq === agent.seq && current.hasInput === true
+    if (current?.identity === identity && current.command && current.seq === agent.seq && current.hasInput === true
       && !current.needsInput && agent.status !== 'working') continue;
-    if (current?.identity === identity && current.seq === agent.seq) {
+    if (current?.identity === identity && (current.command || current.hasInput !== true) && current.seq === agent.seq) {
       const unresolved = current.hasInput == null;
       const retryAfter = unresolved && agent.status !== 'working' ? 5000 : 1400;
       if ((!unresolved && agent.status !== 'working' && !current.needsInput) || Date.now() - current.at < retryAfter) continue;
@@ -88,6 +91,19 @@ export function withTaskInputEvidence(agents, terminals = []) {
     const identity = `${agent.app}:${terminal?.foreground?.pid || terminal?.created_ms || terminal?.pid || ''}`;
     const evidence = all[agent.address];
     return { ...agent, inputTracked: true, hasInput: evidence?.identity === identity ? evidence.hasInput ?? null : null,
-      needsInput: evidence?.identity === identity && evidence.needsInput === true };
+      needsInput: evidence?.identity === identity && evidence.needsInput === true,
+      conversation: evidence?.identity === identity ? taskConversation(evidence, agent.tab) : null };
   });
+}
+
+// Preserve only an identified conversation, using its original account and launch flags.
+export function taskConversation(evidence, tab) {
+  if (!evidence?.file || !evidence.command || evidence.hasInput !== true) return null;
+  const kind = commandKind(evidence.command);
+  const file = evidence.file.replace(/\\/g, '/');
+  const id = kind === 'codex' ? codexSessionId(file) : file.match(/(?:^|\/)([0-9a-f-]{36})\.jsonl$/i)?.[1];
+  if (!kind || !id) return null;
+  return { id: `${kind}:${id}`, argv: evidence.command.includes(id) && (evidence.command.includes('resume') || evidence.command.includes('--resume'))
+    ? evidence.command : resumeArgv(evidence.command, id, Boolean(shared('devkits.thread-tasks')?.[tab])),
+    profile: shared('devkits.thread-profiles')?.[tab] || null };
 }

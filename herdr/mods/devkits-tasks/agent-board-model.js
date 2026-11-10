@@ -44,7 +44,8 @@ export function reconcileBoardRecords(records, tasks) {
       : !task.execution && task.agents.length > 0 && task.agents.every(agent => agent.inputTracked && agent.hasInput === false) ? false : previous.hasInput;
     next[task.gid] = { ...previous, gid: task.gid, name: task.name,
       source: task.source || 'asana', threadId: task.threadId || null,
-      status: task.status, ...(hasInput !== undefined ? { hasInput } : {}) };
+      status: task.status, ...(task.agents.find(agent => agent.conversation)?.conversation
+        ? { conversation: task.agents.find(agent => agent.conversation).conversation } : {}), ...(hasInput !== undefined ? { hasInput } : {}) };
   }
   return next;
 }

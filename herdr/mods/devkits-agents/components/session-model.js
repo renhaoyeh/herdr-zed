@@ -382,7 +382,15 @@ export function commandKind(command = []) {
 export function resumeArgv(command, id, prompt = false) {
   const kind = commandKind(command);
   const executable = command.findIndex(arg => !arg.includes('=') && commandKind([arg]));
-  const rest = command.slice(executable + 1, prompt ? -1 : undefined);
+  const rest = command.slice(executable + 1, prompt && command.at(-1) !== id ? -1 : undefined);
+  // Re-archiving a resumed thread must not nest Resume or retain its old ID.
+  if (kind === 'codex' && rest[0] === 'resume') {
+    rest.shift();
+    if (rest.at(-1) === id) rest.pop();
+  } else if (kind === 'claude') {
+    const resume = rest.indexOf('--resume');
+    if (resume >= 0) rest.splice(resume, rest[resume + 1] === id ? 2 : 1);
+  }
   return kind === 'codex' ? [...command.slice(0, executable + 1), 'resume', ...rest, id]
     : [...command.slice(0, executable + 1), ...rest, '--resume', id];
 }

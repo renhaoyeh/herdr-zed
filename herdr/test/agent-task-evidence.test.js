@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { agentCommand } from '../mods/devkits/components/session-model.js';
+import { agentCommand, commandKind, codexSessionId, resumeArgv } from '../mods/devkits/components/session-model.js';
 import { taskStatus, reconcileBoardRecords } from '../mods/devkits-tasks/agent-board-model.js';
 
 async function evidenceHost(options = {}) {
@@ -18,9 +18,9 @@ async function evidenceHost(options = {}) {
     },
     readTextFile: async () => null, home: () => '/home', appHome: () => '/app', window: () => ({ platform: options.platform || 'macos' }),
   };
-  const host = { agentCommand, ...services, shared: key => store[key], setShared: (key, value) => { store[key] = structuredClone(value); } };
+  const host = { agentCommand, commandKind, codexSessionId, resumeArgv, ...services, shared: key => store[key], setShared: (key, value) => { store[key] = structuredClone(value); } };
   const module = new Function(...Object.keys(host), source.replace(/^import .*;\r?\n/gm, '').replace(/^export /gm, '')
-    + '\nreturn { probeTaskState, observeTaskInput, withTaskInputEvidence };')(...Object.values(host));
+    + '\nreturn { probeTaskState, observeTaskInput, withTaskInputEvidence, taskConversation };')(...Object.values(host));
   return { ...module, services, store, requests, tasks, setHasMessage: value => { hasMessage = value; },
     setFileExists: value => { fileExists = value; }, setPid: value => { pid = value; },
     cx: { spawn: fn => tasks.push(fn({ notify() {} })) }, settle: async () => { await Promise.all(tasks.splice(0)); } };
@@ -110,4 +110,36 @@ test('startup discovery retries an unresolved idle session and preserves known c
   h.store['devkits.task-input-evidence'].t1.at -= 5001;
   h.observeTaskInput([agent], terminals, h.cx); await h.settle();
   assert.equal(h.withTaskInputEvidence([agent], terminals)[0].hasInput, true, 'Recovery does not require an agent status change');
+});
+
+
+test('closed Tasks retain an exact conversation and original account without needing Archive', async () => {
+  const h = await evidenceHost();
+  const id = '12345678-1234-1234-1234-123456789abc';
+  h.store['devkits.thread-tasks'] = { tab: { gid: 'task' } };
+  h.store['devkits.thread-profiles'] = { tab: 'work-account' };
+  const command = ['env', 'CODEX_HOME=C:/Work account', 'codex', '--no-daemon', 'task prompt'];
+  const conversation = h.taskConversation({ file: `C:/Work account/sessions/rollout-2026-${id}.jsonl`, command, hasInput: true }, 'tab');
+  assert.deepEqual(conversation, { id: `codex:${id}`, profile: 'work-account',
+    argv: ['env', 'CODEX_HOME=C:/Work account', 'codex', 'resume', '--no-daemon', id] });
+  const records = reconcileBoardRecords({}, [{ gid: 'task', name: 'Work', status: 'done', agents: [{ conversation }] }]);
+  const closed = reconcileBoardRecords(records, [{ ...records.task, agents: [] }]);
+  assert.deepEqual(closed.task.conversation, conversation);
+  assert.equal(closed.task.status, 'done');
+  assert.deepEqual(h.taskConversation({ file: `rollout-2026-${id}.jsonl`, command: conversation.argv, hasInput: true }, 'tab').argv, conversation.argv);
+  assert.equal(h.taskConversation({ file: 'rollout-unknown.jsonl', command, hasInput: true }, 'tab'), null);
+  assert.equal(h.taskConversation({ file: `rollout-2026-${id}.jsonl`, command, hasInput: false }, 'tab'), null);
+  const claude = h.taskConversation({ file: `C:/Claude/projects/repo/${id}.jsonl`, command: ['env', 'CLAUDE_CONFIG_DIR=C:/Claude', 'claude', 'task prompt'], hasInput: true }, 'tab');
+  assert.deepEqual(claude.argv, ['env', 'CLAUDE_CONFIG_DIR=C:/Claude', 'claude', '--resume', id]);
+});
+
+
+test('archiving a resumed conversation keeps one resume flag and one exact session ID', () => {
+  const id = '12345678-1234-1234-1234-123456789abc';
+  for (const kind of ['codex', 'claude']) {
+    const original = ['env', `${kind === 'codex' ? 'CODEX_HOME' : 'CLAUDE_CONFIG_DIR'}=/work`, kind, '--no-daemon'];
+    const resumed = resumeArgv(original, id);
+    assert.deepEqual(resumeArgv(resumed, id), resumed);
+    assert.deepEqual(resumeArgv(resumed, id, true), resumed);
+  }
 });

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile, mkdtemp, mkdir, writeFile, appendFile, rm } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, toNamespacedPath } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createRequire } from 'node:module';
 import { DatabaseSync } from 'node:sqlite';
@@ -46,6 +46,14 @@ test('JS Codex discovery matches process identity and creation time, excluding o
   await add('outside-profile', 'pid:42:current-process', 4, 'cli', root);
   const processes = [{ pid: 42, createdAt: 2000 }];
   assert.equal(await codexTaskFile(account, processes), file);
+  const resumed = '12345678-1234-1234-1234-123456789abc';
+  const resumedFile = await add(resumed, 'pid:99:previous-process', 1);
+  state.prepare('UPDATE threads SET rollout_path = ? WHERE id = ?').run(toNamespacedPath(resumedFile), resumed);
+  assert.equal(await codexTaskFile(account, [{ pid: 55, createdAt: 9000 }], resumed), toNamespacedPath(resumedFile), 'Resume uses its exact ID even without new process logs, including Windows long paths');
+  assert.equal(await codexTaskFile(account, [], resumed), null, 'A stopped process is never resumable evidence');
+  state.prepare('UPDATE threads SET rollout_path = ? WHERE id = ?').run(join(root, 'outside.jsonl'), resumed);
+  await writeFile(join(root, 'outside.jsonl'), '{}');
+  assert.equal(await codexTaskFile(account, processes, resumed), null, 'Explicit IDs still require a transcript inside the original account');
   const empty = await readTaskEvents(file, 'codex'); assert.equal(empty.hasInput, false);
   await appendFile(file, JSON.stringify({ type: 'event_msg', payload: { type: 'user_message', message: 'Run this task' } }) + '\n');
   assert.equal((await readTaskEvents(file, 'codex', empty.cursor)).hasInput, true);

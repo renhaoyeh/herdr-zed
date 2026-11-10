@@ -348,3 +348,24 @@ test('Tasks resolves native session handoffs before projecting their task and th
   const tasks = h.client.projectBoardTasks(h.state.projects[0]);
   assert.equal(tasks.length, 1); assert.equal(tasks[0].gid, 'one'); assert.equal(tasks[0].status, 'todo');
 });
+
+
+test('Tasks restores a directly closed conversation with its exact task link and keeps failures retryable', async () => {
+  const key = '["","/project"]', task = { gid: 'thread:closed', source: 'thread', name: 'Closed work', status: 'done',
+    conversation: { id: 'codex:exact-session', profile: 'work', argv: ['env', 'CODEX_HOME=/work', 'codex', 'resume', '--no-daemon', 'exact-session'] } };
+  const h = await modules({ [key]: { [task.gid]: task } }), project = h.state.projects[0];
+  h.runtime.agentBoard = { render: (_p, _a, _l, actions) => actions };
+  const actions = h.runtime.boardPanel(project, context().cx);
+  actions.resume(task);
+  const entry = h.memory['devkits.archived-threads'][0];
+  assert.deepEqual(entry.argv, task.conversation.argv);
+  assert.equal(entry.task.gid, task.gid);
+  assert.equal(entry.profile, 'work');
+  assert.equal(h.owner.boardRecords(project)[task.gid].status, 'done');
+  actions.resume(task);
+  assert.equal(h.memory['devkits.archived-threads'].length, 1);
+  project.tabs = [{ id: 'open', name: task.name }];
+  h.memory['devkits.thread-tasks'] = { open: entry.task };
+  h.runtime.boardPanel(project, context().cx).resume(task);
+  assert.equal(h.memory['devkits.archived-threads'].length, 1);
+});
