@@ -14,7 +14,7 @@ import { Empty, EmptyDescription } from './components/empty.js';
 import { CommitHistory, readCommitSummary } from './git-history.js';
 import { GitGraph } from './git-graph.js';
 import { SidePanelLayout, SidePanelState } from './components/side-panel.js';
-import { gitAccount, setGitAccount, readGitAccounts, gitAuthArgs } from './git-auth.js';
+import { gitAccount, gitAuthArgs } from './git-auth.js';
 import { showGitToast, clearGitToast } from './git-result-toast.js';
 
 const icon = name => svg(`mods/devkits/assets/icons/${name}.svg`).size(12).flex_none();
@@ -597,7 +597,6 @@ export default class DiffViewer {
     this.error = null; this.loaded = false; this.indexLoaded = false; this.truncated = false;
     this.loading = false; this.dirty = false;
     this.pushState = null; this.pushStateError = null; this.pushResult = null;
-    this.accounts = null; this.accountsError = null; this.accountsLoading = false;
     this.gitMenu.open = false; this.gitMenu.page = null;
     this.optionsMenu.open = false;
     this.fileViewMenu.open = false;
@@ -820,23 +819,6 @@ export default class DiffViewer {
     return null;
   }
 
-  loadAccounts(cx) {
-    if (this.allRepositories) return;
-    if (this.accountsLoading) return;
-    const context = this.context;
-    this.accountsLoading = true; this.accountsError = null;
-    cx.spawn(async cx => {
-      try {
-        const accounts = await readGitAccounts(context.machine);
-        if (this.context === context) this.accounts = accounts;
-      } catch {
-        if (this.context === context) this.accountsError = 'Run gh auth login on this machine, then retry.';
-      } finally {
-        if (this.context === context) { this.accountsLoading = false; cx.notify(); }
-      }
-    });
-  }
-
   openLog(cx) {
     if (!this.pushResult) return;
     this.output?.release();
@@ -868,18 +850,7 @@ export default class DiffViewer {
     const page = this.gitMenu.page;
     const account = gitAccount(this.context);
     const accountLabel = account?.login || 'Default';
-    const items = page === 'accounts' ? [
-      { key: 'back', label: '‹ Git operations' },
-      { key: 'account:default', label: 'Default', description: 'Git authentication · keep commit author', checked: !account, disabled: Boolean(this.pushing) },
-      ...(this.accounts || []).map((entry, index) => ({ key: `account:${index}`,
-        label: entry.login, description: `${entry.host}${entry.available ? '' : ' · Sign in required'}`,
-        checked: account?.host === entry.host && account?.login === entry.login,
-        disabled: Boolean(this.pushing) || !entry.available })),
-      ...(this.accountsLoading ? [{ key: 'accounts-loading', label: 'Loading accounts…', disabled: true }]
-        : this.accountsError ? [{ key: 'accounts-error', label: 'Could not load accounts', description: 'Run gh auth login, then Retry', disabled: true }]
-          : !this.accounts?.length ? [{ key: 'accounts-empty', label: 'No signed-in accounts', description: 'Run gh auth login', disabled: true }] : []),
-      { key: 'accounts-retry', label: this.accountsError ? 'Retry' : 'Refresh accounts', disabled: this.accountsLoading },
-    ] : page ? [
+    const items = page ? [
       { key: 'back', label: '‹ Git operations' },
       ...(this.pushState?.remotes || []).map(remote => ({ key: `remote:${remote}`, label: remote })),
       ...(page === 'fetch' && this.pushState?.remotes.length > 1 ? [{ key: 'all', label: 'All' }] : []),
@@ -893,21 +864,10 @@ export default class DiffViewer {
       { key: 'push-tags', label: 'Push Tags', description: 'All local tags', disabled: Boolean(this.pushUnavailable('push-tags')) },
       { key: 'force-push', label: 'Force Push (with lease)', disabled: pushUnavailable },
       { key: 'accounts', label: 'GitHub account…', description: accountLabel, separator: true, disabled: Boolean(this.pushing) },
-      { key: 'commit-author', label: 'Commit author…' },
     ];
     const choose = (key, cx) => {
-      if (key === 'commit-author') {
-        openGitAuthor(this.context);
-      } else if (key === 'accounts' || key === 'accounts-retry') {
-        this.gitMenu.page = 'accounts'; this.gitMenu.index = 0; this.gitMenu.open = true;
-        this.loadAccounts(cx);
-      } else if (key.startsWith('account:')) {
-        if (this.pushing) return;
-        const chosen = key === 'account:default' ? null : this.accounts?.[Number(key.slice(8))];
-        if (key !== 'account:default' && !chosen?.available) return;
-        if (chosen) openGitAuthor(this.context, chosen);
-        else setGitAccount(this.context, null);
-        this.gitMenu.page = null;
+      if (key === 'accounts') {
+        openGitAuthor(this.context, undefined, true);
       } else if (key === 'back' || key === 'fetch-from' || key === 'push-to') {
         this.gitMenu.page = key === 'back' ? null : key === 'fetch-from' ? 'fetch' : 'push';
         this.gitMenu.index = 0; this.gitMenu.open = true;

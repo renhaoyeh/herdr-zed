@@ -656,46 +656,10 @@ test('split button menu exposes Git operations, counts and keyboard navigation w
   assert.equal(view.pushResult.failed, true, 'Dismissal retains the result');
   view.pushFooter({});
   nodes.get('diff-git-actions-accounts').click({}, cx);
-  assert.equal(view.gitMenu.page, 'accounts');
-  assert.equal(view.gitMenu.open, true);
-  await Promise.all(tasks.splice(0));
-  view.pushFooter({});
-  nodes.get('diff-git-actions-account:1').click({}, cx);
-  assert.equal(accountSettings, undefined, 'Unavailable accounts cannot be selected');
-  nodes.get('diff-git-actions-account:0').click({}, cx);
-  assert.equal(view.gitMenu.page, null);
-  assert.deepEqual(actions.at(-1), ['author', view.context, { host: 'github.com', login: 'alice', available: true }]);
-  assert.equal(accountSettings, undefined, 'Account selection waits for the author write');
-  accountSettings = { '["","/project"]': { host: 'github.com', login: 'alice' } };
-  view.pushFooter({});
-  assert.ok(painted.includes('GitHub account…'));
-  assert.ok(painted.includes('alice'));
-  assert.deepEqual(Object.values(accountSettings), [{ host: 'github.com', login: 'alice' }]);
-  nodes.get('diff-git-actions-accounts').click({}, cx);
-  await Promise.all(tasks.splice(0));
-  view.pushFooter({});
-  nodes.get('diff-git-actions-account:default').click({}, cx);
-  assert.deepEqual(accountSettings, {});
+  assert.deepEqual(actions.at(-1), ['author', view.context, undefined]);
+  assert.equal(accountSettings, undefined, 'Opening the modal does not change the account');
 });
 
-test('account reads avoid duplicate requests and ignore results after changing projects', async () => {
-  const pending = [], tasks = [], machines = [];
-  const { DiffViewer } = await load({ VirtualListScrollHandle: { new: () => ({}) },
-    exec: (_cmd, _args, options) => { machines.push(options.on); return new Promise(resolve => pending.push(resolve)); } });
-  const cx = { notify() {}, spawn(fn) { tasks.push(fn(cx)); } };
-  const view = new DiffViewer(); view.init();
-  view.context = { folder: '/one', machine: 'remote' };
-  view.loadAccounts(cx); view.loadAccounts(cx);
-  assert.equal(pending.length, 1);
-  view.context = { folder: '/two' }; view.accountsLoading = false;
-  view.loadAccounts(cx);
-  pending[1]({ code: 0, stdout: '[{"host":"github.com","login":"current","state":"success"}]' });
-  await tasks[1];
-  pending[0]({ code: 0, stdout: '[{"host":"github.com","login":"stale","state":"success"}]' });
-  await tasks[0];
-  assert.equal(view.accounts[0].login, 'current');
-  assert.deepEqual(machines, ['remote', undefined]);
-});
 
 test('push prevents duplicate actions, retains errors for retry and isolates project changes', async () => {
   const tasks = [], notices = [], calls = [];
