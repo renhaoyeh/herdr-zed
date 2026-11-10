@@ -16,13 +16,13 @@ test('rule switches filter edited sections without losing disabled text or custo
   const reopened = model.splitRuleGuide(saved);
   assert.equal(reopened.custom, guide.custom);
   assert.match(reopened.sections.tasks, /Always use/);
-  assert.equal(model.composeRuleGuide(guide, model.ruleSelection({ core: false, tasks: false, mcp: false, custom: false })), '');
+  assert.equal(model.composeRuleGuide(guide, model.ruleSelection({ core: false, tasks: false, mcp: false, visual_studio: false, custom: false })), '');
 });
 
 test('ordinary and profile launch arguments receive only selected rules for both providers', async () => {
   const { sessionRules } = await evaluateNative('../mods/devkits-agents/global-rules.js', {
     ...model, rulesPath: () => '/guide/AGENTS.md', readTextFile: async () => model.defaultRules,
-    shared: () => ({ core: false, tasks: true, mcp: false, custom: false }),
+    shared: () => ({ core: false, tasks: true, mcp: false, visual_studio: false, custom: false }),
   }, 'sessionRules');
   const rules = await sessionRules();
   assert.match(rules.text, /report_task/);
@@ -41,7 +41,7 @@ test('all disabled rules and intentionally empty Guides inject no global instruc
   for (const source of [model.defaultRules, '', null]) {
     const { sessionRules } = await evaluateNative('../mods/devkits-agents/global-rules.js', {
       ...model, rulesPath: () => '/guide', readTextFile: async () => source,
-      shared: () => ({ core: false, tasks: false, mcp: false, custom: false }),
+      shared: () => ({ core: false, tasks: false, mcp: false, visual_studio: false, custom: false }),
     }, 'sessionRules');
     assert.equal(await sessionRules(), null);
   }

@@ -73,6 +73,11 @@ export const globalRulesSettings = {
           .child(div().h(1).my(4).bg(t.border))
           .child(h_flex().h(32).flex_none().child(pageButton('preview', 'Final preview'))))
         .child(v_flex().flex_1().h_full().min_w(0).min_h(0).gap(8)
+          .child(h_flex().h(28).flex_none().items_center().gap(8)
+            .child(div().text_size(13).font_semibold().child(selected?.label || 'Final preview'))
+            .when(Boolean(selected?.url), row => row.child(Button(`rules-project-${selected.key}`, t, { variant: 'secondary' })
+              .h(28).px(10).text_color(t.accent).accessibility_label('Open vs-mcp on GitHub')
+              .on_click((_event, cx) => cx.open_url(selected.url)).child('GitHub · vs-mcp ↗'))))
           .child(div().text_size(12).text_color(t.muted).flex_none().child(selected
             ? `${selected.description} ${selection[selected.key] ? 'Included.' : 'Not included.'}${selected.key === 'custom' ? '' : ' Read-only here; edit the Guide file to customize.'}`
             : 'Combined global instructions, in injection order. Profile instructions are appended separately.'))

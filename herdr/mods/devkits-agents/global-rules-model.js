@@ -20,6 +20,14 @@ export const ruleModules = [
     "heading": "MCP installation",
     "description": "Use the shared location and configuration for local MCP installations.",
     "text": "## MCP installation\n\nFor local MCP setup supported by Herdr Devkits' shared MCP mechanism, default to the shared configuration at `<Herdr home>/data/devkits/codex-mcp.json`. Resolve Herdr home from `HERDR_APP_HOME` when set, otherwise `~/.config/herdr-app`. Confirm the current launcher supports this mechanism before claiming the MCP is available to it.\n\nInspect the existing shared configuration and its supported schema before editing. Preserve unrelated entries and keep the existing version/servers structure. Do not default to the current account's configuration or the agent's default home directory. Herdr synchronizes shared MCP settings into supported accounts when new local sessions start; do not claim an existing session has reloaded them.\n\nInstall reusable MCP runtimes in a shared location when supported by their setup, and register their command or local URL in the shared configuration. If setup writes only to the current account, add the intended registration to the shared configuration and remove only the duplicate entry that this setup just created. Preserve pre-existing account settings.\n\nKeep account-authorized remote services in their account configuration. Use account-specific settings only when explicitly requested or required by the integration. Use supported environment-variable references for shared credentials rather than literal secrets."
+  },
+  {
+    "key": "visual_studio",
+    "label": "Visual Studio builds",
+    "heading": "Visual Studio builds",
+    "description": "Prefer Visual Studio MCP for builds when installed and available.",
+    "url": "https://github.com/renhaoyeh/vs-mcp",
+    "text": "## Visual Studio builds\n\n- When the user has Visual Studio MCP installed and its tools are available, prefer the `visual_studio` MCP for Visual Studio solution and project builds.\n- Before building through MCP, list Visual Studio instances, connect to the intended instance, and verify that its solution path matches the target solution.\n- When a requested build or rebuild requires stopping an active debugging session, use Visual Studio MCP to stop debugging and proceed with the build. Treat this as part of the requested build workflow unless the user asks to preserve the debugging session.\n- Use the build results and diagnostics returned by MCP to guide further work."
   }
 ];
 export const ruleSettingsKey = 'devkits.global-rules';
