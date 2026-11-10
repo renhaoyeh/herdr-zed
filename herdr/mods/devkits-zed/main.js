@@ -12,6 +12,7 @@ import { ProjectLayout, layoutNode, conversationMaximized, maximizeConversation 
 import { NativeLauncher } from './native-launcher.js';
 import { createNativeThread } from './native-threads.js';
 import { startPanel } from './start-panel.js';
+import { threadArchive, historyEligible } from './thread-archive.js';
 import { ExtensionsManager, openExtensions } from './extensions-manager.js';
 import { ExtensionSlot, refreshExtensions, openExtension } from './extensions.js';
 import { DropdownMenu, DropdownMenuState, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from './components/dropdown-menu.js';
@@ -429,6 +430,7 @@ export default class Devkits extends View {
     const isFocused = thread.active && (!members.some(pane => pane.focused) || Boolean(primary?.focused));
     const p = threadProgram(thread, live, primary?.program);
     const stopping = this.threadBusy(thread, live);
+    const archivable = !stopping && historyEligible(thread, live);
     const icon = working ? glyph('loader', 14).text_color(t.working).spin(900).accessibility_label('Working')
       : thread.status === 'blocked' ? glyph('circle-alert', 14).text_color(t.blocked).accessibility_label('Blocked')
       : thread.status === 'done' ? glyph('circle-check', 14).text_color(t.done).accessibility_label('Done')
@@ -450,15 +452,16 @@ export default class Devkits extends View {
       .child(div().size(16).mr(8).flex_none().flex().items_center().justify_center().child(icon))
       .child(div().flex_1().min_w(0).truncate().text_size(13).text_color(t.foreground)
         .when(isFocused, el => el.font_medium()).child(thread.title))
-      .child(Button(`${stopping ? 'stop' : 'close'}-thread-${thread.tab.id}`, t, { variant: 'row', size: 'icon-sm' })
+      .child(Button(`${stopping ? 'stop' : archivable ? 'archive' : 'close'}-thread-${thread.tab.id}`, t, { variant: 'row', size: 'icon-sm' })
         .ml(8).opacity(this.hovered === thread.tab.id ? 1 : 0)
-        .accessibility_label(stopping ? 'Stop generation' : 'Close thread')
+        .accessibility_label(stopping ? 'Stop generation' : archivable ? 'Archive conversation' : 'Close thread')
         .disabled(this.stoppingThreads?.has(thread.tab.id) || false)
         .on_click((_event, cx) => {
           cx.stop_propagation();
           if (stopping) cx.spawn(async cx => { await this.stopThread(thread); cx.notify(); });
+          else if (archivable) cx.spawn(async cx => { await this.archiveThread(thread); cx.notify(); });
           else run('tab.close', { id: thread.tab.id });
-        }).child(glyph(stopping ? 'square' : 'close', 12)));
+        }).child(glyph(stopping ? 'square' : archivable ? 'archive' : 'close', 12)));
   }
 
   renderThreadGroup(thread, t, live) {
@@ -617,7 +620,7 @@ export default class Devkits extends View {
     const visible = groups.filter(group => !this.folded.has(group.space.id)).flatMap(group => group.threads.flatMap(thread => thread.agents));
     setAgentOrder(visible.map(a => a.address));
     return Sidebar(t)
-      .child(SidebarContent()
+      .child(this.archiveOpen ? this.historyList(t) : SidebarContent()
         .children(groups.map(({ space, threads }, index) => SidebarGroup(index > 0, t)
           .child(SidebarGroupLabel(`project-${space.id}`, space.active, t).pr(0)
             .on_hover((hovered, cx) => { this.hoveredProject = hovered ? space.id : null; cx.notify(); })
@@ -648,8 +651,14 @@ export default class Devkits extends View {
           .when(!this.folded.has(space.id), el => el
             .children(this.groupedThreads(space, threads, t, live))
             .when(!threads.length, el => el.child(h_flex().h(32).flex_none().px(12).items_center().text_size(12).text_color(t.muted).child(threads.length ? 'No active threads' : 'No threads yet')))))))
-      .child(SidebarFooter(t).child(div().flex_1()));
+      .child(SidebarFooter(t)
+        .child(Button('zed-thread-history', t, { variant: 'ghost', size: 'icon' })
+          .accessibility_label(this.archiveOpen ? 'Show threads' : 'Show thread history')
+          .h_full().rounded(0).bg(this.archiveOpen ? t.selected : t.chrome)
+          .on_click((_event, cx) => { this.archiveOpen = !this.archiveOpen; cx.notify(); }).child(glyph('clock')))
+        .child(div().flex_1()));
   }
 }
 
 Object.assign(Devkits.prototype, startPanel);
+Object.assign(Devkits.prototype, threadArchive);

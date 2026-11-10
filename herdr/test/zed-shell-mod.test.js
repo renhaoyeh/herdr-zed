@@ -104,6 +104,7 @@ test('native sidebar, pane menu, dock controls and empty editor render without e
     'AlertDialogContent', 'AlertDialogTitle', 'AlertDialogDescription', 'AlertDialogFooter', 'AlertDialogCancel', 'AlertDialogAction',
     'Empty', 'EmptyTitle', 'EmptyDescription', 'AgentIcon', 'glyph', 'GitResultToast']) host[name] = (...args) => ui(typeof args[0] === 'string' ? args[0] : null);
   Object.assign(host, await evaluateNative('../mods/devkits-zed/start-panel.js', host, 'startPanel'));
+  Object.assign(host, { threadArchive: { threadBusy: () => false, archiveThread() {}, restoreThread() {}, historyList: () => ui() }, historyEligible: () => false });
   const { Devkits } = await evaluateNative('../mods/devkits-zed/main.js', host, 'Devkits');
   const view = new Devkits(); view.init(null, cx);
   const sidebar = view.render(cx);
