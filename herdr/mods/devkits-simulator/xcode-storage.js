@@ -45,20 +45,24 @@ export function lastUsedLabel(value, now = Date.now()) {
   return days < 1 ? 'Today' : days === 1 ? 'Yesterday' : days < 60 ? `${days} days ago` : `${Math.floor(days / 30)} months ago`;
 }
 
-const reader = () => `${appHome()}/mods/devkits/xcode-storage-reader.js`;
+const reader = () => `${appHome()}/mods/devkits-simulator/xcode-storage-reader.js`;
 
 export default class XcodeStorage {
   init(cx) {
+    this.closed = false;
     this.handle = cx.focus_handle(); this.handle.focus();
     this.selected = new Set(); this.confirming = false;
     this.scan(cx);
   }
+
+  close() { this.closed = true; this.handle?.release?.(); }
 
   scan(cx) {
     this.loading = true;
     cx.spawn(async cx => {
       try {
         const result = await exec('node', [reader(), 'scan']);
+        if (this.closed) return;
         const data = JSON.parse(result.stdout || '{}');
         if (result.code !== 0 || data.error) throw new Error(data.error || 'Could not measure Xcode storage.');
         this.data = data; this.error = null;
@@ -69,8 +73,8 @@ export default class XcodeStorage {
           this.preselected = true;
           for (const item of this.items()) if (item.missing) this.selected.add(item.key);
         }
-      } catch (error) { this.error = error.message; }
-      finally { this.loading = false; cx.notify(); }
+      } catch (error) { if (!this.closed) this.error = error.message; }
+      finally { this.loading = false; if (!this.closed) cx.notify(); }
     });
   }
 
@@ -91,14 +95,18 @@ export default class XcodeStorage {
     cx.spawn(async cx => {
       try {
         const result = await exec('node', [reader(), 'delete', JSON.stringify(chosen.map(({ kind, id, label }) => ({ kind, id, label })))]);
+        if (this.closed) return;
         const data = JSON.parse(result.stdout || '{}');
         if (data.error) throw new Error(data.error);
         const freed = sum(chosen.filter(item => data.removed.some(r => r.kind === item.kind && r.id === item.id)));
         if (data.removed.length) notify({ title: 'Xcode storage cleaned', body: `Deleted ${data.removed.length} items · ${bytes(freed)} freed` });
         if (data.errors.length) this.error = data.errors.join('\n');
         this.selected.clear();
-      } catch (error) { this.error = error.message; }
-      finally { this.busy = false; this.confirming = false; this.scan(cx); cx.notify(); }
+      } catch (error) { if (!this.closed) this.error = error.message; }
+      finally {
+        this.busy = false; this.confirming = false;
+        if (!this.closed) { this.scan(cx); cx.notify(); }
+      }
     });
   }
 

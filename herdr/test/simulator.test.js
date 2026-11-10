@@ -104,8 +104,8 @@ test('the device menu opens Xcode storage after closing itself', async () => {
   const { SimulatorMenu } = await load({ props: () => ({ overlay: 'menu' }), closeOverlay: id => closed.push(id), openOverlay: options => opened.push(options) });
   new SimulatorMenu().storage();
   assert.deepEqual(closed, ['menu']);
-  assert.equal(opened[0].mod, 'devkits');
-  assert.equal(opened[0].props.view, 'xcode-storage');
+  assert.equal(opened[0].mod, 'devkits-simulator');
+  assert.equal(opened[0].props.view, 'simulator-storage');
   assert.equal(opened[0].kind, 'dialog');
 });
 

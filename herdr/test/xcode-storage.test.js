@@ -1,16 +1,17 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, readFile, readdir } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, readdir, symlink, rm as removeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { parseInfo, parseDevices, parseRuntimes, projectName, derivedDataDir, remove, scan } from '../mods/devkits/xcode-storage-reader.js';
+import { spawnSync } from 'node:child_process';
+import { parseInfo, parseDevices, parseRuntimes, projectName, derivedDataDir, remove, scan } from '../mods/devkits-simulator/xcode-storage-reader.js';
 
 const plist = (workspace, date = '2026-10-11T17:27:01Z') => `<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0">\n<dict>\n`
   + `\t<key>LastAccessedDate</key>\n\t<date>${date}</date>\n\t<key>WorkspacePath</key>\n\t<string>${workspace}</string>\n</dict>\n</plist>\n`;
 
 // Loads the dialog with a fake native host; it never runs real commands.
 async function loadDialog(host) {
-  const read = name => readFile(new URL(`../mods/devkits/${name}`, import.meta.url), 'utf8');
+  const read = name => readFile(new URL(`../mods/devkits-simulator/${name}`, import.meta.url), 'utf8');
   const sources = await Promise.all(['components/button.js', 'components/checkbox.js', 'components/dropdown-menu.js', 'components/dialog.js', 'xcode-storage.js'].map(read));
   const body = sources.join('\n').replace(/^import [\s\S]*?;\r?\n/gm, '').replace('export default class', 'class').replace(/^export /gm, '');
   return new Function(...Object.keys(host), `${body}\nreturn { XcodeStorage, workspaceLabel, derivedGroups, bytes, simulatorGroups, lastUsedLabel };`)(...Object.values(host));
@@ -83,15 +84,54 @@ test('delete removes only named DerivedData folders and simulator UDIDs', async 
   await mkdir(join(home, 'Library', 'Developer', 'Xcode', 'Archives'), { recursive: true });
   const deleted = [];
   const udid = '755B5A61-2C28-469D-8A6A-11C36D60C544';
+  const devices = JSON.stringify({ devices: { 'com.apple.CoreSimulator.SimRuntime.iOS-26-0': [
+    { udid, name: 'iPhone', state: 'Shutdown' },
+  ] } });
   const result = await remove(home, [
     { kind: 'derived', id: 'App-aaaaaaaaaaaaaaaaaaaaaaaaaaaa' }, { kind: 'derived', id: '../Archives' }, { kind: 'derived', id: '..' },
     { kind: 'derived', id: '' }, { kind: 'simulator', id: udid }, { kind: 'simulator', id: '-rf' }, { kind: 'runtime', id: 'x' },
-  ], async id => { deleted.push(id); });
+  ], async id => { deleted.push(id); }, async () => devices);
   assert.deepEqual(result.removed.map(item => item.id), ['App-aaaaaaaaaaaaaaaaaaaaaaaaaaaa', udid]);
   assert.equal(result.errors.length, 5);
   assert.deepEqual(await readdir(dir), []);
   assert.deepEqual(await readdir(join(home, 'Library', 'Developer', 'Xcode')), ['Archives', 'DerivedData']);
   assert.deepEqual(deleted, [udid]);
+});
+
+test('simulator removal rechecks state and refuses booted or unverifiable devices', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'xcode-storage-guard-'));
+  const udid = '755B5A61-2C28-469D-8A6A-11C36D60C544', deleted = [];
+  const item = { kind: 'simulator', id: udid, label: 'iPhone' };
+  const inventory = state => JSON.stringify({ devices: { 'com.apple.CoreSimulator.SimRuntime.iOS-26-0': [
+    { udid, name: 'iPhone', state },
+  ] } });
+  const removeWith = list => remove(home, [item], async id => { deleted.push(id); }, list);
+  const booted = await removeWith(async () => inventory('Booted'));
+  const unavailableInventory = await removeWith(async () => inventory('Shutdown').replace(udid, 'AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA'));
+  const unavailableList = await removeWith(async () => null);
+  assert.deepEqual(booted.removed, []);
+  assert.match(booted.errors[0], /Booted simulators/);
+  assert.match(unavailableInventory.errors[0], /no longer available/);
+  assert.match(unavailableList.errors[0], /Could not verify/);
+  assert.deepEqual(deleted, []);
+});
+
+test('reader CLI runs when invoked through a symlink', async t => {
+  const linkDir = await mkdtemp(join(tmpdir(), 'xcode-storage-link-'));
+  const link = join(linkDir, 'reader.js');
+  const source = new URL('../mods/devkits-simulator/xcode-storage-reader.js', import.meta.url);
+  try {
+    try { await symlink(source, link); }
+    catch (error) {
+      if (['EPERM', 'ENOTSUP', 'EACCES'].includes(error.code)) return t.skip(`symlink unsupported: ${error.code}`);
+      throw error;
+    }
+    const result = spawnSync(process.execPath, [link, 'delete', '[]'], { encoding: 'utf8', timeout: 10000 });
+    assert.equal(result.status, 0, result.stderr || result.error?.message);
+    const output = JSON.parse(result.stdout);
+    assert.deepEqual(output.removed, []);
+    assert.deepEqual(output.errors, []);
+  } finally { await removeFile(linkDir, { recursive: true, force: true }); }
 });
 
 test('workspace labels shorten home and EAS local build folders; groups put missing workspaces first', async () => {
@@ -142,6 +182,21 @@ test('the dialog checks missing workspaces first, deletes only after confirming,
   assert.deepEqual(calls[2], ['scan']);
   assert.match(notes[0].body, /2 items · 5\.0 GB freed/);
   assert.equal(view.selected.size, 0);
+});
+
+test('closing the provider releases focus and suppresses late scan notifications', async () => {
+  let finish;
+  const notifications = [];
+  const { host } = fakeHost({ exec: () => new Promise(resolve => { finish = resolve; }) });
+  const { XcodeStorage } = await loadDialog(host);
+  const view = new XcodeStorage();
+  const context = { ...cx, focus_handle: () => ({ focus() {}, release() { notifications.push('release'); } }),
+    spawn: fn => { fn(context); } };
+  view.init(context);
+  view.close();
+  finish({ code: 0, stdout: JSON.stringify({ derived: [], simulators: [], runtimes: [], archives: { count: 0, size: 0 }, errors: [] }) });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(notifications, ['release']);
 });
 
 test('simulators group into recently used, idle and never used, with relative last use', async () => {

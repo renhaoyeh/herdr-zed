@@ -11,7 +11,6 @@ import { BuildRulesSettings } from './diff-ignore-settings.js';
 import { GitAuthorSettings } from './git-author-settings.js';
 import { GitResultToast, clearGitToast } from './git-result-toast.js';
 import WorkspaceEditor from './workspace-editor.js';
-import XcodeStorage from './xcode-storage.js';
 import { TaskHost, withTaskSnapshot, openTaskComposer, requestTaskOpen, requestTaskSource, requestTaskStart, projectBoardTasks, threadBoardStatus, threadVisibleInSidebar, threadBoardTask, taskLinkForTab, sessionThreadTitle, taskActions, boardStatuses } from './components/tasks.js';
 import { UsageClient } from './components/usage.js';
 import { SystemMonitor } from './components/system-monitor.js';
@@ -88,11 +87,6 @@ export default class Devkits extends View {
     if (props()?.view === 'pane') { this.threadMenu = new DropdownMenuState(cx); return; }
     if (props()?.view === 'file-menu') {
       this.fileMenu = new FileMenu(); this.fileMenu.init(cx); return;
-    }
-    if (props()?.view === 'xcode-storage') {
-      this.xcodeStorage = new XcodeStorage();
-      this.xcodeStorage.init(cx);
-      return;
     }
     if (props()?.view === 'status' || (!props()?.view && cx)) {
       this.systemDisplay.init(); this.systemMonitor.init(cx);
@@ -802,7 +796,6 @@ export default class Devkits extends View {
     if (props()?.view === 'ui-settings') return this.interfaceSettings.render(t);
     if (props()?.view === 'usage-display-menu') return this.usageDisplayMenu.render(t);
     if (props()?.view === 'system-display-menu') return this.systemDisplayMenu.render(t);
-    if (props()?.view === 'xcode-storage') return this.xcodeStorage.render();
     if (props()?.view === 'file-menu') return this.fileMenu.render();
     if (props()?.view === 'editor') {
       const project = this.projects().find(project => project.active);

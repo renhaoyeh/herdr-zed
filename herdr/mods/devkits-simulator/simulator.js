@@ -515,10 +515,10 @@ export class SimulatorMenu {
     exec('xcrun', ['simctl', 'shutdown', device.id]);
   }
 
-  // Xcode storage is a devkits dialog.
+  // Close the picker before opening the storage dialog in this provider.
   storage() {
     closeOverlay(props().overlay);
-    openOverlay({ mod: 'devkits', kind: 'dialog', frame: 'none', modal: false, width: 760, height: 0.85, props: { view: 'xcode-storage' } });
+    openOverlay({ mod: 'devkits-simulator', kind: 'dialog', frame: 'none', modal: false, width: 760, height: 0.85, props: { view: 'simulator-storage' } });
   }
 
   render() {

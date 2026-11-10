@@ -1,4 +1,5 @@
 import { readdir, readFile, rm, stat } from 'node:fs/promises';
+import { realpathSync } from 'node:fs';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { join, resolve } from 'node:path';
@@ -77,8 +78,9 @@ export async function scan(home) {
     errors: devicesJson ? [] : ['Could not list simulators. Check that Xcode is installed.'], scannedAt: new Date().toISOString() };
 }
 
-// Accepts only DerivedData folder names and simulator UDIDs; booted simulators are refused.
-export async function remove(home, items, simctlDelete = id => run('xcrun', ['simctl', 'delete', id])) {
+// Accepts only DerivedData folder names and shutdown simulator UDIDs.
+export async function remove(home, items, simctlDelete = id => run('xcrun', ['simctl', 'delete', id]),
+  listDevices = async () => simctl(['list', 'devices', '-j'])) {
   const removed = [], errors = [];
   for (const item of items) {
     try {
@@ -87,6 +89,10 @@ export async function remove(home, items, simctlDelete = id => run('xcrun', ['si
         await rm(join(derivedDataDir(home), item.id), { recursive: true, force: true });
       } else if (item.kind === 'simulator') {
         if (!UDID.test(item.id || '')) throw new Error('Not a simulator');
+        const json = await listDevices();
+        if (!json) throw new Error('Could not verify simulator state. Try again.');
+        const device = parseDevices(json).find(device => device.id === item.id);
+        if (!device || device.booted) throw new Error(device ? 'Booted simulators cannot be deleted' : 'Simulator is no longer available');
         await simctlDelete(item.id);
       } else throw new Error('Unsupported item');
       removed.push(item);
@@ -95,7 +101,7 @@ export async function remove(home, items, simctlDelete = id => run('xcrun', ['si
   return { removed, errors };
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (process.argv[1] && realpathSync(resolve(process.argv[1])) === realpathSync(fileURLToPath(import.meta.url))) {
   const [action = 'scan', items = '[]'] = process.argv.slice(2);
   try { console.log(JSON.stringify(action === 'delete' ? await remove(homedir(), JSON.parse(items)) : await scan(homedir()))); }
   catch (error) { console.log(JSON.stringify({ error: error.message })); process.exitCode = 1; }
