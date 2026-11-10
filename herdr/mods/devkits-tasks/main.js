@@ -1,5 +1,5 @@
 import { View, div } from 'gpui-kit';
-import { props, shared, notify, closeOverlay, theme } from 'herdr';
+import { props, shared, notify, closeOverlay } from 'herdr';
 import { TaskRuntime } from './runtime.js';
 import { TasksMcpBridge } from './mcp-bridge.js';
 import AgentBoard from './agent-board.js';
@@ -31,7 +31,7 @@ export default class TasksMod extends View {
   }
   close() { this.composer?.saveDraft(); this.runtime.agentClient.close(); }
   render(cx) {
-    if (this.target.view === 'service') return div().size_full().bg(theme().border);
+    if (this.target.view === 'service') return div().size_full();
     const t = boardTheme();
     if (this.deleter) return this.deleter.render();
     if (this.composer) return this.composer.render(this.runtime.taskAssignees(this.target.project));

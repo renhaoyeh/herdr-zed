@@ -15,7 +15,7 @@ export default class UsageMod extends View {
   close() { this.client?.close(); for (const monitor of this.service?.monitors.values() || []) monitor.agentClient.close(); }
   render() {
     const t = theme();
-    if (this.service) return div().size_full().bg(t.border);
+    if (this.service) return div().size_full();
     if (this.client) return this.client.render(t);
     if (this.details) return this.details.render(t);
     return this.analytics.render();
