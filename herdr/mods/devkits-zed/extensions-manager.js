@@ -3,7 +3,8 @@ import { h_flex, v_flex } from 'gpui-base';
 import { openOverlay, closeOverlay, props } from 'herdr';
 import { Button } from './components/button.js';
 import { DialogContent, DialogTitle, DialogDescription, DialogFooter } from './components/dialog.js';
-import { extensionCatalog, refreshExtensions, extensionEnabled, setExtensionEnabled } from './extensions.js';
+import { extensionCatalog, refreshExtensions, extensionEnabled, setExtensionEnabled,
+  extensionSurfaceVisible, setExtensionSurfaceVisible } from './extensions.js';
 
 export const openExtensions = () => openOverlay({ mod: 'devkits-zed', kind: 'dialog', frame: 'none',
   modal: true, width: 640, height: 480, props: { view: 'extensions' } });
@@ -24,14 +25,26 @@ export class ExtensionsManager {
           el => el.child(div().text_size(12).text_color(t.muted).child('No extensions installed.')))
         .children((catalog.packages || []).map(entry => {
           const enabled = extensionEnabled(entry.mod);
-          return h_flex().items_center().gap(16).p(12).border(1).border_color(t.border)
-            .child(v_flex().flex_1().min_w(0).gap(4)
-              .child(div().text_size(13).font_semibold().child(entry.title))
-              .child(div().text_size(11).text_color(t.muted).child(entry.error ? 'Unavailable' : enabled ? 'Enabled · Popup' : 'Disabled')))
-            .child(Button(`extension-toggle-${entry.mod}`, t, { variant: 'secondary' })
-              .disabled(catalog.loading || Boolean(entry.error))
-              .on_click(() => setExtensionEnabled(entry.mod, !extensionEnabled(entry.mod)))
-              .child(enabled ? 'Disable' : 'Enable'));
+          const surfaces = (enabled ? entry.surfaces || [] : []).filter(surface => ['sidebar.bottom', 'status.right', 'dock.right'].includes(surface.location));
+          return v_flex().gap(8).p(12).border(1).border_color(t.border)
+            .child(h_flex().items_center().gap(16)
+              .child(v_flex().flex_1().min_w(0).gap(4)
+                .child(div().text_size(13).font_semibold().child(entry.title))
+                .child(div().text_size(11).text_color(t.muted).child(entry.error ? 'Unavailable'
+                  : enabled ? `Enabled · ${entry.surfaces?.length ? `Popup · ${entry.surfaces.length} surfaces` : 'Popup'}` : 'Disabled')))
+              .child(Button(`extension-toggle-${entry.mod}`, t, { variant: 'secondary' })
+                .disabled(catalog.loading || Boolean(entry.error))
+                .on_click(() => setExtensionEnabled(entry.mod, !extensionEnabled(entry.mod)))
+                .child(enabled ? 'Disable' : 'Enable')))
+            .children(surfaces.map(surface => {
+              const visible = extensionSurfaceVisible(surface);
+              const label = surface.location === 'sidebar.bottom' ? 'Sidebar' : surface.location === 'status.right' ? 'Status' : 'Dock';
+              return Button(`extension-surface-toggle-${surface.id}`, t, { variant: 'secondary' })
+                .disabled(catalog.loading || Boolean(entry.error))
+                .accessibility_label(`${visible ? 'Hide' : 'Show'} ${surface.title} ${label}`)
+                .on_click(() => setExtensionSurfaceVisible(surface, !extensionSurfaceVisible(surface)))
+                .child(`${visible ? 'Hide' : 'Show'} ${label}`);
+            }));
         }))
         .children(catalog.errors.map(error => div().text_size(12).text_color(t.ansi1).child(error))))
       .child(DialogFooter().flex_none()

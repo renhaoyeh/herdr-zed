@@ -4,6 +4,7 @@ import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { parseExtensionRegistry, parseExtensionManifest, extensionPopup, extensionMetadata, extensionServiceLayout } from '../mods/devkits-zed/extension-model.js';
+import { extensionSurfaceLayout, extensionSurfaceNodeId } from '../mods/devkits-zed/extension-surfaces.js';
 import { installZed } from '../install-zed.js';
 import { installZedExtension } from '../install-zed-extension.js';
 import { evaluateNative } from './source-harness.js';
@@ -41,7 +42,8 @@ const runtime = async (readTextFile, initialLayout = null) => {
   const memory = {}, opened = [], notices = [], layoutUpdates = [];
   const host = { shared: key => memory[key], setShared: (key, value) => { memory[key] = structuredClone(value); },
     appHome: () => '/herdr', readTextFile, layout: () => root, run: (command, args) => { assert.equal(command, 'layout.set'); root = args.layout; layoutUpdates.push(root); }, openOverlay: value => { opened.push(value); return 'overlay'; }, notify: value => notices.push(value),
-    parseExtensionRegistry, parseExtensionManifest, extensionPopup, extensionMetadata, extensionServiceLayout };
+    parseExtensionRegistry, parseExtensionManifest, extensionPopup, extensionMetadata, extensionServiceLayout,
+    extensionSurfaceLayout, extensionSurfaceNodeId };
   return { memory, opened, notices, layoutUpdates, ...await evaluateNative('../mods/devkits-zed/extensions.js', host,
     'refreshExtensions, openExtension, extensionCatalog, extensionEnabled, setExtensionEnabled') };
 };
@@ -186,3 +188,27 @@ test('runtime refresh mounts one enabled service and disabling removes it withou
   r.setExtensionEnabled('devkits-system', true);
   assert.equal(r.layoutUpdates.length, 3);
 });
+
+test('registry removal unmounts old service and surfaces while retaining shell layout blocks', async () => {
+  const text = await readFile(new URL('../mods/devkits-system/extension.json', import.meta.url), 'utf8');
+  let registry = '{"version":1,"extensions":["devkits-system"]}';
+  const root = { id: 'root', children: [
+    { id: 'sidebar', type: 'column', children: [{ id: 'agents', type: 'block', content: { mod: 'devkits-zed' } }] },
+    { id: 'workspace-row', type: 'row', children: [{ id: 'editor', type: 'block', content: { mod: 'devkits-zed' } }] },
+    { id: 'status-separator', type: 'row', children: [] },
+    { id: 'status', type: 'column', children: [{ id: 'status-content', type: 'block', content: { mod: 'devkits-zed', props: { view: 'status' } } }] },
+  ] };
+  const r = await runtime(async path => path.endsWith('extensions.json') ? registry : text, root);
+  await r.refreshExtensions();
+  assert.ok(r.layoutUpdates.length);
+  registry = '{"version":1,"extensions":[]}';
+  await r.refreshExtensions();
+  assert.equal(findLayout(r.layoutUpdates.at(-1), 'zed-extension-service-devkits-system-service'), null);
+  assert.equal(findLayout(r.layoutUpdates.at(-1), 'zed-extension-surface-devkits-system-widgets'), null);
+  assert.equal(findLayout(r.layoutUpdates.at(-1), 'zed-extension-surface-devkits-system-inline'), null);
+  assert.equal(findLayout(r.layoutUpdates.at(-1), 'status-content').content.props.view, 'status');
+});
+
+function findLayout(node, id) {
+  return node?.id === id ? node : (node?.children || []).map(child => findLayout(child, id)).find(Boolean) || null;
+}

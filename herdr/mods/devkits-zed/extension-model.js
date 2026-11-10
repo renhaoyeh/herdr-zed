@@ -2,6 +2,7 @@
 const name = value => typeof value === 'string' && /^[a-z][a-z0-9-]*$/.test(value);
 const title = value => typeof value === 'string' && value.trim().length > 0;
 const dimension = value => Number.isFinite(value) && value > 0 && value <= 2400;
+const surfaceLocations = ['sidebar.bottom', 'status.right', 'dock.right'];
 
 export function parseExtensionRegistry(text) {
   if (text === null) return [];
@@ -21,7 +22,7 @@ export function parseExtensionManifest(mod, text) {
     throw new Error('Invalid extension manifest.');
   validateMetadata(mod, value);
   const ids = new Set();
-  return value.actions.map(action => {
+  const actions = value.actions.map(action => {
     if (!action || !name(action.id) || ids.has(action.id) || !title(action.title)
       || action.location !== 'status.right'
       || !name(action.icon) || (action.iconColor && !/^#[0-9a-f]{6}$/i.test(action.iconColor))
@@ -33,6 +34,17 @@ export function parseExtensionManifest(mod, text) {
       location: action.location,
       popup: { view: action.popup.view, width: action.popup.width, height: action.popup.height, modal: action.popup.modal } };
   });
+  const surfaceIds = new Set();
+  if (value.surfaces !== undefined && (!Array.isArray(value.surfaces) || value.surfaces.length > 8))
+    throw new Error('Invalid extension surfaces.');
+  (value.surfaces || []).forEach(surface => {
+    if (!surface || !name(surface.id) || surfaceIds.has(surface.id) || !surfaceLocations.includes(surface.location)
+      || !name(surface.view) || !title(surface.title) || !name(surface.icon)
+      || Object.keys(surface).some(key => !['id', 'location', 'view', 'title', 'icon'].includes(key)))
+      throw new Error('Invalid extension surface.');
+    surfaceIds.add(surface.id);
+  });
+  return actions;
 }
 
 function validateMetadata(mod, value) {
@@ -47,7 +59,8 @@ function validateMetadata(mod, value) {
 export function extensionMetadata(mod, text) {
   parseExtensionManifest(mod, text);
   const value = JSON.parse(text);
-  return { title: value.title, dependencies: value.dependencies || [], services: (value.services || []).map(({ view }) => ({ view })) };
+  return { title: value.title, dependencies: value.dependencies || [], services: (value.services || []).map(({ view }) => ({ view })),
+    surfaces: (value.surfaces || []).map(surface => ({ ...surface, extensionId: value.id, mod })) };
 }
 
 // Only the shell's existing separator owns extension service mounts. Preserve all other layout nodes.

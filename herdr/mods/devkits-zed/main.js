@@ -15,7 +15,7 @@ import { startPanel } from './start-panel.js';
 import { threadArchive, historyEligible } from './thread-archive.js';
 import { GitAuthorSettings } from './git-author-settings.js';
 import { ExtensionsManager, openExtensions } from './extensions-manager.js';
-import { ExtensionSlot, refreshExtensions, openExtension } from './extensions.js';
+import { ExtensionSlot, ExtensionSurfaceSlot, refreshExtensions, openExtension } from './extensions.js';
 import { DropdownMenu, DropdownMenuState, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from './components/dropdown-menu.js';
 import { Button, ToolbarButton } from './components/button.js';
 import { AlertDialogContent, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from './components/alert-dialog.js';
@@ -409,6 +409,7 @@ export default class Devkits extends View {
       .when(Boolean(space?.machine), el => el.child(h_flex().flex_none().gap(8).items_center().child(glyph('terminal', 12)).child(space.machine)))
       .child(div().flex_1())
       .children([ExtensionSlot('status.right', t, space)].filter(Boolean))
+      .children([ExtensionSurfaceSlot('dock.right', t)].filter(Boolean))
       .child(ToolbarButton('manage-extensions', t, { icon: true }).accessibility_label('Manage extensions')
         .on_click(openExtensions).child(glyph('extensions', 16)))
       .when(Boolean(space), el => el.child(h_flex().id('status-panel-actions').flex_none().h_full().gap(0)

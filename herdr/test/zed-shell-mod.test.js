@@ -98,6 +98,7 @@ test('native sidebar, pane menu, dock controls and empty editor render without e
     WorkspaceEditor: class { init() {} render(_project, context, options) { return options.empty(); } },
     NativeLauncher: class {}, createNativeThread() {},
     GitAuthorSettings: class { init() {} render() { return ui(); } close() {} },
+    ExtensionSurfaceSlot: () => null,
     openExtensions: () => {}, ExtensionSlot: () => null,
   };
   for (const name of ['Button', 'ToolbarButton', 'Sidebar', 'SidebarContent', 'SidebarGroup', 'SidebarGroupLabel', 'SidebarMenuButton', 'SidebarTreeMenuButton', 'SidebarFooter',

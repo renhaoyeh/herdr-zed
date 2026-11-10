@@ -8,6 +8,9 @@ const keyFor = project => project ? JSON.stringify([project.machine || '',
   (project.folder || '').replace(/\\/g, '/').replace(/\/+$/, '') || project.id]) : null;
 const MAXIMIZED = 'devkits.conversation-maximized';
 export const conversationMaximized = project => Boolean(project && shared(MAXIMIZED)?.key === keyFor(project));
+const extensionDockIds = () => (shared('devkits-zed.extensions.catalog')?.packages || [])
+  .filter(entry => !entry.error).flatMap(entry => entry.surfaces || [])
+  .filter(surface => surface.location === 'dock.right').map(surface => surface.id);
 // Keep normal panel visibility separate from the temporary maximized layout.
 export function maximizeConversation(project, maximized) {
   const previous = shared(MAXIMIZED);
@@ -20,7 +23,7 @@ export function maximizeConversation(project, maximized) {
     return;
   }
   const hidden = {};
-  for (const id of ['editor']) {
+  for (const id of new Set(['editor', ...extensionDockIds()])) {
     const node = layoutNode(layout(), id);
     if (node) hidden[id] = Boolean(node.hidden);
   }
