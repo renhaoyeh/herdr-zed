@@ -13,6 +13,7 @@ import { NativeLauncher } from './native-launcher.js';
 import { createNativeThread } from './native-threads.js';
 import { startPanel } from './start-panel.js';
 import { threadArchive, historyEligible } from './thread-archive.js';
+import { GitAuthorSettings } from './git-author-settings.js';
 import { ExtensionsManager, openExtensions } from './extensions-manager.js';
 import { ExtensionSlot, refreshExtensions, openExtension } from './extensions.js';
 import { DropdownMenu, DropdownMenuState, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from './components/dropdown-menu.js';
@@ -51,6 +52,7 @@ export default class Devkits extends View {
     if (view === 'pane') { this.threadMenu = new DropdownMenuState(cx); return; }
     if (view === 'file-menu') { this.fileMenu = new FileMenu(); this.fileMenu.init(cx); return; }
     if (view === 'branch-menu') { this.branchMenu = new BranchMenu(); this.branchMenu.init(cx); return; }
+    if (view === 'git-author-settings') { this.gitAuthorSettings = new GitAuthorSettings(); this.gitAuthorSettings.init(cx); return; }
     if (view === 'header') {
       cx.spawn(async cx => { await refreshExtensions(); cx.notify(); });
       cx.spawn(async cx => {
@@ -302,6 +304,7 @@ export default class Devkits extends View {
 
   async close() {
     this.buildRulesSettings?.close();
+    this.gitAuthorSettings?.close();
     if (this.editor) this.editor.close(); else this.files?.close();
     this.diff?.close();
   }
@@ -568,6 +571,7 @@ export default class Devkits extends View {
     if (props()?.view === 'diff') return this.diff.render(this.projects().find(project => project.active), cx);
     if (props()?.view === 'header') return this.header(t);
     if (props()?.view === 'branch-menu') return this.branchMenu.render(t);
+    if (props()?.view === 'git-author-settings') return this.gitAuthorSettings.render(t);
     if (props()?.view === 'brand') return this.brand(t);
     if (props()?.view === 'pane') return this.paneHeader(t, cx);
     if (props()?.view === 'status') return this.statusBar(t);
