@@ -495,6 +495,6 @@ export default class FileViewer {
         Button('file-tab-options-trigger', t, { variant: 'ghost', size: 'icon' }).when(wrap, el => el.h(31)).when(!wrap, el => el.h_full()).w(32)
           .accessibility_label('Tab options').child(icon('ellipsis')),
         [{ key: 'wrap-tabs', label: 'Wrap tabs', checked: wrap }],
-        (_key, cx) => this.toggleWrapTabs(cx), t, { offset: { x: 8, y: 9 } }));
+        (_key, cx) => this.toggleWrapTabs(cx), t, { offset: { x: 8, y: 9 }, fullHeight: !wrap }));
   }
 }
