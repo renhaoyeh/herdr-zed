@@ -29,13 +29,17 @@ export const sharedMcpSettings = {
         // Compare-and-swap prevents another settings window or editor's changes being overwritten.
         await writeTextFile(sharedMcpPath(), `${JSON.stringify(config, null, 2)}\n`, this.mcpOriginal);
         notify({ title: 'Shared MCP settings saved', body: 'Applies to new local Codex sessions, including Tasks.' });
-        this.finishSharedMcp();
+        if ((props() || {}).view === 'shared-mcp') this.finishSharedMcp();
+        else { this.mcpConfig = config; this.mcpOriginal = `${JSON.stringify(config, null, 2)}\n`; }
       } catch (error) { this.mcpError = error.message; }
       finally { this.mcpSaving = false; cx.notify(); }
     });
   },
   sharedMcpDialog(t) {
-    return DialogContent('shared-mcp', t)
+    return DialogContent('shared-mcp', t).child(this.sharedMcpPage(t));
+  },
+  sharedMcpPage(t) {
+    return v_flex().flex_1().min_h(0).gap(8)
       .on_key_down((event, cx) => { if (event.key === 'escape' && !this.mcpSaving) { cx.stop_propagation(); this.finishSharedMcp(); } })
       .child(DialogTitle().child('Shared local MCP servers'))
       .child(DialogDescription(t).child('All local Codex accounts and named agents use this shared configuration in new sessions.'))
@@ -45,7 +49,7 @@ export const sharedMcpSettings = {
         .child(Editor.new(this.mcpServers).flex_1().min_h(0).border(1).border_color(t.border)))
       .when(Boolean(this.mcpError), el => el.child(div().text_size(12).text_color(t.ansi1).child(this.mcpError)))
       .child(DialogFooter()
-        .child(Button('mcp-cancel', t, { variant: 'secondary' }).disabled(Boolean(this.mcpSaving)).on_click(() => this.finishSharedMcp()).child('Cancel'))
+        .child(Button('mcp-cancel', t, { variant: 'secondary' }).disabled(Boolean(this.mcpSaving)).on_click((_event, cx) => { if ((props() || {}).view === 'shared-mcp') this.finishSharedMcp(); else this.initSharedMcp(cx); }).child((props() || {}).view === 'shared-mcp' ? 'Cancel' : 'Discard changes'))
         .child(Button('mcp-save', t).disabled(this.mcpLoading || Boolean(this.mcpSaving) || !this.mcpConfig)
           .on_click((_event, cx) => this.saveSharedMcp(cx)).child(this.mcpSaving ? 'Saving…' : 'Save')));
   },

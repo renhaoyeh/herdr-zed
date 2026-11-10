@@ -1,4 +1,4 @@
-import { AgentClient, openAgentSettings, openAgentLauncher, openSharedMcp, agentAccountName } from './components/agents.js';
+import { AgentClient, openAgentSettings, openAgentLauncher, agentAccountName } from './components/agents.js';
 import { agentSelection } from './components/agent-selection.js';
 import { View, div, svg, image } from 'gpui-kit';
 import { v_flex, h_flex } from 'gpui-base';
@@ -536,16 +536,11 @@ export default class Devkits extends View {
     const link = secondary ? null : taskLinkForTab(p.tab, project);
     const maximized = conversationMaximized(project);
     this.threadMenu ??= new DropdownMenuState();
-    // Like Zed's agent panel menu, global configuration lives beside Agent settings.
-    const codex = !machine && launchers.find(agent => agent.key === 'codex' && agent.installed !== false);
     const actions = secondary ? [{ key: 'close', label: 'Close terminal' }] : [
-      { key: 'rules', label: 'Global Rules…', icon: 'book-open' },
-      ...(codex ? [{ key: 'mcp', label: 'Shared MCP…', icon: 'settings' }] : []),
-      { key: 'settings', label: 'Agent settings…', icon: 'settings', separator: true },
+      { key: 'settings', label: 'Agent settings…', icon: 'settings' },
     ];
     const choose = key => key === 'settings' ? openAgentSettings(project && !project.pending ? project.id : null)
-      : key === 'rules' ? openAgentSettings(null, 'global-rules') : key === 'mcp' ? openSharedMcp(codex)
-        : run('pane.close', { pane: p.pane });
+      : run('pane.close', { pane: p.pane });
     const terminal = terminals().find(terminal => terminal.address === p.terminal);
     const working = terminalWorking({ ...terminal, status: p.status || terminal?.status });
     const icon = working ? glyph('loader', 14).text_color(t.working).spin(900).accessibility_label('Working')
