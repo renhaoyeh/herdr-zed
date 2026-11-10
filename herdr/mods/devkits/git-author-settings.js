@@ -1,5 +1,6 @@
+import { Input } from './components/input.js';
 import { div } from 'gpui-kit';
-import { Input, InputState, v_flex } from 'gpui-base';
+import { InputState, v_flex } from 'gpui-base';
 import { props, openOverlay, closeOverlay } from 'herdr';
 import { Button } from './components/button.js';
 import { Select, SelectState } from './components/select.js';
@@ -78,7 +79,7 @@ export class GitAuthorSettings {
     const cancel = () => { if (!this.saving) closeOverlay(this.target.overlay); };
     const field = (key, label, state) => v_flex().gap(6)
       .child(div().text_size(12).child(label))
-      .child(Input.new(state).id(`git-author-${key}`).h(32).px(8).text_size(13)
+      .child(Input.new(state, t).id(`git-author-${key}`).h(32).px(8).text_size(13)
         .bg(t.background).border_b(1).border_color(t.input).text_color(t.foreground)
         .disabled(this.loading || this.saving || !this.loaded).accessibility_label(label));
     return DialogContent('git-author-settings', t).gap(12).on_key_down((event, cx) => {

@@ -1,5 +1,6 @@
+import { Input } from './components/input.js';
 import { div, svg, PathBuilder } from 'gpui-kit';
-import { h_flex, v_flex, v_virtual_list, Scrollbar, VirtualListScrollHandle, Input, InputState, TextView } from 'gpui-base';
+import { h_flex, v_flex, v_virtual_list, Scrollbar, VirtualListScrollHandle, InputState, TextView } from 'gpui-base';
 import { shared, setShared } from 'herdr';
 import { Button } from './components/button.js';
 import { DropdownMenu, DropdownMenuState, DropdownMenuContent, DropdownMenuItem } from './components/dropdown-menu.js';
@@ -408,7 +409,7 @@ export class GitGraph {
             if (event.key === 'escape') { this.focus?.focus(); cx.stop_propagation(); }
             else if (event.key === 'enter') { this.nextMatch(event.modifiers?.shift ? -1 : 1, cx); cx.stop_propagation(); }
           })
-          .child(Input.new(this.input).id('graph-search').flex_1().min_w(0).h(30).px(6).rounded(0).border(0).text_size(12)
+          .child(Input.new(this.input, t).id('graph-search').flex_1().min_w(0).h(30).px(6).rounded(0).border(0).text_size(12)
             .accessibility_label('Search commits'))
           .child(Button('graph-match-case', t, { variant: 'ghost' }).h(30).w(30).px(0).child('Aa')
             .accessibility_label('Match case').when(Boolean(this.matchCase), el => el.bg(t.selected).text_color(t.foreground))

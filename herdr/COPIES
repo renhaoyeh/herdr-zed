@@ -31,3 +31,5 @@ switch.js: devkits-agents
 alert-dialog.js: devkits-agents
 agent-selection.js: devkits-agents
 agents.js: devkits-tasks devkits-agents devkits-usage
+
+input.js: devkits-agents
