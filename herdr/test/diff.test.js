@@ -564,6 +564,7 @@ test('split button menu exposes Git operations, counts and keyboard navigation w
     return el;
   };
   const { DiffViewer, showGitToast } = await load({ div: element, svg: element, v_flex: element, h_flex: element,
+    openGitAuthor: (project, account) => actions.push(['author', project, account]),
     Button: id => element().id(id), Popup: { new: id => element().id(id) },
     Empty: element, EmptyDescription: element, theme: () => ({}), settings: () => ({}),
     shared: key => key === 'devkits.git-accounts' ? accountSettings : memory[key],
@@ -663,6 +664,9 @@ test('split button menu exposes Git operations, counts and keyboard navigation w
   assert.equal(accountSettings, undefined, 'Unavailable accounts cannot be selected');
   nodes.get('diff-git-actions-account:0').click({}, cx);
   assert.equal(view.gitMenu.page, null);
+  assert.deepEqual(actions.at(-1), ['author', view.context, { host: 'github.com', login: 'alice', available: true }]);
+  assert.equal(accountSettings, undefined, 'Account selection waits for the author write');
+  accountSettings = { '["","/project"]': { host: 'github.com', login: 'alice' } };
   view.pushFooter({});
   assert.ok(painted.includes('GitHub account…'));
   assert.ok(painted.includes('alice'));

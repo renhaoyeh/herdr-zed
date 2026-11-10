@@ -5,6 +5,31 @@ const validAccount = account => account && typeof account.host === 'string' && t
   && /^[a-z0-9][a-z0-9_.-]*$/i.test(account.login);
 const projectKey = project => JSON.stringify([project?.machine || '', project?.folder || '']);
 const key = 'devkits.git-accounts';
+const authorKey = 'devkits.git-account-authors';
+const accountAuthorKey = (account, on) => JSON.stringify([on || '', account.host.toLowerCase(), account.login.toLowerCase()]);
+
+export function rememberGitAuthor(account, on, author) {
+  if (!validAccount(account)) throw new Error('Invalid GitHub account.');
+  setShared(authorKey, { ...(shared(authorKey) || {}),
+    [accountAuthorKey(account, on)]: { name: author.name.trim(), email: author.email.trim() } });
+}
+
+/** Public profile metadata only; never switch accounts or transfer tokens into mod state. */
+export async function readAccountAuthor(account, on) {
+  if (!validAccount(account)) throw new Error('Invalid GitHub account.');
+  const saved = shared(authorKey)?.[accountAuthorKey(account, on)];
+  if (typeof saved?.name === 'string' && saved.name && typeof saved.email === 'string' && saved.email)
+    return { name: saved.name, email: saved.email };
+  const result = await exec('gh', ['api', `users/${account.login}`, '--hostname', account.host,
+    '--jq', '{login,name,email}'], { on });
+  if (result.code !== 0) throw new Error('Could not load the GitHub profile. Enter the commit author below.');
+  let profile;
+  try { profile = JSON.parse(result.stdout); } catch { throw new Error('Could not read the GitHub profile. Enter the commit author below.'); }
+  if (typeof profile?.login !== 'string' || profile.login.toLowerCase() !== account.login.toLowerCase())
+    throw new Error('GitHub profile does not match the selected account. Enter the commit author below.');
+  return { name: typeof profile.name === 'string' && profile.name.trim() ? profile.name.trim() : account.login,
+    email: typeof profile.email === 'string' ? profile.email.trim() : '' };
+}
 
 export function gitAccount(project) {
   const account = shared(key)?.[projectKey(project)];

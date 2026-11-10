@@ -11,8 +11,28 @@ const run = promisify(execFile);
 async function load(host = {}) {
   const source = await readFile(new URL('../mods/devkits/git-auth.js', import.meta.url), 'utf8');
   return new Function(...Object.keys(host), source.replace(/^import .*;\r?\n/gm, '').replace(/^export /gm, '')
-    + '\nreturn { gitAccount, setGitAccount, readGitAccounts, gitAuthArgs };')(...Object.values(host));
+    + '\nreturn { gitAccount, setGitAccount, readGitAccounts, gitAuthArgs, readAccountAuthor, rememberGitAuthor };')(...Object.values(host));
 }
+
+test('account authors load public profiles and remember only name/email per machine, host and login', async () => {
+  const memory = {}, calls = [];
+  const auth = await load({ shared: key => memory[key], setShared: (key, value) => { memory[key] = value; },
+    exec: async (...args) => { calls.push(args); return { code: 0, stdout: JSON.stringify({ login: 'alice', name: 'Alice', email: null, token: 'discard' }) }; } });
+  const account = { host: 'github.com', login: 'alice' };
+  assert.deepEqual(await auth.readAccountAuthor(account, 'remote'), { name: 'Alice', email: '' });
+  assert.deepEqual(calls[0], ['gh', ['api', 'users/alice', '--hostname', 'github.com', '--jq', '{login,name,email}'], { on: 'remote' }]);
+  auth.rememberGitAuthor(account, 'remote', { name: ' Alice Custom ', email: 'private@example.test', token: 'discard' });
+  assert.deepEqual(await auth.readAccountAuthor(account, 'remote'), { name: 'Alice Custom', email: 'private@example.test' });
+  assert.equal(calls.length, 1);
+  await auth.readAccountAuthor(account, 'other-machine');
+  await auth.readAccountAuthor({ ...account, host: 'enterprise.example' }, 'remote');
+  assert.equal(calls.length, 3);
+  assert.ok(!JSON.stringify(memory).includes('discard'));
+  const mismatch = await load({ shared: () => null, exec: async () => ({ code: 0, stdout: '{"login":"bob"}' }) });
+  await assert.rejects(mismatch.readAccountAuthor(account), /does not match/);
+  const failed = await load({ shared: () => null, exec: async () => ({ code: 1 }) });
+  await assert.rejects(failed.readAccountAuthor(account), /Enter the commit author/);
+});
 
 test('GitHub accounts retain only public metadata and report unavailable accounts', async () => {
   let call;

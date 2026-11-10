@@ -4,6 +4,7 @@ import { watchFolder, settings, theme, shared, setShared, notify } from 'herdr';
 import { execShell } from './shell.js';
 import { readBuildRules, withBuildRulesFile } from './diff-ignore.js';
 import { openBuildRules } from './diff-ignore-settings.js';
+import { openGitAuthor } from './git-author-settings.js';
 import { utf8ByteLength } from './utf8.js';
 import { Button } from './components/button.js';
 import { DropdownMenu, DropdownMenuState } from './components/dropdown-menu.js';
@@ -869,7 +870,7 @@ export default class DiffViewer {
     const accountLabel = account?.login || 'Default';
     const items = page === 'accounts' ? [
       { key: 'back', label: '‹ Git operations' },
-      { key: 'account:default', label: 'Default', checked: !account, disabled: Boolean(this.pushing) },
+      { key: 'account:default', label: 'Default', description: 'Git authentication · keep commit author', checked: !account, disabled: Boolean(this.pushing) },
       ...(this.accounts || []).map((entry, index) => ({ key: `account:${index}`,
         label: entry.login, description: `${entry.host}${entry.available ? '' : ' · Sign in required'}`,
         checked: account?.host === entry.host && account?.login === entry.login,
@@ -892,16 +893,20 @@ export default class DiffViewer {
       { key: 'push-tags', label: 'Push Tags', description: 'All local tags', disabled: Boolean(this.pushUnavailable('push-tags')) },
       { key: 'force-push', label: 'Force Push (with lease)', disabled: pushUnavailable },
       { key: 'accounts', label: 'GitHub account…', description: accountLabel, separator: true, disabled: Boolean(this.pushing) },
+      { key: 'commit-author', label: 'Commit author…' },
     ];
     const choose = (key, cx) => {
-      if (key === 'accounts' || key === 'accounts-retry') {
+      if (key === 'commit-author') {
+        openGitAuthor(this.context);
+      } else if (key === 'accounts' || key === 'accounts-retry') {
         this.gitMenu.page = 'accounts'; this.gitMenu.index = 0; this.gitMenu.open = true;
         this.loadAccounts(cx);
       } else if (key.startsWith('account:')) {
         if (this.pushing) return;
         const chosen = key === 'account:default' ? null : this.accounts?.[Number(key.slice(8))];
         if (key !== 'account:default' && !chosen?.available) return;
-        setGitAccount(this.context, chosen);
+        if (chosen) openGitAuthor(this.context, chosen);
+        else setGitAccount(this.context, null);
         this.gitMenu.page = null;
       } else if (key === 'back' || key === 'fetch-from' || key === 'push-to') {
         this.gitMenu.page = key === 'back' ? null : key === 'fetch-from' ? 'fetch' : 'push';
