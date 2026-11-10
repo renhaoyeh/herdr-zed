@@ -596,7 +596,7 @@ test('Asana preview only imports source content and has no agent, model, effort 
   const imported = [];
   const { AsanaPanel, taskSourceOptions } = await load({ ...ui, div: node, v_flex: node, h_flex: node, svg: node, Button: node,
     shared: () => null, folderKey: path => path });
-  const panel = new AsanaPanel(taskSourceOptions('asana')); panel.init({ focus_handle: () => ({}) });
+  const panel = new AsanaPanel({ ...taskSourceOptions('asana'), onImport() {} }); panel.init({ focus_handle: () => ({}) });
   panel.folder = '/project'; panel.selected = 'a1';
   panel.detail = { gid: 'a1', name: 'Source', notes: 'Description', comments: [{ author: 'Amy', text: 'Context' }] };
   panel.session = () => assert.fail('source preview must not read model or agent settings');
@@ -605,6 +605,9 @@ test('Asana preview only imports source content and has no agent, model, effort 
   for (const id of ['asana-start', 'asana-agent', 'asana-model', 'asana-effort', 'asana-note', 'asana-save', 'asana-tab-saved']) assert.ok(!nodes.has(id));
   clicks.get('asana-import')();
   assert.deepEqual(imported, [panel.detail]);
+  nodes.clear(); panel.onImport = undefined;
+  panel.preview({}, () => assert.fail('standalone browser must not import'));
+  assert.ok(!nodes.has('asana-import'), 'A popup without an import receiver has no Tasks action');
 });
 
 test('imported local prompts keep source links and comments plus all edited instructions', async () => {

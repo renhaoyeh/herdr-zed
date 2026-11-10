@@ -368,7 +368,7 @@ export default class AsanaPanel extends TaskSourceController {
                   .child(div().font_medium().child(comment.author))
                   .child(div().text_color(t.muted).child(relativeTime(comment.at))))
                 .child(TextView.markdown(`asana-comment-text-${comment.gid}`, comment.text).selectable(true).scrollable(false).w_full())))))))
-      .when(Boolean(task), el => el.child(v_flex().flex_none().p(12).gap(8).border_t(1).border_color(t.border).bg(t.chrome)
+      .when(Boolean(task && this.onImport), el => el.child(v_flex().flex_none().p(12).gap(8).border_t(1).border_color(t.border).bg(t.chrome)
         .child(h_flex().items_center().justify_end()
           .child(asanaButton('asana-import', t).h(28).px(10).accessibility_label(this.importLabel)
             .disabled(!this.onImport || (!task.comments && !task.commentsError))
