@@ -15,7 +15,8 @@ async function sessionId(kind, command, pid) {
   if (window()?.platform === 'windows') {
     const prefix = kind === 'codex' ? 'CODEX_HOME=' : 'CLAUDE_CONFIG_DIR=';
     const directory = command.find(arg => arg.startsWith(prefix))?.slice(prefix.length) || `${home()}/.${kind}`;
-    const result = await exec('node', [`${appHome()}/mods/devkits/components/agent-session-windows.js`, String(pid), kind, directory]);
+    const resumedId = kind === 'codex' && command.includes('resume') ? command.findLast(arg => /^[a-f0-9-]{36}$/i.test(arg)) : null;
+    const result = await exec('node', [`${appHome()}/mods/devkits/components/agent-session-windows.js`, String(pid), kind, directory, ...(resumedId ? [resumedId] : [])]);
     if (result.code) return null;
     const file = JSON.parse(result.stdout).file;
     if (typeof file !== 'string') return null;
