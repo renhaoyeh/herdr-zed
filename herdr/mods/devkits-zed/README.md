@@ -8,7 +8,7 @@ and SVG icons remain in use. The top gear opens native Herdr settings.
 
 There is no Agent Settings, account preparation, Profiles, Auto account selection,
 Rules/MCP injection, Tasks, Calendar, Usage, SYSTEM, Asana/MantisBT, Simulator,
-application runner, transcript archive, GitHub account manager or data reset.
+application runner or data reset in the base shell. Sidebar conversation history and repository GitHub account/author controls are native shell features.
 Optional integrations belong behind explicit extension declarations. Starting a thread uses knownAgents and native
 space.new/tab.new with the selected program's command unchanged.
 
@@ -27,7 +27,7 @@ panel geometry is owned by devkits-zed. No provider policy/state is read or writ
 Read the root design.md and herdr/DEVELOPMENT.md for the original UI workflow.
 Canonical components live in ../devkits/components and are copied through COPIES;
 SVG icons remain centralized in ../devkits/assets/icons. No original Devkits mod
-implementation needs to be mounted. The initial extension API supports popup entries only.
+implementation needs to be mounted. The extension API supports popups and fixed sidebar, status and right-dock provider views.
 
 ## Popup extension v1
 
@@ -51,8 +51,7 @@ registrations are preserved. In an already open workspace, run the native comman
 appears in the bottom bar and opens its existing dialog. The standalone browser
 has no Tasks import receiver and hides the import action.
 
-The shell has no package-specific branches. Position controls, docking, generic
-editor views are outside this first popup version.
+The shell has no package-specific branches. Arbitrary position controls and generic editor views are outside this version.
 
 Open **Extensions** using the four-block icon at the bottom-right of the status bar to view registered extensions and enable or disable them immediately. The choice persists across restarts. Disabling removes its status entry and blocks new activation; existing popup windows and provider connection data are retained. Refresh reloads the registry and declarations. This manager does not yet install or remove packages.
 
@@ -71,3 +70,27 @@ adds missing supporting packages, preserves existing packages and runtime data,
 and registers only the requested extension. Disabling never deletes these files.
 The host imports no provider implementation and never discovers simulator devices
 or starts streaming during manifest discovery.
+
+## Conversation history
+
+The sidebar offers conversation history without Tasks. Archive stores an inactive
+local Claude/Codex conversation before closing its native tab; terminal threads
+retain Close. Restore reuses the saved session and account command without
+resending its prompt. Failed or unconfirmed starts retain the history entry.
+Conversation archival currently supports local macOS/Linux sessions with one
+resumable root per tab. Windows identity lookup and remote archival are not
+supported. Launch commands with positional startup prompts or literal credential
+environment values are rejected without closing the thread.
+
+## Extension surfaces and repository accounts
+
+Extensions may declare fixed sidebar-bottom, status-right and right-dock views.
+Use Extensions to control their visibility. SYSTEM contributes sidebar widgets
+and inline status readings backed by its existing service. Simulator contributes
+its original dock panel as well as its popup. Xcode Storage is owned by Simulator
+and opens from its device menu; scanning and cleanup do not require Devkits.
+
+The Git actions menu offers GitHub account… for the selected repository and
+machine. Review the commit author and Save to apply repository-local author
+settings and the account choice. Cancel retains the prior choice. GitHub accounts
+come from the machine's existing GitHub CLI sign-ins.

@@ -8,11 +8,13 @@ Preserve the original sidebar/header/editor/right dock/bottom geometry. This mod
 owns only native workspace UI: projects, threads, installed-program selection,
 Agent status display, files, previews, Git changes, pane layout and focus.
 
-Do not add Devkits account settings, Tasks, Calendar, Usage, SYSTEM, source
-browsers, Simulator, runner, transcript archiving, data reset or policy injection
-to this shell. Functional additions must use explicit extension interfaces. The initial contract
-allows declared popup entries in the status bar; provider UI and credentials stay
-in the provider mod. Keep location controls and docking out of this first version.
+Keep Devkits agent account settings, Tasks, Calendar, Usage, SYSTEM, source
+browsers, Simulator, runner, data reset and policy injection behind explicit
+extension interfaces. Native sidebar conversation history and repository GitHub
+account/author controls belong to this shell. History must work without Tasks.
+Extensions may declare popups and fixed sidebar, status and dock surfaces;
+provider UI and credentials stay in the provider mod. Xcode Storage belongs to
+Simulator. Product behavior and interaction rules live in design.md.
 Use Herdr knownAgents and native tab/space commands for thread creation.
 
 Check source and installed mods, then inspect the affected running states. Never
