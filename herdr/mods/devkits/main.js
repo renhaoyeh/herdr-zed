@@ -8,6 +8,7 @@ import { terminalArgv } from './components/session-shell.js';
 import FileViewer, { FileMenu } from './files.js';
 import DiffViewer from './diff.js';
 import { BuildRulesSettings } from './diff-ignore-settings.js';
+import { GitAuthorSettings } from './git-author-settings.js';
 import { GitResultToast, clearGitToast } from './git-result-toast.js';
 import WorkspaceEditor from './workspace-editor.js';
 import XcodeStorage from './xcode-storage.js';
@@ -56,6 +57,7 @@ export default class Devkits extends View {
   taskHost = new TaskHost((event, cx) => this.taskNavigation(event, cx));
 
   init(_props, cx) {
+    if (props()?.view === 'git-author-settings') { this.gitAuthorSettings = new GitAuthorSettings(); this.gitAuthorSettings.init(cx); return; }
     if (props()?.view === 'reset-devkits') { this.dataReset = new ResetDevkits(); this.dataReset.init(cx); return; }
     this.agentClient.init(cx, (event, cx) => {
       if (event.type === 'start') cx.spawn(async () => { await this.startThread(event.agent, event.target, event.options); });
@@ -467,6 +469,7 @@ export default class Devkits extends View {
   }
 
   async close() {
+    this.gitAuthorSettings?.close();
     this.agentClient.close();
     this.buildRulesSettings?.close();
     this.systemMonitor.close();
@@ -786,6 +789,7 @@ export default class Devkits extends View {
   renderView(cx) {
     const t = theme();
     if (props()?.view === 'reset-devkits') return this.dataReset.render(t);
+    if (props()?.view === 'git-author-settings') return this.gitAuthorSettings.render(t);
     if (props()?.view === 'diff-ignore-settings') return this.buildRulesSettings.render(t);
     if (props()?.view === 'ui-settings') return this.interfaceSettings.render(t);
     if (props()?.view === 'usage-display-menu') return this.usageDisplayMenu.render(t);
