@@ -6,7 +6,7 @@ import { configuredAgents } from '../mods/devkits/components/session-model.js';
 const profile = { key: 'codex', name: 'Codex', run: ['codex'] };
 const preset = { key: 'devkits-preset-review', profileKey: 'codex', name: 'Review', instructions: 'Use the current profile guide.' };
 
-async function load({ eccInstructions = '', remote = false, rulesError = false, rulesGate = null, config = preset, saved = {}, options = {}, target = { space: 'local' } } = {}) {
+async function load({ eccInstructions = '', kitInstructions = '', remote = false, rulesError = false, rulesGate = null, config = preset, saved = {}, options = {}, target = { space: 'local' } } = {}) {
   const calls = [], memory = {
     'devkits.agent-cache': { null: [{ ...profile, name: 'Current Codex' }] },
     'devkits.agent-configs': config ? [config] : [],
@@ -25,6 +25,7 @@ async function load({ eccInstructions = '', remote = false, rulesError = false, 
     rulesArgv: (agent, argv, rules, instructions) => { calls.push(['rules', rules, instructions]); return [...argv, `rules=${rules?.text || ''}`, `instructions=${instructions || ''}`]; },
     sessionRules: async () => { calls.push(['read-rules']); if (rulesGate) await rulesGate; if (rulesError) throw Error('unreadable'); return { file: '/guide', text: 'Global rules' }; },
     prepareEcc: async (agent, argv) => { calls.push(['ecc']); return { argv, instructions: eccInstructions }; },
+    sessionDevkits: async () => { calls.push(['devkits']); return kitInstructions; },
     sessionMcpArgv: async (agent, argv) => { calls.push(['mcp']); return [...argv, 'shared-mcp']; },
   };
   const { prepareSession } = await evaluateNative('../mods/devkits-agents/session-preparation.js', host, 'prepareSession');
@@ -96,4 +97,14 @@ test('selected ECC guidance combines with global rules and profile instructions 
   const remote = await load({ remote: true, eccInstructions: 'Should not load' });
   await remote.prepareSession({ key: profile.key, run: ['codex'] }, remote.target, {});
   assert.ok(!remote.calls.some(([name]) => name === 'ecc'));
+});
+
+
+test('Devkits package guidance joins existing rules and ECC only for local preparation', async () => {
+  const h = await load({ eccInstructions: 'ECC guide', kitInstructions: 'Use frontend skill then browser' });
+  const result = await h.prepareSession({ key: preset.key, profileKey: 'codex', run: ['codex'] }, h.target);
+  assert.ok(result.argv.some(arg => arg.includes('Global rules') && arg.includes('ECC guide') && arg.includes('Use frontend skill then browser')));
+  const remote = await load({ remote: true, kitInstructions: 'Must not load' });
+  await remote.prepareSession({ key: profile.key, run: ['codex'] }, remote.target);
+  assert.ok(!remote.calls.some(([name]) => name === 'devkits'));
 });

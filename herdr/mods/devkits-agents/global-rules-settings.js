@@ -60,7 +60,7 @@ export const globalRulesSettings = {
     const items = [...ruleModules, { key: 'custom', label: 'Custom rules', description: 'Your additional instructions.' }];
     const selected = items.find(item => item.key === this.rulesPage);
     return v_flex().id('global-rules-settings').flex_1().min_h(0).gap(12)
-      .child(DialogDescription(t).flex_none().child('Choose instructions for new local agent sessions. These switches do not disable Tasks or MCP services. Save to apply; existing sessions keep their instructions.'))
+      .child(DialogDescription(t).flex_none().child('Edit your custom global instructions for new local agent sessions. Herdr Core, Tasks, MCP installation and Visual Studio guidance are managed in Devkits Rules and Skills. Save to apply.'))
       .child(div().flex_none().text_size(11).text_color(t.muted).child(rulesPath()))
       .child(h_flex().flex_1().min_h(0).gap(12).items_start()
         .child(v_flex().w(200).h_full().flex_none().gap(4)

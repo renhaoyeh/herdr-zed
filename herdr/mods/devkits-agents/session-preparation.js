@@ -2,6 +2,7 @@ import { spaces, shared, appHome } from 'herdr';
 import { configuredAgents, launcherArgv, sessionArgv, sessionKind, settingsKey, rulesArgv } from './components/session-model.js';
 import { sessionMcpArgv } from './components/shared-mcp.js';
 import { prepareEcc } from './ecc.js';
+import { sessionDevkits } from './devkits.js';
 import { sessionRules } from './global-rules.js';
 
 export async function prepareSession(agent, target = {}, options = {}) {
@@ -44,6 +45,8 @@ export async function prepareSession(agent, target = {}, options = {}) {
     const ecc = await prepareEcc(current, argv);
     argv = ecc.argv;
     if (ecc.instructions) rules = { ...rules, composed: true, text: [rules?.text, '# ECC selected guidance\n\n' + ecc.instructions].filter(Boolean).join('\n\n') };
+    const kits = await sessionDevkits(current);
+    if (kits) rules = { ...rules, composed: true, text: [rules?.text, '# Devkits capabilities\n\n' + kits].filter(Boolean).join('\n\n') };
     argv = rulesArgv(current, argv, rules, config?.instructions);
   }
   if (agent?.profileKey && !(shared('devkits.agent-configs') || []).some(item => item.key === agent.key && item.profileKey === agent.profileKey))

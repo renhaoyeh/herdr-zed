@@ -7,12 +7,12 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { sessionKind, settingsKey, sessionArgv, tasksMcpServer } from '../mods/devkits/components/session-model.js';
 import { evaluateNative } from './source-harness.js';
-import { parseSharedMcp, mcpToml } from '../mods/devkits/components/shared-mcp-model.js';
+import { parseSharedMcp, mcpToml, platformSharedMcp } from '../mods/devkits/components/shared-mcp-model.js';
 import { syncSharedMcp } from '../mods/devkits-agents/shared-mcp-sync.js';
 
 const config = { version: 1, servers: { vs: { command: 'bridge', args: ['繁體中文', 'C:\\with spaces\\bridge', 'quote"'] }, ic: { url: 'http://127.0.0.1:18765/mcp' } } };
 
-const host = { parseSharedMcp, mcpToml, home: () => '/home', exec: async () => ({ code: 0 }), sessionKind, tasksMcpServer, settingsKey, appHome: () => '/herdr', readTextFile: async () => JSON.stringify(config) };
+const host = { parseSharedMcp, mcpToml, platformSharedMcp, window: () => ({ platform: 'windows' }), home: () => '/home', exec: async () => ({ code: 0 }), sessionKind, tasksMcpServer, settingsKey, appHome: () => '/herdr', readTextFile: async () => JSON.stringify(config) };
 const load = extra => evaluateNative('../mods/devkits/components/shared-mcp.js', { ...host, ...extra }, 'parseSharedMcp, sharedMcpArgv, sessionMcpArgv, mcpToml');
 
 test('shared MCP accepts only the current schema and preserves explicit CLI precedence', async () => {
@@ -143,4 +143,19 @@ test('local launch persists Tasks transport without shared settings for backgrou
   assert.deepEqual(tasks.transport.env, { HERDR_APP_HOME: appDirectory });
   assert.equal(servers.find(server => server.name === 'own').transport.command, 'personal-server');
   assert.match(await readFile(join(directory, 'config.toml'), 'utf8'), /# account settings/);
+});
+
+test('automatic MCP synchronization excludes Windows-only transports on other platforms without rewriting shared source', async () => {
+  const source = JSON.stringify({ version: 1, servers: { visual_studio: { command: 'C:/VS/bridge.exe' }, browser: { command: 'browser' } } });
+  for (const platform of ['windows', 'macos', 'linux']) {
+    const calls = [];
+    const { sessionMcpArgv } = await load({ window: () => ({ platform }), readTextFile: async () => source,
+      exec: async (...args) => { calls.push(args); return { code: 0 }; } });
+    const argv = await sessionMcpArgv({ key: 'codex' }, ['codex']);
+    const synchronized = JSON.parse(calls[0][1][2]);
+    assert.equal(Boolean(synchronized.visual_studio), platform === 'windows');
+    assert.equal(argv.some(arg => arg.startsWith('mcp_servers.visual_studio=')), platform === 'windows');
+    assert.ok(synchronized.browser && synchronized.herdr_tasks);
+    assert.ok(JSON.parse(source).servers.visual_studio);
+  }
 });

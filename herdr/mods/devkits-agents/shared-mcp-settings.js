@@ -1,7 +1,8 @@
 import { div } from 'gpui-kit';
 import { v_flex, h_flex } from 'gpui-base';
-import { appHome, props, readTextFile, writeTextFile, closeOverlay } from 'herdr';
+import { appHome, props, readTextFile, writeTextFile, closeOverlay, window } from 'herdr';
 import { sharedMcpPath, parseSharedMcp } from './components/shared-mcp.js';
+import { sharedMcpSupported } from './components/shared-mcp-model.js';
 import { tasksMcpServer } from './components/session-model.js';
 import { Button } from './components/button.js';
 import { Switch } from './components/switch.js';
@@ -15,13 +16,14 @@ const mcpLabels = { command: 'Command', args: 'Arguments', url: 'Local URL', env
 
 export const sharedMcpSettings = {
   initSharedMcp(cx) {
-    if (this.mcpSaving) return;
+    if (this.mcpSaving || this.mcpLoading) return;
     this.mcpLoading = true; this.mcpError = null; this.mcpConfig = null; this.mcpRows = [];
     const selected = this.mcpSelected;
     cx.spawn(async cx => {
       try {
         this.mcpOriginal = await readTextFile(sharedMcpPath());
         this.mcpConfig = parseSharedMcp(this.mcpOriginal);
+        this.kitServers = this.mcpConfig.servers;
         this.mcpRows = Object.entries(this.mcpConfig.servers).map(([name, server]) => ({ id: name, name, server,
           type: server.url === undefined ? 'command' : 'url', enabled: server.enabled !== false }));
         this.mcpRows.push({ id: 'builtin:herdr_tasks', name: 'herdr_tasks', server: tasksMcpServer(appHome()), type: 'command', enabled: true, builtin: true });
@@ -31,7 +33,7 @@ export const sharedMcpSettings = {
     });
   },
   toggleMcpEnabled(row, cx) {
-    if (row.builtin || this.mcpSaving || this.mcpLoading || !this.mcpConfig || !this.mcpRows.includes(row)) return;
+    if (!sharedMcpSupported(row.name, window()?.platform) || row.builtin || row.missing || this.kitSaving || this.mcpSaving || this.mcpLoading || !this.mcpConfig || !this.mcpRows.includes(row)) return;
     const enabled = !row.enabled;
     const config = { ...this.mcpConfig, servers: { ...this.mcpConfig.servers,
       [row.id]: { ...row.server, enabled } } };
@@ -40,7 +42,7 @@ export const sharedMcpSettings = {
     cx.spawn(async cx => {
       try {
         await writeTextFile(sharedMcpPath(), text, this.mcpOriginal);
-        this.mcpOriginal = text; this.mcpConfig = config;
+        this.mcpOriginal = text; this.mcpConfig = config; this.kitServers = config.servers;
         row.server = config.servers[row.id]; row.enabled = enabled;
       } catch (error) { this.mcpError = error.message; }
       finally { this.mcpSaving = false; cx.notify(); }
@@ -55,16 +57,21 @@ export const sharedMcpSettings = {
       .child(div().min_h(32).px(8).py(6).border(1).border_color(t.input).text_size(12).text_color(t.muted)
         .accessibility_label(`${label}, read-only`).child(text === '' ? '—' : text));
   },
-  mcpDetails(row, t) {
+  mcpDetails(row, t, { onToggle = null, disabled = false } = {}) {
+    if (row.missing) return v_flex().gap(12)
+      .child(this.mcpProperty('Server name', row.name, t))
+      .child(div().text_size(12).text_color(t.muted).child('Setup required · This connection is not configured.'))
+      .child(this.mcpProperty('Shared configuration', sharedMcpPath(), t));
     const server = row.server;
     const standard = ['enabled', 'command', 'args', 'env_vars', 'url', 'bearer_token_env_var', 'env_http_headers'];
     return v_flex().gap(12)
+      .when(!onToggle && !sharedMcpSupported(row.name, window()?.platform), el => el.child(div().text_size(12).text_color(t.muted).child('Windows only. This connection will not be launched on this platform.')))
       .when(row.builtin, el => el.child(div().text_size(12).text_color(t.muted).child('Built-in · Managed automatically by Devkits.'))
         .child(div().text_size(12).text_color(t.muted).child('Task progress for new local Codex and Claude sessions.')))
       .when(!row.builtin, el => el.child(h_flex().items_center().justify_between()
         .child(div().text_size(12).child('Enable server'))
-        .child(Switch('mcp-enabled', row.enabled, t).disabled(Boolean(this.mcpSaving))
-          .accessibility_label(`Enable ${row.name}`).on_change((_checked, cx) => this.toggleMcpEnabled(row, cx)))))
+        .child(Switch('mcp-enabled', row.enabled, t).disabled(Boolean(disabled || this.mcpSaving || this.kitSaving || (!onToggle && !sharedMcpSupported(row.name, window()?.platform))))
+          .accessibility_label(`Enable ${row.name}`).on_change((checked, cx) => onToggle ? onToggle(row, checked, cx) : this.toggleMcpEnabled(row, cx)))))
       .child(this.mcpProperty('Server name', row.name, t))
       .child(h_flex().h(28).px(8).gap(8).items_center().justify_between().border(1).border_color(t.border)
         .accessibility_label('Transport, read-only').text_size(12).text_color(t.muted)
@@ -82,28 +89,30 @@ export const sharedMcpSettings = {
       .children(Object.entries(server).filter(([key]) => !standard.includes(key))
         .map(([key, value]) => this.mcpProperty(mcpLabels[key] || key, value, t)));
   },
-  sharedMcpPage(t) {
-    const selected = this.mcpRows?.find(row => row.id === this.mcpSelected);
+  sharedMcpPage(t, { embedded = false, servers = null } = {}) {
+    const rows = servers ? servers.map(name => this.mcpRows?.find(row => row.id === (name === 'herdr_tasks' ? 'builtin:herdr_tasks' : name))
+      || { id: `missing:${name}`, name, missing: true }) : this.mcpRows || [];
+    const selected = rows.find(row => row.id === this.mcpSelected) || rows[0];
     return v_flex().h_full().flex_1().min_h(0).gap(12)
-      .child(DialogTitle().flex_none().child('Shared MCP'))
-      .child(DialogDescription(t).flex_none().child('Shared MCP for all local Codex accounts and Profiles. Enable changes save automatically and apply to new sessions; connection details are read-only.'))
+      .when(!embedded, el => el.child(DialogTitle().flex_none().child('Shared MCP'))
+        .child(DialogDescription(t).flex_none().child('Shared MCP for all local Codex accounts and Profiles. Enable changes save automatically and apply to new sessions; connection details are read-only.')))
       .when(this.mcpLoading, el => el.child(div().text_color(t.muted).child('Loading servers…')))
       .when(!this.mcpLoading && Boolean(this.mcpConfig), el => el.child(h_flex().flex_1().min_h(0).items_stretch().gap(16)
-        .child(v_flex().w(190).h_full().min_h(0).flex_none().gap(8)
+        .child(v_flex().w(embedded ? 160 : 190).h_full().min_h(0).flex_none().gap(8)
           .child(div().text_size(11).text_color(t.muted).child('SERVERS'))
           .child(v_flex().id('mcp-server-list').flex_1().min_h(0).overflow_y_scroll().border(1).border_color(t.border)
-            .children(this.mcpRows.map(row => Button(`mcp-select-${row.id}`, t, { variant: 'ghost' }).h(48).w_full().justify_start().gap(8).px(10)
-              .bg(row.id === this.mcpSelected ? t.selected : t.popover)
+            .children(rows.map(row => Button(`mcp-select-${row.id}`, t, { variant: 'ghost' }).h(48).w_full().justify_start().gap(8).px(10)
+              .bg(row.id === selected?.id ? t.selected : t.popover)
               .on_click((_event, cx) => { this.mcpSelected = row.id; cx.notify(); })
-              .child(glyph(row.type === 'command' ? 'terminal' : 'external-link'))
+              .child(glyph(row.missing ? 'circle-alert' : row.type === 'command' ? 'terminal' : 'external-link'))
               .child(v_flex().min_w(0).gap(2).child(div().truncate().child(row.name))
-                .child(div().text_size(11).text_color(t.muted).child(row.builtin ? 'Built-in' : row.enabled ? 'Enabled' : 'Disabled')))))))
+                .child(div().text_size(11).text_color(t.muted).child(row.missing ? 'Setup required' : row.builtin ? 'Built-in' : row.enabled ? 'Enabled' : 'Disabled')))))))
         .child(v_flex().flex_1().min_w(0).min_h(0).h_full().id('mcp-server-details').overflow_y_scroll().gap(12)
           .when(Boolean(selected), el => el.child(this.mcpDetails(selected, t)))
           .when(!selected, el => el.child(v_flex().py(32).gap(8).child(div().text_size(16).font_family('Georgia').child('No shared servers'))
             .child(div().text_size(12).text_color(t.muted).child('No additional shared MCP servers are configured.')))))))
       .when(Boolean(this.mcpError), el => el.child(div().text_size(12).text_color(t.ansi1).child(this.mcpError)))
-      .child(DialogFooter().flex_none().child(Button('mcp-refresh', t, { variant: 'secondary' }).disabled(Boolean(this.mcpLoading || this.mcpSaving))
+      .child(DialogFooter().flex_none().child(Button('mcp-refresh', t, { variant: 'secondary' }).disabled(Boolean(this.mcpLoading || this.mcpSaving || this.kitSaving))
         .on_click((_event, cx) => this.initSharedMcp(cx)).child('Refresh'))
         .when((props() || {}).view === 'shared-mcp', el => el.child(Button('mcp-done', t).on_click(() => this.finishSharedMcp()).child('Done'))));
   },

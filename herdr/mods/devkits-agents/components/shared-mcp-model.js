@@ -43,3 +43,9 @@ export function mcpToml(value) {
   if (mcpObject(value)) return `{${Object.entries(value).map(([key, item]) => `${JSON.stringify(key)}=${mcpToml(item)}`).join(',')}}`;
   throw new Error('MCP settings support strings, finite numbers, booleans, arrays and objects.');
 }
+
+// Known built-in integrations retain their configuration on unsupported hosts.
+export const sharedMcpPlatforms = { visual_studio: ['windows'] };
+export const sharedMcpSupported = (name, platform) => !sharedMcpPlatforms[name] || sharedMcpPlatforms[name].includes(platform);
+export const platformSharedMcp = (config, platform) => ({ ...config,
+  servers: Object.fromEntries(Object.entries(config.servers).filter(([name]) => sharedMcpSupported(name, platform))) });

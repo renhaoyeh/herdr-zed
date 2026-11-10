@@ -1,6 +1,6 @@
 // Shared: edit this source, then npm run sync:shared.
-import { appHome, home, readTextFile, exec } from 'herdr';
-import { parseSharedMcp, mcpToml } from './shared-mcp-model.js';
+import { appHome, home, readTextFile, exec, window } from 'herdr';
+import { parseSharedMcp, mcpToml, platformSharedMcp } from './shared-mcp-model.js';
 export { parseSharedMcp, mcpToml } from './shared-mcp-model.js';
 import { sessionKind, tasksMcpServer } from './session-model.js';
 
@@ -18,7 +18,7 @@ export function sharedMcpArgv(agent, argv, config) {
 
 export async function sessionMcpArgv(agent, argv) {
   if (sessionKind(agent) !== 'codex' || !argv) return argv;
-  const config = parseSharedMcp(await readTextFile(sharedMcpPath()));
+  const config = platformSharedMcp(parseSharedMcp(await readTextFile(sharedMcpPath())), window()?.platform);
   // Background naming disables MCPs using enabled-only overrides, without launch transports.
   // Persist the built-in Tasks transport as well as the user-managed shared defaults.
   const servers = { ...config.servers, herdr_tasks: tasksMcpServer(appHome()) };

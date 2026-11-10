@@ -138,7 +138,7 @@ export const eccSettings = {
     const missing = (item.requires || []).map(id => this.eccCatalog.items.find(entry => entry.id === id)).filter(entry => entry && !eccItemEnabled(this.eccDraft, this.eccProvider, entry));
     return v_flex().gap(10)
       .child(h_flex().items_center().justify_between().gap(8)
-        .child(div().flex_1().min_w(0).text_size(15).child(item.title || item.name))
+        .child(div().flex_1().min_w(0).text_size(16).font_semibold().child(item.title || item.name))
         .child(Switch('ecc-item-enabled', enabled, t).disabled(Boolean(this.eccSaving || (item.unavailable && !enabled))).accessibility_label(`Use ${item.name}`)
           .on_change((checked, cx) => this.changeEccItem(item, checked, cx))))
       .child(div().text_size(12).text_color(t.muted).child(group.description))
@@ -154,10 +154,12 @@ export const eccSettings = {
       .when(Boolean(item.modules?.length), el => el.child(div().text_size(11).text_color(t.muted).child(`Modules: ${item.modules.join(', ')}`)))
       .child(div().text_size(11).text_color(t.dim).child(item.path))
       .child(Button('ecc-read-description', t, { variant: 'secondary' }).h(28).on_click((_event, cx) => this.showEccSource(item, cx)).child(this.eccShowSource ? 'Hide source description' : 'Read full description'))
-      .when(Boolean(this.eccShowSource), el => el.child(v_flex().id('ecc-original-description').gap(8)
+      .when(Boolean(this.eccShowSource), el => el.child(v_flex().id('ecc-original-description').min_w(0).gap(12).p(16).border(1).border_color(t.border)
+        .child(div().text_size(11).font_semibold().text_color(t.muted).child('DOCUMENT CONTENT'))
         .when(Boolean(this.eccDetailLoading), body => body.child(div().text_size(12).text_color(t.muted).child('Loading description…')))
         .when(Boolean(this.eccDetailError), body => body.child(div().text_size(12).text_color(t.ansi1).child(this.eccDetailError)))
-        .when(this.eccDetailText !== null && !this.eccDetailLoading, body => body.child(TextView.markdown(`ecc-source-${item.id}`, eccDescriptionMarkdown(item, this.eccDetailText))))));
+        .when(this.eccDetailText !== null && !this.eccDetailLoading, body => body.child(TextView.markdown(`ecc-source-${item.id}`, eccDescriptionMarkdown(item, this.eccDetailText))
+          .text_size(13).line_height('20px').font_family('Geist').selectable(true).scrollable(false)))));
   },
   eccProviderPage(t) {
     const provider = this.eccProvider, catalog = this.eccCatalog, groups = eccGroups.filter(group => group.providers.includes(provider));

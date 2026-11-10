@@ -4,36 +4,24 @@ import * as model from '../mods/devkits-agents/global-rules-model.js';
 import { rulesArgv } from '../mods/devkits/components/session-model.js';
 import { evaluateNative } from './source-harness.js';
 
-test('rule switches filter edited sections without losing disabled text or custom heading content', () => {
-  const guide = model.splitRuleGuide(model.defaultRules.replace('Use the `herdr_tasks`', 'Always use the `herdr_tasks`')
-    + '\n## Custom rules\n\nMy instructions\n\n## Herdr task progress\nThis heading is custom.');
-  const selected = model.ruleSelection({ tasks: false, mcp: false });
-  const text = model.composeRuleGuide(guide, selected);
-  assert.match(text, /hc --skill/);
-  assert.doesNotMatch(text, /Always use the `herdr_tasks`/);
-  assert.match(text, /This heading is custom/);
-  const saved = model.composeRuleGuide(guide, model.ruleSelection());
-  const reopened = model.splitRuleGuide(saved);
-  assert.equal(reopened.custom, guide.custom);
-  assert.match(reopened.sections.tasks, /Always use/);
-  assert.equal(model.composeRuleGuide(guide, model.ruleSelection({ core: false, tasks: false, mcp: false, visual_studio: false, custom: false })), '');
+test('Global Rules contains only custom instructions and preserves their headings', () => {
+  assert.deepEqual(model.ruleSelection(), { custom: true });
+  assert.equal(model.defaultRules, '');
+  const guide = model.splitRuleGuide('# Global rules\n\n## Custom rules\n\nMy instructions\n\n## Deployment\nKeep this.');
+  const text = model.composeRuleGuide(guide, model.ruleSelection());
+  assert.match(text, /My instructions/); assert.match(text, /## Deployment/);
+  assert.equal(model.composeRuleGuide(guide, { custom: false }), '');
 });
 
-test('ordinary and profile launch arguments receive only selected rules for both providers', async () => {
+test('both providers receive custom global text without built-in instructions', async () => {
   const { sessionRules } = await evaluateNative('../mods/devkits-agents/global-rules.js', {
-    ...model, rulesPath: () => '/guide/AGENTS.md', readTextFile: async () => model.defaultRules,
-    shared: () => ({ core: false, tasks: true, mcp: false, visual_studio: false, custom: false }),
+    ...model, rulesPath: () => '/guide/AGENTS.md', readTextFile: async () => 'My custom policy.', shared: () => undefined,
   }, 'sessionRules');
   const rules = await sessionRules();
-  assert.match(rules.text, /report_task/);
-  assert.doesNotMatch(rules.text, /hc --skill|MCP installation/);
   for (const kind of ['claude', 'codex']) {
-    for (const extra of ['', 'Review carefully.']) {
-      const argv = rulesArgv({ key: kind }, [kind], rules, extra);
-      assert.doesNotMatch(argv.join(' '), /hc --skill|MCP installation|append-system-prompt-file/);
-      assert.match(argv.join(' '), /report_task/);
-      assert.equal(argv.join(' ').includes('Review carefully.'), Boolean(extra));
-    }
+    const argv = rulesArgv({ key: kind }, [kind], rules, 'Review carefully.').join(' ');
+    assert.match(argv, /My custom policy/); assert.match(argv, /Review carefully/);
+    assert.doesNotMatch(argv, /hc --skill|report_task|MCP installation/);
   }
 });
 
@@ -64,7 +52,7 @@ test('settings keep checkbox edits as drafts and preserve them after a concurren
   }, 'globalRulesSettings');
   const view = { ...globalRulesSettings }, cx = { notify() {}, spawn: fn => jobs.push(fn(cx)) };
   view.initGlobalRules(cx); await Promise.all(jobs.splice(0));
-  view.rulesSelection.core = false;
+  view.rulesSelection.custom = false;
   view.rulesCustom.set_value('My policy');
   assert.deepEqual(memory, {}, 'Drafts do not change active injection');
   const before = source;
@@ -76,8 +64,13 @@ test('settings keep checkbox edits as drafts and preserve them after a concurren
   assert.match(view.rulesError, /File changed/);
   conflict = false;
   view.saveGlobalRules(cx); await Promise.all(jobs.splice(0));
-  assert.equal(memory[model.ruleSettingsKey].core, false);
-  assert.match(source, /hc --skill/, 'Unchecked content stays saved');
+  assert.equal(memory[model.ruleSettingsKey].custom, false);
+  assert.match(source, /My policy/, 'Unchecked content stays saved');
   assert.match(source, /My policy/);
   assert.equal(view.rulesSaved, true);
+});
+
+test('all built-in policy is owned by Devkits Skills', () => {
+  assert.deepEqual(model.ruleModules, []);
+  assert.equal(model.composeRuleGuide(model.splitRuleGuide(model.defaultRules), model.ruleSelection()), '');
 });
