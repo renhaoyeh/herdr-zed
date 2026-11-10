@@ -34,7 +34,7 @@ implementation needs to be mounted. The initial extension API supports popup ent
 An extension mod owns extension.json with version, id, title and an actions list.
 Each action declares id, title, icon, location=status.right and popup dimensions,
 modal flag and view. The shell reads declarations from registered packages and
-opens the provider mod only when the user clicks its entry. No provider JavaScript
+opens provider popup views only when the user clicks an entry. Enabled packages may also declare service views; these mount in the existing separator row. No provider JavaScript
 is imported into the shell. Project context is captured when the popup opens;
 provider bindings are scoped to that extension, machine and project folder.
 
@@ -47,7 +47,7 @@ node herdr/install-zed-extension.js devkits-asana
 This adds the package when missing and registers it in
 `data/devkits-zed/extensions.json`. Existing provider code, credentials and other
 registrations are preserved. In an already open workspace, run the native command
-`devkits-zed.extensions-refresh` to reload declarations. The Asana action then
+`devkits-zed.extensions-refresh` to reload declarations. The registered action then
 appears in the bottom bar and opens its existing dialog. The standalone browser
 has no Tasks import receiver and hides the import action.
 
@@ -55,3 +55,19 @@ The shell has no package-specific branches. Position controls, docking, generic
 editor views are outside this first popup version.
 
 Open **Extensions** using the four-block icon at the bottom-right of the status bar to view registered extensions and enable or disable them immediately. The choice persists across restarts. Disabling removes its status entry and blocks new activation; existing popup windows and provider connection data are retained. Refresh reloads the registry and declarations. This manager does not yet install or remove packages.
+
+The same installer accepts `devkits-mantisbt`, `devkits-system` and `devkits-simulator`.
+Each can be enabled or disabled independently through Extensions. MantisBT opens
+its existing browser without a Tasks import receiver. SYSTEM opens its existing
+details and declares `services: [{ "view": "service" }]`; the host mounts that
+provider service while enabled, without a second sampler in its popup. Disabling
+SYSTEM unmounts its service and stops updates to any existing details popup.
+The simulator opens its original panel in a closable popup; its original dock
+continues to work in Devkits.
+
+Optional `dependencies` lists safe sibling mod names needed by a package. The
+simulator declares `["devkits-sim-frames"]` for its image directory. Installation
+adds missing supporting packages, preserves existing packages and runtime data,
+and registers only the requested extension. Disabling never deletes these files.
+The host imports no provider implementation and never discovers simulator devices
+or starts streaming during manifest discovery.

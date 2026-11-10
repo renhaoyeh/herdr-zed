@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { parseExtensionRegistry, parseExtensionManifest, extensionPopup } from '../mods/devkits-zed/extension-model.js';
+import { parseExtensionRegistry, parseExtensionManifest, extensionPopup, extensionMetadata, extensionServiceLayout } from '../mods/devkits-zed/extension-model.js';
 import { installZed } from '../install-zed.js';
 import { installZedExtension } from '../install-zed-extension.js';
 import { evaluateNative } from './source-harness.js';
@@ -36,12 +36,13 @@ test('registry and manifest validation reject unsupported versions, paths and co
   assert.throws(() => parseExtensionManifest('devkits-asana', JSON.stringify({ ...manifest, actions: [manifest.actions[0], manifest.actions[0]] })));
 });
 
-const runtime = async readTextFile => {
-  const memory = {}, opened = [], notices = [];
+const runtime = async (readTextFile, initialLayout = null) => {
+  let root = initialLayout;
+  const memory = {}, opened = [], notices = [], layoutUpdates = [];
   const host = { shared: key => memory[key], setShared: (key, value) => { memory[key] = structuredClone(value); },
-    appHome: () => '/herdr', readTextFile, openOverlay: value => { opened.push(value); return 'overlay'; }, notify: value => notices.push(value),
-    parseExtensionRegistry, parseExtensionManifest, extensionPopup };
-  return { memory, opened, notices, ...await evaluateNative('../mods/devkits-zed/extensions.js', host,
+    appHome: () => '/herdr', readTextFile, layout: () => root, run: (command, args) => { assert.equal(command, 'layout.set'); root = args.layout; layoutUpdates.push(root); }, openOverlay: value => { opened.push(value); return 'overlay'; }, notify: value => notices.push(value),
+    parseExtensionRegistry, parseExtensionManifest, extensionPopup, extensionMetadata, extensionServiceLayout };
+  return { memory, opened, notices, layoutUpdates, ...await evaluateNative('../mods/devkits-zed/extensions.js', host,
     'refreshExtensions, openExtension, extensionCatalog, extensionEnabled, setExtensionEnabled') };
 };
 
@@ -111,4 +112,77 @@ test('disabled extensions retain declarations, block activation and restore with
   assert.equal(r.extensionEnabled('other-mod'), false);
   r.openExtension('asana.open', null);
   assert.equal(r.opened.length, 1);
+});
+
+test('service mounts follow enable/remove and preserve workspace geometry and unrelated children', () => {
+  const marker = { id: 'custom', type: 'row', children: [] };
+  const root = { id: 'workspace', children: [{ id: 'editor', size: { weight: 1.6 } },
+    { id: 'status-separator', type: 'row', size: { px: 1 }, background: 'border', children: [marker] }] };
+  const packages = [{ mod: 'devkits-system', services: [{ view: 'service' }] }];
+  const mounted = extensionServiceLayout(root, packages);
+  assert.deepEqual(root.children[1].children, [marker], 'Input is immutable');
+  assert.deepEqual(mounted.children[0], root.children[0]);
+  assert.equal(mounted.children[1].size.px, 1);
+  assert.deepEqual(mounted.children[1].children[0], marker);
+  assert.equal(mounted.children[1].children[1].content.mod, 'devkits-system');
+  assert.equal(extensionServiceLayout(mounted, packages), null, 'Repeated refresh does not remount sampler');
+  assert.deepEqual(extensionServiceLayout(mounted, packages, ['devkits-system']), root);
+  assert.deepEqual(extensionServiceLayout(mounted, []), root);
+  assert.equal(extensionServiceLayout({ children: [] }, packages), null, 'Other layouts remain untouched');
+  const existing = { ...root, children: [...root.children, { content: { mod: 'devkits-system', props: { view: 'service' } } }] };
+  assert.equal(extensionServiceLayout(existing, packages), null, 'Existing owner is never duplicated');
+});
+
+test('service and dependency metadata reject paths, duplicates and arbitrary service props', () => {
+  for (const patch of [{ dependencies: ['../escape'] }, { dependencies: ['devkits-asana'] },
+    { dependencies: ['same', 'same'] }, { services: [{ view: '../service' }] },
+    { services: [{ view: 'service', mod: 'other' }] }, { services: [{ view: 'service' }, { view: 'service' }] }])
+    assert.throws(() => parseExtensionManifest('devkits-asana', JSON.stringify({ ...manifest, ...patch })));
+});
+
+test('simulator install adds declared frame package without overwriting existing runtime data', async t => {
+  const home = await mkdtemp(join(tmpdir(), 'zed-simulator-install-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  await installZed(home);
+  await installZedExtension(home, 'devkits-simulator');
+  await readFile(join(home, 'mods/devkits-sim-frames/main.js'));
+  const frame = join(home, 'mods/devkits-sim-frames/frame-0.jpg');
+  await writeFile(frame, 'existing runtime image');
+  await installZedExtension(home, 'devkits-simulator');
+  assert.equal(await readFile(frame, 'utf8'), 'existing runtime image');
+  assert.deepEqual(JSON.parse(await readFile(join(home, 'data/devkits-zed/extensions.json'), 'utf8')).extensions,
+    ['devkits-simulator'], 'Supporting package is not registered as another extension');
+});
+
+test('incomplete dependency aborts installation without changing registry or existing files', async t => {
+  const home = await mkdtemp(join(tmpdir(), 'zed-dependency-install-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  await installZed(home);
+  await mkdir(join(home, 'mods/devkits-sim-frames'));
+  await writeFile(join(home, 'mods/devkits-sim-frames/user.txt'), 'keep');
+  await assert.rejects(installZedExtension(home, 'devkits-simulator'), /Incomplete/);
+  assert.equal(await readFile(join(home, 'mods/devkits-sim-frames/user.txt'), 'utf8'), 'keep');
+  await assert.rejects(readFile(join(home, 'data/devkits-zed/extensions.json')), { code: 'ENOENT' });
+  await assert.rejects(readFile(join(home, 'mods/devkits-simulator/main.js')), { code: 'ENOENT' });
+});
+
+
+test('runtime refresh mounts one enabled service and disabling removes it without remounting on refresh', async () => {
+  const text = await readFile(new URL('../mods/devkits-system/extension.json', import.meta.url), 'utf8');
+  const root = { children: [{ id: 'status-separator', type: 'row', children: [], size: { px: 1 } }] };
+  const r = await runtime(async path => path.endsWith('extensions.json')
+    ? '{"version":1,"extensions":["devkits-system"]}' : text, root);
+  await r.refreshExtensions();
+  assert.equal(r.layoutUpdates.length, 1);
+  assert.equal(r.layoutUpdates[0].children[0].children[0].content.props.view, 'service');
+  await r.refreshExtensions();
+  assert.equal(r.layoutUpdates.length, 1);
+  r.setExtensionEnabled('devkits-system', false);
+  assert.deepEqual(r.layoutUpdates.at(-1), root);
+  r.openExtension('system.open', null);
+  assert.equal(r.opened.length, 0);
+  await r.refreshExtensions();
+  assert.equal(r.layoutUpdates.length, 2);
+  r.setExtensionEnabled('devkits-system', true);
+  assert.equal(r.layoutUpdates.length, 3);
 });

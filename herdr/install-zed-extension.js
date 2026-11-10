@@ -2,7 +2,7 @@ import { access, cp, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'nod
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parseExtensionRegistry, parseExtensionManifest } from './mods/devkits-zed/extension-model.js';
+import { parseExtensionRegistry, parseExtensionManifest, extensionMetadata } from './mods/devkits-zed/extension-model.js';
 
 const read = async path => readFile(path, 'utf8').catch(error => { if (error.code === 'ENOENT') return null; throw error; });
 
@@ -17,20 +17,27 @@ export async function installZedExtension(home, mod) {
   const before = await read(registryPath), mods = parseExtensionRegistry(before);
   const existing = await read(manifestPath);
   if (existing !== null) parseExtensionManifest(mod, existing);
-  let installed = false, manifestAdded = false, temporary;
+  const { dependencies } = extensionMetadata(mod, existing ?? manifest);
+  const installed = [];
+  let manifestAdded = false, temporary;
+  const installPackage = async name => {
+    const target = join(home, 'mods', name);
+    try { await access(join(target, 'main.js')); return false; }
+    catch (error) { if (error.code !== 'ENOENT') throw error; }
+    // An incomplete or user-owned directory is never merged or overwritten.
+    try { await access(target); throw new Error(`Incomplete extension mod already exists: ${target}`); }
+    catch (error) { if (error.code !== 'ENOENT') throw error; }
+    temporary = await mkdtemp(join(home, 'mods/.zed-extension-'));
+    await cp(new URL(`./mods/${name}/`, import.meta.url), temporary, { recursive: true,
+      filter: path => !path.endsWith('/gpui-kit.d.ts') && !path.endsWith('/jsconfig.json') });
+    await access(join(temporary, 'main.js'));
+    await rename(temporary, target); temporary = null; installed.push(target);
+    return true;
+  };
   try {
-    try { await access(join(destination, 'main.js')); }
-    catch (error) {
-      if (error.code !== 'ENOENT') throw error;
-      // Existing incomplete directories are never replaced.
-      try { await access(destination); throw new Error(`Incomplete extension mod already exists: ${destination}`); }
-      catch (missing) { if (missing.code !== 'ENOENT') throw missing; }
-      temporary = await mkdtemp(join(home, 'mods/.zed-extension-'));
-      await cp(source, temporary, { recursive: true,
-        filter: path => !path.endsWith('/gpui-kit.d.ts') && !path.endsWith('/jsconfig.json') });
-      await rename(temporary, destination); temporary = null; installed = true;
-    }
-    if (!installed && existing === null) { await writeFile(manifestPath, manifest, { flag: 'wx' }); manifestAdded = true; }
+    for (const dependency of dependencies) await installPackage(dependency);
+    const added = await installPackage(mod);
+    if (!added && existing === null) { await writeFile(manifestPath, manifest, { flag: 'wx' }); manifestAdded = true; }
     if (!mods.includes(mod)) {
       await mkdir(join(home, 'data/devkits-zed'), { recursive: true });
       const path = `${registryPath}.new-${process.pid}`;
@@ -41,8 +48,8 @@ export async function installZedExtension(home, mod) {
       } finally { await rm(path, { force: true }); }
     }
   } catch (error) {
-    if (installed) await rm(destination, { recursive: true, force: true });
-    else if (manifestAdded) await rm(manifestPath, { force: true });
+    for (const path of installed.reverse()) await rm(path, { recursive: true, force: true });
+    if (manifestAdded) await rm(manifestPath, { force: true });
     throw error;
   } finally { if (temporary) await rm(temporary, { recursive: true, force: true }); }
   return { mod, registry: registryPath };

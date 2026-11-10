@@ -19,6 +19,7 @@ export function parseExtensionManifest(mod, text) {
   const value = JSON.parse(text);
   if (!value || value.version !== 1 || !name(value.id) || !title(value.title) || !Array.isArray(value.actions))
     throw new Error('Invalid extension manifest.');
+  validateMetadata(mod, value);
   const ids = new Set();
   return value.actions.map(action => {
     if (!action || !name(action.id) || ids.has(action.id) || !title(action.title)
@@ -32,6 +33,47 @@ export function parseExtensionManifest(mod, text) {
       location: action.location,
       popup: { view: action.popup.view, width: action.popup.width, height: action.popup.height, modal: action.popup.modal } };
   });
+}
+
+function validateMetadata(mod, value) {
+  const dependencies = value.dependencies ?? [], services = value.services ?? [];
+  if (!Array.isArray(dependencies) || dependencies.length > 16 || dependencies.some(item => !name(item) || item === mod)
+    || new Set(dependencies).size !== dependencies.length) throw new Error('Invalid extension dependencies.');
+  if (!Array.isArray(services) || services.length > 8 || services.some(item => !item || !name(item.view)
+    || Object.keys(item).some(key => key !== 'view')) || new Set(services.map(item => item.view)).size !== services.length)
+    throw new Error('Invalid extension services.');
+}
+
+export function extensionMetadata(mod, text) {
+  parseExtensionManifest(mod, text);
+  const value = JSON.parse(text);
+  return { title: value.title, dependencies: value.dependencies || [], services: (value.services || []).map(({ view }) => ({ view })) };
+}
+
+// Only the shell's existing separator owns extension service mounts. Preserve all other layout nodes.
+export function extensionServiceLayout(root, packages, disabled = []) {
+  if (!root) return null;
+  const prefix = 'zed-extension-service-';
+  let changed = false;
+  const contains = (node, mod, view) => Boolean(node && (!node.id?.startsWith(prefix)
+    && node.content?.mod === mod && node.content.props?.view === view
+    || node.children?.some(child => contains(child, mod, view))));
+  const visit = node => {
+    if (node.id === 'status-separator' && node.type === 'row') {
+      const unmanaged = (node.children || []).filter(child => !child.id?.startsWith(prefix));
+      const owned = packages.filter(entry => !entry.error && !disabled.includes(entry.mod)).flatMap(entry =>
+        (entry.services || []).filter(service => !contains(root, entry.mod, service.view)).map(service => ({
+          id: `${prefix}${entry.mod}-${service.view}`, type: 'block',
+          content: { mod: entry.mod, props: { view: service.view } },
+        })));
+      const children = [...unmanaged, ...owned];
+      if (JSON.stringify(children) === JSON.stringify(node.children || [])) return node;
+      changed = true; return { ...node, children };
+    }
+    return node.children ? { ...node, children: node.children.map(visit) } : node;
+  };
+  const next = visit(root);
+  return changed ? next : null;
 }
 
 export function extensionPopup(action, project) {
