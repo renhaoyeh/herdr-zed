@@ -21,6 +21,13 @@ export async function discoverAgents(machine, refresh = false) {
       if (!machine) {
         const source = await readTextFile(`${appHome()}/programs.json`);
         const programs = source === null ? {} : JSON.parse(source).programs || {};
+        // A just-saved account may precede the native programs watcher. Its
+        // provider was already discovered; use the saved launcher immediately.
+        for (const [key, entry] of Object.entries(programs)) {
+          if (!isAccountLauncher({ key }) || agents.some(agent => agent.key === key) || !Array.isArray(entry?.run)) continue;
+          const base = agents.find(agent => agent.key === sessionKind({ key }));
+          if (base) agents.push({ ...base, ...entry, key, installed: true });
+        }
         agents = agents.filter(agent => !isAccountLauncher(agent) || Object.hasOwn(programs, agent.key))
           .map(agent => typeof programs[agent.key]?.name === 'string'
           ? { ...agent, name: programs[agent.key].name } : agent);
