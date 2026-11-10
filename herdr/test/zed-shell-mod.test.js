@@ -15,8 +15,8 @@ const ui = (id = null) => {
   const proxy = new Proxy(data, { get(target, key) {
     if (key in target) return target[key];
     return (...args) => {
-      if (key === 'child') target.nodes.push(args[0]);
-      else if (key === 'children') target.nodes.push(...args[0]);
+      if (key === 'child') { assert.notEqual(args[0], null, 'Native child rejects null'); assert.notEqual(args[0], undefined, 'Native child rejects undefined'); target.nodes.push(args[0]); }
+      else if (key === 'children') { for (const child of args[0]) assert.ok(child !== null && child !== undefined, 'Native children rejects empty values'); target.nodes.push(...args[0]); }
       else if (key === 'when') { if (args[0]) args[1](proxy); }
       else if (key === 'on_click') target.click = args[0];
       else target.attributes[key] = args[0];
@@ -97,6 +97,7 @@ test('native sidebar, pane menu, dock controls and empty editor render without e
     layoutNode: (node, id) => objects(node).find(value => value.id === id), conversationMaximized: () => false, maximizeConversation() {},
     WorkspaceEditor: class { init() {} render(_project, context, options) { return options.empty(); } },
     NativeLauncher: class {}, createNativeThread() {},
+    openExtensions: () => {}, ExtensionSlot: () => null,
   };
   for (const name of ['Button', 'ToolbarButton', 'Sidebar', 'SidebarContent', 'SidebarGroup', 'SidebarGroupLabel', 'SidebarMenuButton', 'SidebarTreeMenuButton', 'SidebarFooter',
     'DropdownMenu', 'DropdownMenuTrigger', 'DropdownMenuContent', 'DropdownMenuItem', 'DropdownMenuLabel', 'DropdownMenuSeparator',
@@ -113,6 +114,8 @@ test('native sidebar, pane menu, dock controls and empty editor render without e
   target = { view: 'header' }; const header = view.render(cx);
   target = { view: 'status' }; const bottom = view.render(cx);
   assert.ok(elements(bottom).some(element => element.attributes.id === 'open-files'));
+  assert.ok(elements(bottom).some(element => element.attributes.id === 'manage-extensions'));
+  assert.ok(!elements(sidebar).some(element => element.attributes.id === 'manage-extensions'));
   target = { view: 'editor' }; view.init(null, cx); const editor = view.render(cx);
   assert.match(text(editor), /Start a thread/);
   assert.doesNotMatch([sidebar, pane, header, bottom, editor].map(text).join(' '), /Agent settings|Calendar|MantisBT|Asana|SYSTEM|USAGE|Interface settings/);

@@ -10,7 +10,9 @@ Agent status display, files, previews, Git changes, pane layout and focus.
 
 Do not add Devkits account settings, Tasks, Calendar, Usage, SYSTEM, source
 browsers, Simulator, runner, transcript archiving, data reset or policy injection
-to this shell. Future functional additions must use explicit extension interfaces.
+to this shell. Functional additions must use explicit extension interfaces. The initial contract
+allows declared popup entries in the status bar; provider UI and credentials stay
+in the provider mod. Keep location controls and docking out of this first version.
 Use Herdr knownAgents and native tab/space commands for thread creation.
 
 Check source and installed mods, then inspect the affected running states. Never

@@ -12,6 +12,8 @@ import { ProjectLayout, layoutNode, conversationMaximized, maximizeConversation 
 import { NativeLauncher } from './native-launcher.js';
 import { createNativeThread } from './native-threads.js';
 import { startPanel } from './start-panel.js';
+import { ExtensionsManager, openExtensions } from './extensions-manager.js';
+import { ExtensionSlot, refreshExtensions, openExtension } from './extensions.js';
 import { DropdownMenu, DropdownMenuState, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from './components/dropdown-menu.js';
 import { Button, ToolbarButton } from './components/button.js';
 import { AlertDialogContent, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from './components/alert-dialog.js';
@@ -41,19 +43,26 @@ const conversationVisible = (project, all, modelPanes) => Boolean(hasConversatio
 export default class Devkits extends View {
   init(_props, cx) {
     const view = props()?.view;
+    if (view === 'extensions') { this.extensionsManager = new ExtensionsManager(); this.extensionsManager.init(cx); return; }
     if (view === 'launcher') { this.launcher = new NativeLauncher(); this.launcher.init(cx); return; }
     if (view === 'diff-ignore-settings') { this.buildRulesSettings = new BuildRulesSettings(); this.buildRulesSettings.init(cx); return; }
     if (view === 'status') { clearGitToast(); setShared('devkits.git-output-request', null); }
     if (view === 'pane') { this.threadMenu = new DropdownMenuState(cx); return; }
     if (view === 'file-menu') { this.fileMenu = new FileMenu(); this.fileMenu.init(cx); return; }
     if (view === 'branch-menu') { this.branchMenu = new BranchMenu(); this.branchMenu.init(cx); return; }
-    if (view === 'header') cx.spawn(async cx => {
+    if (view === 'header') {
+      cx.spawn(async cx => { await refreshExtensions(); cx.notify(); });
+      cx.spawn(async cx => {
       for (;;) {
         const command = await nextCommand();
         if (command === 'new-thread') this.newThread(cx);
         if (command === 'reveal-conversation') this.showConversation(true);
+        if (command === 'extensions') openExtensions();
+        if (command === 'extensions-refresh') { await refreshExtensions(); cx.notify(); }
+        if (command.startsWith('extension:')) openExtension(command.slice('extension:'.length), this.projects().find(project => project.active));
       }
-    });
+      });
+    }
     if (view === 'editor') {
       this.editor = new WorkspaceEditor(); this.editor.init(cx); this.files = this.editor.files;
       cx.spawn(async cx => {
@@ -395,6 +404,9 @@ export default class Devkits extends View {
         .on_click(() => this.showConversation(!conversationVisible(space))).child(glyph('agent'))))
       .when(Boolean(space?.machine), el => el.child(h_flex().flex_none().gap(8).items_center().child(glyph('terminal', 12)).child(space.machine)))
       .child(div().flex_1())
+      .children([ExtensionSlot('status.right', t, space)].filter(Boolean))
+      .child(ToolbarButton('manage-extensions', t, { icon: true }).accessibility_label('Manage extensions')
+        .on_click(openExtensions).child(glyph('extensions', 16)))
       .when(Boolean(space), el => el.child(h_flex().id('status-panel-actions').flex_none().h_full().gap(0)
         .child(ToolbarButton('open-diff', t, { icon: true, selected: showing('diff') })
           .accessibility_label(showing('diff') ? 'Hide changes' : 'Show changes')
@@ -540,6 +552,7 @@ export default class Devkits extends View {
 
   renderView(cx) {
     const t = theme();
+    if (props()?.view === 'extensions') return this.extensionsManager.render(t);
     if (props()?.view === 'diff-ignore-settings') return this.buildRulesSettings.render(t);
     if (props()?.view === 'launcher') return this.launcher.render(t);
     if (props()?.view === 'file-menu') return this.fileMenu.render();
