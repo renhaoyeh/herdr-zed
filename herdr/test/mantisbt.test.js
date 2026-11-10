@@ -65,6 +65,33 @@ test('MantisBT applies custom field choices to its table and details independent
   assert.ok(!texts.includes('Investigate')); assert.equal(panel.snapshot().customFields[0].value, 'Investigate');
 });
 
+test('detail Import button is interactive only when a Tasks receiver is available', async () => {
+  const nodes = new Map(), clicks = new Map();
+  const tracked = id => {
+    const proxy = new Proxy({}, { get: (_target, key) => {
+      if (key === 'when') return (condition, render) => { if (condition) render(proxy); return proxy; };
+      return (...args) => { if (key === 'id') nodes.set(args[0], proxy); if (key === 'on_click' && typeof id === 'string') clicks.set(id, args[0]); return proxy; };
+    } });
+    if (typeof id === 'string') nodes.set(id, proxy);
+    return proxy;
+  };
+  const { MantisPanel, taskSourceOptions } = await load({ div: tracked, h_flex: tracked, v_flex: tracked, Button: tracked });
+  const { cx } = harness();
+  const imported = [], task = { gid: '42', name: 'Issue 42', notes: '', comments: [{ text: 'Context' }], customFields: [] };
+  const panel = new MantisPanel({ ...taskSourceOptions('mantisbt'), onImport: value => imported.push(value) });
+  panel.init(cx);
+  panel.server = connection.url;
+  panel.detail = task;
+  panel.detailPage(value => panel.import(value));
+  assert.ok(nodes.has('mantis-import'));
+  clicks.get('mantis-import')();
+  assert.equal(imported[0].gid, task.gid);
+
+  nodes.clear(); clicks.clear(); panel.onImport = undefined;
+  panel.detailPage(value => panel.import(value));
+  assert.ok(!nodes.has('mantis-import'));
+});
+
 test('server URLs preserve installation paths and accept an API URL without credentials, query or fragments', async () => {
   const { normalizeUrl } = await load();
   for (const url of [' https://tracker.test/mantis/ ', 'https://tracker.test/mantis/api/rest/', 'https://tracker.test/mantis/api/rest/index.php'])

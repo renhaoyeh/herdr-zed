@@ -383,8 +383,8 @@ export default class MantisPanel extends TaskSourceController {
         .children(visible.filter(field => field.id.startsWith('custom:')).map(field =>
           full(field.name, this.fieldValue(task, field)).id(`mantis-custom-detail-${field.id}`)))
         .when(standard.some(field => field.id === 'tags'), el => el.child(full('Tags', task.tags?.join(', ') || 'No tags attached.')))
-        .child(h_flex().p(10).justify_end().bg('#f5f5f5').border_t(1).border_color(rule)
-          .child(button('mantis-import', this.importLabel, () => importTask(task), { primary: true, icon: 'plus', disabled: !this.onImport || (!task.comments && !task.commentsError) }))))
+        .when(Boolean(this.onImport), el => el.child(h_flex().p(10).justify_end().bg('#f5f5f5').border_t(1).border_color(rule)
+          .child(button('mantis-import', this.importLabel, () => importTask(task), { primary: true, icon: 'plus', disabled: !task.comments && !task.commentsError })))))
       .when(Boolean(task.parent) || task.subtasks > 0, el => el.child(widget().id('mantis-relationships')
         .child(widgetHeader('mantis-relationships-header', 'Relationships', 'list-tree'))
         .when(task.subtasks > 0 && !children, el => el.child(div().p(12).child('Loading relationships…')))

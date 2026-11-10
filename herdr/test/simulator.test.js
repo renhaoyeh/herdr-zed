@@ -131,7 +131,7 @@ test('the device menu shuts down the chosen simulator after closing itself', asy
 
 test('the panel waits for the window platform before deciding the simulator is unsupported', async () => {
   let platform = null;
-  const { SimulatorPanel } = await load({ window: () => platform && { platform } });
+  const { SimulatorPanel } = await load({ props: () => ({}), window: () => platform && { platform } });
   const timers = [], tasks = [];
   const cx = { focus_handle() {}, notify() {}, timer: { after: (_ms, fn) => timers.push(fn) },
     spawn(fn) { tasks.push(fn(cx)); } };

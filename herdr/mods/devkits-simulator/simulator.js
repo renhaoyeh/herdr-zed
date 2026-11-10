@@ -195,6 +195,7 @@ export const simulatorShown = root => { const node = findNode(root, 'simulator')
 
 export default class SimulatorPanel {
   init(cx) {
+    this.popup = props()?.view === 'simulator-popup';
     // phase: starting | no-device | shutdown | booting | repairing | live | error | unsupported
     this.phase = { kind: 'starting', device: null };
     this.touch = null;
@@ -236,6 +237,13 @@ export default class SimulatorPanel {
 
   target() { return targetDevice(this.devices, shared(DEVICE)); }
 
+  async adopt(sessionPromise) {
+    this.session = await sessionPromise;
+    if (!this.closed) return true;
+    await this.release();
+    return false;
+  }
+
   // Pauses while another window (the Chrome preview) shows this device, so it never streams twice.
   // A background lsof refreshes the answer at most every CHECK_MS; the last answer is used meanwhile.
   away(now = Date.now()) {
@@ -262,7 +270,7 @@ export default class SimulatorPanel {
     while (!this.closed) {
       let device = null;
       try {
-        if (!simulatorShown(layout())) { this.socket?.close(); await sleep(cx, 500); continue; }
+        if (!this.popup && !simulatorShown(layout())) { this.socket?.close(); await sleep(cx, 500); continue; }
         if (this.away()) {
           this.socket?.close();
           if (this.phase.kind !== 'elsewhere') this.set({ kind: 'elsewhere', device: this.session.device }, cx);
@@ -270,6 +278,7 @@ export default class SimulatorPanel {
           continue;
         }
         this.devices = await listSimulators();
+        if (this.closed) return;
         device = this.target();
         if (!device) { this.set({ kind: 'no-device' }, cx); await sleep(cx, 2000); continue; }
         if (!device.booted) {
@@ -282,13 +291,15 @@ export default class SimulatorPanel {
           setShared(REPAIR, null);
           this.set({ kind: 'repairing', device }, cx);
           await serveSim(['repair-input', '-d', device.id]);
+          if (this.closed) return;
           // A running helper keeps the input it opened before the repair.
           await this.release(true);
         }
         if (this.session?.device.id !== device.id) {
           await this.release();
+          if (this.closed) return;
           this.set({ kind: 'starting', device }, cx);
-          this.session = await startHelper(device);
+          if (!await this.adopt(startHelper(device))) return;
         }
         await this.stream(cx);
       } catch (error) {
@@ -326,7 +337,7 @@ export default class SimulatorPanel {
         if (len < end) break;
         const now = Date.now();
         if (length && now >= due) {
-          if (!simulatorShown(layout()) || this.away()) break read;
+          if ((!this.popup && !simulatorShown(layout())) || this.away()) break read;
           due = Math.max(due, now - FRAME_MS) + FRAME_MS;
           // A view, not a copy: buf is only reused after the awaited write, and copies at 30 fps
           // exhaust the mod's memory.
@@ -407,8 +418,9 @@ export default class SimulatorPanel {
         .when(!this.session?.preview, el => el.opacity(0.5))
         .on_click((_e, cx) => { const url = this.session?.preview; if (url) cx.spawn(() => openPreviewWindow(url)); })
         .child(glyph('external-link'))))
-      .child(Button('close-simulator', t, { variant: 'ghost', size: 'icon' }).h_full().w(32).accessibility_label('Hide simulator')
-        .on_click(() => toggleSimulator()).child(glyph('close')));
+      .child(Button('close-simulator', t, { variant: 'ghost', size: 'icon' }).h_full().w(32)
+        .accessibility_label(this.popup ? 'Close simulator' : 'Hide simulator')
+        .on_click(() => closeSimulator(this.popup)).child(glyph('close')));
   }
 
   toolbar(t) {
@@ -474,6 +486,7 @@ export default class SimulatorPanel {
 }
 
 export const toggleSimulator = () => run('layout.toggle', { id: 'simulator' });
+export const closeSimulator = popup => popup ? closeOverlay(props()?.overlay) : toggleSimulator();
 
 // The device picker popup: every available simulator, booting the one chosen if it is off.
 export class SimulatorMenu {

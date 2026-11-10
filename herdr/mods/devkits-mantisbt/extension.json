@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "id": "mantisbt",
+  "title": "MantisBT",
+  "actions": [
+    {
+      "id": "open",
+      "title": "MantisBT",
+      "icon": "list-todo",
+      "popup": {
+        "view": "browser",
+        "width": 0.9,
+        "height": 0.86,
+        "modal": false
+      },
+      "location": "status.right"
+    }
+  ]
+}

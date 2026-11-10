@@ -2,6 +2,7 @@ import { cpus, totalmem, uptime, loadavg } from 'node:os';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { resolve } from 'node:path';
+import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { macTopology } from './components/system-monitor-topology.js';
 import { readWindowsHardware, windowsReadings } from './hardware-windows.js';
@@ -155,7 +156,7 @@ export async function readHardware(previous = null, options = {}) {
     network, battery: common.battery, ...sensorData, platform, updatedAt: Date.now() };
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (process.argv[1] && realpathSync(resolve(process.argv[1])) === realpathSync(fileURLToPath(import.meta.url))) {
   const deadline = setTimeout(() => process.exit(1), 15000);
   try { console.log(JSON.stringify(await readHardware(JSON.parse(process.argv[2] || 'null'), JSON.parse(process.argv[3] || '{}')))); }
   catch { process.exitCode = 1; }
