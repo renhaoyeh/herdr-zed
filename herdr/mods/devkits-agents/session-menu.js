@@ -444,7 +444,7 @@ export const sessionMenu = {
           .children(pages.map(item => Button(`settings-page-${item.id}`, t, { variant: 'ghost' }).h(32).px(8).gap(8).justify_start()
             .bg(item.id === page ? t.selected : t.popover).text_color(item.id === page ? t.foreground : t.muted)
             .accessibility_label(`${item.label} settings${item.id === page ? ', selected' : ''}`)
-            .on_click((_event, cx) => { this.settingsPage = item.id; if (item.id === 'global-rules') this.initGlobalRules(cx); if (item.id === 'shared-mcp' && !this.mcpServers) this.initSharedMcp(cx); cancelDrag(cx); cx.notify(); })
+            .on_click((_event, cx) => { this.settingsPage = item.id; if (item.id === 'global-rules') this.initGlobalRules(cx); if (item.id === 'shared-mcp' && !this.mcpRows) this.initSharedMcp(cx); cancelDrag(cx); cx.notify(); })
             .child(div().size(16).flex_none().flex().items_center().justify_center().child(item.icon)).child(item.label))))
         .child(v_flex().h_full().flex_1().min_w(0).min_h(0).gap(8)
           .when(page === 'accounts', el => el.child(this.accountsPage(t, cx)))
