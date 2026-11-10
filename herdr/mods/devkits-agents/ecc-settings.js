@@ -7,11 +7,14 @@ import { parseEcc, eccGroups, eccItemEnabled, chooseEccItem } from './ecc-model.
 import { Switch } from './components/switch.js';
 import { Select, SelectState } from './components/select.js';
 import { Button } from './components/button.js';
+import { glyph, AgentIcon } from './components/icon.js';
 import { DialogTitle, DialogDescription, DialogFooter } from './components/dialog.js';
 
 const eccProviderName = provider => provider === 'claude' ? 'Claude Code' : 'Codex';
 const eccRuntimePath = () => `${appHome()}/mods/devkits-agents/ecc-runtime.js`;
 const eccPageSize = 24;
+const eccCategoryIcons = { rules: 'list-todo', agents: 'agent', skills: 'book-open', commands: 'terminal',
+  hooks: 'refresh-cw', mcp: 'external-link', contexts: 'columns-3', workflows: 'git-graph' };
 const eccDescriptionMarkdown = (item, text) => ['hooks', 'mcp', 'workflows'].includes(item.group)
   ? `\`\`\`${item.path.endsWith('.js') ? 'javascript' : 'json'}\n${text}\n\`\`\``
   : text.replace(/^---\r?\n[\s\S]*?\r?\n---\s*/, '');
@@ -24,7 +27,7 @@ export const eccSettings = {
     this.eccSource = `${appHome()}/data/devkits/ecc-source`;
     this.eccSearch = InputState.new({ placeholder: 'Search names, descriptions, languages or modules…' });
     this.eccSearch.on('change', (_event, cx) => { this.eccListPage = 0; cx.notify(); });
-    this.eccSelect = new SelectState(cx); this.eccSectionSelect = new SelectState(cx);
+    this.eccSelect = new SelectState(cx);
     cx.spawn(async cx => {
       try {
         this.eccOriginal = await readTextFile(eccPath());
@@ -164,22 +167,28 @@ export const eccSettings = {
     const selected = items.find(item => item.id === this.eccSelected);
     return v_flex().h_full().flex_1().min_h(0).gap(10)
       .child(h_flex().items_center().justify_between()
-        .child(div().text_size(13).child(`Use ECC with ${eccProviderName(provider)}`))
+        .child(h_flex().gap(8).items_center()
+          .child(AgentIcon({ icon: `icons/${provider}.svg` }, t))
+          .child(div().text_size(13).child(`Use ECC with ${eccProviderName(provider)}`)))
         .child(Switch('ecc-provider-enabled', this.eccDraft.providerEnabled[provider], t).disabled(Boolean(this.eccSaving))
           .on_change((checked, cx) => { this.eccDraft.providerEnabled[provider] = checked; this.eccSaved = false; cx.notify(); })))
       .when(!this.eccDraft.providerEnabled[provider], el => el.child(div().text_size(12).text_color(t.muted).child('Off for this provider. Your component selections are retained.')))
       .child(div().text_size(12).text_color(t.muted).child(`${eccProviderName(provider)} global components · selected ${all.filter(item => eccItemEnabled(this.eccDraft, provider, item)).length} / ${all.length}`))
-      .child(Select('ecc-component-group', this.eccSectionSelect, this.eccSection, groups.map(group => ({ key: group.id, label: group.label, color: t.foreground })), 'ECC category',
-        (value, cx) => this.selectEccSection(provider, value, cx), t, { fullWidth: true, boxed: true }))
+      .child(h_flex().flex_none().flex_wrap().gap(4).children(groups.map(group =>
+        Button(`ecc-category-${group.id}`, t, { variant: 'ghost' }).h(30).gap(6)
+          .bg(this.eccSection === group.id ? t.selected : t.popover)
+          .accessibility_label(group.label)
+          .on_click((_event, cx) => this.selectEccSection(provider, group.id, cx))
+          .child(glyph(eccCategoryIcons[group.id])).child(group.label.split(' · ')[0]))))
       .when(this.eccSection === 'hooks' && provider === 'claude', el => el.child(Select('ecc-hook-profile', this.eccSelect, this.eccDraft.claudeHooks,
         [{ key: 'off', label: 'Hooks off' }, { key: 'minimal', label: 'Minimal · essential actions' }, { key: 'standard', label: 'Standard · normal checks' }, { key: 'strict', label: 'Strict · includes stricter checks' }].map(item => ({ ...item, color: t.foreground })),
         'Hook mode', (value, cx) => { if (!this.eccSaving) { this.eccDraft.claudeHooks = value; this.eccSaved = false; } cx.notify(); }, t, { fullWidth: true, boxed: true })))
       .when(this.eccSection === 'hooks' && provider === 'codex', el => el.child(div().text_size(12).text_color(t.muted).child('This source provides only SessionStart for Codex. Codex owns the native hook trust decision.')))
       .when(this.eccSection === 'contexts', el => el.child(div().text_size(12).text_color(t.muted).child('Select one working mode, or leave all modes off.')))
       .child(h_flex().gap(8).items_center().child(Input.new(this.eccSearch).h(30).px(8).text_size(12).flex_1().min_w(0).border(1).border_color(t.input).accessibility_label('Search ECC components'))
-        .when(this.eccSection !== 'contexts', el => el.child(Button('ecc-group-enable', t, { variant: 'secondary' }).h(28).disabled(Boolean(this.eccSaving || !catalog))
+        .when(this.eccSection !== 'contexts', el => el.child(Button('ecc-group-enable', t, { variant: 'secondary' }).h(30).disabled(Boolean(this.eccSaving || !catalog))
           .on_click((_event, cx) => { for (const item of items.filter(item => !item.unavailable)) chooseEccItem(this.eccDraft, provider, item, true); this.eccSaved = false; cx.notify(); }).child(query ? 'Use search results' : 'Use all')))
-        .child(Button('ecc-group-disable', t, { variant: 'secondary' }).h(28).disabled(Boolean(this.eccSaving || !catalog))
+        .child(Button('ecc-group-disable', t, { variant: 'secondary' }).h(30).disabled(Boolean(this.eccSaving || !catalog))
           .on_click((_event, cx) => { for (const item of items) chooseEccItem(this.eccDraft, provider, item, false); this.eccSaved = false; cx.notify(); }).child(query ? 'Turn off search results' : 'Turn off all')))
       .child(h_flex().flex_1().min_h(0).items_stretch().gap(12)
         .child(v_flex().w(224).h_full().min_h(0).flex_none().gap(8)
@@ -195,6 +204,13 @@ export const eccSettings = {
           .when(Boolean(selected), el => el.child(this.eccComponentDetails(selected, t)))
           .when(!selected, el => el.child(div().text_size(12).text_color(t.muted).child(items.length ? 'Select a component to read its purpose and change its selection.' : 'No matching components.')))));
   },
+  eccNavigation(t) {
+    return v_flex().pl(16).gap(2).children([{ id: 'overview', label: 'Overview' }, { id: 'claude', label: 'Claude Code' }, { id: 'codex', label: 'Codex' }].map(tab =>
+          Button(`ecc-page-${tab.id}`, t, { variant: 'ghost' }).h(30).w_full().justify_start().gap(8).px(8).bg(this.eccTab === tab.id ? t.selected : t.popover)
+            .on_click((_event, cx) => { if (tab.id === 'overview') { this.eccTab = 'overview'; cx.notify(); } else this.selectEccSection(tab.id, eccGroups.some(group => group.id === this.eccSection && group.providers.includes(tab.id)) ? this.eccSection : 'skills', cx); })
+            .child(tab.id === 'overview' ? glyph('book-open', 16) : AgentIcon({ icon: `icons/${tab.id}.svg` }, t))
+            .child(tab.label)));
+  },
   eccPage(t) {
     const busy = Boolean(this.eccLoading || this.eccSaving), draft = this.eccDraft;
     return v_flex().h_full().flex_1().min_h(0).gap(10)
@@ -204,9 +220,6 @@ export const eccSettings = {
       .child(DialogDescription(t).flex_none().child('Explore the architecture, then choose what Claude Code and Codex use. Settings are global and apply to new sessions after saving.'))
       .when(this.eccLoading, el => el.child(div().text_color(t.muted).child('Loading ECC settings…')))
       .when(Boolean(draft), el => el.child(v_flex().flex_1().min_h(0).gap(10)
-        .child(h_flex().flex_none().gap(4).children([{ id: 'overview', label: 'Overview' }, { id: 'claude', label: 'Claude Code' }, { id: 'codex', label: 'Codex' }].map(tab =>
-          Button(`ecc-tab-${tab.id}`, t, { variant: 'ghost' }).h(30).bg(this.eccTab === tab.id ? t.selected : t.popover)
-            .on_click((_event, cx) => { if (tab.id === 'overview') { this.eccTab = 'overview'; cx.notify(); } else this.selectEccSection(tab.id, eccGroups.some(group => group.id === this.eccSection && group.providers.includes(tab.id)) ? this.eccSection : 'skills', cx); }).child(tab.label))))
         .when(!draft.enabled, body => body.child(div().text_size(12).text_color(t.muted).child('ECC is off. You can prepare selections now; enable ECC and save to apply them.')))
         .when(Boolean(this.eccCatalogLoading), body => body.child(div().text_size(12).text_color(t.muted).child('Loading the component catalog…')))
         .when(Boolean(this.eccCatalogError), body => body.child(div().text_size(12).text_color(t.ansi1).child(this.eccCatalogError)))
