@@ -3,9 +3,9 @@
 # so each needs its own copy.
 button.js: devkits-simulator devkits-system devkits-asana devkits-mantisbt devkits-tasks devkits-calendar devkits-usage devkits-agents devkits-zed
 dropdown-menu.js: devkits-simulator devkits-asana devkits-mantisbt devkits-tasks devkits-agents devkits-zed
-checkbox.js: devkits-system devkits-tasks devkits-calendar devkits-asana devkits-mantisbt devkits-agents devkits-zed
+checkbox.js: devkits-system devkits-tasks devkits-calendar devkits-asana devkits-mantisbt devkits-agents devkits-zed devkits-simulator
 toggle-group.js: devkits-system devkits-agents
-dialog.js: devkits-system devkits-asana devkits-usage devkits-agents devkits-zed
+dialog.js: devkits-system devkits-asana devkits-usage devkits-agents devkits-zed devkits-simulator
 icon.js: devkits-system devkits-tasks devkits-calendar devkits-usage devkits-agents devkits-zed
 system-monitor.js: devkits-system
 system-monitor-model.js: devkits-system
