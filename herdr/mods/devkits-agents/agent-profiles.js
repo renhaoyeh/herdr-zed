@@ -1,5 +1,6 @@
+import { Input } from './components/input.js';
 import { div } from 'gpui-kit';
-import { h_flex, v_flex, InputState, Input, TextareaState, Textarea } from 'gpui-base';
+import { h_flex, v_flex, InputState, TextareaState, Textarea } from 'gpui-base';
 import { shared, setShared, props, openOverlay, closeOverlay } from 'herdr';
 import { sessionKind, permissionModes, launcherChoices, launcherLabel, launcherOption, sessionChoices, effortLabel, claudeModels } from './components/session-model.js';
 import { Button } from './components/button.js';
@@ -116,7 +117,7 @@ export const agentProfiles = {
         .child(DialogDescription(t).child(creating ? 'Name this setup and choose the account it starts with.' : 'Edit this saved model setup.'))
         .child(h_flex().flex_none().gap(12).items_center()
           .child(div().w(108).flex_none().text_size(13).child('Name'))
-          .child(Input.new(this.configName).id('agent-configuration-name').accessibility_label('Agent profile name')
+          .child(Input.new(this.configName, t).id('agent-configuration-name').accessibility_label('Agent profile name')
             .w(240).h(28).px(8).border_b(1).border_color(t.input).text_size(12)))
         .child(h_flex().flex_none().gap(12).items_center()
           .child(div().w(108).flex_none().text_size(13).child('Account'))

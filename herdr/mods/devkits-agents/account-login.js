@@ -1,6 +1,7 @@
+import { Input } from './components/input.js';
 import { ensureClaudeStatusLine } from './components/claude-usage-hook.js';
 import { div } from 'gpui-kit';
-import { v_flex, h_flex, InputState, Input } from 'gpui-base';
+import { v_flex, h_flex, InputState } from 'gpui-base';
 import { WebSocket } from 'websocket';
 import { appHome, exec, hc, readTextFile, writeTextFile, theme, closeOverlay, openOverlay, window, shared, setShared } from 'herdr';
 import { commandArgv } from './components/session-shell.js';
@@ -439,22 +440,22 @@ export default class AccountLogin {
           .child(v_flex().mt(4).pt(14).border_t(1).border_color(t.border).gap(10)
             .child(div().text_size(13).font_medium().child('Signing in on another computer'))
             .child(div().text_size(12).text_color(t.muted).child('Send the link, then paste the full localhost URL returned after sign-in.'))
-            .child(Input.new(this.callbackInput).id('codex-login-callback').accessibility_label('Sign-in callback URL')
+            .child(Input.new(this.callbackInput, t).id('codex-login-callback').accessibility_label('Sign-in callback URL')
               .h(36).px(10).rounded(0).border(1).border_color(t.input).text_size(12))
             .child(div().text_size(12).text_color(t.dim).child('Copy the address even if the browser says the page cannot open.'))
             .when(Boolean(this.callbackError), el => el.child(div().text_size(12).text_color(t.destructive || t.foreground).child(this.callbackError)))
             ))
         .when(!this.busy && this.phase !== 'success', el => el
           .child(div().text_size(12).font_medium().child('Account name'))
-          .child(Input.new(this.input).id(`${id}-account-name`).h(36).px(10).rounded(0).border_b(1).border_color(t.input).text_size(13))
+          .child(Input.new(this.input, t).id(`${id}-account-name`))
           .child(div().text_size(12).text_color(t.muted).child('A display name. Chinese and uppercase names are welcome.')))
         .when(this.busy && !pasteCallback, el => el.child(div().text_size(13).text_color(t.muted).child(
           this.phase === 'waiting' ? `Finish signing in in your browser. This window will update automatically.${
             pasteCode ? ' If the browser shows a code, paste it below.' : ''}`
             : this.phase === 'saving' ? 'Adding your account to the agent menu…' : `Preparing ${source.label} sign-in…`)))
         .when(pasteCode, el => el
-          .child(Input.new(this.codeInput).id('claude-login-code').accessibility_label('Authentication code')
-            .h(36).px(10).rounded(0).border_b(1).border_color(t.input).text_size(13))
+          .child(Input.new(this.codeInput, t).id('claude-login-code').accessibility_label('Authentication code')
+            )
           .when(Boolean(this.codeError), el => el.child(div().text_size(12).text_color(t.destructive || t.foreground).child(this.codeError))))
         .when(Boolean(this.error), el => el.child(div().id(`${id}-login-error`).text_size(12).text_color(t.destructive || t.foreground).child(this.error))))
       .child(h_flex().flex_none().gap(8).justify_end()

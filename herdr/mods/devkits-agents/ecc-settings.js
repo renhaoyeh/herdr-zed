@@ -1,5 +1,6 @@
+import { Input } from './components/input.js';
 import { div } from 'gpui-kit';
-import { h_flex, v_flex, InputState, Input, TextView } from 'gpui-base';
+import { h_flex, v_flex, InputState, TextView } from 'gpui-base';
 import { readTextFile, writeTextFile, appHome, exec } from 'herdr';
 import { mkdir, unlink } from 'fs/promises';
 import { eccPath } from './ecc.js';
@@ -185,7 +186,7 @@ export const eccSettings = {
         'Hook mode', (value, cx) => { if (!this.eccSaving) { this.eccDraft.claudeHooks = value; this.eccSaved = false; } cx.notify(); }, t, { fullWidth: true, boxed: true })))
       .when(this.eccSection === 'hooks' && provider === 'codex', el => el.child(div().text_size(12).text_color(t.muted).child('This source provides only SessionStart for Codex. Codex owns the native hook trust decision.')))
       .when(this.eccSection === 'contexts', el => el.child(div().text_size(12).text_color(t.muted).child('Select one working mode, or leave all modes off.')))
-      .child(h_flex().gap(8).items_center().child(Input.new(this.eccSearch).h(30).px(8).text_size(12).flex_1().min_w(0).border(1).border_color(t.input).accessibility_label('Search ECC components'))
+      .child(h_flex().gap(8).items_center().child(Input.new(this.eccSearch, t).h(30).px(8).text_size(12).flex_1().min_w(0).border(1).border_color(t.input).accessibility_label('Search ECC components'))
         .when(this.eccSection !== 'contexts', el => el.child(Button('ecc-group-enable', t, { variant: 'secondary' }).h(30).disabled(Boolean(this.eccSaving || !catalog))
           .on_click((_event, cx) => { for (const item of items.filter(item => !item.unavailable)) chooseEccItem(this.eccDraft, provider, item, true); this.eccSaved = false; cx.notify(); }).child(query ? 'Use search results' : 'Use all')))
         .child(Button('ecc-group-disable', t, { variant: 'secondary' }).h(30).disabled(Boolean(this.eccSaving || !catalog))

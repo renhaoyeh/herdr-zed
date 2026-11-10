@@ -1,5 +1,6 @@
+import { Input } from './components/input.js';
 import { div } from 'gpui-kit';
-import { InputState, Input } from 'gpui-base';
+import { InputState } from 'gpui-base';
 import { shared, setShared, props, openOverlay, closeOverlay } from 'herdr';
 import { accountLabel, removeAccountProfile, renameAccountProfile } from './account-login.js';
 import { Button } from './components/button.js';
@@ -53,8 +54,8 @@ export const accountActions = {
       })
       .child(DialogTitle().child('Rename agent profile'))
       .child(DialogDescription(t).child('Choose a display name for this account.'))
-      .child(Input.new(this.renameInput).id('rename-account-name').accessibility_label('Account name')
-        .h(36).px(10).rounded(0).border_b(1).border_color(t.input).text_size(13))
+      .child(Input.new(this.renameInput, t).id('rename-account-name').accessibility_label('Account name')
+        )
       .when(Boolean(this.renameError), el => el.child(div().id('rename-account-error').text_size(12)
         .text_color(t.destructive || t.foreground).child(this.renameError)))
       .child(DialogFooter().children([
