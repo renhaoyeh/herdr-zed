@@ -5,6 +5,7 @@ import { sessionMenu } from './session-menu.js';
 import { accountActions } from './account-actions.js';
 import { agentProfiles } from './agent-profiles.js';
 import { sharedMcpSettings } from './shared-mcp-settings.js';
+import { globalRulesSettings } from './global-rules-settings.js';
 import { agentSelection } from './components/agent-selection.js';
 import { discoverAgents } from './discovery.js';
 import { AgentsService } from './service.js';
@@ -30,7 +31,7 @@ export default class AgentsMod extends View {
       type: 'start', agent, target: { overlay, space, folder, projectName, machine, task }, options, expiresAt: Date.now() + 10000,
     }]);
   }
-  async close() { this.storageClosed = true; await this.login?.close(); }
+  async close() { this.storageClosed = true; this.rulesCustom?.release(); this.rulesPreview?.release(); await this.login?.close(); }
   render(cx) {
     const t = theme(), view = props()?.view;
     if (view === 'service') { this.service?.poll(cx); return div().size_full(); }
@@ -44,4 +45,4 @@ export default class AgentsMod extends View {
     return this.manageLaunchers(t, cx);
   }
 }
-Object.assign(AgentsMod.prototype, sessionMenu, accountActions, agentProfiles, sharedMcpSettings, agentSelection);
+Object.assign(AgentsMod.prototype, sessionMenu, accountActions, agentProfiles, sharedMcpSettings, globalRulesSettings, agentSelection);

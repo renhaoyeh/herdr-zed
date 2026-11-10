@@ -1,4 +1,4 @@
-import { AgentClient, openAgentSettings, openAgentLauncher, openSharedMcp, rulesPath, agentAccountName } from './components/agents.js';
+import { AgentClient, openAgentSettings, openAgentLauncher, openSharedMcp, agentAccountName } from './components/agents.js';
 import { agentSelection } from './components/agent-selection.js';
 import { View, div, svg, image } from 'gpui-kit';
 import { v_flex, h_flex } from 'gpui-base';
@@ -544,7 +544,7 @@ export default class Devkits extends View {
       { key: 'settings', label: 'Agent settings…', icon: 'settings', separator: true },
     ];
     const choose = key => key === 'settings' ? openAgentSettings(project && !project.pending ? project.id : null)
-      : key === 'rules' ? this.openEditorFile(rulesPath()) : key === 'mcp' ? openSharedMcp(codex)
+      : key === 'rules' ? openAgentSettings(null, 'global-rules') : key === 'mcp' ? openSharedMcp(codex)
         : run('pane.close', { pane: p.pane });
     const terminal = terminals().find(terminal => terminal.address === p.terminal);
     const working = terminalWorking({ ...terminal, status: p.status || terminal?.status });

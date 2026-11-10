@@ -247,8 +247,8 @@ export function rulesArgv(agent, argv, rules, additional = '') {
   const executable = argv.findIndex(arg => !arg.includes('=') && /(?:^|[/\\])(?:claude|codex)(?:\.exe|\.cmd)?$/i.test(arg));
   const extra = additional.trim();
   if ((!rules && !extra) || !kind || executable < 0) return argv;
-  const text = extra ? [rules?.text, `# Agent profile instructions\n\n${extra}`].filter(part => part?.trim()).join('\n\n') : rules.text;
-  const flags = kind === 'claude' ? extra ? ['--append-system-prompt', text] : ['--append-system-prompt-file', rules.file]
+  const text = extra ? [rules?.text?.trim(), `# Agent profile instructions\n\n${extra}`].filter(part => part?.trim()).join('\n\n') : rules.text;
+  const flags = kind === 'claude' ? extra || rules?.composed ? ['--append-system-prompt', text] : ['--append-system-prompt-file', rules.file]
     // A JSON string is also a valid TOML basic string.
     : ['-c', `developer_instructions=${JSON.stringify(text)}`];
   return [...argv.slice(0, executable + 1), ...flags, ...argv.slice(executable + 1)];
