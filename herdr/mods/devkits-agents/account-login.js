@@ -140,6 +140,8 @@ export default class AccountLogin {
     this.input.on('submit', (_event, cx) => this.start(cx));
     this.codeInput = InputState.new({ placeholder: 'Authentication code' });
     this.codeInput.on('submit', (_event, cx) => this.sendCode(cx));
+    this.callbackInput = InputState.new({ placeholder: 'http://localhost:1455/auth/callback?…' });
+    this.callbackInput.on('submit', (_event, cx) => this.submitCallback(cx));
     this.handle = cx.focus_handle();
     this.input.focus();
   }
@@ -203,6 +205,7 @@ export default class AccountLogin {
     this.stopped = false;
     this.error = null;
     this.authUrl = null;
+    this.linkCopied = false;
     this.phase = 'connecting';
     this.nextId = 0;
     this.completed = [];
@@ -359,6 +362,41 @@ export default class AccountLogin {
     });
   }
 
+  submitCallback(cx) {
+    if (this.provider !== 'codex' || this.phase !== 'waiting' || this.submittingCallback) return;
+    const callback = this.callbackInput.value().trim();
+    this.submittingCallback = true; this.callbackError = null; cx.notify();
+    cx.spawn(async cx => {
+      try {
+        // Parse and forward in Node: never open arbitrary pasted URLs or follow redirects.
+        const result = await exec('node', ['-e', `
+          const http = require('node:http');
+          try {
+            const auth = new URL(process.argv[1]), url = new URL(process.argv[2]);
+            const redirect = new URL(auth.searchParams.get('redirect_uri'));
+            if (url.origin !== redirect.origin || url.pathname !== redirect.pathname ||
+                url.protocol !== 'http:' || !['localhost', '127.0.0.1'].includes(url.hostname) ||
+                url.username || url.password || url.hash || !url.searchParams.get('code') ||
+                !auth.searchParams.get('state') || url.searchParams.getAll('state').length !== 1 ||
+                url.searchParams.get('state') !== auth.searchParams.get('state')) throw new Error();
+            const request = http.get(url, response => {
+              response.resume();
+              response.on('end', () => process.exit(response.statusCode >= 200 && response.statusCode < 400 ? 0 : 1));
+            });
+            request.setTimeout(15000, () => request.destroy());
+            request.on('error', () => process.exit(1));
+          } catch { process.exit(2); }
+        `, this.authUrl, callback]);
+        if (result.code !== 0) this.callbackError = result.code === 2
+          ? 'Paste the full localhost callback URL from this sign-in attempt.'
+          : 'Could not complete sign-in. Check the URL and try again.';
+        else this.callbackInput.set_value('');
+      } catch { this.callbackError = 'Could not complete sign-in. Please try again.'; }
+      this.submittingCallback = false;
+      if (!this.closed) cx.notify();
+    });
+  }
+
   openBrowser(cx) {
     if (!this.authUrl) return;
     cx.open_url(this.authUrl);
@@ -375,6 +413,7 @@ export default class AccountLogin {
     const source = this.source;
     const id = this.provider || 'codex';
     const pasteCode = id === 'claude' && this.phase === 'waiting';
+    const pasteCallback = id === 'codex' && this.phase === 'waiting';
     const action = (name, label, handler, primary = false) => Button(`${id}-login-${name}`, t, { variant: primary ? 'default' : 'secondary' })
       .on_click(handler).child(label);
     return v_flex().id(`${id}-login-dialog`).size_full().rounded(0).border(1).border_color(t.border).p(24).gap(16).bg(t.popover).text_color(t.foreground).role('dialog')
@@ -388,12 +427,28 @@ export default class AccountLogin {
           ? `${source.label} account connected` : `Add ${source.label} account`))
         .child(div().text_size(13).text_color(t.muted).child(this.phase === 'success'
           ? `${this.email} is ready in your agent menu.` : `Connect a ${source.service} account to use with ${source.label}.`)))
-      .child(v_flex().flex_1().min_h(0).gap(10)
+      .child(v_flex().flex_1().min_h(0).overflow_y_scrollbar().gap(10)
+        .when(pasteCallback, el => el
+          .child(v_flex().gap(12)
+            .child(div().text_size(12).text_color(t.muted).child('This window updates when sign-in is complete.'))
+            .child(h_flex().gap(8)
+              .child(action('browser', 'Open browser', (_event, cx) => this.openBrowser(cx), true))
+              .child(action('copy-link', this.linkCopied ? 'Link copied' : 'Copy sign-in link', (_event, cx) => {
+                cx.write_to_clipboard(this.authUrl); this.linkCopied = true; cx.notify();
+              }))))
+          .child(v_flex().mt(4).pt(14).border_t(1).border_color(t.border).gap(10)
+            .child(div().text_size(13).font_medium().child('Signing in on another computer'))
+            .child(div().text_size(12).text_color(t.muted).child('Send the link, then paste the full localhost URL returned after sign-in.'))
+            .child(Input.new(this.callbackInput).id('codex-login-callback').accessibility_label('Sign-in callback URL')
+              .h(36).px(10).rounded(0).border(1).border_color(t.input).text_size(12))
+            .child(div().text_size(12).text_color(t.dim).child('Copy the address even if the browser says the page cannot open.'))
+            .when(Boolean(this.callbackError), el => el.child(div().text_size(12).text_color(t.destructive || t.foreground).child(this.callbackError)))
+            ))
         .when(!this.busy && this.phase !== 'success', el => el
           .child(div().text_size(12).font_medium().child('Account name'))
           .child(Input.new(this.input).id(`${id}-account-name`).h(36).px(10).rounded(0).border_b(1).border_color(t.input).text_size(13))
           .child(div().text_size(12).text_color(t.muted).child('A display name. Chinese and uppercase names are welcome.')))
-        .when(this.busy, el => el.child(div().text_size(13).text_color(t.muted).child(
+        .when(this.busy && !pasteCallback, el => el.child(div().text_size(13).text_color(t.muted).child(
           this.phase === 'waiting' ? `Finish signing in in your browser. This window will update automatically.${
             pasteCode ? ' If the browser shows a code, paste it below.' : ''}`
             : this.phase === 'saving' ? 'Adding your account to the agent menu…' : `Preparing ${source.label} sign-in…`)))
@@ -402,11 +457,12 @@ export default class AccountLogin {
             .h(36).px(10).rounded(0).border_b(1).border_color(t.input).text_size(13))
           .when(Boolean(this.codeError), el => el.child(div().text_size(12).text_color(t.destructive || t.foreground).child(this.codeError))))
         .when(Boolean(this.error), el => el.child(div().id(`${id}-login-error`).text_size(12).text_color(t.destructive || t.foreground).child(this.error))))
-      .child(h_flex().gap(8).justify_end()
+      .child(h_flex().flex_none().gap(8).justify_end()
         .when(this.phase === 'success', el => el.child(action('done', 'Done', () => this.finish(), true)))
         .when(this.phase !== 'success', el => el
           .child(action('cancel', 'Cancel', () => this.finish()))
-          .when(this.phase === 'waiting' && Boolean(this.authUrl), el => el.child(action('browser', 'Open browser', (_event, cx) => {
+          .when(pasteCallback, el => el.child(action('callback', this.submittingCallback ? 'Connecting…' : 'Connect account', (_event, cx) => this.submitCallback(cx), true)))
+          .when(this.phase === 'waiting' && !pasteCallback && Boolean(this.authUrl), el => el.child(action('browser', 'Open browser', (_event, cx) => {
             this.openBrowser(cx);
           }, !pasteCode)))
           .when(pasteCode, el => el.child(action('code', this.sendingCode ? 'Sending…' : 'Submit code', (_event, cx) => this.sendCode(cx), true)))

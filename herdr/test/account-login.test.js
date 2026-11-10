@@ -522,3 +522,27 @@ test('the built-in profile chains its existing status line, with a backup, and r
   files['/home/.claude/settings.json'] = JSON.stringify({ statusLine: { type: 'static', text: 'x' } });
   assert.equal(await ensureClaudeStatusLine('/home/.claude', { chain: true }), false);
 });
+
+test('Codex callback forwarding validates the pending state and destination before making a request', async () => {
+  const run = promisify(execFile);
+  const api = await load({ exec: async (command, args) => {
+    try { await run(command, args); return { code: 0 }; }
+    catch (error) { return { code: error.code }; }
+  } });
+  for (const callback of [
+    'https://example.com/auth/callback?code=x&state=expected',
+    'http://localhost:1455/auth/callback?code=x&state=wrong',
+    'http://localhost:1455/other?code=x&state=expected',
+    'not a URL',
+  ]) {
+    const view = new api.AccountLogin();
+    Object.assign(view, { provider: 'codex', phase: 'waiting',
+      authUrl: 'https://auth.openai.com/authorize?redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fauth%2Fcallback&state=expected',
+      callbackInput: { value: () => callback } });
+    let pending;
+    view.submitCallback({ notify() {}, spawn(fn) { pending = fn({ notify() {} }); } });
+    await pending;
+    assert.match(view.callbackError, /full localhost callback URL/);
+    assert.equal(view.submittingCallback, false);
+  }
+});
