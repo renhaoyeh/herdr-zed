@@ -14,6 +14,11 @@ test('simulator declares a panel-sized nonmodal popup for its existing panel vie
   });
 });
 
+test('simulator declares the existing panel as its right dock surface', () => {
+  const manifest = JSON.parse(text);
+  assert.deepEqual(manifest.surfaces, [{ id: 'simulator', location: 'dock.right', view: 'simulator', title: 'iOS Simulator', icon: 'smartphone' }]);
+});
+
 test('simulator extension icon resolves to a canonical Devkits icon asset', async () => {
   const [action] = parseExtensionManifest('devkits-simulator', text);
   await access(new URL(`../mods/devkits/assets/icons/${action.icon}.svg`, import.meta.url));

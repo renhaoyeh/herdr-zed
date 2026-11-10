@@ -16,5 +16,6 @@
       },
       "location": "status.right"
     }
-  ]
+  ],
+  "surfaces": [{ "id": "simulator", "location": "dock.right", "view": "simulator", "title": "iOS Simulator", "icon": "smartphone" }]
 }

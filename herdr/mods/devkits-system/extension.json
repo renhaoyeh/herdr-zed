@@ -5,6 +5,10 @@
   "services": [
     { "view": "service" }
   ],
+  "surfaces": [
+    { "id": "widgets", "location": "sidebar.bottom", "view": "widgets", "title": "System widgets", "icon": "chart-column" },
+    { "id": "inline", "location": "status.right", "view": "inline", "title": "System metrics", "icon": "chart-column" }
+  ],
   "actions": [
     {
       "id": "open",

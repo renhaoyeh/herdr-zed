@@ -52,6 +52,7 @@ export default class SystemMod extends View {
     if (this.view === 'service') return div().size_full();
     if (this.view === 'details') return this.monitor.renderDetails(t);
     if (this.view === 'inline') return this.monitor.renderInline(t, { id: props()?.id || 'system-inline' });
-    return this.monitor.renderWidgets(t, { id: props()?.id || 'system-widgets', style: 'compact', cpuMode: props()?.cpuMode || 'total' });
+    return div().size_full().min_h(0).overflow_y_scroll()
+      .child(this.monitor.renderWidgets(t, { id: props()?.id || 'system-widgets', style: 'compact', cpuMode: props()?.cpuMode || 'total' }));
   }
 }
