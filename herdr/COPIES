@@ -1,25 +1,25 @@
 # Shared components: mods/devkits/components/<file> is the source, copied by sync-shared.js into
 # mods/<mod>/components/<file> for each mod listed. A mod can only import files in its own folder,
 # so each needs its own copy.
-button.js: devkits-simulator devkits-system devkits-asana devkits-mantisbt devkits-tasks devkits-calendar devkits-usage devkits-agents
-dropdown-menu.js: devkits-simulator devkits-asana devkits-mantisbt devkits-tasks devkits-agents
-checkbox.js: devkits-system devkits-tasks devkits-calendar devkits-asana devkits-mantisbt devkits-agents
+button.js: devkits-simulator devkits-system devkits-asana devkits-mantisbt devkits-tasks devkits-calendar devkits-usage devkits-agents devkits-zed
+dropdown-menu.js: devkits-simulator devkits-asana devkits-mantisbt devkits-tasks devkits-agents devkits-zed
+checkbox.js: devkits-system devkits-tasks devkits-calendar devkits-asana devkits-mantisbt devkits-agents devkits-zed
 toggle-group.js: devkits-system devkits-agents
-dialog.js: devkits-system devkits-asana devkits-usage devkits-agents
-icon.js: devkits-system devkits-tasks devkits-calendar devkits-usage devkits-agents
+dialog.js: devkits-system devkits-asana devkits-usage devkits-agents devkits-zed
+icon.js: devkits-system devkits-tasks devkits-calendar devkits-usage devkits-agents devkits-zed
 system-monitor.js: devkits-system
 system-monitor-model.js: devkits-system
 system-monitor-topology.js: devkits-system
 task-source.js: devkits-asana devkits-mantisbt
 task-source-model.js: devkits-asana devkits-mantisbt
 source-channel.js: devkits-asana devkits-mantisbt devkits-tasks
-select.js: devkits-tasks devkits-agents
-side-panel.js: devkits-tasks
+select.js: devkits-tasks devkits-agents devkits-zed
+side-panel.js: devkits-tasks devkits-zed
 task-theme.js: devkits-tasks devkits-calendar
 tasks-model.js: devkits-tasks devkits-calendar
 tasks.js: devkits-tasks devkits-calendar
-session-model.js: devkits-tasks devkits-calendar devkits-usage devkits-agents
-session-shell.js: devkits-tasks devkits-calendar devkits-usage devkits-agents
+session-model.js: devkits-tasks devkits-calendar devkits-usage devkits-agents devkits-zed
+session-shell.js: devkits-tasks devkits-calendar devkits-usage devkits-agents devkits-zed
 shared-mcp.js: devkits-agents
 shared-mcp-model.js: devkits-agents
 agent-session-windows.js: devkits-tasks
@@ -28,8 +28,11 @@ progress.js: devkits-usage
 usage.js: devkits-usage
 claude-usage-hook.js: devkits-usage devkits-agents
 switch.js: devkits-agents
-alert-dialog.js: devkits-agents
+alert-dialog.js: devkits-agents devkits-zed
 agent-selection.js: devkits-agents
 agents.js: devkits-tasks devkits-agents devkits-usage
 
-input.js: devkits-agents
+input.js: devkits-agents devkits-zed
+empty.js: devkits-zed
+sidebar.js: devkits-zed
+tree.js: devkits-zed

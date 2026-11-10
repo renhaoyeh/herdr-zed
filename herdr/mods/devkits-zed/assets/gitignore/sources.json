@@ -1,0 +1,66 @@
+{
+  "repository": "https://github.com/github/gitignore",
+  "revision": "41862c835a7bd7e03373f1dbe1d2350f47063b71",
+  "files": [
+    {
+      "file": "VisualStudio.gitignore",
+      "url": "https://raw.githubusercontent.com/github/gitignore/41862c835a7bd7e03373f1dbe1d2350f47063b71/VisualStudio.gitignore",
+      "sha256": "7d65c0d70990cec92b7eedbbc1d6ea5a07a5e4c26cd5336cd46e52720d616b4b"
+    },
+    {
+      "file": "Qt.gitignore",
+      "url": "https://raw.githubusercontent.com/github/gitignore/41862c835a7bd7e03373f1dbe1d2350f47063b71/Qt.gitignore",
+      "sha256": "dec188b42c2ff537c5639ee8262e58b2dee5a841b622916b9c0bd0343283af0f"
+    },
+    {
+      "file": "C++.gitignore",
+      "url": "https://raw.githubusercontent.com/github/gitignore/41862c835a7bd7e03373f1dbe1d2350f47063b71/C++.gitignore",
+      "sha256": "76f1b598f001744507f9c83372ad17467315ed258c7eaaed0cd4407073f6d7bc"
+    },
+    {
+      "file": "CMake.gitignore",
+      "url": "https://raw.githubusercontent.com/github/gitignore/41862c835a7bd7e03373f1dbe1d2350f47063b71/CMake.gitignore",
+      "sha256": "8d34f5de6bece386131110afff2b7e046c3d1ebef4fe427e4e0cc8e41c2e7d9c"
+    },
+    {
+      "file": "UnrealEngine.gitignore",
+      "url": "https://raw.githubusercontent.com/github/gitignore/41862c835a7bd7e03373f1dbe1d2350f47063b71/UnrealEngine.gitignore",
+      "sha256": "27327d14bb12626b92442286bc8a524499f9813dac5db13949cfd61e23882779"
+    },
+    {
+      "file": "Unity.gitignore",
+      "url": "https://raw.githubusercontent.com/github/gitignore/41862c835a7bd7e03373f1dbe1d2350f47063b71/Unity.gitignore",
+      "sha256": "822eddee497c4f9da8b7b07b3898aad7b286df1bf9b3c4e6e7826f3ae1abe9e3"
+    },
+    {
+      "file": "Node.gitignore",
+      "url": "https://raw.githubusercontent.com/github/gitignore/41862c835a7bd7e03373f1dbe1d2350f47063b71/Node.gitignore",
+      "sha256": "c005855bbdbd73acfb5fae712c85beedc9954c9a84216e461f367c73b86e17c4"
+    },
+    {
+      "file": "Python.gitignore",
+      "url": "https://raw.githubusercontent.com/github/gitignore/41862c835a7bd7e03373f1dbe1d2350f47063b71/Python.gitignore",
+      "sha256": "8fe7404f26a2e8f0e52705c80563152d8a5b9ef15663053c4e408aa027f1545f"
+    },
+    {
+      "file": "macOS.gitignore",
+      "url": "https://raw.githubusercontent.com/github/gitignore/41862c835a7bd7e03373f1dbe1d2350f47063b71/Global/macOS.gitignore",
+      "sha256": "7f5b14d9528c1aa2bf5f5071f6ef2bf41815282b14a2f7e0b0946c6c50d99c72"
+    },
+    {
+      "file": "JetBrains.gitignore",
+      "url": "https://raw.githubusercontent.com/github/gitignore/41862c835a7bd7e03373f1dbe1d2350f47063b71/Global/JetBrains.gitignore",
+      "sha256": "504c8e102ab17e495f903937e19efa8d3b7ffff99f97fd6de3f0213bacf946e3"
+    },
+    {
+      "file": "VisualStudioCode.gitignore",
+      "url": "https://raw.githubusercontent.com/github/gitignore/41862c835a7bd7e03373f1dbe1d2350f47063b71/Global/VisualStudioCode.gitignore",
+      "sha256": "bef49171bd006ca9f91568dc6680e5fbf085a5fe01ec9024d2513a6c235247d5"
+    },
+    {
+      "file": "LICENSE",
+      "url": "https://raw.githubusercontent.com/github/gitignore/41862c835a7bd7e03373f1dbe1d2350f47063b71/LICENSE",
+      "sha256": "36ffd9dc085d529a7e60e1276d73ae5a030b020313e6c5408593a6ae2af39673"
+    }
+  ]
+}

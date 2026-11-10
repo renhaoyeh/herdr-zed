@@ -1,0 +1,191 @@
+{
+  "id": "root",
+  "type": "row",
+  "titlebar": "none",
+  "traffic_lights": [
+    12,
+    8
+  ],
+  "theme": {
+    "light": "devkits-light",
+    "dark": "devkits"
+  },
+  "ui_font": "Geist",
+  "font": "Geist Mono",
+  "preview": "mods/devkits-zed/assets/preview.svg",
+  "background": "canvas",
+  "terminal_padding": [
+    12,
+    12
+  ],
+  "divider": {
+    "width": 1,
+    "color": "border"
+  },
+  "children": [
+    {
+      "id": "sidebar",
+      "type": "column",
+      "size": {
+        "px": 280
+      },
+      "min": 250,
+      "max": 440,
+      "hidden": false,
+      "background": "chrome",
+      "resizable": true,
+      "children": [
+        {
+          "id": "brand",
+          "type": "block",
+          "size": {
+            "px": 32
+          },
+          "window_drag": true,
+          "content": {
+            "mod": "devkits-zed",
+            "props": {
+              "view": "brand"
+            }
+          }
+        },
+        {
+          "id": "agents",
+          "type": "block",
+          "content": {
+            "mod": "devkits-zed"
+          }
+        }
+      ]
+    },
+    {
+      "id": "work",
+      "type": "column",
+      "resizable": false,
+      "children": [
+        {
+          "id": "header",
+          "type": "block",
+          "size": {
+            "px": 32
+          },
+          "window_drag": true,
+          "content": {
+            "mod": "devkits-zed",
+            "props": {
+              "view": "header"
+            }
+          }
+        },
+        {
+          "id": "workspace-row",
+          "type": "row",
+          "divider": {
+            "width": 1,
+            "color": "border"
+          },
+          "children": [
+            {
+              "id": "workspace-view",
+              "type": "stack",
+              "active": "main",
+              "hidden": true,
+              "size": {
+                "weight": 1
+              },
+              "min": 320,
+              "children": [
+                {
+                  "id": "project-empty",
+                  "type": "block",
+                  "content": {
+                    "mod": "devkits-zed",
+                    "props": {
+                      "view": "project-empty"
+                    }
+                  }
+                },
+                {
+                  "id": "main",
+                  "type": "block",
+                  "content": {
+                    "tab": "active",
+                    "pane": {
+                      "gap": 0,
+                      "radius": 0,
+                      "background": "background",
+                      "lone": true,
+                      "header": {
+                        "content": {
+                          "mod": "devkits-zed",
+                          "props": {
+                            "view": "pane"
+                          }
+                        },
+                        "height": 32,
+                        "position": "top",
+                        "reveal": "always"
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "id": "editor",
+              "type": "stack",
+              "active": "workspace-editor",
+              "hidden": false,
+              "size": {
+                "weight": 1.6
+              },
+              "min": 420,
+              "children": [
+                {
+                  "id": "workspace-editor",
+                  "type": "block",
+                  "content": {
+                    "mod": "devkits-zed",
+                    "props": {
+                      "view": "editor"
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "status",
+          "type": "column",
+          "size": {
+            "px": 32
+          },
+          "resizable": false,
+          "children": [
+            {
+              "id": "status-separator",
+              "type": "row",
+              "background": "border",
+              "size": {
+                "px": 1
+              },
+              "resizable": false,
+              "children": []
+            },
+            {
+              "id": "status-content",
+              "type": "block",
+              "content": {
+                "mod": "devkits-zed",
+                "props": {
+                  "view": "status"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
