@@ -262,7 +262,7 @@ export const devkitsSettings = {
     const busy = Boolean(this.capLoading || this.capSaving || this.capChecking);
     return v_flex().id('devkits-capabilities').h_full().flex_1().min_h(0).gap(10)
       .child(DialogTitle().child('Capabilities'))
-      .child(DialogDescription(t).flex_none().child('Explore the architecture, then choose Rules, Skills and MCP. Selections apply to new local Claude and Codex sessions after saving. Shared MCP setup configures Codex; Claude uses its account connections.'))
+      .child(DialogDescription(t).flex_none().child('Changes are saved when you click Save. Explore the architecture, then choose Rules, Skills and MCP. Selections apply to new local Claude and Codex sessions. Shared MCP setup configures Codex; Claude uses its account connections.'))
       .when(this.capTab !== 'overview' && Boolean(this.capConfig), el => el
         .child(div().text_size(12).text_color(t.muted).child(this.capTab === 'mcp'
           ? `Shared MCP connections · ${this.devkitsMcpRows().length} components`

@@ -18,13 +18,13 @@ export const accountActions = {
   },
 
   addAccount(provider) {
-    openOverlay({ mod: 'herdr-zed-agents', kind: 'dialog', frame: 'none', modal: true, width: 520, height: 380,
+    openOverlay({ mod: 'herdr-zed-agents', kind: 'dialog', frame: 'none', modal: true, width: 560,
       props: { view: 'account-login', provider } });
   },
 
   renameAccount(account) {
     const target = props();
-    openOverlay({ mod: 'herdr-zed-agents', kind: 'dialog', frame: 'none', modal: true, width: 480, height: 260,
+    openOverlay({ mod: 'herdr-zed-agents', kind: 'dialog', frame: 'none', modal: true, width: 560,
       props: { view: 'rename-account', account: { key: account.key, name: account.name }, space: target.space } });
   },
 
@@ -66,7 +66,7 @@ export const accountActions = {
 
   confirmRemoveAccount(account) {
     const target = props();
-    openOverlay({ mod: 'herdr-zed-agents', kind: 'dialog', frame: 'none', modal: true, width: 480, height: 300,
+    openOverlay({ mod: 'herdr-zed-agents', kind: 'dialog', frame: 'none', modal: true, width: 440,
       props: { view: 'remove-account', account: { key: account.key, name: account.name }, space: target.space } });
   },
 

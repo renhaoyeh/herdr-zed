@@ -17,8 +17,8 @@
       "location": "git.actions",
       "popup": {
         "view": "account",
-        "width": 480,
-        "height": 600,
+        "width": 560,
+        "height": 0.8,
         "modal": true
       }
     }

@@ -238,7 +238,7 @@ export default class MantisPanel extends TaskSourceController {
       .child(div().flex_1())
       .child(DropdownMenuTrigger(Button('mantis-project-menu', mantisTheme, { variant: 'ghost' }).h(45).px(14).rounded(0).gap(8)
         .text_color('#ffffff').bg('#555555').accessibility_label('Choose MantisBT project').disabled(!ready)
-        .child(div().max_w(320).truncate().child(bound?.name || 'Select Project')).child(glyph('chevron-down', 12)), 360,
+        .child(div().max_w(320).truncate().child(bound?.name || 'Select Project')).child(glyph('chevron-down', 12)), 280,
       (_cx, at) => { if (ready) this.openProjectPicker?.(this.folder, at); }, 'end', { x: 0, y: 0 }))
       .child(Button('mantis-close', mantisTheme, { variant: 'ghost', size: 'icon' }).size(45).rounded(0).text_color('#ffffff')
         .accessibility_label('Close MantisBT tasks').on_click(close).child(glyph('close', 16)));

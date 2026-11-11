@@ -10,7 +10,7 @@ import { DropdownMenuLabel } from './components/dropdown-menu.js';
 import { AgentIcon, glyph } from './components/icon.js';
 import { noAccount } from './components/agents.js';
 
-// Profiles can use any installed account, in Add session's saved order.
+// Profiles can use any installed account, in New thread's saved order.
 export const agentProfiles = {
   profileAccounts() {
     return launcherChoices(this.launchers, shared('herdr-zed.launcher-order') || [])
@@ -23,7 +23,7 @@ export const agentProfiles = {
   openAgentProfileEditor(config = null) {
     if (!config && !this.profileAccounts().length) return;
     const target = props();
-    openOverlay({ mod: 'herdr-zed-agents', kind: 'dialog', modal: true, frame: 'none', width: 640, height: 680,
+    openOverlay({ mod: 'herdr-zed-agents', kind: 'dialog', modal: true, frame: 'none', width: 560, height: 0.8,
       props: { view: 'agent-profile-editor', configKey: config?.key || null, space: target.space } });
   },
 
@@ -124,7 +124,7 @@ export const agentProfiles = {
           .child(Select('defaults-profile', this.defaultSelects.profile, account?.key || 'none',
             [{ key: 'none', label: 'Select account', color: t.muted }, ...accounts.map(item => { const option = launcherOption(item), label = this.accountName(item, option.label);
               return { ...option, label, color: label === noAccount ? t.muted : t.foreground }; })], 'Account',
-            key => this.chooseProfileAccount(key), t, { width: 240, boxed: true })))
+            key => this.chooseProfileAccount(key), t, { width: 224, boxed: true })))
         .when(Boolean(account), el => el.child(this.configurationFields(account, t, draft)))
         .child(v_flex().flex_none().gap(6)
           .child(div().text_size(13).child('Additional system instructions'))
@@ -155,7 +155,7 @@ export const agentProfiles = {
         .child(Button('add-agent-configuration', t, { variant: 'secondary' }).h(28).px(10).gap(6)
           .disabled(!canAdd)
           .on_click(() => this.openAgentProfileEditor()).child(glyph('plus')).child('Add')))
-      .child(DialogDescription(t).flex_none().child(canAdd ? 'Saved model, effort, permissions and instructions for an account. Profiles share the account’s local data without copying it. Each appears in Add session.' : 'Install Claude Code or Codex CLI to add a profile.'))
+      .child(DialogDescription(t).flex_none().child(canAdd ? 'Saved model, effort, permissions and instructions for an account. Profiles share the account’s local data without copying it. Each appears in New thread.' : 'Install Claude Code or Codex CLI to add a profile.'))
       .child(v_flex().id('agent-profiles-table').flex_1().min_h(0).border(1).border_color(t.border)
         .child(columns('NAME', 'ACCOUNT', 'MODEL', 'EFFORT', 'SPEED', '').h(32).flex_none().text_size(11).text_color(t.muted)
           .border_b(1).border_color(t.border))

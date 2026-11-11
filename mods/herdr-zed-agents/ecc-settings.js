@@ -220,7 +220,7 @@ export const eccSettings = {
       .child(h_flex().justify_between().items_center().child(DialogTitle().child('Everything Claude Code'))
         .when(Boolean(draft), el => el.child(h_flex().gap(8).items_center().child(div().text_size(12).child('Enable ECC'))
           .child(Switch('ecc-enabled', draft.enabled, t).disabled(busy).on_change((checked, cx) => { draft.enabled = checked; this.eccSaved = false; cx.notify(); })))))
-      .child(DialogDescription(t).flex_none().child('Explore the architecture, then choose what Claude Code and Codex use. Settings are global and apply to new sessions after saving.'))
+      .child(DialogDescription(t).flex_none().child('Changes are saved when you click Save. Explore the architecture, then choose what Claude Code and Codex use. Settings are global and apply to new sessions.'))
       .when(this.eccLoading, el => el.child(div().text_color(t.muted).child('Loading ECC settings…')))
       .when(Boolean(draft), el => el.child(v_flex().flex_1().min_h(0).gap(10)
         .when(!draft.enabled, body => body.child(div().text_size(12).text_color(t.muted).child('ECC is off. You can prepare selections now; enable ECC and save to apply them.')))

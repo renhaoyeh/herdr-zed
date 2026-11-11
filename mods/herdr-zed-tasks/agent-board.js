@@ -116,7 +116,7 @@ export default class AgentBoard {
     const task = this.latestTask(project, gid);
     if (!taskActions(task).canSchedule) return;
     const today = new Date(), date = task.dueDate || `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
-    openOverlay({ mod: 'herdr-zed-calendar', kind: 'dialog', frame: 'none', modal: false, width: 560, height: 560,
+    openOverlay({ mod: 'herdr-zed-calendar', kind: 'dialog', frame: 'none', modal: true, width: 560, height: 480,
       props: { view: 'calendar', calendarCreate: true, draft: { title: task.name, startDate: date, endDate: date,
         taskLink: { id: taskTokenId(project, task.gid), label: task.name } } } });
   }

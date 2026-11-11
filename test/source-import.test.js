@@ -37,7 +37,7 @@ for (const { id, lib } of providers) test(`${id} hands the importer a snapshot-o
   const snapshot = sourceTaskSnapshot({ key: id }, { gid: '42', name: 'Issue', url: 'https://tracker.test/42', notes: 'Body',
     comments: [{ gid: 'c', author: 'Amy', text: 'Context', at: '2026-11-08' }], token: 'secret-token', onImport() {} }, '');
   const request = lib.importRequest(target, { source: id, context, snapshot });
-  assert.deepEqual(request, { mod: 'herdr-zed-tasks', kind: 'dialog', frame: 'none', modal: true, width: 720, height: 0.8,
+  assert.deepEqual(request, { mod: 'herdr-zed-tasks', kind: 'dialog', frame: 'none', modal: true, width: 760, height: 400,
     props: { view: 'import-draft', kind: 'task-snapshot', source: id, context, snapshot } });
   assert.deepEqual(Object.keys(snapshot).sort(), ['comments', 'gid', 'name', 'notes', 'parent', 'source', 'url']);
   assert.ok(!hasCallable(request), 'props must be serializable');
@@ -66,7 +66,7 @@ for (const provider of providers) {
     const { panel, opened } = await mount({ catalog: { packages: [importer()] } });
     assert.equal(panel.importLabel, 'Import into Tasks'); assert.equal(typeof panel.onImport, 'function');
     panel.onImport({ source: provider.id, gid: '42' });
-    assert.deepEqual(opened, [{ mod: 'herdr-zed-tasks', kind: 'dialog', frame: 'none', modal: true, width: 720, height: 0.8,
+    assert.deepEqual(opened, [{ mod: 'herdr-zed-tasks', kind: 'dialog', frame: 'none', modal: true, width: 760, height: 400,
       props: { view: 'import-draft', kind: 'task-snapshot', source: provider.id, context, snapshot: { source: provider.id, gid: '42' } } }]);
   });
 

@@ -21,7 +21,7 @@ import { openSharedMcp, noAccount } from './components/agents.js';
 // One Settings dialog for agents, reachable with or without an open project.
 
 
-// The Add session menu and its Manage dialog. Mixed into the Agents view, which provides
+// The New thread menu and its Manage dialog. Mixed into the Agents view, which provides
 // cachedAgents, startThread and the account actions (addAccount, renameAccount, confirmRemoveAccount).
 export const sessionMenu = {
   availableAgents,
@@ -239,7 +239,7 @@ export const sessionMenu = {
         profiles.map(item => ({ ...launcherOption(item), color: t.foreground })), 'Account', key => {
           for (const state of Object.values(this.defaultSelects)) state.open = false;
           choose(key);
-        }, t, { width: 240, boxed: true }));
+        }, t, { width: 224, boxed: true }));
   },
 
   configurationFields(agent, t, draft = null, width = 240) {
@@ -415,7 +415,7 @@ export const sessionMenu = {
       cx.notify();
     };
     // Like Zed's settings, one page per subject in a left list, ordered as a new user sets things up:
-    // accounts first, then what Add session shows, then the optional extras.
+    // accounts first, then what New thread shows, then the optional extras.
     const pages = [...(local ? [{ id: 'accounts', label: 'Accounts', icon: glyph('user-round') }] : []),
       { id: 'agents', label: 'Agents', icon: glyph('square-plus') },
       ...(local ? [{ id: 'agent-profiles', label: 'Profiles', icon: glyph('agent') },
@@ -456,7 +456,7 @@ export const sessionMenu = {
             .when(item.id === 'ecc' && page === 'ecc', el => el.child(this.eccNavigation(t))))))
         .child(v_flex().h_full().flex_1().min_w(0).min_h(0).gap(8)
           .when(page === 'accounts', el => el.child(this.accountsPage(t, cx)))
-          .when(page === 'agents', el => el.child(DialogDescription(t).flex_none().child('Choose what Add session and Usage show, in one order. Drag to reorder; changes save automatically. Agents using the same account share its quota.'))
+          .when(page === 'agents', el => el.child(DialogDescription(t).flex_none().child('Choose what New thread and Usage show, in one order. Drag to reorder; changes save automatically. Agents using the same account share its quota.'))
             .child(this.agentsPage(choices, hidden, toggle, move, cancelDrag, t)))
           .when(page === 'agent-profiles', el => el.child(this.agentProfilesPage(t)))
           .when(page === 'global-rules', el => el.child(this.globalRulesPage(t)))
@@ -465,7 +465,7 @@ export const sessionMenu = {
       .when(!embedded, el => el.child(DialogFooter().flex_none().child(Button('manage-launchers-done', t).on_click(done).child('Done'))));
   },
 
-  // Auto in Add session starts one of these accounts, chosen by quota at each launch.
+  // Auto in New thread starts one of these accounts, chosen by quota at each launch.
   // The rules and each account's current standing are shown, so the pick is predictable.
   autoAccountsSection(profiles, t) {
     const members = shared('herdr-zed.auto-accounts') || [];
@@ -483,7 +483,7 @@ export const sessionMenu = {
     const rules = ['Each time Auto starts a session, it chooses among the selected accounts:',
       '1. Skip accounts at their 5h or weekly limit. If every account is at a limit, use the one that resets soonest.',
       '2. For each quota window, divide quota left by time left; 1 means on pace. An account uses its lowest window.',
-      '3. Multiply by the account’s plan size to get its Room, and start the account with the most Room. Ties follow Add session order.',
+      '3. Multiply by the account’s plan size to get its Room, and start the account with the most Room. Ties follow New thread order.',
       'Plan size follows each account’s detected plan: ×1 for ChatGPT Plus, Business or Claude Pro; ×5 for ChatGPT Pro $100 or Claude Max 5x; ×20 for ChatGPT Pro $200 or Claude Max 20x. Choose another size to override it, or the detected size to follow the plan again.',
       'Only accounts shown in Usage above can join Auto. Accounts without a reading count as on pace. A session keeps the account it started with.'];
     const setMultiplier = (key, value) => {
@@ -527,7 +527,7 @@ export const sessionMenu = {
         })));
   },
 
-  // One list for what Add session and Usage show, in their shared order, with Auto below.
+  // One list for what New thread and Usage show, in their shared order, with Auto below.
   agentsPage(choices, hidden, toggle, move, cancelDrag, t) {
     const usageHidden = shared('herdr-zed.hidden-usage-profiles') || [];
     const toggleUsage = (key, checked, cx) => {
@@ -537,12 +537,12 @@ export const sessionMenu = {
     };
     // Usage lists native agents and accounts; Terminal and profiles share their account's quota.
     const usageEligible = choice => Boolean(choice.agent && !choice.agent.profileKey);
-    // Remote projects have no local quota readings, so they show only Add session.
+    // Remote projects have no local quota readings, so they show only New thread.
     const local = !spaces().find(space => space.id === (props() || {}).space)?.machine;
     const column = (id, child) => div().id(id).w(96).flex_none().flex().items_center().justify_center().child(child);
     return v_flex().id('manage-launchers-list').flex_1().min_h(0).overflow_y_scroll().gap(8)
         .child(h_flex().id('manage-columns').flex_none().h(20).px(8).items_center().text_size(11).text_color(t.muted)
-          .child(div().flex_1()).child(column('manage-column-session', 'Add session')).when(local, el => el.child(column('manage-column-usage', 'Usage'))))
+          .child(div().flex_1()).child(column('manage-column-session', 'New thread')).when(local, el => el.child(column('manage-column-usage', 'Usage'))))
         // One bordered table per section; rows are separated by rules and hover with t.selected.
         .children([0, 1, 2, 3].filter(group => choices.some(choice => choice.group === group)).map(group => v_flex().flex_none().gap(4)
           .when(group > 0, el => el.mt(8))
@@ -575,7 +575,7 @@ export const sessionMenu = {
                     .when(this.accountName(choice.agent, choice.name) === noAccount, el => el.text_color(t.muted))
                     .child(this.accountName(choice.agent, choice.name)))
                   .child(column(`manage-session-${choice.key}`, Checkbox(`show-${choice.key}`, !hidden.includes(choice.key), t)
-                    .accessibility_label(`Show ${choice.name} in Add session`).on_change((_checked, cx) => toggle(choice.key, cx))))
+                    .accessibility_label(`Show ${choice.name} in New thread`).on_change((_checked, cx) => toggle(choice.key, cx))))
                   .when(local, el => el.child(column(`manage-usage-${choice.key}`, usageEligible(choice)
                     ? Checkbox(`usage-profile-${choice.agent.key}`, !usageHidden.includes(choice.agent.key), t)
                       .accessibility_label(`Show ${choice.name} in Usage`).on_change((checked, cx) => toggleUsage(choice.agent.key, checked, cx))
@@ -635,6 +635,6 @@ export const sessionMenu = {
         .when(this.launchError, el => el.child(div().id('retry-agents').p(10).text_size(12).text_color(t.muted).cursor_pointer()
           .on_click((_event, cx) => this.loadAgents(cx)).child('Could not load agents. Click to retry.')))
         .when(!this.loading && !this.launchError && !choices.length, el => el.child(div().p(10).text_size(12).text_color(t.muted)
-          .child(this.launchers.length ? 'All agents are hidden. Show them in Agent settings → Add session.' : 'No installed agents found.'))));
+          .child(this.launchers.length ? 'All agents are hidden. Show them in Agent settings → New thread.' : 'No installed agents found.'))));
   },
 };

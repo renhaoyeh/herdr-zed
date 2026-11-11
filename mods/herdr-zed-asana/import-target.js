@@ -12,6 +12,6 @@ export function importTarget(catalog) {
 
 // Standalone browsers open the importer as a dialog. The snapshot carries explicit domain fields only.
 export function importRequest(target, { source, context, snapshot }) {
-  return { mod: target.mod, kind: 'dialog', frame: 'none', modal: true, width: 720, height: 0.8,
+  return { mod: target.mod, kind: 'dialog', frame: 'none', modal: true, width: 760, height: 400,
     props: { view: target.view, kind: importKind, source, context, snapshot } };
 }

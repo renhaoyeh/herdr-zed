@@ -40,8 +40,8 @@ export const systemManifest = `{
       "icon": "chart-column",
       "popup": {
         "view": "details",
-        "width": 1000,
-        "height": 700,
+        "width": 0.9,
+        "height": 0.86,
         "modal": false
       },
       "location": "status.right"

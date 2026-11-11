@@ -518,7 +518,7 @@ export class SimulatorMenu {
   // Close the picker before opening the storage dialog in this provider.
   storage() {
     closeOverlay(props().overlay);
-    openOverlay({ mod: 'herdr-zed-simulator', kind: 'dialog', frame: 'none', modal: false, width: 760, height: 0.85, props: { view: 'simulator-storage' } });
+    openOverlay({ mod: 'herdr-zed-simulator', kind: 'dialog', frame: 'none', modal: false, width: 0.9, height: 0.86, props: { view: 'simulator-storage' } });
   }
 
   render() {

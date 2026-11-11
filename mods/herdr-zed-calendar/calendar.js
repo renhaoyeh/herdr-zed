@@ -111,7 +111,7 @@ export default class LocalCalendar {
     if (!event && !this.creating) {
       this.cancelRange(cx);
       try {
-        openOverlay({ mod: 'herdr-zed-calendar', kind: 'dialog', frame: 'none', modal: false, width: 560, height: 480,
+        openOverlay({ mod: 'herdr-zed-calendar', kind: 'dialog', frame: 'none', modal: true, width: 560, height: 480,
           props: { view: 'calendar', calendarCreate: true, calendarPreview: previewId,
             draft: { startDate: this.selected, endDate: this.selected, ...initial } } });
       } catch (error) { clearPreview(previewId); throw error; }

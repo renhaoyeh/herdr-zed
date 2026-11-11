@@ -520,7 +520,8 @@ export class SystemMonitorCore extends SystemClient {
       .child(h_flex().items_center().gap(12).flex_none()
         .child(v_flex().flex_1().gap(4).child(DialogTitle().child('System monitor'))
           .child(DialogDescription(t).child(`${data?.cpuName || 'This computer'} · ${topologyLabel(data?.topology, data?.cores)}`)))
-        .child(div().text_size(11).text_color(this.hardwareError ? t.ansi1 : t.muted).child(this.hardwareError ? 'Read unavailable' : `Live · ${config.interval}s`)))
+        .child(div().text_size(11).text_color(this.hardwareError ? t.ansi1 : t.muted).child(this.hardwareError ? 'Read unavailable' : `Live · ${config.interval}s`))
+        .child(Button('hardware-details-close', t, { variant: 'ghost', size: 'icon' }).accessibility_label('Close System monitor').on_click(close).child(glyph('close', 14))))
       .child(h_flex().flex_1().min_h(0).gap(24).items_start()
         .child(v_flex().id('hardware-pages').w(132).flex_none().gap(3).children(nav.map(item =>
           Button(`hardware-page-${item.id}`, t, { variant: 'ghost' }).h(32).px(10).justify_start()
@@ -540,7 +541,6 @@ export class SystemMonitorCore extends SystemClient {
           .when(selected !== 'overview', el => el.child(this.hardwareModuleDetails(selected, t)))))
       .child(DialogFooter().flex_none()
         .child(div().flex_1().self_center().text_size(10).text_color(t.muted)
-          .child(data?.updatedAt ? `Updated ${new Date(data.updatedAt).toLocaleTimeString()} · History stays on this computer` : 'Reading system data…'))
-        .child(Button('hardware-details-done', t).on_click(close).child('Done')));
+          .child(data?.updatedAt ? `Updated ${new Date(data.updatedAt).toLocaleTimeString()} · History stays on this computer` : 'Reading system data…')));
   }
 }

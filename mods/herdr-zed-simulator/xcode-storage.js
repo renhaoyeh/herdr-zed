@@ -2,6 +2,7 @@ import { div } from 'gpui-kit';
 import { h_flex, v_flex } from 'gpui-base';
 import { exec, appHome, home, notify, closeOverlay, props, theme } from 'herdr';
 import { Button } from './components/button.js';
+import { glyph } from './components/icon.js';
 import { Checkbox } from './components/checkbox.js';
 import { DropdownMenuLabel } from './components/dropdown-menu.js';
 import { DialogContent, DialogTitle, DialogDescription, DialogFooter } from './components/dialog.js';
@@ -153,7 +154,9 @@ export default class XcodeStorage {
     ] : [];
     return DialogContent('xcode-storage', t).gap(12).track_focus(this.handle).accessibility_label('Xcode storage')
       .on_key_down((event, cx) => { if (event.key === 'escape') { cx.stop_propagation(); close(); } })
-      .child(DialogTitle().flex_none().child('Xcode storage'))
+      .child(h_flex().flex_none().items_center().gap(12)
+        .child(DialogTitle().flex_1().min_w(0).child('Xcode storage'))
+        .child(Button('xcode-storage-close', t, { variant: 'ghost', size: 'icon' }).accessibility_label('Close Xcode storage').on_click(close).child(glyph('close', 14))))
       .child(DialogDescription(t).flex_none().child('~/Library/Developer · Xcode rebuilds DerivedData when a project builds again. Deleting a simulator removes its apps and data.'))
       .child(h_flex().flex_none().gap(16)
         .children([['Total', sum(totals.map(([, size]) => ({ size })))], ...totals].map(([title, size]) => v_flex().flex_1().min_w(0).gap(4)
@@ -198,7 +201,6 @@ export default class XcodeStorage {
             .on_click((_event, cx) => this.remove(cx))))
         .when(!this.confirming, el => el
           .child(Button('xcode-storage-review', t, { variant: 'secondary' }).disabled(!chosen.length || this.loading).child('Delete…')
-            .on_click((_event, cx) => { this.confirming = true; cx.notify(); }))
-          .child(Button('xcode-storage-done', t).child('Done').on_click(close))));
+            .on_click((_event, cx) => { this.confirming = true; cx.notify(); }))));
   }
 }

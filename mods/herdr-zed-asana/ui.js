@@ -101,7 +101,7 @@ export default class AsanaPanel extends TaskSourceController {
           .child(glyph('list-todo', 20).text_color('#1e1f21')))
         .child(DropdownMenuTrigger(asanaButton('asana-project-menu', t, { variant: 'ghost' }).h(36).px(4).gap(8).text_size(20).font_semibold().text_color(t.foreground)
           .accessibility_label(`Choose ${this.source.name} project`).disabled(!ready)
-          .on_mouse_down('left', (_event, cx) => cx.stop_propagation()), 360,
+          .on_mouse_down('left', (_event, cx) => cx.stop_propagation()), 280,
           (_cx, at) => { if (ready) this.openProjectPicker?.(this.folder, at); }, 'start', { x: 0, y: 4 })
           .child(div().max_w(400).truncate().child(bound?.name || `Choose ${this.source.name} project`))
           .child(glyph('chevron-down', 14).text_color(t.muted)))

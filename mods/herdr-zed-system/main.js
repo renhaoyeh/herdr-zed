@@ -9,7 +9,7 @@ export default class SystemMod extends View {
     this.view = target.view || 'details'; this.clients = new Map();
     this.monitor = new SystemMonitorCore({ details: this.view === 'details', page: target.page, overlay: target.overlay,
       active: () => this.clients.size > 0,
-      openDetails: page => openOverlay({ mod: 'herdr-zed-system', kind: 'dialog', frame: 'none', width: 0.9, height: 0.82, props: { view: 'details', page } }),
+      openDetails: page => openOverlay({ mod: 'herdr-zed-system', kind: 'dialog', frame: 'none', width: 0.9, height: 0.86, props: { view: 'details', page } }),
     });
     if (this.view === 'service') {
       this.monitor.init(cx);

@@ -270,7 +270,7 @@ test('dragging a scrolled weekly timeline previews the range and opens a prefill
   h.nodes.get('calendar-timeline-column-2026-11-04').move(pointer(10, 280, 1.5), h.cx);
   h.render(); assert.ok(h.nodes.has('calendar-selection-2026-11-03')); assert.ok(h.nodes.has('calendar-selection-2026-11-04'));
   h.nodes.get('calendar-timeline-column-2026-11-04').up.left(pointer(10, 280, 1.5), h.cx);
-  assert.equal(h.overlays.length, 1); assert.equal(h.overlays[0].modal, false); assert.equal(h.overlays[0].props.calendarCreate, true);
+  assert.equal(h.overlays.length, 1); assert.equal(h.overlays[0].modal, true); assert.equal(h.overlays[0].props.calendarCreate, true);
   assert.equal(h.overlays[0].props.draft.startDate, '2026-11-03'); assert.equal(h.overlays[0].props.draft.endDate, '2026-11-04');
   assert.equal(h.overlays[0].props.draft.startTime, '09:00'); assert.equal(h.overlays[0].props.draft.endTime, '10:00');
   assert.deepEqual(h.view.selectedRange(), h.overlays[0].props.draft, 'the released range remains visible behind its dialog');

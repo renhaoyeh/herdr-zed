@@ -35,7 +35,7 @@ export function sourceModuleOptions(source, target) {
       ...(source.server ? { server: project.server } : {}) }),
     onImport: channel ? snapshot => { if (publishSourceEvent(channel, { type: 'import', snapshot })) closeOverlay(target.overlay); } : undefined,
     onClose: () => closeOverlay(target.overlay),
-    openProjectPicker: (_folder, at) => openOverlay({ mod: `herdr-zed-${source.key}`, kind: 'popup', frame: 'none', width: 360, at,
+    openProjectPicker: (_folder, at) => openOverlay({ mod: `herdr-zed-${source.key}`, kind: 'popup', frame: 'none', width: 280, at,
       props: { ...target, overlay: undefined, view: 'projects' } }),
   };
 }
