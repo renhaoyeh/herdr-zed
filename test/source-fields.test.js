@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { evaluateNative } from './source-harness.js';
-import * as asana from '../mods/devkits-asana/source-api.js';
-import * as mantis from '../mods/devkits-mantisbt/source-api.js';
+import * as asana from '../mods/herdr-zed-asana/source-api.js';
+import * as mantis from '../mods/herdr-zed-mantisbt/source-api.js';
 
 const reply = data => ({ ok: true, status: 200, json: async () => data });
 const cx = { notify() {} };
@@ -24,8 +24,8 @@ async function controller(provider = 'asana') {
   const api = provider === 'asana' ? asana : mantis;
   const sourceHost = { ...api, readAsanaToken() {}, saveAsanaToken() {}, readMantisConnection() {}, saveMantisConnection() {} };
   const key = provider === 'asana' ? 'asanaSource' : 'mantisSource';
-  const source = (await evaluateNative(`../mods/devkits-${provider}/source.js`, sourceHost, key))[key];
-  const { TaskSourceController } = await evaluateNative('../mods/devkits/components/task-source.js', {
+  const source = (await evaluateNative(`../mods/herdr-zed-${provider}/source.js`, sourceHost, key))[key];
+  const { TaskSourceController } = await evaluateNative(`../mods/herdr-zed-${provider}/components/task-source.js`, {
     div: element, h_flex: element, v_flex: element, Checkbox: element, Button: element,
   }, 'TaskSourceController');
   let binding = { gid: 'one', name: 'One', server: 'https://one.test' };
@@ -149,7 +149,7 @@ for (const provider of ['asana', 'mantisbt']) test(`${provider} field settings b
   const host = { TaskSourceController: p.constructor, TaskSourceProjectPicker: class {},
     asanaSource: p.source, mantisSource: p.source, div: h.element, svg: h.element,
     h_flex: h.element, v_flex: h.element, Button: h.element, Checkbox: h.element };
-  const Panel = (await evaluateNative(`../mods/devkits-${provider}/ui.js`, host, name))[name];
+  const Panel = (await evaluateNative(`../mods/herdr-zed-${provider}/ui.js`, host, name))[name];
   Object.setPrototypeOf(p, Panel.prototype);
   p.all.tasks = [{ customFields: [{ gid: 'a', name: 'Estimate', displayValue: '0' }] }];
   p.fieldSettings({});

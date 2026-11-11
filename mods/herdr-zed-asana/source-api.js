@@ -30,7 +30,7 @@ const normalize = (task, project) => ({
   customFields: (task.custom_fields || []).map(customField),
 });
 
-// Asana stays the source of truth: Devkits only reads it and never writes back.
+// Asana stays the source of truth: this extension only reads it and never writes back.
 export async function searchProjects(token, query, request = fetch) {
   const me = (await asanaApi.getUser(token, 'me', { opt_fields: 'workspaces.name' }, request)).data || {};
   const lists = await Promise.all((me.workspaces || []).map(workspace => asanaApi.searchWorkspaceProjects(token, workspace.gid, query, { count: 20, opt_fields: 'name' }, request)

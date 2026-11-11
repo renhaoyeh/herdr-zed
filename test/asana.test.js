@@ -2,23 +2,23 @@ import { evaluateNative, sourceOptions } from './source-harness.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { claudeModels, claudeEfforts, codexHome, codexModels, isClaudeLauncher, isCodexLauncher, sessionArgv, sessionKind, shownOptions, mergeModels, orderedOptions, moveOption, effortLabel, sessionChoices, settingsKey, launcherOption, accountAddresses, folderKey } from '../mods/devkits/components/session-model.js';
+import { claudeModels, claudeEfforts, codexHome, codexModels, isClaudeLauncher, isCodexLauncher, sessionArgv, sessionKind, shownOptions, mergeModels, orderedOptions, moveOption, effortLabel, sessionChoices, settingsKey, launcherOption, accountAddresses, folderKey } from '../mods/herdr-zed/components/session-model.js';
 
 const names = ['asanaTheme', 'AsanaPanel', 'AsanaProjectPicker', 'previewWidthAt', 'avatarColor', 'statusKind', 'initials', 'dueLabel', 'searchProjects', 'projectTasksPage', 'myProjectTasks', 'projectWorkspace', 'openSubtasks', 'taskDetails', 'taskComments', 'relativeTime',
   'filterTasks', 'taskPrompt', 'readAsanaToken', 'saveAsanaToken'];
 async function load(host = {}) {
   host = { fetch: () => assert.fail('unexpected request'), Button: () => {}, claudeModels, claudeEfforts, codexHome, codexModels, isClaudeLauncher, isCodexLauncher, sessionKind, shownOptions, orderedOptions, effortLabel, settingsKey, launcherOption, accountAddresses, folderKey,
     glyph: () => element(), home: () => '/home', shared: () => null, setShared() {}, closeOverlay() {}, Select: () => element(), SelectState: class {}, ...host };
-  Object.assign(host, await evaluateNative('../mods/devkits-asana/rest.js', host, 'asanaRequest'));
-  host.asanaApi = await evaluateNative('../mods/devkits-asana/api.js', host, 'getUser, getProject, searchWorkspaceProjects, listProjectTasks, listTasks, listSubtasks, getTask, listStories');
-  Object.assign(host, await evaluateNative('../mods/devkits-asana/source-api.js', host, 'searchProjects, projectTasksPage, myProjectTasks, projectWorkspace, openSubtasks, taskDetails, taskComments, projectFields'));
-  Object.assign(host, await evaluateNative('../mods/devkits-asana/connection.js', host, 'readAsanaToken, saveAsanaToken'));
-  Object.assign(host, await evaluateNative('../mods/devkits-asana/source.js', host, 'asanaSource'));
-  Object.assign(host, await evaluateNative('../mods/devkits/components/task-source-model.js', host, 'filterTasks, sourceTaskSnapshot, relativeTime, previewWidthAt, statusKind, avatarColor, initials, dueLabel, sourcePathKey'));
-  Object.assign(host, await evaluateNative('../mods/devkits-tasks/task-prompt.js', host, 'taskPrompt'));
-  Object.assign(host, await evaluateNative('../mods/devkits/components/task-source.js', host, 'TaskSourceController, TaskSourceProjectPicker'));
-  Object.assign(host, await evaluateNative('../mods/devkits-tasks/task-session.js', host, 'TaskSession'));
-  Object.assign(host, await evaluateNative('../mods/devkits-asana/ui.js', host, 'AsanaPanel, AsanaProjectPicker, asanaTheme'));
+  Object.assign(host, await evaluateNative('../mods/herdr-zed-asana/rest.js', host, 'asanaRequest'));
+  host.asanaApi = await evaluateNative('../mods/herdr-zed-asana/api.js', host, 'getUser, getProject, searchWorkspaceProjects, listProjectTasks, listTasks, listSubtasks, getTask, listStories');
+  Object.assign(host, await evaluateNative('../mods/herdr-zed-asana/source-api.js', host, 'searchProjects, projectTasksPage, myProjectTasks, projectWorkspace, openSubtasks, taskDetails, taskComments, projectFields'));
+  Object.assign(host, await evaluateNative('../mods/herdr-zed-asana/connection.js', host, 'readAsanaToken, saveAsanaToken'));
+  Object.assign(host, await evaluateNative('../mods/herdr-zed-asana/source.js', host, 'asanaSource'));
+  Object.assign(host, await evaluateNative('../mods/herdr-zed-asana/components/task-source-model.js', host, 'filterTasks, sourceTaskSnapshot, relativeTime, previewWidthAt, statusKind, avatarColor, initials, dueLabel, sourcePathKey'));
+  Object.assign(host, await evaluateNative('../mods/herdr-zed-tasks/task-prompt.js', host, 'taskPrompt'));
+  Object.assign(host, await evaluateNative('../mods/herdr-zed-asana/components/task-source.js', host, 'TaskSourceController, TaskSourceProjectPicker'));
+  Object.assign(host, await evaluateNative('../mods/herdr-zed-tasks/task-session.js', host, 'TaskSession'));
+  Object.assign(host, await evaluateNative('../mods/herdr-zed-asana/ui.js', host, 'AsanaPanel, AsanaProjectPicker, asanaTheme'));
   return { ...host, taskSourceOptions: (_source, target) => sourceOptions(host, 'asana', target) };
 }
 
@@ -162,7 +162,7 @@ const harness = () => {
 };
 
 test('Mine loads only my tasks; All loads a page when shown and more on request; previews read fresh', async () => {
-  const memory = { 'devkits.asana-projects': { '["","/Code/api"]': { gid: 'p1', name: 'API' } } }, urls = [];
+  const memory = { 'herdr-zed.asana-projects': { '["","/Code/api"]': { gid: 'p1', name: 'API' } } }, urls = [];
   const tasks = [{ gid: 't1', name: 'Fix login', me: true, projects: ['p1'], subs: ['s1'] }, { gid: 't2', name: 'Other', projects: ['p1'] },
     { gid: 't3', name: 'Nobody', projects: ['p1'] }, { gid: 't4', name: 'Elsewhere', me: true, projects: ['p2'] }];
   const { AsanaPanel, taskSourceOptions } = await load({ ...ui, shared: key => memory[key], setShared: (key, value) => { memory[key] = value; },
@@ -173,7 +173,7 @@ test('Mine loads only my tasks; All loads a page when shown and more on request;
   await render(); await render();
   assert.equal(panel.tab, 'mine');
   assert.deepEqual(panel.rows().map(row => row.task.gid), ['t1']);
-  assert.equal(memory['devkits.asana-projects']['["","/Code/api"]'].workspace, 'w');
+  assert.equal(memory['herdr-zed.asana-projects']['["","/Code/api"]'].workspace, 'w');
   assert.ok(!urls.some(url => url.includes('/projects/p1/tasks')));
   panel.tab = 'all'; await render();
   assert.deepEqual(panel.rows().map(row => row.task.gid), ['t1', 't2']);
@@ -188,7 +188,7 @@ test('Mine loads only my tasks; All loads a page when shown and more on request;
   assert.deepEqual(panel.subtasks.get('t1').map(sub => sub.gid), ['s1']);
   panel.toggleExpanded(panel.mine[0], cx);
   assert.deepEqual(panel.rows().map(row => [row.task.gid, row.depth]), [['t1', 0], ['s1', 1]]);
-  memory['devkits.asana-view'] = 'board'; await render();
+  memory['herdr-zed.asana-view'] = 'board'; await render();
   assert.deepEqual(panel.groups().map(group => group.name), ['To do']);
 });
 
@@ -206,7 +206,7 @@ test('an unbound project loads nothing until a project is chosen from the dropdo
   const picker = new AsanaProjectPicker(taskSourceOptions('asana', { folder: '/Code/web', overlay: 'menu' })); picker.init({ folder: '/Code/web', overlay: 'menu' }, cx); await settle();
   assert.deepEqual(picker.projects.map(project => project.gid), ['p9']);
   picker.choose(picker.projects[0]);
-  assert.deepEqual(memory['devkits.asana-projects'], { '["","/Code/web"]': { gid: 'p9', name: 'Web', workspace: 'w' } });
+  assert.deepEqual(memory['herdr-zed.asana-projects'], { '["","/Code/web"]': { gid: 'p9', name: 'Web', workspace: 'w' } });
   assert.deepEqual(closed, ['menu']);
   panel.render({ folder: '/Code/web' }, cx); await settle();
   assert.equal(panel.loadedGid, 'p9');
@@ -243,8 +243,8 @@ test('each assignee keeps one avatar color', async () => {
   assert.notEqual(new Set(['1', '2', '3', '4', '5', '6', '7', '8', '9'].map(avatarColor)).size, 1);
 });
 
-test('switching Devkits projects keeps each project’s tasks, selection and preview without reloading', async () => {
-  const memory = { 'devkits.asana-projects': { '["","/a"]': { gid: 'pa', name: 'A', workspace: 'w' }, '["","/b"]': { gid: 'pb', name: 'B', workspace: 'w' } } }, urls = [];
+test('switching projects keeps each project’s tasks, selection and preview without reloading', async () => {
+  const memory = { 'herdr-zed.asana-projects': { '["","/a"]': { gid: 'pa', name: 'A', workspace: 'w' }, '["","/b"]': { gid: 'pb', name: 'B', workspace: 'w' } } }, urls = [];
   const { AsanaPanel, taskSourceOptions } = await load({ ...ui, shared: key => memory[key], setShared: (key, value) => { memory[key] = value; },
     folderKey: path => path, appHome: () => '/herdr', readTextFile: async () => '{"token":"secret"}',
     fetch: asana([{ gid: 'a1', name: 'A task', me: true, projects: ['pa'] }, { gid: 'b1', name: 'B task', me: true, projects: ['pb'] }], urls) });
@@ -327,7 +327,7 @@ test('model and effort overrides replace conflicting launcher flags and preserve
 });
 
 test('Tasks names and applies profile defaults, narrows efforts to the effective model and drops incompatible inherited effort', async () => {
-  const memory = { 'devkits.profile-sessions': { codex: { model: 'a', effort: 'high' } } };
+  const memory = { 'herdr-zed.profile-sessions': { codex: { model: 'a', effort: 'high' } } };
   const picks = new Map(); let click, started;
   const button = new Proxy({}, { get: (_target, key) => (...args) => { if (key === 'on_click') click = args[0]; return button; } });
   const { TaskSession } = await load({ ...ui, shared: key => memory[key],
@@ -345,18 +345,18 @@ test('Tasks names and applies profile defaults, narrows efforts to the effective
   assert.equal(picks.get('task-session-model').options[0].label, 'Default (A)');
   assert.equal(picks.get('task-session-effort').options[0].label, 'Default (High)');
   click(); assert.deepEqual(started, { model: 'a', effort: 'high' });
-  memory['devkits.asana-session'] = { agent: 'codex', model: 'b' };
+  memory['herdr-zed.asana-session'] = { agent: 'codex', model: 'b' };
   render(); click(); assert.deepEqual(started, { model: 'b', effort: null });
   assert.equal(picks.get('task-session-effort').options[0].label, 'Default');
-  memory['devkits.asana-session'] = {};
-  memory['devkits.session-options'] = { codex: { models: ['a'], efforts: ['high'] } };
+  memory['herdr-zed.asana-session'] = {};
+  memory['herdr-zed.session-options'] = { codex: { models: ['a'], efforts: ['high'] } };
   render(); click(); assert.deepEqual(started, { model: null, effort: null });
   assert.equal(picks.get('task-session-model').options[0].label, 'Default');
   assert.deepEqual(panel.session(agents).efforts, ['low']);
 });
 
 test('the composer remembers the agent and drops a model or effort the new agent lacks', async () => {
-  const memory = { 'devkits.asana-session': { agent: 'codex', model: 'opus', effort: 'max' } };
+  const memory = { 'herdr-zed.asana-session': { agent: 'codex', model: 'opus', effort: 'max' } };
   const { TaskSession } = await load({ ...ui, shared: key => memory[key], setShared: (key, value) => { memory[key] = value; },
     readTextFile: async () => JSON.stringify({ models: [{ slug: 'gpt-6-luna', visibility: 'list', supported_reasoning_levels: [{ effort: 'high' }] }] }) });
   const panel = new TaskSession(); panel.init({ focus_handle: () => ({ focus() {} }) });
@@ -369,15 +369,15 @@ test('the composer remembers the agent and drops a model or effort the new agent
   assert.equal(codex.model, null);
   assert.equal(codex.effort, null);
   assert.deepEqual(codex.models.map(model => model.key), ['gpt-6-luna']);
-  memory['devkits.asana-session'] = { agent: 'claude', model: 'opus', effort: 'max' };
+  memory['herdr-zed.asana-session'] = { agent: 'claude', model: 'opus', effort: 'max' };
   assert.deepEqual([panel.session(agents).model, panel.session(agents).effort], ['opus', 'max']);
-  memory['devkits.asana-session'] = { agent: 'gone' };
+  memory['herdr-zed.asana-session'] = { agent: 'gone' };
   assert.equal(panel.session(agents).agent.key, 'claude');
 });
 
 test('a thread’s Asana link opens its task in the preview once, for the matching project only', async () => {
-  const memory = { 'devkits.asana-projects': { '["","/a"]': { gid: 'pa', name: 'A', workspace: 'w' } },
-    'devkits.asana-focus': { folder: '/a/', gid: 'a2' } };
+  const memory = { 'herdr-zed.asana-projects': { '["","/a"]': { gid: 'pa', name: 'A', workspace: 'w' } },
+    'herdr-zed.asana-focus': { folder: '/a/', gid: 'a2' } };
   const { AsanaPanel, taskSourceOptions } = await load({ ...ui, shared: key => memory[key], setShared: (key, value) => { memory[key] = value; },
     folderKey: path => path.replace(/\/+$/, ''), appHome: () => '/herdr', readTextFile: async () => '{"token":"secret"}',
     fetch: asana([{ gid: 'a1', name: 'One', me: true, projects: ['pa'] }, { gid: 'a2', name: 'Two', projects: ['pa'] }]) });
@@ -385,10 +385,10 @@ test('a thread’s Asana link opens its task in the preview once, for the matchi
   const panel = new AsanaPanel(taskSourceOptions('asana')); panel.init(cx);
   panel.render({ folder: '/b' }, cx); await settle();
   panel.render({ folder: '/b' }, cx); await settle();
-  assert.ok(memory['devkits.asana-focus']);
+  assert.ok(memory['herdr-zed.asana-focus']);
   panel.render({ folder: '/a' }, cx); await settle();
   panel.render({ folder: '/a' }, cx); await settle();
-  assert.equal(memory['devkits.asana-focus'], null);
+  assert.equal(memory['herdr-zed.asana-focus'], null);
   assert.equal(panel.selected, 'a2');
   assert.equal(panel.detail.name, 'Two');
 });
@@ -397,8 +397,8 @@ test('hidden models and efforts leave the composer, while new Codex models still
   assert.deepEqual(mergeModels([[{ key: 'a', label: 'A', efforts: ['low'] }], [{ key: 'a', label: 'A', efforts: ['high'] }, { key: 'b', label: 'B', efforts: [] }]]),
     [{ key: 'a', label: 'A', efforts: ['low', 'high'] }, { key: 'b', label: 'B', efforts: [] }]);
   assert.deepEqual(shownOptions(['low', 'high'], ['low']), ['high']);
-  const memory = { 'devkits.session-options': { claude: { models: ['haiku'], efforts: ['low', 'max'] }, codex: { models: ['old'] } },
-    'devkits.asana-session': { agent: 'claude', model: 'haiku', effort: 'max' } };
+  const memory = { 'herdr-zed.session-options': { claude: { models: ['haiku'], efforts: ['low', 'max'] }, codex: { models: ['old'] } },
+    'herdr-zed.asana-session': { agent: 'claude', model: 'haiku', effort: 'max' } };
   const { TaskSession } = await load({ ...ui, shared: key => memory[key], setShared: (key, value) => { memory[key] = value; },
     readTextFile: async () => JSON.stringify({ models: [{ slug: 'old', visibility: 'list' }, { slug: 'new', visibility: 'list', supported_reasoning_levels: [{ effort: 'high' }] }] }) });
   const panel = new TaskSession(); panel.init({ focus_handle: () => ({ focus() {} }) });
@@ -410,7 +410,7 @@ test('hidden models and efforts leave the composer, while new Codex models still
   assert.equal(claude.effort, null);
   const pending = [];
   panel.cx = { notify() {}, spawn: task => { pending.push(task(panel.cx)); } };
-  memory['devkits.asana-session'] = { agent: 'codex' };
+  memory['herdr-zed.asana-session'] = { agent: 'codex' };
   panel.session(agents); await Promise.all(pending);
   assert.deepEqual(panel.session(agents).models.map(model => model.key), ['new']);
 });
@@ -422,7 +422,7 @@ test('models follow the dragged order, new ones keep theirs after it, and the co
   assert.deepEqual(moveOption(['a', 'b', 'c'], 'c', 'a'), ['c', 'a', 'b']);
   assert.deepEqual(moveOption(['a', 'b', 'c'], 'a', 'c'), ['b', 'c', 'a']);
   assert.deepEqual(moveOption(['a', 'b'], 'x', 'a'), ['a', 'b']);
-  const memory = { 'devkits.session-options': { claude: { order: ['haiku', 'opus'], models: ['sonnet'] } } };
+  const memory = { 'herdr-zed.session-options': { claude: { order: ['haiku', 'opus'], models: ['sonnet'] } } };
   const { TaskSession } = await load({ ...ui, shared: key => memory[key], setShared: (key, value) => { memory[key] = value; } });
   const panel = new TaskSession(); panel.init({ focus_handle: () => ({ focus() {} }) });
   assert.deepEqual(panel.session([{ key: 'claude', name: 'Claude', run: ['claude'] }]).models.map(model => model.key), ['haiku', 'opus', 'fable']);
@@ -454,7 +454,7 @@ test('Asana owns its colors in both modes regardless of the host accent and surf
 
 test('token settings replaces credentials, clears caches and disconnects without losing bindings or bookmarks', async () => {
   let file = '{"token":"old"}', draft = 'new';
-  const memory = { 'devkits.asana-projects': { project: 'p1' }, 'devkits.asana-saved': { project: ['t1'] } };
+  const memory = { 'herdr-zed.asana-projects': { project: 'p1' }, 'herdr-zed.asana-saved': { project: ['t1'] } };
   const { AsanaPanel, readAsanaToken, taskSourceOptions } = await load({ ...ui, appHome: () => '/herdr',
     shared: key => memory[key], readTextFile: async () => file,
     writeTextFile: async (_path, text) => { file = text; } });
@@ -477,7 +477,7 @@ test('token settings replaces credentials, clears caches and disconnects without
   assert.equal(panel.settingsOpen, true);
   assert.equal(panel.selected, null);
   assert.equal(panel.mine, null);
-  assert.deepEqual(memory, { 'devkits.asana-projects': { project: 'p1' }, 'devkits.asana-saved': { project: ['t1'] } });
+  assert.deepEqual(memory, { 'herdr-zed.asana-projects': { project: 'p1' }, 'herdr-zed.asana-saved': { project: ['t1'] } });
 });
 
 test('failed token updates keep the current connection and allow retrying', async () => {
@@ -618,24 +618,6 @@ test('imported local prompts keep source links and comments plus all edited inst
   assert.match(prompt, /Work on this Asana task: My task/);
   assert.match(prompt, /https:\/\/app.asana.com\/0\/p\/a1/); assert.match(prompt, /It is a subtask of: Parent/);
   assert.match(prompt, /Extra requirement at the end/); assert.match(prompt, /Amy: Use v2/);
-});
-
-test('legacy Saved selection falls back to Mine without reading or changing bookmarks or existing Tasks', async () => {
-  const memory = { 'devkits.asana-tab': 'saved', 'devkits.asana-projects': { '["","/project"]': { gid: 'p1', workspace: 'w' } },
-    'devkits.asana-saved': { '["","/project"]': [{ gid: 'legacy' }] },
-    'devkits.agent-board': { '["","/project"]': { existing: { gid: 'existing', source: 'local', status: 'todo' } } } };
-  const originalBookmarks = structuredClone(memory['devkits.asana-saved']), originalTasks = structuredClone(memory['devkits.agent-board']);
-  const reads = [], urls = [];
-  const { AsanaPanel, taskSourceOptions } = await load({ ...ui, folderKey: path => path, appHome: () => '/herdr',
-    shared: key => { reads.push(key); return memory[key]; }, setShared: (key, value) => { memory[key] = value; },
-    readTextFile: async () => '{"token":"secret"}', fetch: asana([{ gid: 'a1', name: 'Mine', me: true, projects: ['p1'] }], urls) });
-  const panel = new AsanaPanel(taskSourceOptions('asana')), { cx, settle } = harness(); panel.init(cx);
-  assert.equal(panel.tab, 'mine');
-  panel.render({ folder: '/project' }, cx); await settle();
-  panel.render({ folder: '/project' }, cx); await settle();
-  assert.deepEqual(panel.rows().map(row => row.task.gid), ['a1']);
-  assert.ok(!reads.includes('devkits.asana-saved')); assert.ok(!urls.some(url => url.includes('/tasks/legacy')));
-  assert.deepEqual(memory['devkits.asana-saved'], originalBookmarks); assert.deepEqual(memory['devkits.agent-board'], originalTasks);
 });
 
 test('reselecting an Asana issue reuses its pending read and loaded details and comments', async () => {

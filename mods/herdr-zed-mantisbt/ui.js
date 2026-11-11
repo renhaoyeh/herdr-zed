@@ -27,7 +27,7 @@ const statusColors = { new: '#fcbdbd', feedback: '#e3b7eb', acknowledged: '#ffcd
 export const issueNumber = gid => String(gid || '').padStart(7, '0');
 // The server reports each status's configured color, including custom statuses; the defaults cover older lists.
 export const statusColor = task => task.statusColor || statusColors[task.statusName] || statusColors[String(task.section || '').toLowerCase()] || '#e4e4e4';
-const glyph = (name, size = 14) => svg(`mods/devkits/assets/icons/${name}.svg`).size(size).flex_none();
+const glyph = (name, size = 14) => svg(`mods/herdr-zed/assets/icons/${name}.svg`).size(size).flex_none();
 const localStamp = ms => { const d = new Date(ms), p = n => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };
 const date = (value, time = false) => value ? value.slice(0, time ? 16 : 10).replace('T', ' ') : '—';

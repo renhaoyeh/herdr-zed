@@ -10,7 +10,7 @@ import { Checkbox } from './components/checkbox.js';
 import { DialogDescription } from './components/dialog.js';
 import { DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel } from './components/dropdown-menu.js';
 
-const glyph = (name, size = 14) => svg(`mods/devkits/assets/icons/${name}.svg`).size(size).flex_none();
+const glyph = (name, size = 14) => svg(`mods/herdr-zed/assets/icons/${name}.svg`).size(size).flex_none();
 // Asana owns its palette; the host theme chooses only light or dark mode.
 // Reference: Asana project List view (the main canvas is #1e1f21 in dark mode).
 export function asanaTheme(host = theme()) {

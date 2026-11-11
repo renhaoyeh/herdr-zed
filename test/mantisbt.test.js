@@ -2,7 +2,7 @@ import { evaluateNative, sourceOptions } from './source-harness.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import * as model from '../mods/devkits/components/session-model.js';
+import * as model from '../mods/herdr-zed/components/session-model.js';
 
 const reply = (status, body) => ({ status, ok: status >= 200 && status < 300, json: async () => body });
 const connection = { url: 'https://tracker.test/mantis', token: 'secret' };
@@ -27,15 +27,15 @@ async function load(options = {}) {
     fetch: () => assert.fail('Unexpected network request'),
     readTextFile: async path => files[path] ?? null,
     writeTextFile: async (path, text, expected) => { writes.push({ path, expected }); files[path] = text; }, ...options };
-  Object.assign(host, await evaluateNative('../mods/devkits-mantisbt/rest.js', host, 'mantisRequest, normalizeUrl'));
-  host.mantisApi = await evaluateNative('../mods/devkits-mantisbt/api.js', host, 'getUser, listProjects, getProject, getConfig, listIssues, getIssue');
-  Object.assign(host, await evaluateNative('../mods/devkits-mantisbt/source-api.js', host, 'normalizeUrl, filterProjects, searchProjects, projectTasksPage, myProjectTasks, taskDetails, taskComments, openSubtasks, validateConnection, projectFields'));
-  Object.assign(host, await evaluateNative('../mods/devkits-mantisbt/connection.js', host, 'readMantisConnection, saveMantisConnection, readMantisProjects, saveMantisProjects, readMantisIssues, saveMantisIssues'));
-  Object.assign(host, await evaluateNative('../mods/devkits-mantisbt/source.js', host, 'mantisSource'));
-  Object.assign(host, await evaluateNative('../mods/devkits/components/task-source-model.js', host, 'filterTasks, sourceTaskSnapshot'));
-  Object.assign(host, await evaluateNative('../mods/devkits/components/task-source.js', host, 'TaskSourceController, TaskSourceProjectPicker'));
-  Object.assign(host, await evaluateNative('../mods/devkits-tasks/task-prompt.js', host, 'taskPrompt'));
-  Object.assign(host, await evaluateNative('../mods/devkits-mantisbt/ui.js', host, 'MantisPanel, MantisProjectPicker, mantisTheme, issueNumber, statusColor'));
+  Object.assign(host, await evaluateNative('../mods/herdr-zed-mantisbt/rest.js', host, 'mantisRequest, normalizeUrl'));
+  host.mantisApi = await evaluateNative('../mods/herdr-zed-mantisbt/api.js', host, 'getUser, listProjects, getProject, getConfig, listIssues, getIssue');
+  Object.assign(host, await evaluateNative('../mods/herdr-zed-mantisbt/source-api.js', host, 'normalizeUrl, filterProjects, searchProjects, projectTasksPage, myProjectTasks, taskDetails, taskComments, openSubtasks, validateConnection, projectFields'));
+  Object.assign(host, await evaluateNative('../mods/herdr-zed-mantisbt/connection.js', host, 'readMantisConnection, saveMantisConnection, readMantisProjects, saveMantisProjects, readMantisIssues, saveMantisIssues'));
+  Object.assign(host, await evaluateNative('../mods/herdr-zed-mantisbt/source.js', host, 'mantisSource'));
+  Object.assign(host, await evaluateNative('../mods/herdr-zed-mantisbt/components/task-source-model.js', host, 'filterTasks, sourceTaskSnapshot'));
+  Object.assign(host, await evaluateNative('../mods/herdr-zed-mantisbt/components/task-source.js', host, 'TaskSourceController, TaskSourceProjectPicker'));
+  Object.assign(host, await evaluateNative('../mods/herdr-zed-tasks/task-prompt.js', host, 'taskPrompt'));
+  Object.assign(host, await evaluateNative('../mods/herdr-zed-mantisbt/ui.js', host, 'MantisPanel, MantisProjectPicker, mantisTheme, issueNumber, statusColor'));
   return { ...host, taskSourceOptions: (_source, target) => sourceOptions(host, 'mantisbt', target), memory, files, writes, closed };
 
 }
@@ -341,8 +341,8 @@ test('MantisBT retains connection and import behavior while using its own issue 
   } });
   const { MantisPanel, TaskSourceController, MantisProjectPicker, memory, files, writes, taskPrompt, taskSourceOptions } = context;
   files['/herdr/data/devkits/mantisbt.json'] = JSON.stringify(connection);
-  memory['devkits.asana-projects'] = { other: { gid: '1', name: 'Asana' } };
-  memory['devkits.mantisbt-tab'] = 'mine';
+  memory['herdr-zed.asana-projects'] = { other: { gid: '1', name: 'Asana' } };
+  memory['herdr-zed.mantisbt-tab'] = 'mine';
   const { cx, settle } = harness(), panel = new MantisPanel(taskSourceOptions('mantisbt')); panel.init(cx);
   assert.equal(panel.tab, 'all');
   assert.ok(panel instanceof TaskSourceController); assert.equal(panel.tokenInput.masked, true);
@@ -358,7 +358,7 @@ test('MantisBT retains connection and import behavior while using its own issue 
   assert.equal(panel.detail, selected); assert.equal(urls.length, reads);
   assert.equal(selected.source, 'mantisbt'); assert.equal(selected.comments[0].text, 'Keep this comment');
   assert.match(taskPrompt({ source: 'local', name: selected.name, notes: 'Edited instructions', mantisbt: selected }), /Work on this MantisBT task/);
-  assert.equal(writes.length, 1); assert.equal(memory['devkits.asana-projects'].other.name, 'Asana');
+  assert.equal(writes.length, 1); assert.equal(memory['herdr-zed.asana-projects'].other.name, 'Asana');
   assert.ok(!JSON.stringify(memory).includes('secret'));
   panel.server = 'https://another.test'; assert.equal(panel.binding(), null);
 });
@@ -380,7 +380,7 @@ test('MantisBT searches issue numbers and metadata, combines status filtering, a
   assert.equal(panel.selected, null); assert.equal(panel.detail, null); assert.equal(panel.detailRequest, null);
   panel.all = { tasks: [{ gid: '3', name: 'Unassigned', section: 'new' }], loaded: true, next: null };
   panel.chooseView('all', cx);
-  assert.equal(memory['devkits.mantisbt-tab'], 'all');
+  assert.equal(memory['herdr-zed.mantisbt-tab'], 'all');
   panel.issueSearch.set_value(''); panel.filter = {};
   assert.deepEqual(panel.rows().map(row => row.task.gid), ['3']);
   assert.equal(panel.view(), 'list'); // Legacy Board preferences cannot restore the Asana UI.
@@ -408,7 +408,7 @@ test('MantisBT saves credentials without network validation and retains them aft
     requests++; return reply(401, null);
   } });
   files['/herdr/data/devkits/mantisbt.json'] = JSON.stringify(connection);
-  memory['devkits.mantisbt-projects'] = { saved: { gid: '1', name: 'Demo', server: connection.url } };
+  memory['herdr-zed.mantisbt-projects'] = { saved: { gid: '1', name: 'Demo', server: connection.url } };
   const { cx, settle } = harness(), panel = new MantisPanel(taskSourceOptions('mantisbt')); panel.init(cx); panel.open({ folder: '/app' }, cx); await settle();
   panel.openSettings(cx); panel.serverInput.set_value('https://another.test'); panel.tokenInput.set_value('invalid');
   panel.saveToken(cx); await settle();
@@ -420,7 +420,7 @@ test('MantisBT saves credentials without network validation and retains them aft
   assert.deepEqual(await readMantisConnection(), saved);
   panel.openSettings(cx);
   assert.equal(panel.tokenInput.value(), saved.token); assert.equal(panel.serverInput.value(), saved.url);
-  assert.equal(memory['devkits.mantisbt-projects'].saved.name, 'Demo');
+  assert.equal(memory['herdr-zed.mantisbt-projects'].saved.name, 'Demo');
 });
 
 test('MantisBT still validates the URL before saving credentials', async () => {

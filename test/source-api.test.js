@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import * as asana from '../mods/devkits-asana/api.js';
-import * as mantis from '../mods/devkits-mantisbt/api.js';
+import * as asana from '../mods/herdr-zed-asana/api.js';
+import * as mantis from '../mods/herdr-zed-mantisbt/api.js';
 
 const response = (body, status = 200) => ({ ok: status >= 200 && status < 300, status, json: async () => body });
 const connection = { url: 'https://mantis.test/tracker/api/rest/', token: 'raw-api-test' };
