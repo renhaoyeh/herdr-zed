@@ -18,7 +18,7 @@ export const accountActions = {
   },
 
   addAccount(provider) {
-    openOverlay({ mod: 'herdr-zed-agents', kind: 'dialog', frame: 'none', modal: true, width: 560,
+    openOverlay({ mod: 'herdr-zed-agents', kind: 'dialog', frame: 'none', modal: true, width: 560, height: 520,
       props: { view: 'account-login', provider } });
   },
 

@@ -45,7 +45,7 @@ test('no dialog closes with a Done button: the close control is the header X, an
 test('form dialogs are 560 wide and modal with Cancel + Save', async () => {
   const account = await source('mods/herdr-zed-agents/account-actions.js');
   assert.equal([...account.matchAll(/frame: 'none', modal: true, width: 560,/g)].length, 2, 'add login and rename are 560 wide');
-  assert.match(account, /width: 560,\s*props: \{ view: 'account-login'/);
+  assert.match(account, /width: 560, height: 520,\s*props: \{ view: 'account-login'/);
   assert.match(account, /width: 560,\s*props: \{ view: 'rename-account'/);
   assert.doesNotMatch(account, /width: 520|width: 480/);
 

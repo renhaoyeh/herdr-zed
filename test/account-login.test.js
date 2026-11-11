@@ -1,4 +1,5 @@
 import { test } from 'node:test';
+import { createServer } from 'node:http';
 import { launcherLabel } from '../components/session-model.js';
 import assert from 'node:assert/strict';
 import { readFile, mkdtemp, rm, stat } from 'node:fs/promises';
@@ -26,7 +27,7 @@ test('Windows Add account allocates private directories and saves launchers with
   for (const provider of ['codex', 'claude']) {
     let source = null, pending;
     const { AccountLogin } = await load({ appHome: () => root, window: () => ({ platform: 'windows' }),
-      InputState: { new: () => ({ value: () => '工作帳號', on() {}, focus() {} }) },
+      InputState: { new: () => ({ value: () => '工作帳號', on() {}, focus() {}, set_value() {} }) },
       exec: async (command, args) => {
         assert.equal(command, 'node');
         const { stdout, stderr } = await run(command, args); return { code: 0, stdout, stderr };
@@ -44,6 +45,8 @@ test('Windows Add account allocates private directories and saves launchers with
       return 'fixture@example.com';
     };
     view.start(cx); await pending;
+    assert.equal(view.phase, 'name'); assert.equal(source, null);
+    view.saveAccount(cx); await pending;
     assert.equal(view.phase, 'success', view.error);
     assert.equal(JSON.parse(source).programs[view.profile.key].run[0], 'git');
   }
@@ -164,12 +167,12 @@ test('finishing, cancelling, or escaping account sign-in deep-links back to the 
 });
 
 async function scenario({ success = true, confirm = true, existing = false, failure, beforeStartReply = false,
-  name = 'work', initialPrograms = {}, failSaveOnce = false } = {}) {
+  name = 'work', initialPrograms = {}, failSaveOnce = false, save = true, email = 'test@example.com', method = 'browser' } = {}) {
   const commands = [], messages = [], writes = [], queue = [], timers = [];
   const root = '/Users/test/App Home';
   let source = JSON.stringify({ shells: ['fish'], programs: { existing: { name: 'Keep me' }, ...initialPrograms } });
   let inputName = name, saveFailed = false;
-  let account = existing ? { type: 'chatgpt', email: 'test@example.com' } : null;
+  let account = existing ? { type: 'chatgpt', email } : null;
   const socket = {
     async write(text) {
       const message = JSON.parse(text); messages.push(message);
@@ -183,7 +186,7 @@ async function scenario({ success = true, confirm = true, existing = false, fail
         else queue.push({ id: message.id, result });
         queue.push({ method: 'account/login/completed', params: { loginId: 'unrelated', success: false } });
         if (!beforeStartReply) queue.push(notification);
-        account = success && confirm ? { type: 'chatgpt', email: 'test@example.com' } : null;
+        account = success && confirm ? { type: 'chatgpt', email } : null;
         if (!beforeStartReply) return;
       }
       queue.push({ id: message.id, result });
@@ -196,11 +199,11 @@ async function scenario({ success = true, confirm = true, existing = false, fail
     async close() { commands.push(['socket.close']); },
   };
   let task;
-  const cx = { notify() {}, focus_handle: () => ({}), sleep: async () => {}, open_url: url => commands.push(['open', [url]]),
+  const cx = { notify() {}, focus_handle: () => ({}), sleep: async () => {}, open_url: url => commands.push(['open', [url]]), write_to_clipboard: value => commands.push(['copy', value]),
     timer: { after(ms, handler) { const timer = { ms, handler, cancel() { this.cancelled = true; } }; timers.push(timer); return timer; } },
     spawn(fn) { task = fn(cx); } };
   const api = await load({ appHome: () => root,
-    InputState: { new: () => ({ value: () => inputName, on() {}, focus() {} }) },
+    InputState: { new: () => ({ value: () => inputName, set_value(value) { inputName = value; }, on() {}, focus() {} }) },
     exec: async (...args) => {
       commands.push(args);
       return { code: 0, stdout: args[0] === 'node' ? `${root}/data/devkits/codex/${profileId}\n` : '' };
@@ -220,9 +223,11 @@ async function scenario({ success = true, confirm = true, existing = false, fail
     },
   });
   const view = new api.AccountLogin(); view.init({ overlay: 'login-dialog' }, cx);
-  view.start(cx); view.start(cx); await task;
-  return { ...api, view, commands, messages, writes, timers, get source() { return JSON.parse(source); },
-    async retry(nextName = inputName) { inputName = nextName; view.start(cx); await task; } };
+  view.start(cx, method); view.start(cx, method); await task;
+  const suggestedName = inputName;
+  if (view.authenticated && save) { inputName = name; view.saveAccount(cx); await task; }
+  return { ...api, view, commands, messages, writes, timers, suggestedName, async save(name) { inputName = name; view.saveAccount(cx); await task; }, get source() { return JSON.parse(source); },
+    async retry(nextName = inputName) { inputName = nextName; if (view.authenticated) view.saveAccount(cx); else view.start(cx); await task; } };
 }
 
 test('Chinese and uppercase labels are separate from validated internal IDs and command arguments', async () => {
@@ -301,7 +306,7 @@ test('duplicate names, invalid settings, and concurrent settings edits are never
 
 test('retrying with a different display name keeps the same identity and credentials directory', async () => {
   const result = await scenario({ name: '工作帳號', failSaveOnce: true });
-  assert.equal(result.view.phase, 'error');
+  assert.equal(result.view.phase, 'name');
   const original = { ...result.view.profile };
   await result.retry('PERSONAL');
   assert.equal(result.view.phase, 'success');
@@ -319,8 +324,8 @@ test('adding a Unicode account preserves legacy profile paths and rejects existi
   assert.deepEqual(result.source.programs['devkits-codex-Legacy'], legacy);
   assert.equal(result.source.programs[`devkits-codex-${profileId}`].name, 'Codex · 工作帳號');
   const duplicate = await scenario({ name: 'Legacy', initialPrograms: { 'devkits-codex-Legacy': legacy } });
-  assert.equal(duplicate.view.phase, 'error');
-  assert.equal(duplicate.commands.length, 0);
+  assert.equal(duplicate.view.phase, 'name');
+  assert.match(duplicate.view.error, /already in the agent menu/);
   assert.equal(duplicate.writes.length, 0);
 });
 
@@ -355,8 +360,8 @@ async function claudeScenario({ reads, loggedInAfter = Infinity, existing = fals
   const commands = [], writes = [], settings = {};
   let source = JSON.stringify({ programs: { keep: { name: 'Keep me' } } });
   let statusCalls = 0, readCalls = 0, task;
-  const cx = { notify() {}, focus_handle: () => ({}), sleep: async () => {}, open_url: url => commands.push(['open', [url]]),
-    timer: { after() { return { cancel() {} }; } }, spawn(fn) { const pending = fn(cx); task ||= pending; return pending; } };
+  const cx = { notify() {}, focus_handle: () => ({}), sleep: async () => {}, open_url: url => commands.push(['open', [url]]), write_to_clipboard: value => commands.push(['copy', value]),
+    timer: { after() { return { cancel() {} }; } }, spawn(fn) { task = fn(cx); return task; } };
   const api = await load({ appHome: () => root,
     InputState: { new: () => ({ value: () => 'work', on() {}, focus() {}, set_value() {} }) },
     exec: async (command, args) => {
@@ -386,6 +391,7 @@ async function claudeScenario({ reads, loggedInAfter = Infinity, existing = fals
   });
   const view = new api.AccountLogin(); view.init({ overlay: 'login', provider: 'claude' }, cx);
   view.start(cx); await task;
+  if (view.authenticated) { view.saveAccount(cx); await task; }
   return { view, commands, writes, settings, get statusCalls() { return statusCalls; }, get source() { return JSON.parse(source); } };
 }
 
@@ -543,4 +549,114 @@ test('Codex callback forwarding validates the pending state and destination befo
     assert.match(view.callbackError, /full localhost callback URL/);
     assert.equal(view.submittingCallback, false);
   }
+});
+
+test('authorization runs without a name, then email is suggested before explicit registration', async () => {
+  const result = await scenario({ name: '', save: false });
+  assert.equal(result.view.phase, 'name');
+  assert.equal(result.view.authenticated, true);
+  assert.equal(result.view.email, 'test@example.com');
+  assert.equal(result.suggestedName, 'test@example.com');
+  assert.equal(result.writes.length, 0, 'authorization alone does not register an account');
+  assert.equal(result.source.programs[result.view.profile.key], undefined);
+  await result.save('工作帳號');
+  assert.equal(result.view.phase, 'success');
+  assert.equal(result.source.programs[result.view.profile.key].name, 'Codex · 工作帳號');
+  assert.equal(result.view.email, 'test@example.com', 'display name never changes account identity');
+  assert.equal(result.messages.filter(message => message.method === 'account/login/start').length, 1);
+});
+
+test('invalid display names keep authentication and cancellation never registers the draft', async () => {
+  const result = await scenario({ save: false });
+  const id = result.view.profile.key;
+  await result.save('');
+  assert.equal(result.view.phase, 'name'); assert.ok(result.view.error);
+  assert.equal(result.view.profile.key, id); assert.equal(result.writes.length, 0);
+  await result.view.close();
+  await result.save('Later');
+  assert.equal(result.writes.length, 0);
+});
+
+test('full email stays visible even when the suggested name is limited, with a fallback when email is absent', async () => {
+  const email = 'a'.repeat(50) + '@example.com';
+  const long = await scenario({ save: false, email });
+  assert.equal(long.view.email, email);
+  assert.equal(Array.from(long.suggestedName).length, 48);
+  const missing = await scenario({ save: false, email: null });
+  assert.equal(missing.view.email, null);
+  assert.equal(missing.suggestedName, 'Codex account');
+});
+
+
+test('pasted callback reaches the local listener and keeps visible pending confirmation', async t => {
+  const received = [];
+  const server = createServer((req, res) => { received.push(req.url);
+    if (req.url.startsWith('/auth/callback')) res.writeHead(302, { Location: '/success' });
+    else res.writeHead(200);
+    res.end();
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  const callback = `http://localhost:${server.address().port}/auth/callback?code=test-code&state=expected`;
+  const authUrl = `https://auth.openai.com/authorize?redirect_uri=${encodeURIComponent(callback.split('?')[0])}&state=expected`;
+  const run = promisify(execFile);
+  const api = await load({ exec: async (command, args) => {
+    try { await run(command, args, { timeout: 5000 }); return { code: 0 }; }
+    catch (error) { return { code: error.code }; }
+  } });
+  const view = new api.AccountLogin();
+  Object.assign(view, { provider: 'codex', phase: 'waiting', authUrl,
+    callbackInput: { value: () => callback, set_value: () => assert.fail('Keep the link until account confirmation') } });
+  let pending;
+  const cx = { notify() {}, spawn(fn) { pending = fn(cx); } };
+  view.submitCallback(cx); assert.equal(view.callbackStatus, 'sending'); await pending;
+  assert.equal(view.callbackStatus, 'submitted'); assert.equal(view.submittingCallback, false);
+  assert.equal(view.phase, 'waiting', 'HTTP acceptance is not account confirmation');
+  assert.deepEqual(received, ['/auth/callback?code=test-code&state=expected', '/success'], 'Follow the local success page so Codex emits completion');
+  view.submitCallback(cx); await pending;
+  assert.equal(received.length, 2, 'Do not redeem a submitted code twice');
+});
+
+test('callback failures preserve pasted input and report an error, not a blank field', async () => {
+  const api = await load({ exec: async () => ({ code: 1 }) });
+  const view = new api.AccountLogin();
+  Object.assign(view, { provider: 'codex', phase: 'waiting', authUrl: 'https://auth.openai.com/authorize',
+    callbackInput: { value: () => 'pasted-link', set_value: () => assert.fail('Keep failed input') } });
+  let pending;
+  view.submitCallback({ notify() {}, spawn(fn) { pending = fn({ notify() {} }); } }); await pending;
+  assert.equal(view.callbackStatus, 'error'); assert.match(view.callbackError, /Could not complete sign-in/);
+  assert.equal(view.submittingCallback, false);
+});
+
+test('callback forwarding never requests a remote or unrelated local redirect', async t => {
+  for (const location of ['/cancel', 'http://127.0.0.1:1/success']) {
+    const received = [];
+    const server = createServer((req, res) => { received.push(req.url); res.writeHead(302, { Location: location }); res.end(); });
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    t.after(() => new Promise(resolve => server.close(resolve)));
+    const base = `http://127.0.0.1:${server.address().port}`;
+    const run = promisify(execFile);
+    const api = await load({ exec: async (command, args) => {
+      try { await run(command, args, { timeout: 5000 }); return { code: 0 }; }
+      catch (error) { return { code: error.code }; }
+    } });
+    const view = new api.AccountLogin();
+    Object.assign(view, { provider: 'codex', phase: 'waiting',
+      authUrl: `https://auth.openai.com/authorize?redirect_uri=${encodeURIComponent(base + '/auth/callback')}&state=expected`,
+      callbackInput: { value: () => base + '/auth/callback?code=test&state=expected' } });
+    let pending;
+    view.submitCallback({ notify() {}, spawn(fn) { pending = fn({ notify() {} }); } }); await pending;
+    assert.deepEqual(received, ['/auth/callback?code=test&state=expected']);
+    if (location === '/cancel') assert.equal(view.callbackStatus, 'error');
+  }
+});
+
+
+test('other-computer sign-in copies the link without opening a local browser', async () => {
+  const result = await scenario({ method: 'link', save: false });
+  assert.equal(result.view.phase, 'name');
+  assert.equal(result.commands.filter(([command]) => command === 'open').length, 0);
+  assert.equal(result.commands.filter(([command]) => command === 'copy').length, 1);
+  assert.equal(result.view.email, 'test@example.com');
+  assert.equal(result.writes.length, 0);
 });

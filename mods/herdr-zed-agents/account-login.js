@@ -137,15 +137,15 @@ export default class AccountLogin {
   init(target, cx) {
     this.target = target;
     this.provider = Object.hasOwn(accountProviders, target?.provider) ? target.provider : 'codex';
-    this.phase = 'name';
+    this.phase = 'ready';
     this.input = InputState.new({ placeholder: 'e.g. 工作帳號 or Personal' });
-    this.input.on('submit', (_event, cx) => this.start(cx));
+    this.input.on('submit', (_event, cx) => this.saveAccount(cx));
     this.codeInput = InputState.new({ placeholder: 'Authentication code' });
     this.codeInput.on('submit', (_event, cx) => this.sendCode(cx));
     this.callbackInput = InputState.new({ placeholder: 'http://localhost:1455/auth/callback?…' });
     this.callbackInput.on('submit', (_event, cx) => this.submitCallback(cx));
     this.handle = cx.focus_handle();
-    this.input.focus();
+    this.handle.focus?.();
   }
 
   get source() { return accountProviders[this.provider || 'codex']; }
@@ -197,28 +197,25 @@ export default class AccountLogin {
     cx.notify();
   }
 
-  start(cx) {
-    if (this.busy || this.phase === 'success') return;
-    let name;
-    try { name = accountName(this.input.value()); }
-    catch (error) { this.error = error.message; cx.notify(); return; }
+  start(cx, method = 'browser') {
+    if (this.busy || this.authenticated || this.phase === 'success') return;
+    this.loginMethod = method;
+    const name = this.source.label;
     const source = this.source;
     this.busy = true;
     this.stopped = false;
     this.error = null;
     this.authUrl = null;
     this.linkCopied = false;
+    this.callbackStatus = null; this.callbackError = null;
     this.phase = 'connecting';
     this.nextId = 0;
     this.completed = [];
     this.armTimeout(cx, 20000);
     cx.spawn(async cx => {
       try {
-        const current = programs(await readTextFile(`${appHome()}/programs.json`));
+        programs(await readTextFile(`${appHome()}/programs.json`));
         if (this.closed || this.stopped) return;
-        if (hasAccountName(current, `${source.label} · ${name}`)) {
-          throw new Error('That account name is already in the agent menu. Choose another name.');
-        }
         if (!this.profile) {
           const root = appHome();
           const parent = `${root}/data/devkits/${this.provider}`;
@@ -242,18 +239,12 @@ export default class AccountLogin {
         const email = this.provider === 'claude' ? await this.signInClaude(profile, cx) : await this.signInCodex(profile, cx);
         if (this.closed || this.stopped) return;
         if (this.error) throw new Error(this.error);
-        this.phase = 'saving';
-        this.armTimeout(cx, 20000);
-        cx.notify();
-        if (this.provider === 'claude') {
-          try { await ensureClaudeStatusLine(profile.directory); } catch {} // Usage stays unavailable; sign-in still succeeds.
-        }
-        await registerAccount(profile);
-        // Settings stays open beneath this dialog and reloads its accounts on this revision.
-        setShared('herdr-zed.agent-cache', {});
-        setShared('herdr-zed.profile-revision', (shared('herdr-zed.profile-revision') || 0) + 1);
-        this.phase = 'success';
-        this.email = email || profile.name;
+        this.email = typeof email === 'string' && email.trim() ? email.trim() : null;
+        this.authenticated = true;
+        this.callbackStatus = 'confirmed';
+        this.input.set_value(Array.from(this.email || `${source.label} account`).slice(0, 48).join(''));
+        this.phase = 'name';
+        this.input.focus();
       } catch (error) {
         if (!this.closed) { this.error = this.error || error.message; this.phase = 'error'; }
       } finally {
@@ -263,6 +254,32 @@ export default class AccountLogin {
       }
     });
     cx.notify();
+  }
+
+  saveAccount(cx) {
+    if (this.closed || this.busy || !this.authenticated || this.phase === 'success') return;
+    let name;
+    try { name = accountName(this.input.value()); }
+    catch (error) { this.error = error.message; cx.notify(); return; }
+    this.profile.name = name;
+    this.busy = true; this.error = null; this.phase = 'saving'; cx.notify();
+    cx.spawn(async cx => {
+      try {
+        if (this.provider === 'claude') {
+          try { await ensureClaudeStatusLine(this.profile.directory); } catch {}
+        }
+        if (this.closed) return;
+        await registerAccount(this.profile);
+        setShared('herdr-zed.agent-cache', {});
+        setShared('herdr-zed.profile-revision', (shared('herdr-zed.profile-revision') || 0) + 1);
+        this.phase = 'success';
+      } catch (error) {
+        if (!this.closed) { this.error = error.message; this.phase = 'name'; }
+      } finally {
+        this.busy = false;
+        if (!this.closed) cx.notify();
+      }
+    });
   }
 
   async signInCodex(profile, cx) {
@@ -294,7 +311,8 @@ export default class AccountLogin {
       }
       this.authUrl = login.authUrl;
       this.waiting(cx);
-      this.openBrowser(cx);
+      if (this.loginMethod === 'link') { cx.write_to_clipboard(this.authUrl); this.linkCopied = true; cx.notify(); }
+      else this.openBrowser(cx);
       for (;;) {
         const completed = this.completed.find(event => event.loginId === login.loginId);
         if (completed) {
@@ -365,12 +383,12 @@ export default class AccountLogin {
   }
 
   submitCallback(cx) {
-    if (this.provider !== 'codex' || this.phase !== 'waiting' || this.submittingCallback) return;
+    if (this.provider !== 'codex' || this.phase !== 'waiting' || this.submittingCallback || this.callbackStatus === 'submitted') return;
     const callback = this.callbackInput.value().trim();
-    this.submittingCallback = true; this.callbackError = null; cx.notify();
+    this.submittingCallback = true; this.callbackStatus = 'sending'; this.callbackError = null; cx.notify();
     cx.spawn(async cx => {
       try {
-        // Parse and forward in Node: never open arbitrary pasted URLs or follow redirects.
+        // Validate in Node and follow only the same-origin local success page.
         const result = await exec('node', ['-e', `
           const http = require('node:http');
           try {
@@ -381,21 +399,39 @@ export default class AccountLogin {
                 url.username || url.password || url.hash || !url.searchParams.get('code') ||
                 !auth.searchParams.get('state') || url.searchParams.getAll('state').length !== 1 ||
                 url.searchParams.get('state') !== auth.searchParams.get('state')) throw new Error();
-            const request = http.get(url, response => {
-              response.resume();
-              response.on('end', () => process.exit(response.statusCode >= 200 && response.statusCode < 400 ? 0 : 1));
-            });
-            request.setTimeout(15000, () => request.destroy());
-            request.on('error', () => process.exit(1));
+            const get = (target, followSuccess) => {
+              const request = http.get(target, response => {
+                response.resume();
+                response.on('end', () => {
+                  const status = response.statusCode;
+                  if (status >= 300 && status < 400 && response.headers.location && followSuccess) {
+                    let next;
+                    try { next = new URL(response.headers.location, target); } catch { process.exit(1); }
+                    // The local success page completes Codex's login loop and emits
+                    // account/login/completed. Never follow a remote redirect.
+                    if (next.origin !== redirect.origin) { process.exit(0); return; }
+                    if (next.pathname !== '/success' || next.username || next.password || next.hash) { process.exit(1); return; }
+                    get(next, false);
+                    return;
+                  }
+                  process.exit(status >= 200 && status < 300 ? 0 : 1);
+                });
+              });
+              request.setTimeout(15000, () => request.destroy());
+              request.on('error', () => process.exit(1));
+            };
+            get(url, true);
           } catch { process.exit(2); }
         `, this.authUrl, callback]);
+        if (this.closed) return;
+        if (this.authenticated) { this.callbackStatus = 'confirmed'; return; }
         if (result.code !== 0) this.callbackError = result.code === 2
           ? 'Paste the full localhost callback URL from this sign-in attempt.'
           : 'Could not complete sign-in. Check the URL and try again.';
-        else this.callbackInput.set_value('');
-      } catch { this.callbackError = 'Could not complete sign-in. Please try again.'; }
-      this.submittingCallback = false;
-      if (!this.closed) cx.notify();
+        else this.callbackStatus = 'submitted';
+        if (this.callbackError) this.callbackStatus = 'error';
+      } catch { this.callbackError = 'Could not complete sign-in. Please try again.'; this.callbackStatus = 'error'; }
+      finally { this.submittingCallback = false; if (!this.closed) cx.notify(); }
     });
   }
 
@@ -422,14 +458,14 @@ export default class AccountLogin {
       .track_focus(this.handle).on_key_down((event, cx) => {
         if (event.key === 'escape') { cx.stop_propagation(); this.finish(); }
         else if (event.key === 'enter' && this.phase === 'success') { cx.stop_propagation(); this.finish(); }
-        else if (event.key === 'enter' && this.phase === 'waiting' && !pasteCode) { cx.stop_propagation(); this.openBrowser(cx); }
+        else if (event.key === 'enter' && this.phase === 'waiting' && !pasteCode && this.loginMethod !== 'link') { cx.stop_propagation(); this.openBrowser(cx); }
       })
       .child(h_flex().flex_none().gap(12).items_start()
         .child(v_flex().flex_1().min_w(0).gap(6)
           .child(div().font_family('Georgia').text_size(22).font_normal().child(this.phase === 'success'
             ? `${source.label} account connected` : `Add ${source.label} account`))
           .child(div().text_size(13).text_color(t.muted).child(this.phase === 'success'
-            ? `${this.email} is ready in your agent menu.` : `Connect a ${source.service} account to use with ${source.label}.`)))
+            ? `${this.email || this.profile?.name} is ready in your agent menu.` : this.authenticated ? 'Confirm a display name to add this account.' : `Connect a ${source.service} account to use with ${source.label}.`)))
         .when(this.phase === 'success', el => el.child(Button(`${id}-login-close`, t, { variant: 'ghost', size: 'icon' })
           .accessibility_label('Close').tooltip('Close').on_click(() => this.finish()).child(glyph('close', 14)))))
       .child(v_flex().flex_1().min_h(0).overflow_y_scrollbar().gap(10)
@@ -447,11 +483,17 @@ export default class AccountLogin {
             .child(Input.new(this.callbackInput, t).id('codex-login-callback').accessibility_label('Sign-in callback URL')
               .h(36).px(10).rounded(0).border(1).border_color(t.input).text_size(12))
             .child(div().text_size(12).text_color(t.dim).child('Copy the address even if the browser says the page cannot open.'))
+            .when(this.callbackStatus === 'sending' || this.callbackStatus === 'submitted', el => el
+              .child(div().id('codex-callback-status').text_size(12).text_color(t.muted).child(this.callbackStatus === 'sending'
+                ? 'Sending sign-in link…' : 'Link submitted. Waiting for Codex to confirm your account…')))
             .when(Boolean(this.callbackError), el => el.child(div().text_size(12).text_color(t.destructive || t.foreground).child(this.callbackError)))
             ))
-        .when(!this.busy && this.phase !== 'success', el => el
-          .child(div().text_size(12).font_medium().child('Account name'))
-          .child(Input.new(this.input, t).id(`${id}-account-name`))
+        .when(this.authenticated && this.phase !== 'success', el => el
+          .child(div().text_size(12).font_medium().child('Signed-in account'))
+          .child(div().text_size(13).child(this.email || 'Email unavailable'))
+          .child(div().text_size(12).text_color(t.muted).child('Sign-in successful. Confirm the display name below.'))
+          .child(div().text_size(12).font_medium().child('Display name'))
+          .child(Input.new(this.input, t).id(`${id}-account-name`).accessibility_label('Display name').disabled(Boolean(this.busy)))
           .child(div().text_size(12).text_color(t.muted).child('A display name. Chinese and uppercase names are welcome.')))
         .when(this.busy && !pasteCallback, el => el.child(div().text_size(13).text_color(t.muted).child(
           this.phase === 'waiting' ? `Finish signing in in your browser. This window will update automatically.${
@@ -465,11 +507,13 @@ export default class AccountLogin {
       .child(h_flex().flex_none().gap(8).justify_end()
         .when(this.phase !== 'success', el => el
           .child(action('cancel', 'Cancel', () => this.finish()))
-          .when(pasteCallback, el => el.child(action('callback', this.submittingCallback ? 'Connecting…' : 'Connect account', (_event, cx) => this.submitCallback(cx), true)))
+          .when(pasteCallback, el => el.child(action('callback', this.submittingCallback ? 'Sending…' : this.callbackStatus === 'submitted' ? 'Waiting for confirmation…' : 'Connect account', (_event, cx) => this.submitCallback(cx), true).disabled(Boolean(this.submittingCallback || this.callbackStatus === 'submitted'))))
           .when(this.phase === 'waiting' && !pasteCallback && Boolean(this.authUrl), el => el.child(action('browser', 'Open browser', (_event, cx) => {
             this.openBrowser(cx);
           }, !pasteCode)))
           .when(pasteCode, el => el.child(action('code', this.sendingCode ? 'Sending…' : 'Submit code', (_event, cx) => this.sendCode(cx), true)))
-          .when(!this.busy, el => el.child(action('start', this.phase === 'error' ? 'Try again' : `Continue with ${source.service}`, (_event, cx) => this.start(cx), true)))));
+          .when(this.authenticated, el => el.child(action('save', this.busy ? 'Adding account…' : 'Add account', (_event, cx) => this.saveAccount(cx), true).disabled(Boolean(this.busy))))
+          .when(!this.busy && !this.authenticated && id === 'codex', el => el.child(action('start-link', 'Copy link for another computer', (_event, cx) => this.start(cx, 'link'))))
+          .when(!this.busy && !this.authenticated, el => el.child(action('start', this.phase === 'error' ? 'Try again' : `Continue with ${source.service}`, (_event, cx) => this.start(cx), true)))));
   }
 }

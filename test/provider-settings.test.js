@@ -447,3 +447,19 @@ test('Global Rules is one editable text area with Save and no selection controls
   assert.ok(names(log).includes('Button#save-global-rules'));
   assert.ok(!names(log).some(name => name.startsWith('Checkbox') || name.startsWith('Button#rules-view-')));
 });
+
+test('adding either provider opens a visible login viewport above Accounts', async () => {
+  const opened = [];
+  const { accountActions } = await evaluateNative('../mods/herdr-zed-agents/account-actions.js', {
+    openOverlay: spec => opened.push(spec),
+  }, 'accountActions');
+  for (const provider of ['codex', 'claude']) accountActions.addAccount(provider);
+  assert.deepEqual(opened.map(spec => spec.props), [
+    { view: 'account-login', provider: 'codex' }, { view: 'account-login', provider: 'claude' },
+  ]);
+  for (const spec of opened) {
+    assert.equal(spec.mod, 'herdr-zed-agents');
+    assert.equal(spec.kind, 'dialog'); assert.equal(spec.modal, true);
+    assert.ok(spec.height > 0, 'size_full login content needs a bounded viewport');
+  }
+});
