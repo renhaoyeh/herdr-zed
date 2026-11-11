@@ -27,7 +27,7 @@ export class AsanaSettings {
     // The form shows the saved token once it is known, and again after a save or clear changes it.
     if (panel.needsToken !== null && panel.needsToken !== undefined) {
       const key = String(panel.token);
-      if (this.seeded !== key) { this.seeded = key; panel.openSettings(cx); }
+      if (this.seeded !== key) { this.seeded = key; panel.seedSettings(); }
       panel.syncFields(cx);
     }
     const body = v_flex().gap(16).text_color(t.foreground)

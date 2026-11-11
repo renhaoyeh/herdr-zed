@@ -44,6 +44,7 @@ export class UsageClient {
     return shared('herdr-zed.usage.snapshot')?.contexts?.[JSON.stringify(machine)] || { machine, choices: [], usage: [], loading: false, error: null };
   }
   // Each shown account's reading, status and display name, shared by the sidebar and status bar presentations.
+  // `readable` marks an account whose quota can be read now; only those are shown.
   entries(snapshot = this.snapshot()) {
     return (snapshot.choices || []).map(choice => {
       const data = (snapshot.usage || []).find(account => account.key === choice.agent?.key);
@@ -51,41 +52,44 @@ export class UsageClient {
       const supported = Boolean(provider);
       const windows = supported ? [300, 10080].flatMap(minutes =>
         data?.windows?.find(window => window.bucket === provider && window.minutes === minutes) || []) : [];
-      const status = !supported ? 'Not supported' : data?.error || snapshot.error ? 'Unavailable'
-        : windows.length ? windows.map(window => `${window.minutes === 300 ? '5h' : 'Week'} ${Math.round(window.usedPercent)}% used · ${quotaResetLabel(window)}`).join(' · ')
-          : snapshot.loading ? 'Loading…' : 'No quota';
+      const status = windows.map(window => `${window.minutes === 300 ? '5h' : 'Week'} ${Math.round(window.usedPercent)}% used · ${quotaResetLabel(window)}`).join(' · ');
       const account = { ...data, name: choice.name, supported,
         error: data?.error || (supported ? snapshot.error || (snapshot.loading ? 'Reading account usage…' : null) : null) };
       // A Default account is named by its signed-in address, or a muted No account, as in every account list.
       const unnamed = supported && launcherLabel(choice.name) === 'Default account';
-      return { choice, data, supported, windows, status, account,
+      const readable = windows.length > 0 && !data?.error && !snapshot.error;
+      return { choice, data, supported, readable, windows, status, account,
         name: unnamed ? data?.email || 'No account' : launcherLabel(choice.name), unknown: unnamed && !data?.email };
     });
   }
+  readableEntries(snapshot = this.snapshot()) { return this.entries(snapshot).filter(entry => entry.readable); }
 
-  // One status-bar item per account: icon, short name and 5h/W percentages; supported accounts only.
+  // One status-bar item per account with readable quota: icon, short name and 5h/W percentages.
+  // With none, the item draws nothing and takes no width.
   renderStatus(t, { openMenu = null } = {}) {
     if (this.started) this.sync();
     if (!this.active()) return div().flex_none();
+    const entries = this.readableEntries();
+    if (!entries.length) return div().flex_none();
     return h_flex().id('status-usage').flex_none().h_full().items_center().gap(2).accessibility_label('Account usage')
       .when(Boolean(openMenu), el => el.on_mouse_down('right', (event, cx) => { cx.stop_propagation(); openMenu(event.position); }))
-      .children(this.entries().filter(entry => entry.supported).map(({ choice, windows, status, account, name, unknown }) =>
+      .children(entries.map(({ choice, windows, status, account, name, unknown }) =>
         Button(`status-usage-${choice.key}`, t, { variant: 'ghost' }).h_full().px(6).gap(4).text_size(11)
           .accessibility_label(`${choice.name}: ${status}. Open usage details`)
           .on_click(() => openUsageDetails(account))
           .child(AgentIcon(choice.agent, t).size(12))
           .child(div().max_w(96).truncate().text_color(unknown ? t.muted : t.foreground).child(name))
-          .when(!windows.length, el => el.child(div().text_color(t.muted).child('—')))
           .children(windows.map(window => div().id(`status-usage-${choice.key}-${window.minutes}`).font_family('Geist Mono')
             .text_color(percentColor(window.usedPercent, t)).child(shortWindow(window))))));
   }
 
   // The host chooses the presentation: `full` meters with reset times, or one `compact` line of percentages per account.
   // `openMenu(position)` opens the host's right-click menu for this section.
+  // With no readable account, one muted line says so and links to the Agents Settings page.
   render(t, { style = 'full', openMenu = null } = {}) {
     if (this.started) this.sync();
     if (!this.active()) return div().h(0).flex_none();
-    const snapshot = this.snapshot();
+    const snapshot = this.snapshot(), entries = this.readableEntries(snapshot);
     return v_flex().id('account-usage').w_full().flex_none().h_auto().min_h(0)
       .border_t(1).border_color(t.border)
       .when(Boolean(openMenu), el => el.on_mouse_down('right', (event, cx) => { cx.stop_propagation(); openMenu(event.position); }))
@@ -98,7 +102,12 @@ export class UsageClient {
           .accessibility_label('Token statistics')
           .on_click(openUsageAnalytics).child(glyph('chart-column'))))
       .child(v_flex().id('account-usage-list').w_full().h_auto().flex_none()
-        .children(this.entries(snapshot).map(({ choice, data, supported, windows, status, account, name, unknown }) => {
+        .when(!entries.length, el => el.child(h_flex().h(32).px(12).gap(8).items_center().text_size(12)
+          .child(div().flex_1().min_w(0).truncate().text_color(t.muted).child('No usage to show'))
+          .child(Button('usage-add-account', t, { variant: 'ghost' }).h(24).px(0).text_size(12).text_color(t.accent)
+            .accessibility_label('Add an account')
+            .on_click(() => run('herdr-zed.settings:agents')).child('Add an account'))))
+        .children(entries.map(({ choice, status, account, name, unknown, windows }) => {
             const nameColor = unknown ? t.muted : t.foreground;
             if (style === 'compact') return Button(`usage-${choice.key}`, t, { variant: 'ghost' }).w_full().flex_none().h(28).px(12).gap(8)
               .items_center().justify_start()
@@ -106,7 +115,6 @@ export class UsageClient {
               .on_click(() => openUsageDetails(account))
               .child(AgentIcon(choice.agent, t))
               .child(div().id(`usage-name-${choice.key}`).flex_1().min_w(0).truncate().text_size(12).text_color(nameColor).child(name))
-              .when(!windows.length, el => el.child(div().flex_none().text_size(11).text_color(t.muted).child('—')))
               .children(windows.map(window => div().id(`usage-compact-${choice.key}-${window.minutes}`).flex_none()
                 .text_size(11).font_family('Geist Mono')
                 .text_color(percentColor(window.usedPercent, t)).child(shortWindow(window))));
@@ -130,10 +138,7 @@ export class UsageClient {
                     .child(div().w(24).flex_none().font_family('Geist Mono').text_right().child(`${Math.round(window.usedPercent)}%`))
                     .child(div().id(`usage-reset-${choice.key}-${window.minutes}`).w(54).flex_none().font_family('Geist Mono').text_right()
                       .accessibility_label(reset).child(displayTime));
-                }))
-                .when(!windows.length, el => el
-                  .child(div().text_size(10).child(status))
-                  .child(Progress(`usage-meter-${choice.key}`, null, t).accessibility_label(`${choice.name}: ${status}`))));
+                })));
           })));
   }
 }

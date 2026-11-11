@@ -99,12 +99,14 @@ export default class AsanaPanel extends TaskSourceController {
       .child(h_flex().h(56).px(24).gap(12).items_center()
         .child(div().size(32).rounded(6).bg(t.project).flex().items_center().justify_center()
           .child(glyph('list-todo', 20).text_color('#1e1f21')))
-        .child(DropdownMenuTrigger(asanaButton('asana-project-menu', t, { variant: 'ghost' }).h(36).px(4).gap(8).text_size(20).font_semibold().text_color(t.foreground)
-          .accessibility_label(`Choose ${this.source.name} project`).disabled(!ready)
+        // Without a connection there is no project to choose yet: the product name stands alone, no disabled picker.
+        .when(ready, el => el.child(DropdownMenuTrigger(asanaButton('asana-project-menu', t, { variant: 'ghost' }).h(36).px(4).gap(8).text_size(20).font_semibold().text_color(t.foreground)
+          .accessibility_label(`Choose ${this.source.name} project`)
           .on_mouse_down('left', (_event, cx) => cx.stop_propagation()), 280,
           (_cx, at) => { if (ready) this.openProjectPicker?.(this.folder, at); }, 'start', { x: 0, y: 4 })
           .child(div().max_w(400).truncate().child(bound?.name || `Choose ${this.source.name} project`))
-          .child(glyph('chevron-down', 14).text_color(t.muted)))
+          .child(glyph('chevron-down', 14).text_color(t.muted))))
+        .when(!ready, el => el.child(div().h(36).flex().items_center().text_size(20).font_semibold().text_color(t.foreground).child(this.source.name)))
         .child(div().flex_1())
         .when(this.needsToken === false && !this.settingsOpen, el => el.child(asanaButton('asana-settings', t, { variant: 'ghost', size: 'icon' })
           .disabled(this.tokenBusy).accessibility_label(`${this.source.name} settings`)
@@ -276,33 +278,13 @@ export default class AsanaPanel extends TaskSourceController {
         .child(div().text_size(12).text_color(t.muted).child('Imports keep all loaded fields, including hidden fields.')));
   }
 
-  connect(t, close) {
-    const back = cx => { this.settingsOpen = false; this.tokenInput.set_value(''); this.error = null; cx.notify(); };
-    return v_flex().flex_1().min_h(0).overflow_y_scrollbar().max_w(800).p(32).gap(16)
-      .when(Boolean(this.token), el => el.child(h_flex().child(asanaButton('asana-settings-back', t, { variant: 'ghost' }).gap(6).disabled(this.tokenBusy)
-        .on_click((_event, cx) => back(cx)).child(glyph('chevron-left', 14)).child('Back to tasks'))))
-      .child(div().text_size(24).font_semibold().child(`${this.source.name} settings`))
-      .when(Boolean(this.source.server), el => el
-        .child(div().text_size(14).font_medium().child('Server URL'))
-        .child(Input.new(this.serverInput).id('source-server').accessibility_label(`${this.source.name} server URL`)
-          .w_full().h(36).px(10).rounded(6).border(1).border_color(t.input).bg(t.background).text_color(t.foreground).text_size(13)))
-      .child(div().text_size(14).font_medium().child('Personal access token'))
-      .child(DialogDescription(t).child(this.token ? 'Your saved token is masked below. Replace it to change accounts, or clear it below.'
-        : this.source.tokenHelp))
-      .child(h_flex().gap(8).items_center()
-        .child(Input.new(this.tokenInput).id('asana-token').accessibility_label(`${this.source.name} personal access token`)
-        .flex_1().min_w(0).h(36).px(10).rounded(6).border(1).border_color(t.input).bg(t.background).text_color(t.foreground).text_size(13))
-        .child(asanaButton('asana-copy-token', t, { variant: 'outline' }).w(80).h(36).disabled(!this.tokenInput.value().trim())
-          .accessibility_label('Copy personal access token').on_click((_event, cx) => this.copyToken(cx))
-          .child(this.tokenCopied ? 'Copied' : 'Copy')))
-      .when(Boolean(this.error), el => el.child(div().id('asana-error').text_size(12).text_color(t.destructive).child(this.error)))
-      .child(h_flex().gap(8)
-        .child(asanaButton('asana-save-token', t).disabled(this.tokenBusy).on_click((_event, cx) => this.saveToken(cx)).child(this.tokenBusy ? 'Saving…' : this.token ? 'Save token' : 'Connect'))
-        .child(asanaButton('asana-cancel-token', t, { variant: 'outline' }).disabled(this.tokenBusy)
-          .on_click((_event, cx) => this.token ? back(cx) : close()).child('Cancel'))
-        .when(Boolean(this.token), el => el.child(asanaButton('asana-clear-token', t, { variant: 'outline' }).text_color(t.destructive)
-          .disabled(this.tokenBusy).on_click((_event, cx) => this.clearToken(cx)).child('Clear saved token'))))
-      .child(this.fieldSettings(t));
+  // Without a saved token the browser says how to connect; the token form lives in the Asana Settings page.
+  connectEmpty(t) {
+    return v_flex().id('asana-connect').flex_1().min_h(0).items_center().justify_center().p(32).gap(12).text_center()
+      .child(div().text_size(20).font_semibold().child(`Connect ${this.source.name}`))
+      .child(div().max_w(360).text_size(13).text_color(t.muted).child('Save a personal access token in Settings to see your tasks here.'))
+      .child(asanaButton('asana-connect', t).h(36).px(16).mt(4).accessibility_label(`Open ${this.source.name} settings`)
+        .on_click(() => run('herdr-zed.settings:asana')).child(`Open ${this.source.name} settings`));
   }
 
   // Asana's task detail pane, with properties followed by description and activity.
@@ -415,7 +397,7 @@ export default class AsanaPanel extends TaskSourceController {
         .on_mouse_down('left', (_event, cx) => cx.stop_propagation())
         .child(v_flex().flex_1().min_w(0).min_h(0).h_full()
           .when(this.needsToken === null || (this.loading && !this.settingsOpen), el => el.child(this.loadingList(t)))
-          .when(this.needsToken === true || this.settingsOpen, el => el.child(this.connect(t, close)))
+          .when(this.needsToken === true, el => el.child(this.connectEmpty(t)))
           .when(ready && Boolean(this.error), el => el.child(div().id('asana-error').p(12).text_size(12)
             .text_color(t.destructive || t.foreground).child(this.error)))
           .when(ready && !this.loading && !this.error && !rows.length, el => el.child(status(empty)))

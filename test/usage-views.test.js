@@ -51,11 +51,15 @@ async function harness(memory = { 'herdr-zed.usage.snapshot': snapshot }) {
   return { mount, nodes, texts, opened, runs, cx };
 }
 
-test('the sidebar Usage surface renders each account, opens details and the token statistics dialog', async () => {
+test('the sidebar Usage surface renders each account whose quota can be read, opens details and the token statistics dialog', async () => {
   const h = await harness();
   h.mount('usage-sidebar');
-  assert.ok(h.texts.includes('Work') && h.texts.includes('Team'));
+  assert.ok(h.texts.includes('Work'));
+  assert.ok(!h.texts.includes('Team'), 'an account without a readable quota is not listed');
+  assert.ok(!h.nodes.has('usage-claude'), 'no row for it');
+  assert.ok(!h.texts.some(text => text === 'Not supported' || text === 'No quota' || text === 'Unavailable'), 'no status noise');
   assert.ok(h.nodes.has('usage-codex') && h.nodes.has('usage-meter-codex-300') && h.nodes.has('open-token-statistics'));
+  assert.ok(!h.nodes.has('usage-add-account'), 'the link shows only when nothing is readable');
   h.nodes.get('usage-codex').click(null, h.cx);
   assert.equal(h.opened.at(-1).props.view, 'usage-details');
   assert.equal(h.opened.at(-1).props.account.name, 'Codex · Work');
@@ -64,11 +68,12 @@ test('the sidebar Usage surface renders each account, opens details and the toke
   assert.ok(h.runs.some(command => command.startsWith('herdr-zed-agents.')), 'the view registers a lease with the Usage service');
 });
 
-test('the status bar Usage surface renders one item per supported account and opens its details', async () => {
+test('the status bar Usage surface renders one item per account with a readable quota and opens its details', async () => {
   const h = await harness();
   h.mount('usage-status');
-  assert.ok(h.nodes.has('status-usage-codex') && h.nodes.has('status-usage-claude'));
-  assert.ok(h.texts.includes('Work') && h.texts.includes('Team'));
+  assert.ok(h.nodes.has('status-usage-codex'));
+  assert.ok(!h.nodes.has('status-usage-claude'), 'an account without a readable quota has no item');
+  assert.ok(h.texts.includes('Work'));
   assert.ok(h.texts.includes('5h 42%'));
   h.nodes.get('status-usage-codex').click(null, h.cx);
   assert.equal(h.opened.at(-1).props.view, 'usage-details');
@@ -84,11 +89,15 @@ test('the usage details dialog renders the account windows without throwing', as
   assert.ok(!h.nodes.has('usage-details-done'));
 });
 
-test('Usage views render without a snapshot and do not throw', async () => {
+test('Usage views render without a snapshot: one muted line and a link to add an account, and an empty status item', async () => {
   const h = await harness({});
   h.mount('usage-sidebar');
   assert.ok(h.nodes.has('account-usage-list'));
-  assert.equal(h.texts.includes('Work'), false);
+  assert.ok(h.texts.includes('No usage to show'));
+  assert.ok(h.nodes.has('usage-add-account'));
+  h.nodes.get('usage-add-account').click(null, h.cx);
+  assert.equal(h.runs.at(-1), 'herdr-zed.settings:agents', 'the link opens the Agents Settings page');
   h.mount('usage-status');
   assert.equal(h.nodes.has('status-usage-codex'), false);
+  assert.equal(h.texts.includes('Account usage'), false, 'the status item draws no group when nothing is readable');
 });

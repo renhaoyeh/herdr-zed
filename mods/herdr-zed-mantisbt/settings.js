@@ -27,7 +27,7 @@ export class MantisSettings {
     // The form shows the saved connection once it is known, and again after a save or clear changes the token.
     if (loaded) {
       const key = String(panel.token);
-      if (this.seeded !== key) { this.seeded = key; panel.openSettings(cx); }
+      if (this.seeded !== key) { this.seeded = key; panel.seedSettings(); }
       panel.syncFields(cx);
     }
     const label = text => div().text_size(13).font_medium().child(text);

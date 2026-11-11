@@ -283,11 +283,17 @@ export class TaskSourceController {
 
   openSettings(cx) {
     this.settingsOpen = true;
+    this.seedSettings();
+    cx.notify();
+  }
+
+  // Fills the connection form from the saved connection. It only writes state, so an embedded Settings view
+  // may call it while rendering; anything that must redraw calls openSettings from an event instead.
+  seedSettings() {
     this.tokenCopied = false;
     this.tokenInput.set_value(this.token || '');
     this.serverInput?.set_value(this.server || '');
     this.error = null;
-    cx.notify();
   }
 
   saveToken(cx) {

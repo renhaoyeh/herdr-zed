@@ -150,3 +150,20 @@ test('the panel waits for the window platform before deciding the simulator is u
   assert.equal(other.phase.kind, 'unsupported');
   assert.deepEqual(ran, ['run']);
 });
+
+test('off macOS the dock panel draws its header and one muted line, without the device frame, toolbar or picker', async () => {
+  const drawn = [];
+  const rec = () => new Proxy({}, { get: (_target, key) => key === 'when' ? (condition, render) => { if (condition) render(rec()); return rec(); }
+    : (...args) => { if (typeof args[0] === 'string') drawn.push(args[0]); return rec(); } });
+  const factory = (...args) => { if (typeof args[0] === "string") drawn.push(args[0]); return rec(); };
+  const { SimulatorPanel } = await load({ props: () => ({}), window: () => ({ platform: 'windows' }), theme: () => ({ background: '#000', muted: '#888',
+    border: '#222', foreground: '#fff', dim: '#444', done: '#0f0', blocked: '#f00', hover: '#111' }),
+    div: factory, v_flex: factory, h_flex: factory, svg: factory, image: factory, Button: factory, DropdownMenuTrigger: factory,
+    closeOverlay() {}, openOverlay() {}, run() {}, shared: () => null, setShared() {}, layout: () => null, appHome: () => '/unused' });
+  const panel = Object.assign(new SimulatorPanel(), { focus: rec(), devices: [], phase: { kind: 'unsupported', device: null }, size: { width: 480, height: 760 } });
+  panel.render();
+  assert.ok(drawn.includes('Needs macOS with Xcode.'), 'one muted line says why');
+  assert.ok(drawn.includes('close-simulator'), 'the header keeps its close control');
+  assert.ok(!drawn.some(id => id === 'simulator-screen' || id === 'simulator-device' || id.startsWith('simulator-home') || id.startsWith('simulator-rotate')),
+    'no device frame, picker or toolbar');
+});

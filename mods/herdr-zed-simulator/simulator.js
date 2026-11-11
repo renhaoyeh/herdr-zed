@@ -460,8 +460,17 @@ export default class SimulatorPanel {
       });
   }
 
+  // Off macOS there is nothing to stream: the header (name and close control) and one muted line, no device frame or toolbar.
+  unsupported(t) {
+    return v_flex().id('simulator').size_full().bg(t.background).text_size(13).track_focus(this.focus)
+      .child(this.header(t))
+      .child(v_flex().flex_1().min_h(0).items_center().justify_center().p(PAD)
+        .child(div().text_size(12).text_color(t.muted).text_center().child('Needs macOS with Xcode.')));
+  }
+
   render() {
     const t = theme(), note = this.note();
+    if (this.phase.kind === 'unsupported') return this.unsupported(t);
     const maxH = this.size.height - 32 - TOOLBAR - 3 * PAD - 2 * BEZEL - 2;
     const maxW = this.size.width - 2 * PAD - 2 * BEZEL - 2;
     const screenH = Math.max(120, Math.min(maxH, maxW / this.aspect));

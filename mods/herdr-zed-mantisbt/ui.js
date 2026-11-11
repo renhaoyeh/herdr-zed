@@ -236,10 +236,10 @@ export default class MantisPanel extends TaskSourceController {
     return h_flex().h(45).flex_none().items_center().bg(mantisTheme.navbar).text_color('#ffffff')
       .child(div().w(125).flex_none().pl(15).text_size(18).child('MantisBT'))
       .child(div().flex_1())
-      .child(DropdownMenuTrigger(Button('mantis-project-menu', mantisTheme, { variant: 'ghost' }).h(45).px(14).rounded(0).gap(8)
-        .text_color('#ffffff').bg('#555555').accessibility_label('Choose MantisBT project').disabled(!ready)
+      .when(ready, el => el.child(DropdownMenuTrigger(Button('mantis-project-menu', mantisTheme, { variant: 'ghost' }).h(45).px(14).rounded(0).gap(8)
+        .text_color('#ffffff').bg('#555555').accessibility_label('Choose MantisBT project')
         .child(div().max_w(320).truncate().child(bound?.name || 'Select Project')).child(glyph('chevron-down', 12)), 280,
-      (_cx, at) => { if (ready) this.openProjectPicker?.(this.folder, at); }, 'end', { x: 0, y: 0 }))
+      (_cx, at) => { if (ready) this.openProjectPicker?.(this.folder, at); }, 'end', { x: 0, y: 0 })))
       .child(Button('mantis-close', mantisTheme, { variant: 'ghost', size: 'icon' }).size(45).rounded(0).text_color('#ffffff')
         .accessibility_label('Close MantisBT tasks').on_click(close).child(glyph('close', 16)));
   }
@@ -446,23 +446,13 @@ export default class MantisPanel extends TaskSourceController {
           .child('Drag handles to reorder. Changes save on drop. Summary stays visible. Imports keep all loaded fields.')));
   }
 
-  connectionPage(close) {
-    const back = cx => { this.settingsOpen = false; this.tokenInput.set_value(''); this.error = null; cx.notify(); };
-    const row = (title, content) => h_flex().min_h(52).border_b(1).border_color(rule)
-      .child(div().w(180).flex_none().px(12).py(16).bg(mantisTheme.category).font_semibold().child(title))
-      .child(div().flex_1().min_w(0).p(12).border_l(1).border_color(rule).child(content));
-    return v_flex().gap(0).child(widget().id('mantis-connection').child(widgetHeader('mantis-account-header', 'My Account — API Tokens', 'gear'))
-      .child(row('Server URL', field(this.serverInput, 'mantis-server', 'MantisBT server URL').w_full()))
-      .child(row('API Token', h_flex().gap(8).items_center()
-        .child(field(this.tokenInput, 'mantis-token', 'MantisBT personal access token').flex_1().min_w(0))
-        .child(button('mantis-copy-token', this.tokenCopied ? 'Copied' : 'Copy', (_event, cx) => this.copyToken(cx), { disabled: !this.tokenInput.value().trim() }))))
-      .child(div().p(12).child('Create an API Token in MantisBT → My Account → API Tokens. Save keeps your settings even if the connection fails.'))
-      .when(Boolean(this.error), el => el.child(div().p(12).text_color(mantisTheme.destructive).child(this.error)))
-      .child(h_flex().p(12).gap(8).bg('#eeeeee').border_t(1).border_color(rule)
-        .child(button('mantis-save-token', this.tokenBusy ? 'Saving…' : 'Save', (_event, cx) => this.saveToken(cx), { primary: true, disabled: this.tokenBusy }))
-        .child(button('mantis-cancel-token', 'Cancel', (_event, cx) => this.token ? back(cx) : close(), { disabled: this.tokenBusy }))
-        .when(Boolean(this.token), el => el.child(button('mantis-clear-token', 'Clear saved token', (_event, cx) => this.clearToken(cx), { disabled: this.tokenBusy })))))
-      .child(this.fieldSettings());
+  // Without a saved token the page says how to connect; the server and token form lives in the MantisBT Settings page.
+  connectEmpty() {
+    return v_flex().id('mantis-connect').flex_1().min_h(0).items_center().justify_center().py(32)
+      .child(widget().w(360).child(widgetHeader('mantis-connect-header', 'Connect MantisBT', 'gear'))
+        .child(v_flex().p(18).gap(12).items_center().text_center()
+          .child(div().text_color(mantisTheme.muted).child('Save your server URL and API token in Settings to see your issues here.'))
+          .child(button('mantis-connect', 'Open MantisBT settings', () => run('herdr-zed.settings:mantisbt'), { primary: true }))));
   }
 
   panel(project, importTask, close, cx) {
@@ -483,12 +473,12 @@ export default class MantisPanel extends TaskSourceController {
           .child(h_flex().h(41).flex_none().px(16).gap(8).items_center().bg(mantisTheme.breadcrumb).border_b(1).border_color('#c5dbe8').text_color(mantisTheme.accent)
             .child(glyph('folder', 16)).child(this.binding()?.name || project?.name || 'MantisBT')
             .child(div().text_color(mantisTheme.muted).child('/'))
-            .child(this.settingsOpen || this.needsToken ? 'My Account' : this.selected ? 'View Issue Details' : this.tab === 'mine' ? 'My View' : 'View Issues')
+            .child(this.needsToken ? 'Connect' : this.selected ? 'View Issue Details' : this.tab === 'mine' ? 'My View' : 'View Issues')
             .child(div().flex_1())
             .when(Boolean(this.selected) && ready, el => el.child(button('mantis-back', 'Back to issues', (_event, cx) => this.back(cx), { icon: 'chevron-left' }))))
           .child(v_flex().id('mantis-page-content').flex_1().min_h(0).overflow_y_scrollbar().px(12).pb(16)
             .when(this.needsToken === null, el => el.child(div().p(12).child('Loading connection…')))
-            .when(this.needsToken === true || this.settingsOpen, el => el.child(this.connectionPage(close)))
+            .when(this.needsToken === true, el => el.child(this.connectEmpty()))
             .when(ready && Boolean(this.error), el => el.child(div().p(12).text_color(mantisTheme.destructive).child(this.error)))
             .when(ready && !this.binding(), el => el.child(widget().child(widgetHeader('mantis-select-project', 'Select Project', 'folder'))
               .child(div().p(18).child('Select a MantisBT project from the project menu.'))))

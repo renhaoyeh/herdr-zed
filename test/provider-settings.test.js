@@ -158,6 +158,7 @@ function fakePanel() {
     init() {}
     open(project) { this.calls.push(['open', project.folder]); this.needsToken = false; this.token = 'saved-token'; }
     openSettings() { this.calls.push(['openSettings']); }
+    seedSettings() { this.calls.push(['seedSettings']); }
     syncFields() { this.calls.push(['syncFields']); }
     saveToken() { this.calls.push(['saveToken']); }
     clearToken() { this.calls.push(['clearToken']); }
@@ -185,7 +186,7 @@ for (const { id, file, cls, panel, source, title, prefix } of [
     view.init(ctx([]));
     assert.deepEqual(panel().calls[0], ['open', '/repo'], 'the token is read for the context');
     view.render(ctx([]));
-    assert.equal(panel().calls.filter(([name]) => name === 'openSettings').length, 1, 'the saved connection seeds the form once');
+    assert.equal(panel().calls.filter(([name]) => name === 'seedSettings').length, 1, 'the saved connection seeds the form once');
     assert.ok(panel().calls.some(([name]) => name === 'syncFields'), 'field display loads');
     assert.ok(!names(log).some(name => name.startsWith('DialogContent')), 'no frame');
     assert.ok(!log.some(([, method, arg]) => method === 'child' && arg === `"${title}"`), 'no page title of its own');
@@ -263,4 +264,107 @@ test('System Monitor Settings embedded draws no frame, title or Done, and the de
   events['Button#hardware-page-settings'].on_click({}, { notify() {} });
   assert.deepEqual(runs.at(-1), ['herdr-zed.settings:system']);
   assert.notEqual(monitor.hardwarePage, 'settings', 'the details dialog no longer hosts Settings');
+});
+
+// Render is a read of state: a cx.notify() during render is refused by the host ("not allowed during the render phase").
+// The render context records every notify and holds spawned work until a test runs it, so only synchronous notifies count.
+function renderContext() {
+  const notified = [];
+  const cx = { focus_handle: () => ({ focus() {} }), notify() { notified.push(true); }, spawn() {}, stop_propagation() {},
+    write_to_clipboard() {}, open_url() {} };
+  return { cx, notified };
+}
+// Work the views start (connection reads, field loads) runs to completion on a normal context, as the host would run it.
+const asyncContext = () => ({ focus_handle: () => ({ focus() {} }), notify() {}, spawn(work) { return work(asyncContext()); }, stop_propagation() {} });
+const flush = () => new Promise(done => setImmediate(done));
+const stateInput = () => ({ text: '', on() {}, value() { return this.text; }, set_value(text) { this.text = String(text); }, set_masked() {}, focus() {}, release() {} });
+const sourceFor = (id, token) => {
+  const asana = id === 'asana';
+  return { key: id, name: asana ? 'Asana' : 'MantisBT', server: !asana, tokenHelp: 'Paste a token.', normalizeUrl: url => url,
+    readConnection: async () => token ? { url: 'https://mantis.example.test', token: 'saved' } : null,
+    saveConnection: async () => {}, projectFields: async () => [], fields: [{ id: 'name', name: 'Name', width: 100, detail: true }] };
+};
+
+// The real panel class of a provider and its shared controller, evaluated against the recording stand-ins in `host`.
+async function loadPanel(id, host) {
+  const dir = id === 'asana' ? 'herdr-zed-asana' : 'herdr-zed-mantisbt';
+  Object.assign(host, { folderKey: value => value, sourcePathKey: value => value, filterProjects: () => [], readMantisProjects: async () => [],
+    saveMantisProjects: async () => {}, readMantisIssues: async () => [], saveMantisIssues: async () => {}, DropdownMenu: host.factory('DropdownMenu'),
+    DropdownMenuState: class {}, DropdownMenuContent: host.factory('DropdownMenuContent'), DropdownMenuItem: host.factory('DropdownMenuItem'),
+    DropdownMenuLabel: host.factory('DropdownMenuLabel'), DropdownMenuSeparator: host.factory('DropdownMenuSeparator'), TextView: host.factory('TextView') });
+  Object.assign(host, await evaluateNative(`../mods/${dir}/components/task-source-model.js`, host,
+    'filterTasks, sourceTaskSnapshot, relativeTime, previewWidthAt, statusKind, avatarColor, initials, dueLabel, sourcePathKey'));
+  Object.assign(host, await evaluateNative(`../mods/${dir}/components/task-source.js`, host, 'TaskSourceController, TaskSourceProjectPicker'));
+  return (await evaluateNative(`../mods/${dir}/ui.js`, host, id === 'asana' ? 'AsanaPanel' : 'MantisPanel'))[id === 'asana' ? 'AsanaPanel' : 'MantisPanel'];
+}
+
+for (const { id, token } of [
+  { id: 'asana', token: true }, { id: 'asana', token: false },
+  { id: 'mantisbt', token: true }, { id: 'mantisbt', token: false },
+]) {
+  test(`${id} embedded Settings renders without calling cx.notify (token ${token ? 'saved' : 'missing'})`, async () => {
+    const context = { folder: '/repo', name: 'repo', machine: '' };
+    const { host, log, factory } = shell({ props: () => ({ view: 'settings', embedded: true, overlay: 'shell', context }), InputState: { new: stateInput } });
+    const asana = id === 'asana', source = sourceFor(id, token);
+    Object.assign(host, { factory, asanaSource: source, mantisSource: source, sourceModuleOptions: () => ({
+      getBinding: () => ({ gid: 'p1', name: 'Project', workspace: 'w', server: 'https://mantis.example.test' }),
+      state: { get: () => undefined, set() {} }, setBinding() {}, source }) });
+    host.AsanaPanel = asana ? await loadPanel(id, host) : undefined;
+    host.MantisPanel = asana ? undefined : await loadPanel(id, host);
+    const { [asana ? 'AsanaSettings' : 'MantisSettings']: Settings } = await evaluateNative(
+      `../mods/${asana ? 'herdr-zed-asana/settings.js' : 'herdr-zed-mantisbt/settings.js'}`, host, asana ? 'AsanaSettings' : 'MantisSettings');
+    const view = new Settings();
+    view.init(asyncContext());
+    await flush(); // the connection read and the field load finish, so the page renders in its loaded state
+    const { cx, notified } = renderContext();
+    view.render(cx);
+    assert.deepEqual(notified, [], 'render never requests a re-render');
+    assert.ok(names(log).includes(`v_flex#${asana ? 'asana' : 'mantis'}-settings`), 'the page is drawn');
+    view.close();
+  });
+}
+
+for (const { id, token } of [{ id: 'asana', token: false }, { id: 'mantisbt', token: false }]) {
+  test(`${id} browser without a token says how to connect and leaves the token form to Settings`, async () => {
+    const runs = [];
+    const { host, log, events, factory } = shell({ props: () => ({ overlay: 'browser' }), run: (...args) => runs.push(args), InputState: { new: stateInput } });
+    const asana = id === 'asana', source = sourceFor(id, token), memory = {};
+    Object.assign(host, { factory, asanaSource: source, mantisSource: source });
+    const Panel = await loadPanel(id, host);
+    const panel = new Panel({ source, getBinding: () => null, state: { get: key => memory[key], set: (key, value) => { memory[key] = value; } } });
+    panel.init(asyncContext());
+    panel.open({ folder: '/repo' }, asyncContext());
+    await flush();
+    const { cx, notified } = renderContext();
+    panel.panel({ folder: '/repo' }, () => {}, () => {}, cx);
+    assert.deepEqual(notified, []);
+    const shown = log.filter(([, method]) => method === 'child').map(([, , arg]) => arg);
+    const name = asana ? 'Asana' : 'MantisBT';
+    assert.ok(shown.includes(`"Connect ${name}"`), 'the page titles the connection');
+    assert.ok(!shown.includes(`"Choose ${name} project"`), 'no project picker label over the connect state');
+    assert.ok(!names(log).some(entry => entry.includes(`${id === 'asana' ? 'asana' : 'mantis'}-token`)), 'no token form in the browser');
+    assert.ok(!names(log).some(entry => entry.includes('save-token')), 'no Save control in the browser');
+    events[`Button#${asana ? 'asana-connect' : 'mantis-connect'}`].on_click({}, asyncContext());
+    assert.deepEqual(runs.at(-1), [`herdr-zed.settings:${asana ? 'asana' : 'mantisbt'}`], 'the button opens the provider Settings page');
+  });
+}
+
+test('GitHub embedded Settings renders without calling cx.notify', async () => {
+  // GitHubAccount.render takes no context, so the notify count is taken from the context its state was created with.
+  const counter = { armed: false, notified: 0 };
+  const cx = { focus_handle: () => ({ focus() {} }), notify() { if (counter.armed) counter.notified++; },
+    spawn(work) { return work(cx); }, stop_propagation() {}, timer: { every() {} } };
+  const { host, log } = shell({ props: () => ({ view: 'settings', embedded: true, overlay: 'shell', context: { folder: '/repo', machine: '', name: 'repo' } }) });
+  Object.assign(host, { readGitAuthor: async () => ({ name: 'Ann', email: 'ann@example.test' }), readAccountAuthor: async () => ({ name: 'Amy', email: '' }),
+    saveGitAuthor: async () => {}, setGitAccount() {}, rememberGitAuthor() {}, gitAccount: () => ({ host: 'github.com', login: 'amy' }),
+    readGitAccounts: async () => [{ host: 'github.com', login: 'amy', available: true }] });
+  const { GitHubAccount } = await evaluateNative('../mods/herdr-zed-github/account.js', host, 'GitHubAccount');
+  const view = new GitHubAccount();
+  view.init(cx);
+  await flush();
+  counter.armed = true;
+  view.render(theme());
+  counter.armed = false;
+  assert.equal(counter.notified, 0, 'render never requests a re-render');
+  assert.ok(names(log).includes('v_flex#github-account'), 'the page is drawn');
 });
