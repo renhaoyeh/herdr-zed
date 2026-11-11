@@ -45,7 +45,7 @@ export function lastUsedLabel(value, now = Date.now()) {
   return days < 1 ? 'Today' : days === 1 ? 'Yesterday' : days < 60 ? `${days} days ago` : `${Math.floor(days / 30)} months ago`;
 }
 
-const reader = () => `${appHome()}/mods/devkits-simulator/xcode-storage-reader.js`;
+const reader = () => `${appHome()}/mods/herdr-zed-simulator/xcode-storage-reader.js`;
 
 export default class XcodeStorage {
   init(cx) {

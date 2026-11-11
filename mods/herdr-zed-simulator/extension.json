@@ -2,7 +2,7 @@
   "version": 1,
   "id": "simulator",
   "title": "iOS Simulator",
-  "dependencies": ["devkits-sim-frames"],
+  "dependencies": ["herdr-zed-sim-frames"],
   "actions": [
     {
       "id": "open",

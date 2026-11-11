@@ -10,5 +10,5 @@ export function Checkbox(id, checked, t, { radius = 0 } = {}) {
     .child(div().size(16).flex_none().flex().items_center().justify_center().rounded(radius).border(1)
       .border_color(checked ? t.solid : t.input).bg(checked ? t.solid : t.popover)
       .text_color(t.solid_foreground)
-      .when(checked, el => el.child(svg('mods/devkits/assets/icons/check.svg').size(14))));
+      .when(checked, el => el.child(svg('mods/herdr-zed/assets/icons/check.svg').size(14))));
 }

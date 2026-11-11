@@ -9,7 +9,7 @@ import { promisify } from 'node:util';
 
 const execute = promisify(execFile);
 
-export async function readMacSensors({ cacheRoot = join(tmpdir(), `devkits-smc-${process.getuid?.() || 0}-${process.arch}`) } = {}, run = execute) {
+export async function readMacSensors({ cacheRoot = join(tmpdir(), `herdr-zed-smc-${process.getuid?.() || 0}-${process.arch}`) } = {}, run = execute) {
   try {
     const source = new URL('./hardware-smc.c', import.meta.url);
     const hash = createHash('sha256').update(await readFile(source)).digest('hex').slice(0, 20);

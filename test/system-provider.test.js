@@ -11,7 +11,7 @@ test('SYSTEM widgets scroll inside the bounded native sidebar while inline keeps
   const calls = [], rendered = [], target = { view: 'widgets' }, root = element(calls);
   const monitor = { init() {}, renderWidgets: (...args) => { rendered.push(['widgets', ...args]); return 'widgets'; },
     renderInline: (...args) => { rendered.push(['inline', ...args]); return 'inline'; }, renderDetails() { return 'details'; } };
-  const { SystemMod } = await evaluateNative(new URL('../mods/devkits-system/main.js', import.meta.url), {
+  const { SystemMod } = await evaluateNative(new URL('../mods/herdr-zed-system/main.js', import.meta.url), {
     View: class {}, div: () => root, props: () => target, theme: () => 'theme', openOverlay() {}, run() {}, nextCommand() {},
     SystemMonitorCore: class { constructor() { return monitor; } }, hardwarePreferences: () => ({}), SystemMonitor: class {},
     systemClientPrefix: 'client:', systemSnapshotPrefix: 'snapshot:', systemCommand: () => '', systemMessage: () => null,

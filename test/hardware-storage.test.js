@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { storageInventory, storageReadings, readMacStorageTopology, storageIORates } from '../mods/devkits-system/hardware-storage.js';
+import { storageInventory, storageReadings, readMacStorageTopology, storageIORates } from '../mods/herdr-zed-system/hardware-storage.js';
 
 test('storage groups Windows partitions by physical identity without conflating identical drive models', () => {
   const disks = [0, 1].map(index => ({ device: `\\\\.\\PHYSICALDRIVE${index}`, name: 'Same model', size: 10000, type: 'SSD', serialNum: 'PRIVATE' }));

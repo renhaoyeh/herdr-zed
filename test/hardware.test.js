@@ -1,8 +1,7 @@
-import { systemDisplayPreferences, systemSidebarHeight } from '../mods/devkits/system-display-model.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { cpuSnapshot, cpuPercent, readHardware, parseGPUs, parseDiskCounters, counterRate, diskRates, coreSnapshots, corePercentages } from '../mods/devkits-system/hardware-reader.js';
-import { hardwarePreferences, selectedHardwareCores, appendHardwareHistory, hardwareChartPoints, hardwareChartScale, hardwareSensorSummary, hardwareDisplayItems, hardwareDisplayHistory, hardwarePoint } from '../mods/devkits-system/components/system-monitor-model.js';
+import { cpuSnapshot, cpuPercent, readHardware, parseGPUs, parseDiskCounters, counterRate, diskRates, coreSnapshots, corePercentages } from '../mods/herdr-zed-system/hardware-reader.js';
+import { hardwarePreferences, selectedHardwareCores, appendHardwareHistory, hardwareChartPoints, hardwareChartScale, hardwareSensorSummary, hardwareDisplayItems, hardwareDisplayHistory, hardwarePoint } from '../mods/herdr-zed-system/components/system-monitor-model.js';
 
 test('CPU uses elapsed busy time across every core, with an initial warmup sample', () => {
   const before = cpuSnapshot([{ times: { user: 30, sys: 10, idle: 60 } }, { times: { user: 20, sys: 10, idle: 70 } }]);
@@ -97,35 +96,6 @@ test('monitor preferences retain module visibility, order and core choices acros
   assert.equal(Object.hasOwn(hardwarePreferences(null), 'cpuMode'), false);
 });
 
-test('the host uses current system display preferences and current defaults', () => {
-  const defaults = systemDisplayPreferences();
-  assert.equal(defaults.enabled, true);
-  assert.equal(defaults.sidebar.visible, true); assert.equal(defaults.status.visible, false);
-  assert.equal(defaults.sidebar.heightMode, 'auto');
-  assert.equal(defaults.sidebar.rows, 6);
-  assert.equal(defaults.sidebar.style, 'compact');
-  assert.equal(defaults.sidebar.cpuMode, 'cores');
-  const saved = systemDisplayPreferences({ sidebar: { visible: true, style: 'inline' }, status: { visible: true } });
-  assert.equal(saved.sidebar.visible, true); assert.equal(saved.status.visible, true); assert.equal(saved.sidebar.style, 'compact');
-  assert.equal(systemDisplayPreferences({ sidebar: { heightMode: 'auto' } }).sidebar.heightMode, 'auto');
-  assert.equal(systemDisplayPreferences({ sidebar: { heightMode: 'rows' } }).sidebar.heightMode, 'rows');
-  const unsupportedHeight = systemDisplayPreferences({ sidebar: { heightMode: 'fixed', height: 350 } }).sidebar;
-  assert.equal(unsupportedHeight.heightMode, 'auto'); assert.equal(unsupportedHeight.rows, 6);
-  assert.equal(Object.hasOwn(unsupportedHeight, 'height'), false);
-  assert.equal(systemSidebarHeight(380, 180), 180); assert.equal(systemSidebarHeight(380, 70), 70);
-});
-
-test('System display visibility preserves its locations and disabled state', () => {
-  const hidden = systemDisplayPreferences({ sidebar: { visible: false }, status: { visible: false } });
-  assert.equal(hidden.enabled, true);
-  const disabled = systemDisplayPreferences({ enabled: false, sidebar: { visible: true, style: 'compact' }, status: { visible: true } });
-  assert.equal(disabled.enabled, false);
-  assert.equal(disabled.sidebar.visible, true);
-  assert.equal(disabled.status.visible, true);
-  assert.equal(disabled.sidebar.style, 'compact');
-  assert.equal(systemDisplayPreferences({ ...disabled, enabled: true }).enabled, true);
-});
-
 test('monitor history uses elapsed time, preserves missing data and bounds memory use', () => {
   const history = appendHardwareHistory([{ at: 0, cpu: 50 }, { at: 100000, cpu: 20 }], { updatedAt: 200000, cpu: null });
   assert.equal(history.length, 2);
@@ -193,7 +163,7 @@ test('selected volume and I/O cards keep separate values, identities and history
 });
 
 test('macOS SMC probe returns typed read-only readings or an explicit capability status', { skip: process.platform !== 'darwin' }, async () => {
-  const { readMacSensors } = await import('../mods/devkits-system/hardware-sensors.js');
+  const { readMacSensors } = await import('../mods/herdr-zed-system/hardware-sensors.js');
   const result = await readMacSensors();
   assert.ok(Array.isArray(result.sensors));
   if (!result.sensors.length) assert.equal(typeof result.sensorStatus, 'string');

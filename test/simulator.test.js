@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 async function load(host = {}) {
-  const source = await readFile(new URL('../mods/devkits-simulator/simulator.js', import.meta.url), 'utf8');
+  const source = await readFile(new URL('../mods/herdr-zed-simulator/simulator.js', import.meta.url), 'utf8');
   return new Function(...Object.keys(host), source.replace(/^import .*;\r?\n/gm, '')
     .replace('export default class', 'class').replace(/^export /gm, '')
     + '\nreturn { keyUsages, parseSimulators, targetDevice, jpegAspect, touchEdge, simulatorShown, listSimulators, previewUrl, openPreviewWindow, externalClient, SimulatorPanel, SimulatorMenu };')(...Object.values(host));
@@ -104,7 +104,7 @@ test('the device menu opens Xcode storage after closing itself', async () => {
   const { SimulatorMenu } = await load({ props: () => ({ overlay: 'menu' }), closeOverlay: id => closed.push(id), openOverlay: options => opened.push(options) });
   new SimulatorMenu().storage();
   assert.deepEqual(closed, ['menu']);
-  assert.equal(opened[0].mod, 'devkits-simulator');
+  assert.equal(opened[0].mod, 'herdr-zed-simulator');
   assert.equal(opened[0].props.view, 'simulator-storage');
   assert.equal(opened[0].kind, 'dialog');
 });

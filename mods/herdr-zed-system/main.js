@@ -9,7 +9,7 @@ export default class SystemMod extends View {
     this.view = target.view || 'details'; this.clients = new Map();
     this.monitor = new SystemMonitorCore({ details: this.view === 'details', page: target.page, overlay: target.overlay,
       active: () => this.clients.size > 0,
-      openDetails: page => openOverlay({ mod: 'devkits-system', kind: 'dialog', frame: 'none', width: 0.9, height: 0.82, props: { view: 'details', page } }),
+      openDetails: page => openOverlay({ mod: 'herdr-zed-system', kind: 'dialog', frame: 'none', width: 0.9, height: 0.82, props: { view: 'details', page } }),
     });
     if (this.view === 'service') {
       this.monitor.init(cx);
@@ -33,7 +33,7 @@ export default class SystemMod extends View {
       });
     } else {
       if (this.view === 'details') { this.monitor.handle = cx.focus_handle(); this.monitor.handle.focus(); }
-      this.client = new SystemMonitor({ receiver: 'devkits-system', onSnapshot: snapshot => {
+      this.client = new SystemMonitor({ receiver: 'herdr-zed-system', onSnapshot: snapshot => {
         this.monitor.hardware = snapshot.data; this.monitor.hardwareHistory = snapshot.history;
         this.monitor.hardwareError = snapshot.error; this.monitor.hardwareCheckedAt = snapshot.updatedAt;
       } });

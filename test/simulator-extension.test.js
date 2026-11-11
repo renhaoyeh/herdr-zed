@@ -1,16 +1,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { access, readFile } from 'node:fs/promises';
-import { parseExtensionManifest, extensionPopup } from '../mods/devkits-zed/extension-model.js';
+import { parseExtensionManifest, extensionPopup } from '../mods/herdr-zed/extension-model.js';
 
-const text = await readFile(new URL('../mods/devkits-simulator/extension.json', import.meta.url), 'utf8');
+const text = await readFile(new URL('../mods/herdr-zed-simulator/extension.json', import.meta.url), 'utf8');
 
 test('simulator declares a panel-sized nonmodal popup for its existing panel view', () => {
-  const [action] = parseExtensionManifest('devkits-simulator', text);
+  const [action] = parseExtensionManifest('herdr-zed-simulator', text);
   assert.equal(action.id, 'simulator.open');
   assert.deepEqual(extensionPopup(action, null), {
-    mod: 'devkits-simulator', kind: 'dialog', frame: 'none', modal: false, width: 480, height: 760,
-    props: { view: 'simulator-popup', stateKey: 'devkits-zed.extension.simulator.["",""]' },
+    mod: 'herdr-zed-simulator', kind: 'dialog', frame: 'none', modal: false, width: 480, height: 760,
+    props: { view: 'simulator-popup', stateKey: 'herdr-zed.extension.simulator.["",""]' },
   });
 });
 
@@ -20,12 +20,12 @@ test('simulator declares the existing panel as its right dock surface', () => {
 });
 
 test('simulator extension icon resolves to a canonical Devkits icon asset', async () => {
-  const [action] = parseExtensionManifest('devkits-simulator', text);
-  await access(new URL(`../mods/devkits/assets/icons/${action.icon}.svg`, import.meta.url));
+  const [action] = parseExtensionManifest('herdr-zed-simulator', text);
+  await access(new URL(`../assets/icons/${action.icon}.svg`, import.meta.url));
 });
 
 test('popup close dismisses its overlay while the original panel close still toggles its block', async () => {
-  const source = await readFile(new URL('../mods/devkits-simulator/simulator.js', import.meta.url), 'utf8');
+  const source = await readFile(new URL('../mods/herdr-zed-simulator/simulator.js', import.meta.url), 'utf8');
   const code = source.replace(/^import .*;\r?\n/gm, '').replace('export default class', 'class').replace(/^export /gm, '')
     + '\nreturn { closeSimulator };';
   const calls = [];
@@ -39,7 +39,7 @@ test('popup close dismisses its overlay while the original panel close still tog
 });
 
 test('closing while helper startup is pending releases the late owned session', async () => {
-  const source = await readFile(new URL('../mods/devkits-simulator/simulator.js', import.meta.url), 'utf8');
+  const source = await readFile(new URL('../mods/herdr-zed-simulator/simulator.js', import.meta.url), 'utf8');
   const code = source.replace(/^import .*;\r?\n/gm, '').replace('export default class', 'class').replace(/^export /gm, '')
     + '\nreturn { SimulatorPanel };';
   const calls = [];

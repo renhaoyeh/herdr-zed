@@ -12,14 +12,14 @@ import { SystemMonitor as SystemClient, hardwareColors, hardwareAvailable, hardw
 const moveOption = (keys, key, target) => { const from = keys.indexOf(key), to = keys.indexOf(target); if (from < 0 || to < 0 || from === to) return keys; const next = [...keys]; next.splice(to, 0, next.splice(from, 1)[0]); return next; };
 
 let hardwareCache = null, hardwareRequest = null;
-const hardwareConfig = () => hardwarePreferences(shared('devkits.system-monitor'));
+const hardwareConfig = () => hardwarePreferences(shared('herdr-zed.system-monitor'));
 const hardwareCached = () => {
-  try { return JSON.parse(globalThis.window?.sessionStorage?.getItem('devkits.hardware-live') || 'null') || hardwareCache; }
+  try { return JSON.parse(globalThis.window?.sessionStorage?.getItem('herdr-zed.hardware-live') || 'null') || hardwareCache; }
   catch { return hardwareCache; }
 };
 const cacheHardware = value => {
   hardwareCache = value;
-  try { globalThis.window?.sessionStorage?.setItem('devkits.hardware-live', JSON.stringify(value)); } catch {}
+  try { globalThis.window?.sessionStorage?.setItem('herdr-zed.hardware-live', JSON.stringify(value)); } catch {}
 };
 // Data and reusable renderers. The consumer owns mounting, layout and presentation preferences.
 export class SystemMonitorCore extends SystemClient {
@@ -72,7 +72,7 @@ export class SystemMonitorCore extends SystemClient {
         const cached = hardwareCached();
         try {
           const sensorCollection = hardwareConfig().visible.sensors;
-          const result = await exec('node', [`${appHome()}/mods/devkits-system/hardware-reader.js`, JSON.stringify(cached?.sample || this.hardwareSample || null), JSON.stringify({ sensors: sensorCollection })]);
+          const result = await exec('node', [`${appHome()}/mods/herdr-zed-system/hardware-reader.js`, JSON.stringify(cached?.sample || this.hardwareSample || null), JSON.stringify({ sensors: sensorCollection })]);
           if (result.code !== 0) throw new Error('Hardware unavailable');
           const data = JSON.parse(result.stdout);
           const checkedAt = Date.now();
@@ -96,7 +96,7 @@ export class SystemMonitorCore extends SystemClient {
 
   saveHardwarePreference(patch, cx) {
     const current = hardwareConfig();
-    setShared('devkits.system-monitor', hardwarePreferences({ ...current, ...patch }));
+    setShared('herdr-zed.system-monitor', hardwarePreferences({ ...current, ...patch }));
     cx.notify();
   }
 

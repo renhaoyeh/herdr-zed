@@ -8,26 +8,26 @@ import { DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMen
 import { Button } from './components/button.js';
 
 // The live iOS Simulator panel, adapted from herdr-sim (github.com/wobsoriano/herdr-sim, MIT). It is its own mod so a
-// layout without the simulator block leaves it out entirely; components/ holds copies of the devkits components it uses.
+// extension without the simulator surface leaves it out entirely; components/ holds copies of the shared components it uses.
 // serve-sim streams the simulator as MJPEG and takes input over a WebSocket; it runs locally only.
 // A login shell resolves the same Node as the user's terminals.
 const SERVE_SIM = "SERVE_SIM_DISABLE_DEVICE_HUB_KEYBOARD=1 exec \"${SHELL:-/bin/zsh}\" -lic 'npx --yes serve-sim@0.1.49 \"$@\"' serve-sim \"$@\"";
-const DEVICE = 'devkits.simulator-device';
-const BOOTING = 'devkits.simulator-booting';
-const REPAIR = 'devkits.simulator-repair';
+const DEVICE = 'herdr-zed.simulator-device';
+const BOOTING = 'herdr-zed.simulator-booting';
+const REPAIR = 'herdr-zed.simulator-repair';
 // Frames are written into a separate mod folder: a write inside this mod would reload it. A changed
 // image shows blank while it reloads (~175ms), so frames rotate through a ring stacked under the one
 // on show, each rising to the top once it has reloaded.
-const FRAMES = 'mods/devkits-sim-frames';
+const FRAMES = 'mods/herdr-zed-sim-frames';
 const RING = 12, RELOAD_MS = 200, FRAME_MS = 33, CHECK_MS = 2000;
 const TOOLBAR = 28, BEZEL = 10, PAD = 12, LINE = 20, CONSUMER = 12;
 const TAG = { touch: 0x03, button: 0x04, key: 0x06, rotate: 0x07, scroll: 0x0b, keyboard: 0x0c };
 const ROTATE = { portrait: 'landscape_left', landscape_left: 'portrait_upside_down', portrait_upside_down: 'landscape_right', landscape_right: 'portrait' };
-const glyph = (name, size = 14) => svg(`mods/devkits/assets/icons/${name}.svg`).size(size).flex_none();
+const glyph = (name, size = 14) => svg(`mods/herdr-zed/assets/icons/${name}.svg`).size(size).flex_none();
 const sleep = (cx, ms) => new Promise(resolve => cx.timer.after(ms, () => resolve()));
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 const DAY = 86400000;
-// Matches Xcode storage's labels in the devkits mod.
+// Matches Xcode storage's labels in the herdr-zed-simulator mod.
 const lastUsedLabel = (value, now = Date.now()) => {
   const days = Math.floor((now - value) / DAY);
   return days < 1 ? 'Today' : days === 1 ? 'Yesterday' : days < 60 ? `${days} days ago` : `${Math.floor(days / 30)} months ago`;
@@ -408,7 +408,7 @@ export default class SimulatorPanel {
       .when(unsupported, el => el.child(div().pl(10).text_color(t.muted).font_medium().child('iOS Simulator')))
       .when(!unsupported, el => el.child(DropdownMenuTrigger(h_flex().id('simulator-device').h_full().min_w(0).pl(10).pr(6).gap(6).items_center()
         .text_color(t.foreground).font_medium().hover(el => el.bg(t.hover)).cursor_pointer(), 280,
-        (_cx, at) => openOverlay({ mod: 'devkits-simulator', kind: 'popup', frame: 'none', width: 280, at, props: { view: 'simulator-devices' } }), 'start', { x: 8, y: 9 })
+        (_cx, at) => openOverlay({ mod: 'herdr-zed-simulator', kind: 'popup', frame: 'none', width: 280, at, props: { view: 'simulator-devices' } }), 'start', { x: 8, y: 9 })
         .child(glyph('circle-check', 12).text_color(status))
         .child(div().min_w(0).truncate().child(device ? `${device.name} · ${device.os}` : 'Choose simulator'))
         .child(glyph('chevron-down', 12).text_color(t.muted))))
@@ -518,7 +518,7 @@ export class SimulatorMenu {
   // Close the picker before opening the storage dialog in this provider.
   storage() {
     closeOverlay(props().overlay);
-    openOverlay({ mod: 'devkits-simulator', kind: 'dialog', frame: 'none', modal: false, width: 760, height: 0.85, props: { view: 'simulator-storage' } });
+    openOverlay({ mod: 'herdr-zed-simulator', kind: 'dialog', frame: 'none', modal: false, width: 760, height: 0.85, props: { view: 'simulator-storage' } });
   }
 
   render() {

@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { windowsCPUPercent, windowsReadings, windowsGPUUsage, parseNvidiaSensors, readWindowsHardware } from '../mods/devkits-system/hardware-windows.js';
-import { macTopology, windowsTopology, topologyGroups, topologyLabel } from '../mods/devkits-system/components/system-monitor-topology.js';
+import { windowsCPUPercent, windowsReadings, windowsGPUUsage, parseNvidiaSensors, readWindowsHardware } from '../mods/herdr-zed-system/hardware-windows.js';
+import { macTopology, windowsTopology, topologyGroups, topologyLabel } from '../mods/herdr-zed-system/components/system-monitor-topology.js';
 
 test('Windows per-processor CPU counters preserve 64-bit precision and reject stale/reset samples', () => {
   const old = { idle: '100000000000000000', time: '130000000000000000' };
@@ -98,7 +98,7 @@ test('Windows GPU memory joins DXGI capacities above 4 GB by adapter identity, k
 });
 
 test('SMC reader only contains read operations and never a write/fan-control command', async () => {
-  const source = await readFile(new URL('../mods/devkits-system/hardware-smc.c', import.meta.url), 'utf8');
+  const source = await readFile(new URL('../mods/herdr-zed-system/hardware-smc.c', import.meta.url), 'utf8');
   assert.deepEqual([...source.matchAll(/input\.command = (\d+)/g)].map(match => Number(match[1])), [9, 5]);
   assert.ok(!/IOConnectSet|IORegistryEntrySet|kSMCWrite|setFan|write_value/.test(source));
 });
