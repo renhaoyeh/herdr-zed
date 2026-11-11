@@ -1,17 +1,16 @@
-// Shared: edit mods/devkits/components/tasks.js, then npm run sync:shared.
-import { shared, setShared, openOverlay } from 'herdr';
+// Shared: edit components/tasks.js, then npm run sync:shared.
+import { shared, openOverlay } from 'herdr';
 import { taskProjectKey, taskIndex } from './tasks-model.js';
 import { threadTitle, configuredAgents } from './session-model.js';
 export { boardStatuses } from './tasks-model.js';
-const copy = value => JSON.parse(JSON.stringify(value));
 let renderSnapshot = null;
-export const tasksSnapshot = () => renderSnapshot || shared('devkits.tasks.snapshot') || { projects: {} };
+export const tasksSnapshot = () => renderSnapshot || shared('herdr-zed.tasks.snapshot') || { projects: {} };
 // Native shared reads deserialize the full projection. Reuse it for one synchronous
 // render, then release it so callbacks and later frames always see current state.
 export function withTaskSnapshot(render) {
   // A native execution-budget interruption can leave script state behind. Never
   // seed a new frame from the previous frame's retained snapshot.
-  renderSnapshot = shared('devkits.tasks.snapshot') || { projects: {} };
+  renderSnapshot = shared('herdr-zed.tasks.snapshot') || { projects: {} };
   try { return render(); } finally { renderSnapshot = null; }
 }
 const projectSnapshot = project => tasksSnapshot().projects[taskProjectKey(project)] || {};
@@ -32,49 +31,10 @@ export const taskActions = task => task?.policy || { canStart: false, canEdit: f
 export function sessionThreadTitle(tab, agent, project) {
   const cached = project && projectSnapshot(project).threads?.[tab.id]?.name;
   if (cached) return cached;
-  const launchers = configuredAgents(shared('devkits.agent-cache')?.[JSON.stringify(project?.machine || null)] || [], shared('devkits.agent-configs') || []);
-  const launcher = launchers.find(item => item.key === shared('devkits.thread-profiles')?.[tab.id]) || launchers.find(item => item.name === tab.name);
+  const launchers = configuredAgents(shared('herdr-zed.agent-cache')?.[JSON.stringify(project?.machine || null)] || [], shared('herdr-zed.agent-configs') || []);
+  const launcher = launchers.find(item => item.key === shared('herdr-zed.thread-profiles')?.[tab.id]) || launchers.find(item => item.name === tab.name);
   return threadTitle(tab, agent, project, { launcherName: launcher?.name });
 }
-export function taskRequest(action, options) {
-  const request = copy({ id: `${Date.now()}:${Math.random()}`, action, ...options });
-  setShared('devkits.tasks.requests', [...(shared('devkits.tasks.requests') || []), request]);
-  return request.id;
-}
-export const requestTaskSource = (project, source) => taskRequest('source', { project, source });
-export const requestTaskOpen = (project, gid = null, options = {}) => taskRequest('open', { project, gid, ...options });
-export function taskRequestResult(id) {
-  const results = shared('devkits.tasks.results') || {}, result = results[id];
-  if (!result) return null;
-  const next = { ...results }; delete next[id]; setShared('devkits.tasks.results', next); return result;
-}
-export function cancelTaskRequest(id) {
-  const requests = shared('devkits.tasks.requests') || [];
-  if (requests.some(request => request.id === id)) setShared('devkits.tasks.requests', requests.filter(request => request.id !== id));
-  taskRequestResult(id);
-}
-export const setTaskArchived = (project, task, archived, archiveId = null) => taskRequest('archive', { project, gid: task.gid, archived, archiveId });
-export const requestTaskStart = (agent, target, options = {}) => taskRequest('start', {
-  project: { folder: target.folder, machine: target.machine || null }, gid: target.task?.gid, agent, target, options,
-});
-export const openTaskComposer = (project, task = null, status = 'todo', importTask = null, parent = null) => openOverlay({
-  mod: 'devkits-tasks', kind: 'dialog', modal: true, frame: 'none', width: 760, height: 400,
-  props: { view: 'task-composer', project, task, status, importTask, parent },
-});
-export function publishTaskNavigation(event) {
-  setShared('devkits.tasks.navigation', [...(shared('devkits.tasks.navigation') || []),
-    copy({ ...event, receiver: shared('devkits.tasks.host')?.receiver || 'devkits' })]);
-}
-export class TaskHost {
-  constructor(onNavigate, receiver = 'devkits') { this.onNavigate = onNavigate; this.receiver = receiver; }
-  init(cx) {
-    setShared('devkits.tasks.host', { receiver: this.receiver }); this.poll(cx);
-    cx.timer.every(200, cx => this.poll(cx));
-  }
-  poll(cx) {
-    const events = shared('devkits.tasks.navigation') || [], mine = events.filter(event => event.receiver === this.receiver);
-    if (!mine.length) return;
-    setShared('devkits.tasks.navigation', events.filter(event => event.receiver !== this.receiver));
-    for (const event of mine) this.onNavigate(event, cx);
-  }
-}
+// Opens the Tasks board popup for a project context ({ id, folder, name, machine }), optionally focusing one task.
+export const openTaskBoard = (context, gid = null) => openOverlay({ mod: 'herdr-zed-tasks', kind: 'dialog', frame: 'none',
+  modal: false, width: 0.9, height: 0.86, props: { view: 'board', context, focus: gid } });

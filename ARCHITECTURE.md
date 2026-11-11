@@ -181,9 +181,13 @@ the key is removed when the extension is disabled (shell clears it). Providers p
 
 ### 3.4 Import (integration → importer)
 
-Unchanged `source-channel.js` protocol: the integration opens with a channel ID from the importer's
-request, posts `binding/import/close` events, and every request is removed on import or close. The
-importer revalidates the snapshot and opens its draft; only confirming the draft creates a record.
+- Opened by the importer itself (Tasks opens a source browser): the existing `source-channel.js`
+  protocol, unchanged. Requests are removed on import or close.
+- Opened standalone from the status bar: the integration finds an enabled importer in the catalog and opens
+  `openOverlay({ mod: <importer mod>, kind: 'dialog', props: { view: provides.importer.view,
+  kind: 'task-snapshot', source: <extension id>, context, snapshot } })`. The snapshot holds explicit domain
+  fields only (no credentials, no callbacks).
+- Either way the importer revalidates the snapshot and opens its draft; only confirming creates a record.
 
 ### 3.5 Git credentials (provider → shell)
 
@@ -294,9 +298,9 @@ No code reads both the old and new key; whichever is chosen is the only path.
    (`herdr-zed`) should be fixed before step 2, because it appears in mod names, shared keys and data paths.
 3. **Launcher settings entry.** In the thread title bar's ⋯ menu, or as the extension icon on the right
    side of the status bar?
-4. **Task-originated launches.** The launch event `{ target, name, argv, profile, expiresAt }` has no task
-   link. Proposal: optional `origin: { extension, ref }` echoed into the thread read model so Tasks can
-   bind its run record; alternative: Tasks matches by tab appearance. Needs a decision before step 3c.
+4. **Task-originated launches.** Adopted proposal (phase 3): Tasks calls `AgentClient.launch(…, { origin })`;
+   the launcher adds optional `origin: { extension, ref }` to the launch request and the shell echoes it in
+   `herdr-zed.threads`. Revisit if you prefer matching by tab appearance.
 5. **thread-decorator scope.** The task brief was truncated at this item; §2.2.2 is a proposal (data-only
    fields), please confirm or correct.
 6. **Work layer wording.** The brief's Work line was partly garbled; this document assumes Tasks owns

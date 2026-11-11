@@ -1,4 +1,4 @@
-// Shared: edit mods/devkits/components/task-theme.js, then npm run sync:shared.
+// Shared: edit components/task-theme.js, then npm run sync:shared.
 import { settings, fonts } from 'herdr';
 
 let boardFont;

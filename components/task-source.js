@@ -1,4 +1,4 @@
-// Shared: edit mods/devkits/components/task-source.js, then npm run sync:shared.
+// Shared: edit components/task-source.js, then npm run sync:shared.
 import { InputState } from 'gpui-base';
 import { filterTasks, sourceTaskSnapshot } from './task-source-model.js';
 

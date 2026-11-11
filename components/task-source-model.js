@@ -1,4 +1,4 @@
-// Shared: edit mods/devkits/components/task-source-model.js, then npm run sync:shared.
+// Shared: edit components/task-source-model.js, then npm run sync:shared.
 export const filterTasks = (tasks, query) => {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
   return tasks.filter(task => words.every(word => [task.name, task.section, task.assignee, task.parent]

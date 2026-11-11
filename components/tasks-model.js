@@ -1,4 +1,4 @@
-// Shared: edit mods/devkits/components/tasks-model.js, then npm run sync:shared.
+// Shared: edit components/tasks-model.js, then npm run sync:shared.
 export const boardStatuses = [
   { key: 'todo', label: 'Todo', icon: 'circle', color: '#96969f' },
   { key: 'doing', label: 'Doing', icon: 'circle-half', color: '#e5b454' },

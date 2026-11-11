@@ -1,7 +1,7 @@
 // Shared: edit components/extension-contract.js, then npm run sync:shared.
 // Pure validators for provider messages (ARCHITECTURE.md §3). No imports, no native APIs.
 // @ts-check
-/** @import { LaunchRequest, LaunchTarget, Validation, ThreadDecoration, GitCredentialBinding } from './contract-types.js' */
+/** @import { LaunchRequest, LaunchTarget, LaunchOrigin, Validation, ThreadDecoration, GitCredentialBinding } from './contract-types.js' */
 
 const MAX_LAUNCH_LEAD_MS = 60_000;
 const MAX_NAME_LENGTH = 120;
@@ -11,6 +11,8 @@ const DECORATION_FIELDS = ['badge', 'subtitle', 'tone'];
 const HOST_PATTERN = /^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/i;
 const LOGIN_PATTERN = /^[a-z0-9][a-z0-9_.-]*$/i;
 const MAX_CREDENTIAL_PAIRS = 8;
+const MAX_ORIGIN_REF = 200;
+const EXTENSION_ID_PATTERN = /^[a-z][a-z0-9-]*$/;
 
 /** @type {(value: unknown) => value is Record<string, any>} */
 const plain = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -24,6 +26,12 @@ export function projectKey(machine, folder) {
   return JSON.stringify([machine || '', folder]);
 }
 
+// §3.1 optional `origin` links a launch to the provider record that started it (e.g. a task run).
+/** @param {unknown} origin @returns {boolean} */
+const validOrigin = origin => plain(origin) && hasOnlyKeys(origin, ['extension', 'ref'])
+  && typeof origin.extension === 'string' && EXTENSION_ID_PATTERN.test(origin.extension)
+  && typeof origin.ref === 'string' && origin.ref.length > 0 && origin.ref.length <= MAX_ORIGIN_REF;
+
 // §3.1. `argv` is returned as the very same array the provider sent: no quoting, rewriting or copying.
 /**
  * @param {unknown} request
@@ -32,7 +40,7 @@ export function projectKey(machine, folder) {
  */
 export function validateLaunchRequest(request, { now, launcherId, spaces = [] }) {
   if (!plain(request)) return fail('Launch request must be an object.');
-  const { id, source, target, name, argv, profile, expiresAt } = request;
+  const { id, source, target, name, argv, profile, expiresAt, origin } = request;
   if (typeof id !== 'string' || id.length === 0) return fail('Launch request id must be a non-empty string.');
   if (!launcherId || source !== launcherId) return fail('Launch request source is not the active launcher.');
   if (!Number.isFinite(expiresAt)) return fail('Launch request expiresAt must be a number.');
@@ -55,7 +63,9 @@ export function validateLaunchRequest(request, { now, launcherId, spaces = [] })
   if (!Array.isArray(argv) || argv.length === 0 || argv.some(item => typeof item !== 'string'))
     return fail('Launch request argv must be a non-empty array of strings.');
   if (profile !== null && typeof profile !== 'string') return fail('Launch request profile must be a string or null.');
-  return { ok: true, value: { id, source, target: /** @type {LaunchTarget} */ (target), name, argv, profile, expiresAt } };
+  if (origin !== undefined && !validOrigin(origin)) return fail('Launch request origin must be { extension, ref } with a valid extension ID and a ref of at most 200 characters.');
+  return { ok: true, value: { id, source, target: /** @type {LaunchTarget} */ (target), name, argv, profile, expiresAt,
+    ...(origin === undefined ? {} : { origin: /** @type {LaunchOrigin} */ (origin) }) } };
 }
 
 // §3.3. `value` is the stored envelope `{ updatedAt, threads }`. Invalid entries are dropped; the rest is kept.

@@ -1,4 +1,4 @@
-// Shared: edit mods/devkits/components/agent-session-windows.js, then npm run sync:shared.
+// Shared: edit components/agent-session-windows.js, then npm run sync:shared.
 import { execFile } from 'node:child_process';
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { join, resolve, relative, isAbsolute, sep, basename, toNamespacedPath } from 'node:path';

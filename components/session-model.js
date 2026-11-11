@@ -202,7 +202,7 @@ export function moveOption(keys, key, target) {
 }
 
 export function tasksMcpServer(directory, kind = 'codex') {
-  return { command: 'node', args: [`${directory.replace(/\\/g, '/')}/mods/devkits-tasks/mcp-server.cjs`], env: { HERDR_APP_HOME: directory },
+  return { command: 'node', args: [`${directory.replace(/\\/g, '/')}/mods/herdr-zed-tasks/mcp-server.cjs`], env: { HERDR_APP_HOME: directory },
     // Codex filters stdio server environments; forward each launch's live identity.
     ...(kind === 'codex' ? { env_vars: ['HC_TERMINAL_ID'] } : {}) };
 }

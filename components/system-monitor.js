@@ -1,13 +1,13 @@
-// Shared: edit mods/devkits/components/system-monitor.js, then npm run sync:shared.
+// Shared: edit components/system-monitor.js, then npm run sync:shared.
 import { div, svg, PathBuilder } from 'gpui-kit';
 import { h_flex, v_flex } from 'gpui-base';
 import { shared, openOverlay, run, nextCommand, layout } from 'herdr';
 import { Button } from './button.js';
 import { hardwareModules, hardwarePreferences, selectedHardwareCores, hardwareBytes, hardwarePercent, hardwareSpeed, hardwarePower, hardwareSensorSummary, hardwarePoint, hardwareChartPoints, hardwareChartScale, hardwareDisplayItems, hardwareDisplayHistory } from './system-monitor-model.js';
 import { processorLabel } from './system-monitor-topology.js';
-const hardwareConfig = () => hardwarePreferences(shared('devkits.system-monitor'));
+const hardwareConfig = () => hardwarePreferences(shared('herdr-zed.system-monitor'));
 const systemServiceMounted = (node = layout()) => Boolean(node && (
-  node.content?.mod === 'devkits-system' && node.content.props?.view === 'service'
+  node.content?.mod === 'herdr-zed-system' && node.content.props?.view === 'service'
   || node.children?.some(child => systemServiceMounted(child))));
 export const systemClientPrefix = 'system-client:';
 export const systemSnapshotPrefix = 'system-snapshot:';
@@ -157,7 +157,7 @@ export class SystemMonitor {
   }
   poll() {
     if (!this.started || !this.receiver || !systemServiceMounted()) return;
-    run('devkits-system.' + systemCommand(systemClientPrefix, {
+    run('herdr-zed-system.' + systemCommand(systemClientPrefix, {
       id: this.clientId, receiver: this.receiver, active: Boolean(this.active()),
     }));
   }
@@ -173,7 +173,7 @@ export class SystemMonitor {
   }
   open(page = 'overview') {
     if (this.openDetails) return this.openDetails(page);
-    return openOverlay({ mod: 'devkits-system', kind: 'dialog', frame: 'none', width: 0.9, height: 0.82, props: { view: 'details', page } });
+    return openOverlay({ mod: 'herdr-zed-system', kind: 'dialog', frame: 'none', width: 0.9, height: 0.82, props: { view: 'details', page } });
   }
   renderInline(t, { id = 'system-inline' } = {}) {
     const root = h_flex().id(id).flex_1().min_w(0).h_full().items_center().gap(2);

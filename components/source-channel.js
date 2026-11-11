@@ -1,6 +1,6 @@
-// Shared: edit mods/devkits/components/source-channel.js, then npm run sync:shared.
+// Shared: edit components/source-channel.js, then npm run sync:shared.
 import { shared, setShared, openOverlay, closeOverlay } from 'herdr';
-const storageKey = 'devkits.source-channels.v1';
+const storageKey = 'herdr-zed.source-channels.v1';
 const read = () => shared(storageKey) || {};
 const write = value => setShared(storageKey, JSON.parse(JSON.stringify(value)));
 export function createSourceChannel(request) {
@@ -26,7 +26,7 @@ export function sourceModuleOptions(source, target) {
   const channel = target.channel, context = target.context || {}, stateKey = target.stateKey || `task-source.${source.key}`;
   const getBinding = () => channel ? sourceChannel(channel)?.request.binding || null : shared(`${stateKey}-project`) || target.binding || null;
   const setBinding = (_folder, binding) => channel ? publishSourceEvent(channel, { type: 'binding', binding }) : setShared(`${stateKey}-project`, binding);
-  const preferenceKey = suffix => `${['field-display', 'browser-selection'].includes(suffix) ? `devkits.${source.key}` : stateKey}-${suffix}`;
+  const preferenceKey = suffix => `${['field-display', 'browser-selection'].includes(suffix) ? `herdr-zed.${source.key}` : stateKey}-${suffix}`;
   return {
     source, importLabel: target.importLabel || 'Import',
     state: { get: suffix => shared(preferenceKey(suffix)), set: (suffix, value) => setShared(preferenceKey(suffix), value) },
@@ -35,7 +35,7 @@ export function sourceModuleOptions(source, target) {
       ...(source.server ? { server: project.server } : {}) }),
     onImport: channel ? snapshot => { if (publishSourceEvent(channel, { type: 'import', snapshot })) closeOverlay(target.overlay); } : undefined,
     onClose: () => closeOverlay(target.overlay),
-    openProjectPicker: (_folder, at) => openOverlay({ mod: `devkits-${source.key}`, kind: 'popup', frame: 'none', width: 360, at,
+    openProjectPicker: (_folder, at) => openOverlay({ mod: `herdr-zed-${source.key}`, kind: 'popup', frame: 'none', width: 360, at,
       props: { ...target, overlay: undefined, view: 'projects' } }),
   };
 }

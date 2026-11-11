@@ -2,16 +2,16 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { evaluateNative } from './source-harness.js';
 
-for (const [file, name, mod] of [
-  ['system-monitor', 'SystemMonitor', 'devkits-system'],
-  ['usage', 'UsageClient', 'devkits-usage'],
+for (const [path, name, mod] of [
+  ['../components/system-monitor.js', 'SystemMonitor', 'herdr-zed-system'],
+  ['../components/usage.js', 'UsageClient', 'herdr-zed-agents'],
 ]) test(`${name} stays silent across layout teardown and stops renewing closed subscriptions`, async () => {
   let layout = { content: { mod: 'trading-agents' } };
   const commands = [], timers = [];
   const host = { layout: () => layout, run: command => commands.push(command),
     nextCommand: () => new Promise(() => {}), shared: () => null };
-  const Client = (await evaluateNative(`../mods/devkits/components/${file}.js`, host, name))[name];
-  const client = new Client({ receiver: 'devkits' });
+  const Client = (await evaluateNative(path, host, name))[name];
+  const client = new Client({ receiver: 'herdr-zed' });
   client.close();
   assert.deepEqual(commands, [], 'Constructed but uninitialized views never unsubscribe');
   const cx = { spawn: fn => fn(cx), notify() {}, timer: { every: (_ms, tick) => timers.push(tick) } };
@@ -34,6 +34,6 @@ for (const [file, name, mod] of [
   layout = { content: { mod, props: { view: 'service' } } };
   tick();
   assert.equal(commands.length, 1, 'A closed client stays closed after its provider returns');
-  const live = new Client({ receiver: 'devkits' }); live.init(cx); live.close(); live.close(); tick();
+  const live = new Client({ receiver: 'herdr-zed' }); live.init(cx); live.close(); live.close(); tick();
   assert.equal(commands.length, 2, 'Closing stops renewal without queueing a command that could outlive the provider');
 });

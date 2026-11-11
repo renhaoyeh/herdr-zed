@@ -1,4 +1,4 @@
-// Shared: edit mods/devkits/components/agent-selection.js, then npm run sync:shared.
+// Shared: edit components/agent-selection.js, then npm run sync:shared.
 import { shared, keys, window } from 'herdr';
 import { folderKey, launcherChoices, autoLauncherKey, isAccountLauncher, autoAgent } from './session-model.js';
 export const agentSelection = {
@@ -7,11 +7,11 @@ export const agentSelection = {
   // The remembered launcher for this project, or Auto's current pick when Auto was last used.
   defaultThreadChoice(project, agents) {
     const key = JSON.stringify([project.machine || '', folderKey(project.folder) || project.id]);
-    const hidden = shared('devkits.hidden-launchers') || [];
-    const available = launcherChoices(agents, shared('devkits.launcher-order') || [])
+    const hidden = shared('herdr-zed.hidden-launchers') || [];
+    const available = launcherChoices(agents, shared('herdr-zed.launcher-order') || [])
       .filter(choice => choice.agent && choice.agent.installed !== false && !hidden.includes(choice.key))
       .map(choice => choice.agent);
-    for (const remembered of [shared('devkits.last-thread-agents')?.[key], shared('devkits.last-thread-agent')]) {
+    for (const remembered of [shared('herdr-zed.last-thread-agents')?.[key], shared('herdr-zed.last-thread-agent')]) {
       const agent = remembered === autoLauncherKey ? this.autoThreadAgent(agents, project.machine)
         : available.find(agent => agent.key === remembered);
       if (agent) return { agent, auto: remembered === autoLauncherKey };
@@ -23,12 +23,12 @@ export const agentSelection = {
   autoThreadAgent(agents, machine) {
     if (machine) return null;
     // Accounts hidden from Usage have no readings, so Auto leaves them out too.
-    const hidden = shared('devkits.hidden-usage-profiles') || [];
-    const members = (shared('devkits.auto-accounts') || []).filter(key => !hidden.includes(key));
+    const hidden = shared('herdr-zed.hidden-usage-profiles') || [];
+    const members = (shared('herdr-zed.auto-accounts') || []).filter(key => !hidden.includes(key));
     const choices = launcherChoices(agents.filter(agent => isAccountLauncher(agent) && !agent.profileKey && agent.installed !== false && members.includes(agent.key)),
-      shared('devkits.launcher-order') || []).map(choice => choice.agent).filter(Boolean);
-    return autoAgent(choices, shared('devkits.usage.snapshot')?.contexts?.[JSON.stringify(null)]?.usage || [], Date.now(),
-      shared('devkits.auto-multipliers') || {});
+      shared('herdr-zed.launcher-order') || []).map(choice => choice.agent).filter(Boolean);
+    return autoAgent(choices, shared('herdr-zed.usage.snapshot')?.contexts?.[JSON.stringify(null)]?.usage || [], Date.now(),
+      shared('herdr-zed.auto-multipliers') || {});
   },
   newThreadShortcut() {
     const bindings = new Map();
