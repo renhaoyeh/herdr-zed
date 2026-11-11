@@ -110,6 +110,8 @@ export const devkitsSettings = {
   acceptDevkitsPlan(cx) {
     if (!this.capPending || this.capSaving) return;
     try {
+      const plan = this.currentDevkitsPlan();
+      if (plan.enable.length || plan.missing.length) throw Error('Set up and enable the required connections in MCP Connections first.');
       const result = applyDevkitsPlan(this.capConfig, this.mcpConfig, this.currentDevkitsPlan());
       this.capConfig = result.config; this.mcpConfig = result.mcp; this.capPending = null;
       this.capDirty = true; this.capSaved = false; cx.notify();
@@ -141,8 +143,7 @@ export const devkitsSettings = {
   },
   devkitsDependencies(item, t) {
     return h_flex().flex_wrap().gap(6)
-      .children(item.mcps.map(name => Button(`devkits-link-mcp-${name}`, t, { variant: 'secondary' }).h(28).gap(6).accessibility_label(`Open MCP ${name}`)
-        .on_click((_event, cx) => { this.selectDevkitsSection('mcp', cx); this.capMcpSelected = name; cx.notify(); }).child(glyph('external-link', 12)).child(`MCP: ${name}`)));
+      .children(item.mcps.map(name => div().text_size(12).text_color(t.muted).child(`Requires MCP: ${name}`)));
   },
   devkitsResources(kind, t) {
     const items = this.devkitsSearchItems(this.capCatalog[kind]), selected = items.find(item => item.id === this.capSelected[kind]);
@@ -184,14 +185,14 @@ export const devkitsSettings = {
   },
 
   devkitsMcpPage(t) {
-    const rows = this.devkitsSearchItems(this.devkitsMcpRows()), row = rows.find(item => item.name === this.capMcpSelected);
+    const rows = this.devkitsMcpRows(), row = rows.find(item => item.name === this.capMcpSelected);
     return h_flex().flex_1().min_h(0).items_stretch().gap(12)
       .child(v_flex().id('devkits-mcp-list').w(224).h_full().min_h(0).flex_none().overflow_y_scroll().border(1).border_color(t.border)
         .children(rows.map(item => Button(`devkits-mcp-${item.name}`, t, { variant: 'ghost' }).w_full().h_auto().min_h(48).px(10).py(8).justify_start()
           .bg(item.name === row?.name ? t.selected : t.popover).on_click((_event, cx) => { if (!this.capSetup) this.capMcpSelected = item.name; cx.notify(); })
           .child(v_flex().min_w(0).gap(3).child(div().text_size(12).child(item.name))
-            .child(div().text_size(11).text_color(t.muted).child(!sharedMcpSupported(item.name, this.capPlatform) ? 'Windows only' : item.builtin ? 'Built-in' : item.missing ? 'Setup required' : item.enabled ? 'Enabled' : 'Off'))))))
-      .child(v_flex().id(`devkits-mcp-details-${row?.name || 'empty'}`).flex_1().min_w(0).min_h(0).h_full().overflow_y_scroll().gap(10)
+            .child(div().text_size(11).text_color(t.muted).child(`${item.builtin ? 'Built-in' : devkitsMcpPresets.some(preset => preset.id === item.name) ? 'Recommended' : 'User added'} · ${!sharedMcpSupported(item.name, this.capPlatform) ? 'Windows only' : item.builtin ? 'Built-in' : item.missing ? 'Setup required' : item.enabled ? 'Enabled' : 'Off'}`))))))
+      .child(v_flex().id(`devkits-mcp-details-${row?.name || 'empty'}`).flex_1().min_w(0).min_h(0).h_full().gap(10)
         .when(Boolean(this.capSetup), el => el.child(this.mcpSetupForm(t)))
         .when(!this.capSetup && Boolean(row), el => el.child(this.devkitsMcpDetails(row, t)))
         .when(!this.capSetup && !row, el => el.child(div().text_size(12).text_color(t.muted).child(rows.length ? 'Select a component to read its purpose and change its selection.' : 'No matching components.'))));
@@ -201,21 +202,22 @@ export const devkitsSettings = {
     const verification = this.capVerified[row.name], verified = row.server && verification?.fingerprint === mcpFingerprint(row.server);
     const busy = Boolean(this.capSaving || this.capChecking);
     const project = devkitsMcpPresets.find(preset => preset.id === row.name);
-    return v_flex().gap(10)
+    return v_flex().flex_1().min_h(0).gap(10)
       .child(h_flex().min_h(28).items_center().gap(8)
         .child(div().min_w(0).text_size(16).font_semibold().child(row.name))
         .when(Boolean(project), el => el.child(Button('devkits-mcp-project', t, { variant: 'secondary' }).h(28).gap(6)
           .accessibility_label('Open project on GitHub').on_click((_event, cx) => cx.open_url(project.url.split('#')[0])).child(glyph('github', 14)).child('GitHub'))))
-      .child(div().text_size(12).text_color(t.muted).child(devkitsGroups.find(group => group.id === 'mcp').description))
-      .when(!supported, el => el.child(div().text_size(12).text_color(t.muted).child('Windows only. Setup, verification and selection are unavailable on this platform.')))
-      .child(div().text_size(12).text_color(t.muted).child(users.length ? `Used by selected resources: ${users.join(', ')}` : 'No selected Rule or Skill uses this connection.'))
-      .child(this.mcpDetails(row, t, { disabled: busy || !supported, onToggle: (item, checked, cx) => this.setDevkitsMcp(item, checked, cx) }))
-      .child(div().text_size(12).text_color(t.muted).child(verified ? `Connection verified · ${verification.toolsCount} tools discovered` : row.missing ? 'Connection not configured.' : 'Configured · Connection not verified'))
       .child(h_flex().gap(8)
         .when(!row.builtin, el => el.child(Button('devkits-mcp-setup', t, { variant: 'secondary' }).h(30).disabled(busy || !supported)
           .on_click((_event, cx) => this.openMcpSetup(row.name, cx)).child(row.missing ? 'Setup' : 'Configure')))
         .child(Button('devkits-mcp-verify', t, { variant: 'secondary' }).h(30).disabled(busy || !supported || row.missing)
-          .on_click((_event, cx) => this.verifyDevkitsMcp(row, cx)).child(this.capChecking ? 'Testing…' : 'Verify connection')));
+          .on_click((_event, cx) => this.verifyDevkitsMcp(row, cx)).child(this.capChecking ? 'Testing…' : 'Verify connection')))
+      .child(v_flex().flex_1().min_h(0).overflow_y_scroll().gap(10)
+      .child(div().text_size(12).text_color(t.muted).child(devkitsGroups.find(group => group.id === 'mcp').description))
+      .when(!supported, el => el.child(div().text_size(12).text_color(t.muted).child('Windows only. Setup, verification and selection are unavailable on this platform.')))
+      .child(div().text_size(12).text_color(t.muted).child(users.length ? `Used by selected resources: ${users.join(', ')}` : 'No selected Rule or Skill uses this connection.'))
+      .child(this.mcpDetails(row, t, { disabled: busy || !supported, onToggle: (item, checked, cx) => this.setDevkitsMcp(item, checked, cx) }))
+      .child(div().text_size(12).text_color(t.muted).child(verified ? `Connection verified · ${verification.toolsCount} tools discovered` : row.missing ? 'Connection not configured.' : 'Configured · Connection not verified')));
   },
   devkitsNavigation(t) {
     return v_flex().gap(2).children([{ id: 'overview', label: 'Overview', icon: 'book-open' }, { id: 'components', label: 'Components', icon: 'settings' }].map(tab =>
@@ -229,9 +231,9 @@ export const devkitsSettings = {
     return v_flex().id('devkits-overview').flex_1().min_h(0).overflow_y_scroll().gap(12)
       .child(v_flex().p(12).gap(6).border(1).border_color(t.border)
         .child(div().text_size(14).child('Understand what each part of Devkits does'))
-        .child(div().text_size(12).text_color(t.muted).child('Rules guide conversations. Skills supply methods. MCP connects tools.'))
+        .child(div().text_size(12).text_color(t.muted).child('Built-in Rules guide conversations. Built-in Skills supply methods. Manage tool connections in MCP Connections.'))
         .child(div().text_size(12).text_color(t.muted).child('Browse components, choose selections and save to apply them to new local sessions.')))
-      .children(devkitsGroups.map(group => {
+      .children(devkitsGroups.filter(group => group.id !== 'mcp').map(group => {
         const count = group.id === 'mcp' ? this.devkitsMcpRows().length : this.capCatalog[group.id].length;
         return v_flex().gap(6).p(12).border(1).border_color(t.border)
           .child(h_flex().items_center().justify_between().gap(8)
@@ -248,29 +250,27 @@ export const devkitsSettings = {
     const names = [...plan.addedSkills.map(id => this.capCatalog.skills.find(item => item.id === id).name), ...plan.addedRules.map(id => this.capCatalog.rules.find(item => item.id === id).name)];
     return v_flex().id('devkits-selection-prompt').flex_none().gap(6).p(10).border(1).border_color(t.border)
       .child(div().text_size(12).child(`Select together: ${names.join(', ') || 'Resources already selected'}`))
-      .when(plan.enable.length > 0, el => el.child(div().text_size(12).text_color(t.muted).child(`Also enable MCP on Save: ${plan.enable.join(', ')}`)))
+      .when(plan.enable.length > 0, el => el.child(div().text_size(12).text_color(t.muted).child(`Enable in MCP Connections first: ${plan.enable.join(', ')}`)))
       .children(plan.blocked.map(problem => div().text_size(12).text_color(t.ansi1).child(problem)))
-      .children(plan.missing.map(name => h_flex().gap(8).items_center().child(div().text_size(12).text_color(t.muted).child(`Setup required: ${name}`))
-        .child(Button(`devkits-setup-required-${name}`, t, { variant: 'secondary' }).h(30).disabled(this.capChecking || !sharedMcpSupported(name, this.capPlatform))
-          .on_click((_event, cx) => this.openMcpSetup(name, cx)).child('Setup'))))
+      .children(plan.missing.map(name => h_flex().gap(8).items_center().child(div().text_size(12).text_color(t.muted).child(`Setup required in MCP Connections: ${name}`))))
       .child(h_flex().gap(8)
         .child(Button('devkits-plan-cancel', t, { variant: 'secondary' }).h(30).disabled(this.capChecking).on_click((_event, cx) => { this.capPending = null; cx.notify(); }).child('Cancel'))
-        .child(Button('devkits-plan-accept', t).h(30).disabled(this.capChecking || plan.blocked.length > 0 || plan.missing.length > 0)
-          .on_click((_event, cx) => this.acceptDevkitsPlan(cx)).child(plan.enable.length ? 'Enable together' : 'Select resources')));
+        .child(Button('devkits-plan-accept', t).h(30).disabled(this.capChecking || plan.blocked.length > 0 || plan.missing.length > 0 || plan.enable.length > 0)
+          .on_click((_event, cx) => this.acceptDevkitsPlan(cx)).child('Select resources')));
   },
   devkitsPage(t) {
-    const busy = Boolean(this.capLoading || this.capSaving || this.capChecking);
+    const busy = Boolean(this.capLoading || this.capSaving || this.capChecking), mcp = this.settingsPage === 'mcp';
     return v_flex().id('devkits-capabilities').h_full().flex_1().min_h(0).gap(10)
-      .child(DialogDescription(t).flex_none().child('Changes are saved when you click Save. Explore the architecture, then choose Rules, Skills and MCP. Selections apply to new local Claude and Codex sessions. Shared MCP setup configures Codex; Claude uses its account connections.'))
+      .child(DialogDescription(t).flex_none().child(mcp ? 'Manage shared MCP connections for new local Codex sessions. Configure, verify and enable existing connections, then save. Claude uses its account connections.' : 'Choose built-in Rules and Skills for new local agent sessions. Save to apply. Custom global instructions belong in Global Rules; tool connections belong in MCP Connections.'))
       .when(this.capTab !== 'overview' && Boolean(this.capConfig), el => el
         .child(div().text_size(12).text_color(t.muted).child(this.capTab === 'mcp'
-          ? `Shared MCP connections · ${this.devkitsMcpRows().length} components`
+          ? `Shared MCP connections · ${this.devkitsMcpRows().length} connections`
           : `Devkits global components · selected ${this.capCatalog[this.capTab].filter(item => this.capConfig[this.capTab][item.id]).length} / ${this.capCatalog[this.capTab].length}`))
-        .child(h_flex().flex_none().flex_wrap().gap(4).children([{ id: 'rules', label: 'Rules', icon: 'settings' }, { id: 'skills', label: 'Skills', icon: 'book-open' }, { id: 'mcp', label: 'MCP', icon: 'external-link' }].map(tab =>
+        .when(!mcp, el => el.child(h_flex().flex_none().flex_wrap().gap(4).children([{ id: 'rules', label: 'Rules', icon: 'settings' }, { id: 'skills', label: 'Skills', icon: 'book-open' }].map(tab =>
           Button(`devkits-tab-${tab.id}`, t, { variant: 'ghost' }).h(30).gap(6).disabled(this.capChecking || this.capSaving || Boolean(this.capSetup))
             .bg(this.capTab === tab.id ? t.selected : t.popover).accessibility_label(tab.label)
-            .on_click((_event, cx) => this.selectDevkitsSection(tab.id, cx)).child(glyph(tab.icon)).child(tab.label))))
-        .child(this.devkitsSearchBar(this.capTab, t)))
+            .on_click((_event, cx) => this.selectDevkitsSection(tab.id, cx)).child(glyph(tab.icon)).child(tab.label)))))
+        .when(!mcp, el => el.child(this.devkitsSearchBar(this.capTab, t))))
       .when(this.capLoading, el => el.child(div().text_size(12).text_color(t.muted).child('Loading capabilities and platform…')))
       .when(Boolean(this.capConfig) && !this.capLoading, el => el
         .when(this.capTab === 'overview', body => body.child(this.devkitsOverview(t)))

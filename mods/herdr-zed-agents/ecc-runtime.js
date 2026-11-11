@@ -1,11 +1,12 @@
-import { resolve, dirname, join } from 'node:path';
+import { isMain } from './node-main.js';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readEccCatalog, eccCatalogForUi, readEccDetail } from './ecc-catalog.js';
 import { buildEccPackage } from './ecc-package.js';
 import { parseEcc } from './ecc-model.js';
 import { readFile } from 'node:fs/promises';
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (await isMain(import.meta.url)) {
   try {
     const [action, value, extra] = process.argv.slice(2);
     if (action === 'catalog') console.log(JSON.stringify(eccCatalogForUi(await readEccCatalog(value))));

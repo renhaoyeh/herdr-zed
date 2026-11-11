@@ -10,6 +10,7 @@ export const mcpFingerprint = server => { const { enabled, ...transport } = serv
 const setupInput = (text = '') => { const state = InputState.new({}); state.set_value(text); return state; };
 export const mcpSetupSettings = {
   openMcpSetup(name, cx) {
+    if (!name || (!Object.hasOwn(this.mcpConfig.servers, name) && !devkitsMcpPresets.some(item => item.id === name))) return;
     if (this.capSaving || this.capChecking || !sharedMcpSupported(name, this.capPlatform) || name === 'herdr_tasks') return;
     const server = this.mcpConfig.servers[name] || {};
     this.capTab = 'mcp'; this.capMcpSelected = name; this.capError = null;
@@ -99,8 +100,11 @@ export const mcpSetupSettings = {
     const field = (id, label, state) => v_flex().gap(4)
       .child(div().text_size(12).text_color(t.muted).child(label))
       .child(Input.new(state, t).id(id).h(32).px(8).border(1).border_color(t.input).text_size(12).disabled(busy).accessibility_label(label));
-    return v_flex().gap(10)
+    return v_flex().flex_1().min_h(0).overflow_y_scroll().gap(10)
       .child(div().text_size(13).font_semibold().child(`Set up ${form.name}`))
+      .child(h_flex().gap(8)
+        .child(Button('mcp-setup-cancel', t, { variant: 'secondary' }).h(30).disabled(busy).on_click((_event, cx) => { this.capSetup = null; cx.notify(); }).child('Cancel'))
+        .child(Button('mcp-setup-test', t).h(30).disabled(busy).on_click((_event, cx) => this.testMcpSetup(cx)).child(this.capChecking ? 'Testing…' : 'Test and use')))
       .when(Boolean(preset), el => el.child(div().text_size(12).text_color(t.muted).child(preset.setup))
         .child(h_flex().gap(8).children([
           Button('mcp-setup-install', t, { variant: 'secondary' }).h(30).disabled(busy).on_click((_event, cx) => cx.open_url(preset.url)).child('Official installation guide'),
@@ -120,9 +124,6 @@ export const mcpSetupSettings = {
         .child(field('mcp-setup-env', 'Environment variables · comma-separated names', form.env)))
       .when(form.type === 'url', el => el.child(field('mcp-setup-url', 'Local MCP URL', form.url))
         .child(field('mcp-setup-token', 'Bearer token environment-variable name · optional', form.token)))
-      .child(div().text_size(12).text_color(t.muted).child('Testing starts this command or connects to this local endpoint, then discovers tools. It does not call tools or run a workflow. Test and use stages the verified connection; Save changes applies it.'))
-      .child(h_flex().gap(8)
-        .child(Button('mcp-setup-cancel', t, { variant: 'secondary' }).h(30).disabled(busy).on_click((_event, cx) => { this.capSetup = null; cx.notify(); }).child('Cancel'))
-        .child(Button('mcp-setup-test', t).h(30).disabled(busy).on_click((_event, cx) => this.testMcpSetup(cx)).child(this.capChecking ? 'Testing…' : 'Test and use')));
+      .child(div().text_size(12).text_color(t.muted).child('Testing starts this command or connects to this local endpoint, then discovers tools. It does not call tools or run a workflow. Test and use stages the verified connection; Save changes applies it.'));
   },
 };

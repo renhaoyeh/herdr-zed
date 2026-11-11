@@ -14,6 +14,11 @@ import { DialogDescription, DialogFooter } from './components/dialog.js';
 const eccProviderName = provider => provider === 'claude' ? 'Claude Code' : 'Codex';
 const eccRuntimePath = () => `${appHome()}/mods/herdr-zed-agents/ecc-runtime.js`;
 const eccPageSize = 24;
+function eccReply(text) {
+  if (!text?.trim()) throw new Error('The ECC source reader returned no data. Try Load source again.');
+  try { return JSON.parse(text); }
+  catch { throw new Error('The ECC source reader returned invalid data. Try Load source again.'); }
+}
 const eccCategoryIcons = { rules: 'list-todo', agents: 'agent', skills: 'book-open', commands: 'terminal',
   hooks: 'refresh-cw', mcp: 'external-link', contexts: 'columns-3', workflows: 'git-graph' };
 const eccDescriptionMarkdown = (item, text) => ['hooks', 'mcp', 'workflows'].includes(item.group)
@@ -50,7 +55,8 @@ export const eccSettings = {
       try {
         const result = await exec('node', [eccRuntimePath(), 'catalog', source], { timeout: 60000 });
         if (result.code !== 0) throw new Error(result.stderr?.trim() || 'Could not read the ECC source.');
-        const catalog = JSON.parse(result.stdout);
+        const catalog = eccReply(result.stdout);
+        if (!catalog || !Array.isArray(catalog.items)) throw new Error('The ECC source reader returned an invalid catalog. Try Load source again.');
         if (this.eccClosed || request !== this.eccCatalogRequest) return;
         this.eccCatalog = catalog; this.eccCatalogInput = source;
         this.eccSelected = catalog.items.find(item => item.id === this.eccSelected)?.id || null;
@@ -80,7 +86,9 @@ export const eccSettings = {
         const result = await exec('node', [eccRuntimePath(), 'detail', source, item.id], { timeout: 60000 });
         if (result.code !== 0) throw new Error(result.stderr?.trim() || 'Could not read this component.');
         if (this.eccClosed || request !== this.eccDetailRequest || this.eccSelected !== item.id || source !== this.eccCatalogInput) return;
-        this.eccDetailText = JSON.parse(result.stdout).text;
+        const detail = eccReply(result.stdout);
+        if (typeof detail?.text !== 'string') throw new Error('Could not read this component. Select it and try again.');
+        this.eccDetailText = detail.text;
       } catch (error) { if (!this.eccClosed && request === this.eccDetailRequest) this.eccDetailError = error.message; }
       finally { if (!this.eccClosed && request === this.eccDetailRequest) { this.eccDetailLoading = false; cx.notify(); } }
     });

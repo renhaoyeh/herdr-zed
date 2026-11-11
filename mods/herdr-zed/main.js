@@ -15,7 +15,7 @@ import { threadArchive, historyEligible } from './thread-archive.js';
 import { startThreadResume } from './thread-resume.js';
 import { SettingsNav, SettingsPage, SettingsHeader, openSettings, settingsPageKey } from './settings.js';
 import { GitAuthorDialog } from './git-author-settings.js';
-import { ExtensionSlot, ExtensionSurfaceSlot, refreshExtensions, openExtension, extensionCatalog, openGitAction, activeLauncher, publishWorkspaceRect, recordSize, WORK_WIDTH_KEY, SIDEBAR_HEIGHT_KEY, closeWorkspacePanel, visibleSurfaceCount, syncExtensionLayout } from './extensions.js';
+import { ExtensionSlot, ExtensionSurfaceSlot, refreshExtensions, openExtension, extensionCatalog, openGitAction, activeLauncher, publishWorkspaceRect, recordSize, WORK_WIDTH_KEY, SIDEBAR_HEIGHT_KEY, closeWorkspacePanel, visibleSurfaceCount, syncExtensionLayout, extensionSurfaceVisible, setExtensionSurfaceVisible } from './extensions.js';
 import { pollLaunchIntake } from './launch-intake.js';
 import { readNewTerminalCommand } from './components/extension-contract.js';
 import { workspaceTopAnchor } from './extension-model.js';
@@ -36,6 +36,16 @@ const decorationBadge = (decoration, t) => {
 // A 28px icon button centred in a 32px project row: 8px below the row.
 const SIDEBAR_MENU = { x: 0, y: 10 };
 import { glyph } from './components/icon.js';
+
+const workflowSettings = () => {
+  const catalog = extensionCatalog();
+  return catalog.resolved?.settings?.find(entry => entry.mod === catalog.resolved?.launcher?.mod);
+};
+const workflowSidebar = () => {
+  const catalog = extensionCatalog();
+  return catalog.packages?.find(entry => entry.mod === catalog.resolved?.launcher?.mod)
+    ?.surfaces?.find(surface => surface.location === 'sidebar.bottom');
+};
 
 // Like Zed's dock buttons: close only the side panel, preserving the central document.
 const toggleEditor = (_editor, name) => {
@@ -182,8 +192,11 @@ export default class HerdrZed extends View {
     const projects = this.projects();
     const index = projects.findIndex(project => project.id === target.project.id);
     const close = () => { closeOverlay(target.overlay); this.closeProject(target.project); };
+    const workflow = workflowSettings();
     const actions = [
-      { id: 'menu-project-up', label: 'Move up', enabled: index > 0, action: () => this.moveProject(target.project.id, -1) },
+      ...(workflow ? [{ id: 'menu-agent-settings', label: `${workflow.title}…`, enabled: true,
+        action: () => openSettings(settingsPageKey(workflow.id), target.project) }] : []),
+      { id: 'menu-project-up', label: 'Move up', enabled: index > 0, separated: Boolean(workflow), action: () => this.moveProject(target.project.id, -1) },
       { id: 'menu-project-down', label: 'Move down', enabled: index >= 0 && index < projects.length - 1, action: () => this.moveProject(target.project.id, 1) },
       // Move up/down have no icon in assets/icons, so the menu's items all stay icon-less (design.md, Icons and hover).
       { id: 'menu-close-project', label: 'Close project', enabled: true, action: close, separated: true },
@@ -389,8 +402,6 @@ export default class HerdrZed extends View {
   header(t) {
     const space = this.projects().find(s => s.active);
     const win = window();
-    const catalog = extensionCatalog();
-    const workflow = catalog.resolved?.settings?.find(entry => entry.mod === catalog.resolved?.launcher?.mod);
     const root = layout(), sidebar = root?.children?.find(node => node.id === 'sidebar');
     const inset = win?.platform === 'macos' && !win.fullscreen && sidebar?.hidden
       ? (root.traffic_lights[0] + 64) / settings().zoom : 12;
@@ -414,10 +425,6 @@ export default class HerdrZed extends View {
       .child(h_flex().flex_1().min_w(0).h_full().items_center().justify_center()
         )
       .child(h_flex().flex_1().min_w(0).h_full().items_center().justify_end()
-        .when(Boolean(workflow), el => el.child(ToolbarButton('header-agents', t, { icon: true }).h_full()
-          .tooltip(workflow.title).accessibility_label(workflow.title)
-          .on_click(() => openSettings(settingsPageKey(workflow.id), this.projects().find(project => project.active)))
-          .child(glyph('agent', TOOLBAR_GLYPH))))
         .child(ToolbarButton('header-extensions', t, { icon: true }).h_full()
           .tooltip('Extensions').accessibility_label('Extensions')
           .on_click(() => openSettings('extensions', this.projects().find(project => project.active)))
@@ -451,8 +458,18 @@ export default class HerdrZed extends View {
     const maximized = conversationMaximized(project);
     this.threadMenu ??= new DropdownMenuState();
     const decoration = this.decorationsNow().get(thread?.tab.id);
-    const actions = [{ key: 'close', label: secondary ? 'Close terminal' : 'Close thread', icon: 'close' }];
-    const choose = () => run('pane.close', { pane: p.pane });
+    const workflow = workflowSettings();
+    const sidebar = workflowSidebar();
+    const actions = [
+      ...(sidebar ? [{ key: 'show-usage', label: `Show ${sidebar.title}`, icon: sidebar.icon, checked: extensionSurfaceVisible(sidebar) }] : []),
+      ...(workflow ? [{ key: 'agent-settings', label: `${workflow.title}…`, icon: 'agent' }] : []),
+      { key: 'close', label: secondary ? 'Close terminal' : 'Close thread', icon: 'close', separator: Boolean(workflow) },
+    ];
+    const choose = key => {
+      if (key === 'show-usage') setExtensionSurfaceVisible(sidebar, !extensionSurfaceVisible(sidebar));
+      else if (key === 'agent-settings') openSettings(settingsPageKey(workflow.id), project);
+      else if (key === 'close') run('pane.close', { pane: p.pane });
+    };
     const terminal = terminals().find(terminal => terminal.address === p.terminal);
     const working = agentReportedWorking(terminal, p.status || terminal?.status);
     const icon = working ? glyph('loader', 14).text_color(t.working).spin(900).accessibility_label('Working')

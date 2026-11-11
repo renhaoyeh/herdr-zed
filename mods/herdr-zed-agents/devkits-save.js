@@ -1,6 +1,6 @@
+import { isMain } from './node-main.js';
 import { readFile, writeFile, rename, unlink, mkdir, open, stat } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { parseDevkits, devkitsCatalog, resourceSupported } from './devkits-model.js';
 import { parseSharedMcp, sharedMcpSupported } from './components/shared-mcp-model.js';
 
@@ -56,7 +56,7 @@ export async function saveDevkitsConfig(root, payload, { write = writeChecked, p
     throw error;
   } finally { await lock.close(); await unlink(lockPath); }
 }
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (await isMain(import.meta.url)) {
   try { console.log(JSON.stringify(await saveDevkitsConfig(process.argv[2], JSON.parse(process.argv[3])))); }
   catch (error) { console.error(error.message); process.exitCode = 1; }
 }

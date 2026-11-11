@@ -83,11 +83,11 @@ the tests change in the same commit. Unknown keys inside `provides`, surfaces an
   while the package is enabled, error-free and available. Settings opens from the header gear, from the Extensions
   page, or from the provider's own panel with the shell command `herdr-zed.settings:<extension id>` or
   `herdr-zed.settings:<extension id>:<page id>`. The provider never gets a reply and never renders the nav or the frame.
-- The launcher provider's configuration (Agents) is a standalone workflow dialog, reached directly from the main header; it is
+- The launcher provider's configuration (Agents) is a standalone workflow dialog, reached from thread/project ⋯ menus; it is
   excluded from the optional Extensions manager and has no enable switch. This follows `provides.launcher`, not a mod name.
   The Extensions overview and tool configuration are also independent dialogs without the main preferences nav. The shell
   replaces the current management dialog on navigation, keeping one modal open at a time.
-- Agents, Extensions and Settings have independent main-header buttons. The Settings nav contains preferences only.
+- Agents has its thread/project menu entry; Extensions and Settings have independent main-header buttons. The Settings nav contains preferences only.
   Repository commit identity opens from Changes into the shell's contextual author editor, using the selected repository
   and machine captured at open time; it is not a general preference.
 - `platforms` (optional, non-empty, unique subset of `macos`, `windows`, `linux`; absent means every platform): compared
@@ -291,8 +291,8 @@ when the key clears. Hidden readings take no space in the row.
 
 - The provider writes the key only when its value changes, from a timer or sync logic, never during render (every
   `setShared` re-renders all mods, so a write from render would loop).
-- Agents owns the status Usage subscription and emptiness reporter in its always-mounted service, so hiding an empty
-  reading cannot stop quota discovery or prevent it from showing again when readable data returns.
+- Agents exposes Usage only in the sidebar. The thread ⋯ menu's single checked Show Usage item controls that surface;
+  no status Usage view, subscription or emptiness reporter is mounted.
 - The shell reads the keys on each status layout sync; the status-tools view re-renders after every shared write and
   triggers that sync. Disabling the extension clears its keys.
 - Only `status.right` surfaces are governed; the shell never hides a sidebar or dock surface through this key.
@@ -395,3 +395,5 @@ No code reads both the old and new key; whichever is chosen is the only path.
   symlink and Windows live-helper tests can time out under full-suite load.
 - Shell and providers are installed in the local Herdr home; UI and keyboard behavior have been exercised in an isolated
   macOS preview. Real account sign-in and task-agent launches have not been exercised.
+
+Shared MCP connections use one Agents MCP Connections settings page and one shared configuration. Capabilities selects bundled Rules/Skills and shows MCP dependencies; missing or disabled dependencies must be managed in MCP Connections. Existing user-added servers use the validated transport and verification flow, with draft changes saved explicitly. The UI does not create arbitrary new servers.

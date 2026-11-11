@@ -69,17 +69,6 @@ test('the sidebar Usage surface renders each account whose quota can be read, op
   assert.ok(h.runs.some(command => command.startsWith('herdr-zed-agents.')), 'the view registers a lease with the Usage service');
 });
 
-test('the status bar Usage surface renders one item per account with a readable quota and opens its details', async () => {
-  const h = await harness();
-  h.mount('usage-status');
-  assert.ok(h.nodes.has('status-usage-codex'));
-  assert.ok(!h.nodes.has('status-usage-claude'), 'an account without a readable quota has no item');
-  assert.ok(h.texts.includes('Work'));
-  assert.ok(h.texts.includes('5h 42%'));
-  h.nodes.get('status-usage-codex').click(null, h.cx);
-  assert.equal(h.opened.at(-1).props.view, 'usage-details');
-});
-
 test('the usage details dialog renders the account windows without throwing', async () => {
   const h = await harness();
   const account = { name: 'Work', supported: true, error: null, fetchedAt: now, windows };
@@ -90,7 +79,7 @@ test('the usage details dialog renders the account windows without throwing', as
   assert.ok(!h.nodes.has('usage-details-done'));
 });
 
-test('Usage views render without a snapshot: one muted line and a link to add an account, and an empty status item', async () => {
+test('Sidebar Usage renders without a snapshot with a muted line and an add-account link', async () => {
   const h = await harness({});
   h.mount('usage-sidebar');
   assert.ok(h.nodes.has('account-usage-list'));
@@ -98,30 +87,12 @@ test('Usage views render without a snapshot: one muted line and a link to add an
   assert.ok(h.nodes.has('usage-add-account'));
   h.nodes.get('usage-add-account').click(null, h.cx);
   assert.equal(h.runs.at(-1), 'herdr-zed.settings:agents', 'the link opens the Agents Settings page');
-  h.mount('usage-status');
-  assert.equal(h.nodes.has('status-usage-codex'), false);
-  assert.equal(h.texts.includes('Account usage'), false, 'the status item draws no group when nothing is readable');
 });
 
-test('the service reports status emptiness even with no status view mounted, only when it changes', async () => {
-  const memory = { 'herdr-zed.usage.snapshot': snapshot };
-  const h = await harness(memory);
-  const key = 'herdr-zed.surface-empty.agents.usage-status';
-  const tickAll = () => h.ticks.forEach(tick => tick(h.cx));
-  const writesTo = () => h.writes.filter(name => name === key).length;
+test('the service does not keep a removed status surface subscription or emptiness timer alive', async () => {
+  const h = await harness();
   h.mount('service');
-  assert.equal(memory[key], false, 'a readable account shows the reading');
-  const written = writesTo();
-  tickAll();
-  assert.equal(writesTo(), written, 'no write while nothing changes');
-  memory['herdr-zed.usage.snapshot'] = { contexts: { null: { ...snapshot.contexts.null, usage: [] } } };
-  tickAll();
-  assert.equal(memory[key], true, 'no readable quota reports the reading empty');
-  assert.equal(writesTo(), written + 1);
-  tickAll();
-  assert.equal(writesTo(), written + 1, 'the same value is not written again');
-  memory['herdr-zed.usage.snapshot'] = snapshot;
-  tickAll();
-  assert.equal(memory[key], false);
-  assert.equal(writesTo(), written + 2);
+  assert.deepEqual(h.runs, [], 'no status view registers a lease');
+  assert.deepEqual(h.writes, [], 'no status emptiness is published');
+  assert.deepEqual(h.ticks, [], 'no status reporter runs in the background');
 });

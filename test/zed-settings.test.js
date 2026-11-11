@@ -221,7 +221,8 @@ test('launcher configuration has a direct entry and its own dialog, without exte
   const header = new s.SettingsHeader().render(theme);
   assert.equal(find(header, 'settings-back'), null, 'no route back into extension management');
   assert.equal(find(header, 'settings-enable-herdr-zed-workflow'), null, 'the core workflow is not an optional extension');
-  assert.ok(find(header, 'placement-controls'), 'its display preferences are still reachable');
+  assert.equal(find(header, 'placement-controls'), null, 'Usage visibility is controlled from the thread menu');
+  assert.equal(column.children[0].size.px, 104, 'the removed display row leaves no blank header strip');
 });
 
 test('the Git preferences page contains display filters only; repository identity belongs to Changes', async () => {
@@ -280,9 +281,10 @@ test('header destinations are independent; Changes opens its own repository auth
   const main = await readFile(new URL('../mods/herdr-zed/main.js', import.meta.url), 'utf8');
   const diff = await readFile(new URL('../mods/herdr-zed/diff.js', import.meta.url), 'utf8');
   assert.match(main, /accessibility_label\('Settings'\)\s*\.on_click\(\(\) => openSettings\('general'/);
-  assert.match(main, /ToolbarButton\('header-agents'/);
+  assert.doesNotMatch(main, /ToolbarButton\('header-agents'/);
+  assert.match(main, /key: 'agent-settings'/);
   assert.match(main, /ToolbarButton\('header-extensions'/);
-  assert.doesNotMatch(main, /manage-extensions|Manage extensions|agent-settings|openLauncherSettings|openExtensions|Herdr settings|diff-ignore-settings/);
+  assert.doesNotMatch(main, /manage-extensions|Manage extensions|openLauncherSettings|openExtensions|Herdr settings|diff-ignore-settings/);
   assert.match(diff, /if \(key === 'filter-rules'\) openSettings\('git', this\.context\);/);
   assert.match(diff, /if \(key === 'commit-author'\) openGitAuthor\(this\.context\);/);
   assert.match(diff, /if \(key === 'list' \|\| key === 'tree'\) this\.setFileView/, 'Changes keeps List and Tree');

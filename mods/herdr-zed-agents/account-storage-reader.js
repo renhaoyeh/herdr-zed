@@ -1,7 +1,7 @@
+import { isMain } from './node-main.js';
 // Finite, metadata-only reader. Never opens file contents or follows child symlinks.
 import { lstat, readdir, realpath } from 'node:fs/promises';
-import { isAbsolute, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { isAbsolute, join } from 'node:path';
 import { storageGroup, storageGroups } from './account-storage-model.js';
 
 export async function readAccountStorage(directory, { maxEntries = 200000, maxMilliseconds = 12000 } = {}) {
@@ -34,7 +34,7 @@ export async function readAccountStorage(directory, { maxEntries = 200000, maxMi
   return result;
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (await isMain(import.meta.url)) {
   try { console.log(JSON.stringify(await readAccountStorage(process.argv[2]))); }
   catch { console.error('Could not read account data sizes.'); process.exitCode = 1; }
 }

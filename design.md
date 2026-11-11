@@ -6,13 +6,16 @@ titles). Where they conflict, this file wins.
 ## Settings
 
 - Switches match Devkits Sera: square 28×16 tracks, 10px square knobs, an outlined off state and a solid on state.
-- The main window header has independent Agents, Extensions and Settings buttons. Settings opens from its gear
+- The main window header has independent Extensions and Settings buttons. Agents opens from the thread's ⋯ menu;
+  the project ⋯ menu provides the same setup entry before the first thread exists. Settings opens from its gear
   (and `herdr-zed.settings`), with a fixed 220px nav and General/Git preferences. It has no Agents/Extensions links.
   "App settings…" opens Herdr's appearance, keyboard and terminal settings. One management dialog is open
   at a time: navigating replaces it, rather than stacking another modal.
 - Management dialogs are 1040×0.86 and modal, with one shell-owned 1px outer border, a 64px title bar and an X. No Done buttons.
 - Extensions manages optional tools: enable switches, display location switches and Configure links. The launcher workflow
-  is excluded: Agents has its own dialog with account/launch/rules tabs and display preferences, without an enable switch.
+  is excluded: Agents has its own dialog with account/launch/rules tabs and no enable or Usage display switches.
+  Its tabbed header is 104px high. Global Rules is a single editable Guide with Save, without section checkboxes or a separate preview. MCP Connections manages existing built-in, recommended and user-added shared servers without a search field or arbitrary add action. Connection actions stay above the scrolling details. Capabilities selects built-in Rules/Skills and names required connections; use the MCP Connections tab to manage them; it does not configure or enable MCP servers. Launch menu has no duplicate connection dialog entry. A single checked "Show Usage" item in the thread ⋯ menu controls the Usage sidebar;
+  Usage has no status-bar contribution.
   The shell identifies launcher workflows by their declared capability, without provider-specific branches.
 - Tools themselves open from the main window's status bar, sidebar or dock. An extension's configuration has a back button
   to the Extensions manager, enable/display controls and contextual tabs. Its header is 96px, or 144px with tabs. The first
@@ -22,11 +25,12 @@ titles). Where they conflict, this file wins.
   with `run('herdr-zed.settings:<extension id>')`. A page may declare sub-pages (`pages`), listed as tabs inside
   its detail page and deep-linked with `herdr-zed.settings:<extension id>:<page id>`. An embedded settings view draws no frame, close button
   or Done footer.
-- No settings entries in thread menus or the status bar.
+- Agents is the thread menu's configuration entry. Other management dialogs stay out of thread menus and the status bar.
+- Optional tools' display switches name their content and position, e.g. "Show System metrics in status bar".
 
 ## Sidebar
 
-- Top to bottom: the thread list, the sidebar surfaces (shown only when turned on in Manage extensions), and the
+- Top to bottom: the thread list, the sidebar surfaces (Usage via the thread menu; optional tools via Extensions), and the
   thread history row. The history row is always the last row (its own layout block `sidebar-history`).
 - Sidebar surfaces start hidden the first time they mount; Manage extensions turns them on.
 - The sidebar width can be dragged horizontally. Its top bar and history row stay 32px high; internal vertical

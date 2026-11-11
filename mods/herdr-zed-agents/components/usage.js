@@ -91,7 +91,6 @@ export class UsageClient {
     if (!this.active()) return div().h(0).flex_none();
     const snapshot = this.snapshot(), entries = this.readableEntries(snapshot);
     return v_flex().id('account-usage').w_full().flex_none().h_auto().min_h(0)
-      .border_t(1).border_color(t.border)
       .when(Boolean(openMenu), el => el.on_mouse_down('right', (event, cx) => { cx.stop_propagation(); openMenu(event.position); }))
       .child(h_flex().h(32).flex_none().pl(12).items_center()
         .child(div().flex_1().text_size(11).font_medium().text_color(t.muted).child('USAGE'))

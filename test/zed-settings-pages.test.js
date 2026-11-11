@@ -138,7 +138,7 @@ test('Manage extensions: plain status lines, an On/Off switch per package, and a
   assert.equal(byId(page, 'extension-toggle-herdr-zed-system').checked, true);
   assert.equal(byId(page, 'extension-toggle-herdr-zed-mac'), null, 'a package for another platform has no enable switch');
   const text = strings(page).join(' ');
-  assert.ok(text.includes('Show in sidebar') && text.includes('Show in status bar') && text.includes('Show in right dock'));
+  assert.ok(text.includes('Show Widgets in sidebar') && text.includes('Show Inline in status bar') && text.includes('Show Dock in right dock'));
   assert.equal(/Popup|surfaces|Hide Sidebar|Disable/.test(text), false, 'no internal terms and no text toggles');
   assert.equal(byId(page, 'extension-surface-toggle-widgets').checked, true);
   assert.equal(byId(page, 'extension-surface-toggle-dock').checked, false);

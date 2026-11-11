@@ -67,7 +67,7 @@ export function settingsOverlay(key, context) {
     layout: { type: 'row', resizable: false, background: 'border', padding: 1, children: [
       ...(preferences ? [{ type: 'block', size: { px: 220 }, content: { mod: 'herdr-zed', props: { view: 'settings-nav', page: key, context } } }] : []),
       { type: 'column', resizable: false, background: 'popover', children: [
-        { type: 'block', size: { px: page.shell ? 64 : subpages.length ? 144 : 96 }, content: { mod: 'herdr-zed', props: { view: 'settings-header', page: key, context } } },
+        { type: 'block', size: { px: page.shell ? 64 : launcherSettingsPage(page) ? (subpages.length ? 104 : 64) : subpages.length ? 144 : 96 }, content: { mod: 'herdr-zed', props: { view: 'settings-header', page: key, context } } },
         { type: 'block', content },
       ] },
     ] } };
@@ -151,7 +151,7 @@ export class SettingsHeader {
         .child(div().flex_1().min_w(0).truncate().font_family('Georgia').text_size(22).child(root?.title || current?.title || 'Settings'))
         .child(ToolbarButton('settings-close', t, { icon: true }).tooltip('Close settings').accessibility_label('Close settings')
           .on_click(() => closeSettingsDialog(overlay)).child(glyph('close', 16))))
-      .when(Boolean(entry), el => el.child(h_flex().h(28).flex_none().gap(20).items_center()
+      .when(Boolean(entry) && !standalone, el => el.child(h_flex().h(28).flex_none().gap(20).items_center()
         .when(!standalone, row => row.child(h_flex().gap(8).items_center().child(Switch(`settings-enable-${entry.mod}`, extensionEnabled(entry.mod), t)
           .accessibility_label(`${entry.title} enabled`).on_change((checked, cx) => {
             setExtensionEnabled(entry.mod, checked);

@@ -1,7 +1,7 @@
+import { isMain } from './node-main.js';
 // Finite launch-preparation helper; never connects to an MCP server.
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { openConfig } from './codex-config.js';
 
@@ -31,7 +31,7 @@ export async function syncSharedMcp(directory, servers, configService = openConf
   } finally { await service.close(); }
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (await isMain(import.meta.url)) {
   try { await syncSharedMcp(process.argv[2], JSON.parse(process.argv[3])); }
   catch { console.error('Could not synchronize shared MCP settings. Check the account config.toml and retry.'); process.exitCode = 1; }
 }

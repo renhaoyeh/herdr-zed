@@ -1,8 +1,9 @@
+import { isMain } from './node-main.js';
 // Finite local helper. Native plugin managers own their caches and configuration.
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { mkdir, readFile, writeFile, rename, unlink } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { commandArgv } from './components/session-shell.js';
 import { openConfig } from './codex-config.js';
@@ -112,7 +113,7 @@ export async function syncEcc(provider, directory, rawConfig, { run = runPlugin,
   } finally { await unlink(lock); }
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (await isMain(import.meta.url)) {
   try { console.log(JSON.stringify(await syncEcc(process.argv[2], process.argv[3], parseEcc(await readFile(process.argv[4], 'utf8'))))); }
   catch (error) { console.error(error.message); process.exitCode = 1; }
 }

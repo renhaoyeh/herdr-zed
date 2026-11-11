@@ -4,15 +4,6 @@ import * as model from '../mods/herdr-zed-agents/global-rules-model.js';
 import { rulesArgv } from '../components/session-model.js';
 import { evaluateNative } from './source-harness.js';
 
-test('Global Rules contains only custom instructions and preserves their headings', () => {
-  assert.deepEqual(model.ruleSelection(), { custom: true });
-  assert.equal(model.defaultRules, '');
-  const guide = model.splitRuleGuide('# Global rules\n\n## Custom rules\n\nMy instructions\n\n## Deployment\nKeep this.');
-  const text = model.composeRuleGuide(guide, model.ruleSelection());
-  assert.match(text, /My instructions/); assert.match(text, /## Deployment/);
-  assert.equal(model.composeRuleGuide(guide, { custom: false }), '');
-});
-
 test('both providers receive custom global text without built-in instructions', async () => {
   const { sessionRules } = await evaluateNative('../mods/herdr-zed-agents/global-rules.js', {
     ...model, rulesPath: () => '/guide/AGENTS.md', readTextFile: async () => 'My custom policy.', shared: () => undefined,
@@ -25,7 +16,7 @@ test('both providers receive custom global text without built-in instructions', 
   }
 });
 
-test('all disabled rules and intentionally empty Guides inject no global instructions', async () => {
+test('intentionally empty Guides inject no global instructions', async () => {
   for (const source of [model.defaultRules, '', null]) {
     const { sessionRules } = await evaluateNative('../mods/herdr-zed-agents/global-rules.js', {
       ...model, rulesPath: () => '/guide', readTextFile: async () => source,
@@ -35,7 +26,7 @@ test('all disabled rules and intentionally empty Guides inject no global instruc
   }
 });
 
-test('settings keep checkbox edits as drafts and preserve them after a concurrent Guide write fails', async () => {
+test('settings keep text edits as drafts and preserve them after a concurrent Guide write fails', async () => {
   const memory = {}, jobs = [], states = [];
   let source = model.defaultRules, conflict = false;
   const { globalRulesSettings } = await evaluateNative('../mods/herdr-zed-agents/global-rules-settings.js', {
@@ -52,7 +43,6 @@ test('settings keep checkbox edits as drafts and preserve them after a concurren
   }, 'globalRulesSettings');
   const view = { ...globalRulesSettings }, cx = { notify() {}, spawn: fn => jobs.push(fn(cx)) };
   view.initGlobalRules(cx); await Promise.all(jobs.splice(0));
-  view.rulesSelection.custom = false;
   view.rulesCustom.set_value('My policy');
   assert.deepEqual(memory, {}, 'Drafts do not change active injection');
   const before = source;
@@ -64,13 +54,16 @@ test('settings keep checkbox edits as drafts and preserve them after a concurren
   assert.match(view.rulesError, /File changed/);
   conflict = false;
   view.saveGlobalRules(cx); await Promise.all(jobs.splice(0));
-  assert.equal(memory[model.ruleSettingsKey].custom, false);
-  assert.match(source, /My policy/, 'Unchecked content stays saved');
+  assert.equal(source, 'My policy', 'Save preserves the exact editor text');
   assert.match(source, /My policy/);
   assert.equal(view.rulesSaved, true);
 });
 
-test('all built-in policy is owned by Devkits Skills', () => {
-  assert.deepEqual(model.ruleModules, []);
-  assert.equal(model.composeRuleGuide(model.splitRuleGuide(model.defaultRules), model.ruleSelection()), '');
+test('session injection preserves the exact Guide including Markdown headings', async () => {
+  const source = '# Global rules\n\n## Deployment\nKeep this.\n';
+  const { sessionRules } = await evaluateNative('../mods/herdr-zed-agents/global-rules.js', {
+    ...model, rulesPath: () => '/guide', readTextFile: async () => source,
+    shared: () => ({ custom: false }),
+  }, 'sessionRules');
+  assert.equal((await sessionRules()).text, source);
 });

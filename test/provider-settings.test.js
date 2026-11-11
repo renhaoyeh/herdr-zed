@@ -66,7 +66,7 @@ function shell(overrides = {}) {
 const manifests = ['agents', 'github', 'asana', 'mantisbt', 'system'];
 // The Agents extension's pages, as its manifest lists them. The shell mounts one per id with `page` in props.
 const agentsPages = [{ id: 'accounts', title: 'Accounts' }, { id: 'agents', title: 'Launch menu' }, { id: 'profiles', title: 'Profiles' },
-  { id: 'global-rules', title: 'Global Rules' }, { id: 'capabilities', title: 'Capabilities' }, { id: 'ecc', title: 'ECC' }];
+  { id: 'global-rules', title: 'Global Rules' }, { id: 'mcp', title: 'MCP Connections' }, { id: 'capabilities', title: 'Capabilities' }, { id: 'ecc', title: 'ECC' }];
 
 const expectedSettings = { agents: { view: 'manage-launchers', title: 'Agents', pages: agentsPages }, github: { view: 'settings', title: 'GitHub', pages: [] },
   asana: { view: 'settings', title: 'Asana', pages: [] }, mantisbt: { view: 'settings', title: 'MantisBT', pages: [] },
@@ -113,7 +113,7 @@ test('Agents Settings mounts exactly the page its props name, and remote project
   const view = agentsView(sessionMenu, Object.fromEntries(Object.entries(stubs).map(([method, id]) => [method, () => factory(id)()])));
   // Each page draws its own content; the two pages with sub-navigation draw it beside the page.
   const expected = { accounts: ['accounts'], profiles: ['profiles'], 'global-rules': ['global-rules'],
-    capabilities: ['cap-nav', 'capabilities'], ecc: ['ecc-nav', 'ecc'] };
+    capabilities: ['cap-nav', 'capabilities'], mcp: ['capabilities'], ecc: ['ecc-nav', 'ecc'] };
   for (const [page, drawnNames] of Object.entries(expected)) {
     log.length = 0;
     sessionMenu.manageLaunchers.call({ ...view, settingsPage: page }, theme(), ctx([]));
@@ -435,4 +435,15 @@ test('GitHub embedded Settings renders without calling cx.notify', async () => {
   counter.armed = false;
   assert.equal(counter.notified, 0, 'render never requests a re-render');
   assert.ok(names(log).includes('v_flex#github-account'), 'the page is drawn');
+});
+
+
+test('Global Rules is one editable text area with Save and no selection controls', async () => {
+  const { host, log, factory } = shell({ Editor: { new: () => factory('editor')() } });
+  const { globalRulesSettings } = await evaluateNative('../mods/herdr-zed-agents/global-rules-settings.js',
+    { ...host, rulesPath: () => '/guide' }, 'globalRulesSettings');
+  globalRulesSettings.globalRulesPage.call({ rulesCustom: {}, rulesLoaded: true }, theme());
+  assert.equal(names(log).filter(name => name === 'editor').length > 0, true);
+  assert.ok(names(log).includes('Button#save-global-rules'));
+  assert.ok(!names(log).some(name => name.startsWith('Checkbox') || name.startsWith('Button#rules-view-')));
 });

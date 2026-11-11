@@ -15,8 +15,7 @@ import { accountStorageDirectory, storageGroups, storageSize } from './account-s
 
 const launcherSections = ['Terminal', 'Agents', 'Your accounts', 'Agent profiles'];
 // The manifest's settings.pages ids, one shell page each (ARCHITECTURE §2.1).
-const settingsPageIds = ['accounts', 'agents', 'profiles', 'global-rules', 'capabilities', 'ecc'];
-import { openSharedMcp } from './components/agents.js';
+const settingsPageIds = ['accounts', 'agents', 'profiles', 'global-rules', 'capabilities', 'mcp', 'ecc'];
 
 // The New thread menu and the Agents settings pages. Mixed into the Agents view, which provides
 // cachedAgents, startThread and the account actions (addAccount, renameAccount, confirmRemoveAccount).
@@ -37,7 +36,7 @@ export const sessionMenu = {
     const remote = Boolean(spaces().find(space => space.id === (props() || {}).space)?.machine);
     if (remote && this.settingsPage !== 'agents') this.settingsPage = 'remote-unavailable';
     if (this.settingsPage === 'global-rules') this.initGlobalRules(cx);
-    if (this.settingsPage === 'capabilities') { this.initDevkits(cx); this.capTab = 'mcp'; }
+    if (['capabilities', 'mcp'].includes(this.settingsPage)) { this.initDevkits(cx); this.capTab = this.settingsPage === 'mcp' ? 'mcp' : 'overview'; }
     if (this.settingsPage === 'ecc') this.initEcc(cx);
     this.defaultSelects = { permissions: new SelectState(cx), model: new SelectState(cx), effort: new SelectState(cx), profile: new SelectState(cx) };
     if ((props() || {}).view === 'agent-profile-editor') { this.initAgentProfileEditor(cx); return; }
@@ -446,10 +445,11 @@ export const sessionMenu = {
   // One shell page of the Agents extension. Projects on a remote machine only get Agents: the other pages read this computer.
   settingsPageBody(page, { choices, hidden, toggle, move, cancelDrag }, t, cx) {
     if (page === 'remote-unavailable') return DialogDescription(t).flex_none()
-      .child('Accounts, profiles, rules, capabilities and ECC are set up on this computer. This project is on another machine.');
+      .child('Accounts, profiles, rules, capabilities, MCP connections and ECC are set up on this computer. This project is on another machine.');
     if (page === 'accounts') return this.accountsPage(t, cx);
     if (page === 'profiles') return this.agentProfilesPage(t);
     if (page === 'global-rules') return this.globalRulesPage(t);
+    if (page === 'mcp') return this.devkitsPage(t);
     if (page === 'capabilities') return this.withSideNav(this.devkitsNavigation(t), this.devkitsPage(t));
     if (page === 'ecc') return this.withSideNav(this.eccNavigation(t), this.eccPage(t));
     return v_flex().flex_1().min_w(0).min_h(0).gap(8)
@@ -578,8 +578,6 @@ export const sessionMenu = {
                       .accessibility_label(`Show ${choice.name} in Usage`).on_change((checked, cx) => toggleUsage(choice.agent.key, checked, cx))
                     : div().text_size(12).text_color(t.muted).child('–'))))))))))
         .when(local, el => el.child(this.autoAccountsSection(choices.filter(usageEligible), t)))
-        .when(local, el => el.child(Button('agents-open-shared-mcp', t, { variant: 'secondary' }).on_click(() => openSharedMcp())
-          .child('Shared MCP connections…')))
         .when(this.loading, el => el.child(div().p(8).text_size(12).text_color(t.muted).child('Loading agents…')))
         .when(this.launchError, el => el.child(Button('manage-retry-agents', t, { variant: 'secondary' })
           .on_click((_event, cx) => this.loadAgents(cx)).child('Could not load agents. Retry')));

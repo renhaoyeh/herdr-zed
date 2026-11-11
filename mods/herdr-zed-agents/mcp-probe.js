@@ -1,8 +1,8 @@
+import { isMain } from './node-main.js';
 import { spawn, execFile } from 'node:child_process';
 import { access } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 import { parseSharedMcp, sharedMcpSupported } from './components/shared-mcp-model.js';
 import { tasksMcpServer } from './components/session-model.js';
@@ -145,7 +145,7 @@ export async function verifyMcp(server, { timeout = 10000, builtin = false } = {
     throw error;
   } finally { clearTimeout(timer); }
 }
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (await isMain(import.meta.url)) {
   try {
     if (process.argv[2] === 'info') console.log(JSON.stringify(await mcpSetupInfo()));
     else if (process.argv[2] === 'verify') {

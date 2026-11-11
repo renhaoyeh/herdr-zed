@@ -10,14 +10,14 @@
       { "id": "agents", "title": "Launch menu" },
       { "id": "profiles", "title": "Profiles" },
       { "id": "global-rules", "title": "Global Rules" },
+      { "id": "mcp", "title": "MCP Connections" },
       { "id": "capabilities", "title": "Capabilities" },
       { "id": "ecc", "title": "ECC" }
     ]
   },
   "services": [{ "view": "service" }],
   "surfaces": [
-    { "id": "usage", "location": "sidebar.bottom", "view": "usage-sidebar", "title": "Usage", "icon": "chart-column" },
-    { "id": "usage-status", "location": "status.right", "view": "usage-status", "title": "Usage", "icon": "chart-column" }
+    { "id": "usage", "location": "sidebar.bottom", "view": "usage-sidebar", "title": "Usage", "icon": "chart-column" }
   ],
   "actions": [],
   "provides": {

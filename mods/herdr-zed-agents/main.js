@@ -20,9 +20,6 @@ import { UsageService } from './usage/service.js';
 import { UsageDetails } from './usage/details.js';
 import Analytics from './usage/analytics.js';
 
-// The status reading's emptiness, read by the shell (ARCHITECTURE §3.8): extension id `agents`, surface `usage-status`.
-const USAGE_STATUS_EMPTY = 'herdr-zed.surface-empty.agents.usage-status';
-
 // One provider mod: the Agents views (picker, settings, accounts) and the Usage views (sidebar, details,
 // token statistics). A single `service` view runs both services.
 export default class AgentsMod extends View {
@@ -32,14 +29,10 @@ export default class AgentsMod extends View {
     if (target.view === 'service') {
       this.service = new AgentsService(); this.service.init(cx);
       this.usageService = new UsageService(); this.usageService.init(cx);
-      // Hidden surfaces lose their view/timers. Keep the status subscription and emptiness reporter in the
-      // always-mounted service so an empty reading can discover data and become visible again.
-      this.usageClient = new UsageClient(); this.usageClient.init(cx);
-      this.reportStatusEmpty(cx);
       return;
     }
     // Usage surfaces mount as native blocks (extension.json); each keeps its own lease with the Usage service.
-    if (['usage-sidebar', 'usage-status'].includes(target.view)) {
+    if (target.view === 'usage-sidebar') {
       this.usageClient = new UsageClient(); this.usageClient.init(cx);
       return;
     }
@@ -55,19 +48,6 @@ export default class AgentsMod extends View {
     } else this.initSessionMenu(cx);
   }
   cachedAgents(machine) { return discoverAgents(machine); }
-
-  // The shell hides the status reading while it has nothing to show (ARCHITECTURE §3.8). Checked from a timer, never from
-  // render, and written only when the value changes.
-  reportStatusEmpty(cx) {
-    const report = () => {
-      const empty = !this.usageClient.active() || !this.usageClient.readableEntries().length;
-      if (empty === this.statusEmpty) return;
-      this.statusEmpty = empty;
-      setShared(USAGE_STATUS_EMPTY, empty);
-    };
-    report();
-    cx.timer.every(1000, report);
-  }
 
   // The picker asks the Agents service to prepare the account and emit the launch request. The shell
   // takes it from there. The picker stays open with the error if preparation fails.
@@ -94,7 +74,7 @@ export default class AgentsMod extends View {
     setShared('herdr-zed.last-thread-agents', { ...(shared('herdr-zed.last-thread-agents') || {}), [key]: value });
   }
   async close() {
-    this.storageClosed = true; this.eccClosed = true; this.capClosed = true; this.rulesCustom?.release(); this.rulesPreview?.release();
+    this.storageClosed = true; this.eccClosed = true; this.capClosed = true; this.rulesCustom?.release();
     this.usageClient?.close(); this.agentClient?.close();
     for (const monitor of this.usageService?.monitors.values() || []) monitor.agentClient.close();
     await this.login?.close();
@@ -103,7 +83,6 @@ export default class AgentsMod extends View {
     const t = theme(), view = props()?.view;
     if (view === 'service') { this.service?.poll(cx); return div().size_full(); }
     if (view === 'usage-sidebar') return this.usageClient.render(t);
-    if (view === 'usage-status') return this.usageClient.renderStatus(t);
     if (view === 'usage-details') return this.details.render(t);
     if (view === 'token-statistics') return this.analytics.render();
     if (view === 'account-login') return this.login.render();

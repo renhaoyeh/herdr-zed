@@ -6,7 +6,7 @@ import { extensionCatalog, refreshExtensions, extensionEnabled, extensionActive,
 
 // design.md, Settings and the review (L9): per package, its title, a plain status line and an On/Off switch; per
 // surface, a switch labelled by where it shows. No internal terms ("Popup · 2 surfaces") and no text toggles.
-const SURFACE_LABELS = { 'sidebar.bottom': 'Show in sidebar', 'status.right': 'Show in status bar', 'dock.right': 'Show in right dock' };
+const SURFACE_PLACES = { 'sidebar.bottom': 'sidebar', 'status.right': 'status bar', 'dock.right': 'right dock' };
 
 // The status line of a package. Problems read first: unsupported platform, load error, conflict, missing requirements.
 export function packageStatus(entry, catalog) {
@@ -29,13 +29,13 @@ export class ExtensionsManager {
   refresh(cx) { cx.spawn(async cx => { await refreshExtensions(); cx.notify(); }); }
   controls(entry, t) {
     const catalog = extensionCatalog();
-    const surfaces = (extensionActive(entry.mod) ? entry.surfaces || [] : []).filter(surface => SURFACE_LABELS[surface.location]);
+    const surfaces = (extensionActive(entry.mod) ? entry.surfaces || [] : []).filter(surface => SURFACE_PLACES[surface.location]);
     return h_flex().flex_none().gap(20).items_center()
       .children(surfaces.map(surface => {
-        const label = SURFACE_LABELS[surface.location];
+        const label = `Show ${surface.title} in ${SURFACE_PLACES[surface.location]}`;
         return h_flex().gap(8).items_center()
           .child(Switch(`extension-surface-toggle-${surface.id}`, extensionSurfaceVisible(surface), t)
-            .accessibility_label(`${label}: ${surface.title}`)
+            .accessibility_label(label)
             .on_change((checked, cx) => { if (!catalog.loading) { setExtensionSurfaceVisible(surface, checked); cx.notify(); } }))
           .child(div().text_size(12).text_color(t.muted).child(label));
       }));
@@ -60,7 +60,7 @@ export class ExtensionsManager {
             || (enabled && (catalog.resolved?.unavailable || []).some(item => item.mod === entry.mod));
           const active = extensionActive(entry.mod);
           // Unsupported packages contribute nothing and so get no switch at all.
-          const surfaces = (active ? entry.surfaces || [] : []).filter(surface => SURFACE_LABELS[surface.location]);
+          const surfaces = (active ? entry.surfaces || [] : []).filter(surface => SURFACE_PLACES[surface.location]);
           const configurable = (catalog.resolved?.settings || []).some(item => item.mod === entry.mod);
           return v_flex().gap(12).py(18).border_b(1).border_color(t.border)
             .child(h_flex().items_center().gap(16)

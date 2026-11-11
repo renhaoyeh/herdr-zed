@@ -76,7 +76,7 @@ test('native picker retains Terminal on discovery failure and gives the program 
 });
 
 test('native sidebar, pane menu, dock controls and empty editor render without extra feature clients', async () => {
-  let target = {}, status = 'blocked'; const commands = [], memory = {}, jobs = [];
+  let target = {}, status = 'blocked', usageVisible = false; const commands = [], memory = {}, jobs = [];
   const root = JSON.parse(await readFile(layoutSource, 'utf8'));
   const program = { key: 'codex', name: 'Codex', run: ['codex'], icon: 'icons/codex.svg', tint: true };
   const nativeSpaces = [{ id: 's', name: 'workspace', folder: '/workspace', active: true, tabs: [{ id: 't', name: 'Native thread', named: true, active: true }] }];
@@ -99,7 +99,9 @@ test('native sidebar, pane menu, dock controls and empty editor render without e
     openSettings: (...args) => commands.push(['open-settings', ...args]), settingsPageKey: id => `extension:${id}`, ExtensionSlot: () => null,
     TOOLBAR_GLYPH: 16, ROW_GLYPH: 14, workspaceRectNow: () => null, publishWorkspaceRect() {}, recordSize() {}, WORK_WIDTH_KEY: 'herdr-zed.work-width',
     SIDEBAR_HEIGHT_KEY: 'herdr-zed.sidebar-height', closeWorkspacePanel() {}, visibleSurfaceCount: () => 0, syncExtensionLayout() {},
-    extensionCatalog: () => ({ ready: true, actions: [], packages: [], errors: [], resolved: { decorators: [],
+    extensionSurfaceVisible: () => usageVisible, setExtensionSurfaceVisible: (_surface, value) => { usageVisible = value; },
+    extensionCatalog: () => ({ ready: true, actions: [], packages: [{ mod: 'herdr-zed-workflow', surfaces: [
+      { id: 'usage', mod: 'herdr-zed-workflow', location: 'sidebar.bottom', title: 'Usage', icon: 'chart-column' }] }], errors: [], resolved: { decorators: [],
       launcher: { mod: 'herdr-zed-workflow' }, settings: [{ mod: 'herdr-zed-workflow', id: 'workflow', title: 'Workflow' }] } }), openGitAction() {},
   };
   for (const name of ['Button', 'ToolbarButton', 'Sidebar', 'SidebarContent', 'SidebarGroup', 'SidebarGroupLabel', 'SidebarMenuButton', 'SidebarTreeMenuButton', 'SidebarFooter',
@@ -108,6 +110,7 @@ test('native sidebar, pane menu, dock controls and empty editor render without e
     'Empty', 'EmptyTitle', 'EmptyDescription', 'AgentIcon', 'glyph', 'GitResultToast']) host[name] = (...args) => ui(typeof args[0] === 'string' ? args[0] : null);
   const triggerAnchor = { x: 252, y: 80 };
   host.DropdownMenuTrigger = (trigger, _width, open) => trigger.on_click((_event, context) => open(context, triggerAnchor));
+  host.DropdownMenu = (id, _state, trigger, items, choose) => Object.assign(ui(id).child(trigger), { items, choose });
   Object.assign(host, await evaluateNative('../mods/herdr-zed/start-panel.js', host, 'startPanel'));
   Object.assign(host, await evaluateNative('../mods/herdr-zed/decorations.js', host, 'threadDecorations, decorationTone'));
   Object.assign(host, { threadArchive: { threadBusy: () => false, archiveThread() {}, restoreThread() {}, historyList: () => ui() }, historyEligible: () => false });
@@ -123,11 +126,28 @@ test('native sidebar, pane menu, dock controls and empty editor render without e
   assert.ok(elements(sidebar).some(element => element.attributes.accessibility_label === 'Blocked'));
   for (status of ['working', 'done', 'idle']) assert.doesNotThrow(() => view.render(cx));
   target = { view: 'pane', pane: 'p' }; view.init(null, cx); const pane = view.render(cx);
+  const menu = elements(pane).find(element => element.attributes.id === 'thread-actions-p');
+  assert.equal(menu.items.filter(item => item.key === 'show-usage').length, 1);
+  assert.equal(menu.items.find(item => item.key === 'show-usage').label, 'Show Usage');
+  assert.equal(menu.items.find(item => item.key === 'show-usage').checked, false);
+  menu.choose('show-usage');
+  assert.equal(usageVisible, true);
+  assert.equal(elements(view.render(cx)).find(element => element.attributes.id === 'thread-actions-p').items.find(item => item.key === 'show-usage').checked, true);
+  menu.choose('show-usage');
+  assert.equal(usageVisible, false);
+  assert.ok(menu.items.some(item => item.key === 'agent-settings'));
+  menu.choose('agent-settings');
+  assert.equal(commands.at(-1)[1], 'extension:workflow', 'thread menu opens the declared workflow configuration');
+  menu.choose('close');
+  assert.deepEqual(commands.at(-1), ['pane.close', { pane: 'p' }], 'Close still closes only this pane');
   target = { view: 'header' }; const header = view.render(cx);
-  elements(header).find(element => element.attributes.id === 'header-agents').click();
+  assert.equal(elements(header).some(element => element.attributes.id === 'header-agents'), false);
   elements(header).find(element => element.attributes.id === 'header-extensions').click();
-  assert.deepEqual(commands.slice(-2).map(([name, page]) => [name, page]),
-    [['open-settings', 'extension:workflow'], ['open-settings', 'extensions']], 'main window buttons open the separate dialogs directly');
+  assert.deepEqual(commands.at(-1).slice(0, 2), ['open-settings', 'extensions']);
+  target = { view: 'project-menu', project: nativeSpaces[0], overlay: 'project-menu' };
+  const projectMenu = view.render(cx);
+  elements(projectMenu).find(element => element.attributes.id === 'menu-agent-settings').click();
+  assert.equal(commands.at(-1)[1], 'extension:workflow', 'project menu provides the setup entry before starting a thread');
   target = { view: 'status' }; const left = view.render(cx);
   assert.ok(elements(left).some(element => element.attributes.id === 'open-conversation'), 'a real thread offers its toggle');
   const savedTabs = nativeSpaces[0].tabs;
