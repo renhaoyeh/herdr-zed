@@ -113,6 +113,7 @@ test('native sidebar, pane menu, dock controls and empty editor render without e
   host.DropdownMenu = (id, _state, trigger, items, choose) => Object.assign(ui(id).child(trigger), { items, choose });
   Object.assign(host, await evaluateNative('../mods/herdr-zed/start-panel.js', host, 'startPanel'));
   Object.assign(host, await evaluateNative('../mods/herdr-zed/decorations.js', host, 'threadDecorations, decorationTone'));
+  Object.assign(host, await evaluateNative('../mods/herdr-zed/thread-close.js', host, 'closeThreadTab, closeThreadPane, isProjectPlaceholder'));
   Object.assign(host, { threadArchive: { threadBusy: () => false, archiveThread() {}, restoreThread() {}, historyList: () => ui() }, historyEligible: () => false });
   const { HerdrZed } = await evaluateNative('../mods/herdr-zed/main.js', host, 'HerdrZed');
   const view = new HerdrZed(); view.init(null, cx);
@@ -139,7 +140,7 @@ test('native sidebar, pane menu, dock controls and empty editor render without e
   menu.choose('agent-settings');
   assert.equal(commands.at(-1)[1], 'extension:workflow', 'thread menu opens the declared workflow configuration');
   menu.choose('close');
-  assert.deepEqual(commands.at(-1), ['pane.close', { pane: 'p' }], 'Close still closes only this pane');
+  assert.deepEqual(commands.at(-1), ['tab.close', { id: 't' }], 'Closing the last pane closes its thread while retaining the project');
   target = { view: 'header' }; const header = view.render(cx);
   assert.equal(elements(header).some(element => element.attributes.id === 'header-agents'), false);
   elements(header).find(element => element.attributes.id === 'header-extensions').click();
@@ -165,7 +166,7 @@ test('native sidebar, pane menu, dock controls and empty editor render without e
   target = { view: 'editor' }; view.init(null, cx); const editor = view.render(cx);
   assert.match(text(editor), /Start a thread/);
   assert.doesNotMatch([sidebar, pane, header, bottom, editor].map(text).join(' '), /Agent settings|Calendar|MantisBT|Asana|SYSTEM|USAGE|Interface settings/);
-  assert.equal(commands.some(([name]) => name === 'tab.new' || name === 'space.new'), false, 'Rendering never starts a thread');
+  assert.equal(commands.some(([name, args]) => name === 'space.new' || name === 'tab.new' && args?.props?.view !== 'project-empty'), false, 'Rendering never starts a thread');
 });
 
 

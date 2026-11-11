@@ -1,3 +1,4 @@
+import { closeThreadTab } from './thread-close.js';
 import { div, image } from 'gpui-kit';
 import { h_flex } from 'gpui-base';
 import { agents, spaces, shared, setShared, run, notify, exec, readTextFile, home, appHome, terminals, window } from 'herdr';
@@ -94,7 +95,7 @@ export const threadArchive = {
       setShared(HISTORY_KEY, [entry, ...history().filter(item => item.id !== entry.id)].slice(0, 200));
       // Archived on purpose: auto-resume must never reopen it after a restart.
       setShared(RESUME_RECORDS_KEY, recordsWithout(shared(RESUME_RECORDS_KEY), tab));
-      run('tab.close', { id: tab });
+      closeThreadTab(tab);
     } catch (error) {
       notify(error instanceof HistoryUnavailable ? { title: 'History unavailable', body: error.message }
         : { title: 'Could not archive thread', body: error.message, level: 'error' });

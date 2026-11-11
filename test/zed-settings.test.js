@@ -259,7 +259,7 @@ test('the Extensions page embeds the manager body', async () => {
 
 test('the header command loop routes herdr-zed.settings, settings:<id> and extensions to Settings pages', async () => {
   const queue = [], opened = [], jobs = [];
-  const host = { ...model, ...contract, View: class {}, startPanel: {}, threadArchive: {}, historyEligible: () => false,
+  const host = { ...model, ...contract, View: class {}, startPanel: {}, threadArchive: {}, isProjectPlaceholder: () => false, historyEligible: () => false,
     props: () => ({ view: 'header' }), shared: () => undefined, setShared() {},
     spaces: () => [{ id: 's', name: 'Work', folder: '/work', active: true, tabs: [] }],
     refreshExtensions: async () => {}, startThreadResume: () => ({}), pollLaunchIntake() {}, activeLauncher: () => null,

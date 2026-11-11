@@ -1,3 +1,4 @@
+import { closeThreadTab, closeThreadPane, isProjectPlaceholder } from './thread-close.js';
 import { View, div, svg, image } from 'gpui-kit';
 import { v_flex, h_flex } from 'gpui-base';
 import { agents, spaces, panes, theme, run, props, window, openOverlay, closeOverlay, setAgentOrder, layout, settings, pickFolder, shared, setShared, notify, nextCommand, terminals, knownAgents, hc } from 'herdr';
@@ -57,7 +58,7 @@ const conversationKey = project => JSON.stringify([project.machine || '', folder
 const hasConversation = (project, all, modelPanes) => {
   const tab = project?.tabs?.find(tab => tab.active);
   if (!tab || project.pending) return false;
-  if (tab.id !== shared('herdr-zed.default-terminals')?.[project.id] && tab.name !== '__herdr_zed_default_terminal__') return true;
+  if (tab.id !== shared('herdr-zed.default-terminals')?.[project.id] && !isProjectPlaceholder(tab)) return true;
   return (all || agents()).some(agent => agent.space === project.id && agent.tab === tab.id)
     || (modelPanes || panes()).filter(pane => pane.tab === tab.id).length > 1;
 };
@@ -468,7 +469,7 @@ export default class HerdrZed extends View {
     const choose = key => {
       if (key === 'show-usage') setExtensionSurfaceVisible(sidebar, !extensionSurfaceVisible(sidebar));
       else if (key === 'agent-settings') openSettings(settingsPageKey(workflow.id), project);
-      else if (key === 'close') run('pane.close', { pane: p.pane });
+      else if (key === 'close') closeThreadPane(p.pane);
     };
     const terminal = terminals().find(terminal => terminal.address === p.terminal);
     const working = agentReportedWorking(terminal, p.status || terminal?.status);
@@ -587,7 +588,7 @@ export default class HerdrZed extends View {
           cx.stop_propagation();
           if (stopping) cx.spawn(async cx => { await this.stopThread(thread); cx.notify(); });
           else if (archivable) cx.spawn(async cx => { await this.archiveThread(thread); cx.notify(); });
-          else run('tab.close', { id: thread.tab.id });
+          else closeThreadTab(thread.tab.id);
         }).child(glyph(stopping ? 'square' : archivable ? 'archive' : 'close', ROW_GLYPH)));
   }
 
@@ -669,7 +670,7 @@ export default class HerdrZed extends View {
         .accessibility_label(pane ? `Close ${label}` : `End ${label}`)
         .on_click((_event, cx) => {
           cx.stop_propagation();
-          if (pane) run('pane.close', { pane: pane.pane });
+          if (pane) closeThreadPane(pane.pane);
           else run('terminal.kill', { terminal: terminal.address });
         })
         .child(glyph('close', ROW_GLYPH)));
@@ -737,8 +738,8 @@ export default class HerdrZed extends View {
     const defaults = { ...(shared('herdr-zed.default-terminals') || {}) };
     let defaultsChanged = false;
     for (const space of native) {
-      if (defaults[space.id]) continue;
-      const tab = space.tabs.find(tab => tab.name === '__herdr_zed_default_terminal__');
+      if (space.tabs.some(tab => tab.id === defaults[space.id])) continue;
+      const tab = space.tabs.find(isProjectPlaceholder);
       if (tab) { defaults[space.id] = tab.id; defaultsChanged = true; }
     }
     if (defaultsChanged) setShared('herdr-zed.default-terminals', defaults);

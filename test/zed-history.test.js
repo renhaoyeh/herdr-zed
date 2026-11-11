@@ -21,7 +21,7 @@ const uiText = element => element?.nodes ? element.nodes.map(uiText).join(' ') :
 async function load(options = {}) {
   const memory = options.memory || {}, commands = options.commands || [], live = options.live || [];
   const host = { ...model, ...identity, div: ui, image: ui, h_flex: ui, shared: key => memory[key],
-    setShared: (key, value) => { memory[key] = value; }, run: (...args) => commands.push(args), notify: value => options.notices?.push(value),
+    setShared: (key, value) => { memory[key] = value; }, run: (...args) => commands.push(args), closeThreadTab: id => commands.push(['tab.close', { id }]), notify: value => options.notices?.push(value),
     exec: options.exec || (async () => ({ code: 0, stdout: '' })),
     readTextFile: options.readTextFile || (async () => JSON.stringify({ sessionId: '11111111-1111-4111-8111-111111111111' })),
     home: () => '/home/user', appHome: () => '/appdata', terminals: () => live, window: () => ({ platform: options.platform || 'macos' }),
