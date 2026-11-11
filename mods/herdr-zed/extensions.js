@@ -3,18 +3,29 @@ import { shared, setShared, appHome, readTextFile, openOverlay, notify, layout, 
 import { ToolbarButton, TOOLBAR_GLYPH } from './components/button.js';
 import { glyph } from './components/icon.js';
 import { DropdownMenu } from './components/dropdown-menu.js';
-import { parseExtensionRegistry, parseExtensionManifest, extensionPopup, extensionMetadata, extensionServiceLayout, gitActionPopup, resolveProviders, launcherAvailable, platformSupported, workspaceRect } from './extension-model.js';
+import { parseExtensionRegistry, parseExtensionManifest, extensionPopup, extensionMetadata, extensionServiceLayout, gitActionPopup, resolveProviders, launcherAvailable, platformSupported, workspaceRect, windowHeightFromSidebar } from './extension-model.js';
 import { extensionSurfaceLayout, extensionSurfaceNodeId, STATUS_ACTION_LIMIT } from './extension-surfaces.js';
-import { workspaceOverlay, WORKSPACE_RECT_KEY, usableWorkspaceRect } from './components/workspace-overlay.js';
+import { openWorkspacePanel, WORKSPACE_RECT_KEY, WORKSPACE_PANEL_OVERLAY, usableWorkspaceRect } from './components/workspace-overlay.js';
 
 const DISABLED = 'herdr-zed.extensions.disabled';
-// Measured by the shell's views (on_size_change, logical px): the work column width and the window height.
-export const WORK_WIDTH_KEY = 'herdr-zed.work-width', WINDOW_HEIGHT_KEY = 'herdr-zed.window-height';
+// Measured by the shell's views (on_size_change, logical px): the work column width and the sidebar's flexible body
+// height (windowHeightFromSidebar adds the fixed rows around it).
+export const WORK_WIDTH_KEY = 'herdr-zed.work-width', SIDEBAR_HEIGHT_KEY = 'herdr-zed.sidebar-height';
 export const recordSize = (key, value) => { if (value > 0 && shared(key) !== value) { setShared(key, value); publishWorkspaceRect(); } };
 
-// The work area for `workspace` popups now, or null while its size is unknown (ARCHITECTURE §2.1).
-export const workspaceRectNow = () => workspaceRect({ sidebar: layoutNode(layout(), 'sidebar'),
-  workWidth: shared(WORK_WIDTH_KEY), windowHeight: shared(WINDOW_HEIGHT_KEY) });
+// The work area for `workspace` panels now, or null while its size is unknown (ARCHITECTURE §2.1).
+export const workspaceRectNow = () => {
+  const sidebar = layoutNode(layout(), 'sidebar');
+  return workspaceRect({ sidebar, workWidth: shared(WORK_WIDTH_KEY), windowHeight: windowHeightFromSidebar(sidebar, shared(SIDEBAR_HEIGHT_KEY)) });
+};
+
+// A workspace panel shows the selected project's work: it closes on a project switch and when Settings opens.
+export function closeWorkspacePanel() {
+  const id = shared(WORKSPACE_PANEL_OVERLAY);
+  if (!id) return;
+  setShared(WORKSPACE_PANEL_OVERLAY, null);
+  run('overlay.close', { id });
+}
 
 // ARCHITECTURE §3.7: the shell publishes the work area (logical px) whenever it changes, null while unmeasured. Providers
 // open their workspace panels over it through components/workspace-overlay.js. Written only when it differs.
@@ -133,15 +144,16 @@ export async function refreshExtensions() {
   if (errors.length) notify({ title: 'Could not load extensions', body: errors.join('\n'), level: 'error' });
 }
 
-// Workspace placement opens over the work area (workspaceOverlay: device px at point, zoom-scaled). Without a known size the
-// declared centered dialog opens.
+// Workspace placement opens its window over the work area (openWorkspacePanel). Without a known size the declared centered
+// dialog opens.
 export function openExtension(id, project) {
   const catalog = extensionCatalog(), action = catalog.actions.find(action => action.id === id);
   if (!catalog.ready || !action || !extensionActive(action.mod)) return;
   try {
     const popup = extensionPopup(action, project);
-    return openOverlay(action.popup.placement === 'workspace'
-      ? workspaceOverlay({ mod: popup.mod, props: popup.props, width: popup.width, height: popup.height, modal: popup.modal }) : popup);
+    return action.popup.placement === 'workspace'
+      ? openWorkspacePanel({ mod: popup.mod, props: popup.props, width: popup.width, height: popup.height, modal: popup.modal })
+      : openOverlay(popup);
   }
   catch (error) { notify({ title: 'Could not open extension', body: error.message, level: 'error' }); }
 }

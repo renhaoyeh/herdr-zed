@@ -14,7 +14,7 @@ import { startPanel } from './start-panel.js';
 import { threadArchive, historyEligible } from './thread-archive.js';
 import { startThreadResume } from './thread-resume.js';
 import { SettingsNav, SettingsPage, SettingsHeader, openSettings, settingsPageKey } from './settings.js';
-import { ExtensionSlot, ExtensionSurfaceSlot, refreshExtensions, openExtension, extensionCatalog, openGitAction, activeLauncher, workspaceRectNow, publishWorkspaceRect, recordSize, WORK_WIDTH_KEY, WINDOW_HEIGHT_KEY, visibleSurfaceCount, syncExtensionLayout } from './extensions.js';
+import { ExtensionSlot, ExtensionSurfaceSlot, refreshExtensions, openExtension, extensionCatalog, openGitAction, activeLauncher, workspaceRectNow, publishWorkspaceRect, recordSize, WORK_WIDTH_KEY, SIDEBAR_HEIGHT_KEY, closeWorkspacePanel, visibleSurfaceCount, syncExtensionLayout } from './extensions.js';
 import { pollLaunchIntake } from './launch-intake.js';
 import { readNewTerminalCommand } from './components/extension-contract.js';
 import { workspaceTopAnchor } from './extension-model.js';
@@ -162,6 +162,7 @@ export default class HerdrZed extends View {
   }
 
   selectProject(project) {
+    if (project.id !== shared('herdr-zed.selected-project')) closeWorkspacePanel();
     setShared('herdr-zed.selected-project', project.id);
     if (!project.pending) run('space.select', { id: project.id });
     run('layout.select', { stack: 'workspace-view', child: project.pending ? 'project-empty' : 'main' });
@@ -759,7 +760,7 @@ export default class HerdrZed extends View {
             .when(!threads.length, el => el.child(h_flex().h(32).flex_none().px(12).items_center().text_size(12).text_color(t.muted).child('No threads yet')))))));
     // design.md, Separators: a divider between the threads and the sidebar surfaces, when one is shown. The history
     // row is its own layout block below them (layouts/herdr-zed.json).
-    return Sidebar(t).on_size_change(size => recordSize(WINDOW_HEIGHT_KEY, size.height))
+    return Sidebar(t).on_size_change(size => recordSize(SIDEBAR_HEIGHT_KEY, size.height))
       .child(list.when(visibleSurfaceCount('sidebar.bottom') > 0, el => el.border_b(1).border_color(t.border)));
   }
 

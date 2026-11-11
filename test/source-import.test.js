@@ -48,7 +48,7 @@ for (const provider of providers) {
   // Mounts the real browser entry with a fake panel; the catalog and channel are the only inputs that vary.
   async function mount({ catalog = null, channel = null } = {}) {
     const state = { catalog }, opened = [], ticks = [], notified = [];
-    const panel = { importLabel: 'Import', onImport: undefined, init() {}, render() {}, dispose() {} };
+    const panel = { importLabel: 'Import', onImport: undefined, init() { this.handle = { focus() {} }; }, render() {}, dispose() {} };
     const host = { View: class {}, props: () => ({ context, ...(channel ? { channel } : {}) }),
       shared: key => (key === 'herdr-zed.extensions.catalog' ? state.catalog : null),
       openOverlay: request => { opened.push(request); },

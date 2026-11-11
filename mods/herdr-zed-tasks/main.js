@@ -9,6 +9,7 @@ import DeleteTask from './delete-task.js';
 import { findProject } from './task-sources.js';
 import { boardTheme } from './components/task-theme.js';
 import { Button } from './components/button.js';
+import { workspacePanel } from './components/workspace-overlay.js';
 // Tasks runs as a popup/dialog extension view (see extension.json); the service view runs in the status row.
 export default class TasksMod extends View {
   init(_props, cx) {
@@ -32,7 +33,7 @@ export default class TasksMod extends View {
       else { this.composer = new TaskComposer(); this.composer.init({ project: resolved.project, task: null, parent: null, status: 'todo',
         importTask: resolved.snapshot, overlay: this.target.overlay }, cx); }
     } else {
-      this.runtime.agentBoard = new AgentBoard(); this.runtime.agentBoard.init(cx);
+      this.runtime.agentBoard = new AgentBoard(); this.runtime.agentBoard.init(cx); this.runtime.agentBoard.handle.focus();
       if (this.target.focus) setShared('herdr-zed.board-focus', this.target.focus);
     }
   }
@@ -48,6 +49,6 @@ export default class TasksMod extends View {
     const projects = this.runtime.projects();
     const project = findProject(projects, this.target.context || {}) || this.target.project
       || projects.find(project => project.id === shared('herdr-zed.board-project')) || projects.find(project => project.active);
-    return project ? this.runtime.boardPanel(project, cx) : div().size_full().bg(t.background).text_color(t.muted).child('Select a project to open Tasks.');
+    return workspacePanel(project ? this.runtime.boardPanel(project, cx) : div().size_full().bg(t.background).text_color(t.muted).child('Select a project to open Tasks.'));
   }
 }

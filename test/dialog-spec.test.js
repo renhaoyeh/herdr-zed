@@ -74,7 +74,7 @@ test('working panels are 0.9×0.86, non-modal, and close from a header X rather 
   assert.match(monitor, /renderDetails[\s\S]*Button\('hardware-details-close', t, \{ variant: 'ghost', size: 'icon' \}\)/);
   assert.doesNotMatch(monitor, /hardware-details-done/);
   const main = await source('mods/herdr-zed-system/main.js');
-  assert.match(main, /workspaceOverlay\(\{ mod: 'herdr-zed-system', props: \{ view: 'details', page \} \}\)/);
+  assert.match(main, /openWorkspacePanel\(\{ mod: 'herdr-zed-system', props: \{ view: 'details', page \} \}\)/);
 
   const storage = await source('mods/herdr-zed-simulator/simulator.js');
   assert.match(storage, /modal: false, width: 0\.9, height: 0\.86, props: \{ view: 'simulator-storage' \}/);

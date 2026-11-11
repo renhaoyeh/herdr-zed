@@ -98,7 +98,7 @@ test('native sidebar, pane menu, dock controls and empty editor render without e
     ExtensionSurfaceSlot: () => null,
     openSettings() {}, ExtensionSlot: () => null,
     TOOLBAR_GLYPH: 16, ROW_GLYPH: 14, workspaceRectNow: () => null, publishWorkspaceRect() {}, recordSize() {}, WORK_WIDTH_KEY: 'herdr-zed.work-width',
-    WINDOW_HEIGHT_KEY: 'herdr-zed.window-height', visibleSurfaceCount: () => 0, syncExtensionLayout() {},
+    SIDEBAR_HEIGHT_KEY: 'herdr-zed.sidebar-height', closeWorkspacePanel() {}, visibleSurfaceCount: () => 0, syncExtensionLayout() {},
     extensionCatalog: () => ({ ready: true, actions: [], packages: [], errors: [], resolved: { decorators: [] } }), openGitAction() {},
   };
   for (const name of ['Button', 'ToolbarButton', 'Sidebar', 'SidebarContent', 'SidebarGroup', 'SidebarGroupLabel', 'SidebarMenuButton', 'SidebarTreeMenuButton', 'SidebarFooter',

@@ -7,7 +7,7 @@ import { Switch } from './components/switch.js';
 import { ToggleGroup, ToggleGroupItem } from './components/toggle-group.js';
 import { DialogTitle, DialogDescription } from './components/dialog.js';
 import { AUTO_RESUME_KEY } from './thread-identity.js';
-import { extensionCatalog } from './extensions.js';
+import { extensionCatalog, closeWorkspacePanel } from './extensions.js';
 import { BuildRulesSettings } from './diff-ignore-settings.js';
 import { GitAuthorSettings } from './git-author-settings.js';
 import { ExtensionsManager } from './extensions-manager.js';
@@ -81,6 +81,7 @@ export function openSettings(key, project = null) {
     notify({ title: 'Settings unavailable', body: 'That extension is not installed, enabled or available.', level: 'warning' });
     return null;
   }
+  closeWorkspacePanel();
   const previous = shared(SETTINGS_OVERLAY);
   setShared(SETTINGS_OVERLAY, null);
   closeQuietly(previous);

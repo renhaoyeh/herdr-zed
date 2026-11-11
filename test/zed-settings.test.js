@@ -55,7 +55,7 @@ const text = root => typeof root === 'string' ? root : root && root.__nodes ? ro
 
 function settingsRuntime({ settings = [], memory = {}, closeThrows = [] } = {}) {
   let current = {};
-  const opened = [], closed = [], runs = [], notices = [];
+  const opened = [], closed = [], runs = [], notices = [], panelCloses = [];
   const host = {
     div: element, v_flex: element, h_flex: element, Button: id => element(id), DialogTitle: () => element(), DialogDescription: () => element(),
     Switch: (id, checked) => element(id, { checked }), ToggleGroup: id => element(id), ToggleGroupItem: (id, pressed) => element(id, { pressed }),
@@ -67,10 +67,11 @@ function settingsRuntime({ settings = [], memory = {}, closeThrows = [] } = {}) 
     ExtensionsManager: class { init() { this.inited = true; } render() { return element('extensions-body'); } },
     props: () => current, openOverlay: spec => { opened.push(spec); return `overlay-${opened.length}`; },
     closeOverlay: id => { if (closeThrows.includes(id)) throw new Error('unknown overlay'); closed.push(id); return null; },
+    closeWorkspacePanel: () => panelCloses.push(true),
     run: (...args) => runs.push(args), notify: notice => notices.push(notice),
     shared: key => memory[key], setShared: (key, value) => { memory[key] = value; },
   };
-  return { memory, opened, closed, runs, notices, setProps: next => { current = next; },
+  return { memory, opened, closed, runs, notices, panelCloses, setProps: next => { current = next; },
     ready: evaluateNative('../mods/herdr-zed/settings.js', host, 'openSettings, settingsOverlay, settingsPage, settingsContext, extensionSettingsPages, settingsPageKey, SettingsNav, SettingsHeader, SettingsPage, SETTINGS_OVERLAY') };
 }
 
@@ -241,4 +242,10 @@ test('entry points: the gear, Changes menu and Git actions open Settings; the ol
   assert.match(diff, /if \(key === 'commit-author'\) openSettings\('git', this\.context\);/);
   assert.match(diff, /if \(key === 'list' \|\| key === 'tree'\) this\.setFileView/, 'Changes keeps List and Tree');
   assert.doesNotMatch(diff, /openBuildRules|openGitAuthor/);
+});
+
+test('opening Settings closes the open workspace panel, so no panel outlives the selection', async () => {
+  const r = settingsRuntime(); const s = await r.ready;
+  s.openSettings('general', project);
+  assert.deepEqual(r.panelCloses, [true]);
 });

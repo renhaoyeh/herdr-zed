@@ -1,6 +1,6 @@
 // Shared: edit components/tasks.js, then npm run sync:shared.
-import { shared, openOverlay } from 'herdr';
-import { workspaceOverlay } from './workspace-overlay.js';
+import { shared } from 'herdr';
+import { openWorkspacePanel } from './workspace-overlay.js';
 import { taskProjectKey, taskIndex } from './tasks-model.js';
 import { threadTitle, configuredAgents } from './session-model.js';
 export { boardStatuses } from './tasks-model.js';
@@ -37,4 +37,4 @@ export function sessionThreadTitle(tab, agent, project) {
   return threadTitle(tab, agent, project, { launcherName: launcher?.name });
 }
 // Opens the Tasks board popup for a project context ({ id, folder, name, machine }), optionally focusing one task.
-export const openTaskBoard = (context, gid = null) => openOverlay(workspaceOverlay({ mod: 'herdr-zed-tasks', props: { view: 'board', context, focus: gid } }));
+export const openTaskBoard = (context, gid = null) => openWorkspacePanel({ mod: 'herdr-zed-tasks', props: { view: 'board', context, focus: gid } });

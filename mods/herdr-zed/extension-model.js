@@ -213,7 +213,7 @@ export function launcherAvailable(launcher, packages = [], root = null) {
   return (entry.services || []).every(service => mountedView(root, launcher.mod, service.view));
 }
 
-// The declared popup of an action, centered. A `workspace` placement is opened by the shell through workspaceOverlay
+// The declared popup of an action, centered. A `workspace` placement is opened by the shell through openWorkspacePanel
 // (components/workspace-overlay.js), which falls back to this same declaration's size while the work area is unknown.
 /** @param {any} action @param {any} project */
 export function extensionPopup(action, project) {
@@ -248,6 +248,17 @@ export function workspaceRect({ sidebar, workWidth, windowHeight }) {
   const height = windowHeight - WORKSPACE_HEADER - WORKSPACE_STATUS;
   if (workWidth <= 0 || height <= 0) return null;
   return { x, y: WORKSPACE_HEADER, width: workWidth, height };
+}
+
+// The window's height, from the sidebar column's measured body. The column spans the whole window, and its flexible
+// block (the agents list) is the only one without a fixed px size: the fixed rows around it (brand, history) are added
+// back. Measuring the body alone (or the column) and then subtracting the header and status bar again was 64px short.
+// Null while the body is unmeasured.
+export function windowHeightFromSidebar(sidebar, bodyHeight) {
+  if (!(bodyHeight > 0)) return null;
+  const fixed = (sidebar?.children || []).reduce((sum, child) =>
+    sum + (!child.hidden && Number.isFinite(child.size?.px) ? child.size.px : 0), 0);
+  return bodyHeight + fixed;
 }
 
 // Git actions open with the selected repository (ARCHITECTURE §2.1), not the workspace project.

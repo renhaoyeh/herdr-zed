@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseExtensionRegistry, parseExtensionManifest, extensionPopup, extensionMetadata, extensionServiceLayout, gitActionPopup, resolveProviders,
-  platformSupported, workspaceRect } from '../mods/herdr-zed/extension-model.js';
+  platformSupported, workspaceRect, windowHeightFromSidebar } from '../mods/herdr-zed/extension-model.js';
 import { extensionSurfaceLayout, extensionSurfaceNodeId } from '../mods/herdr-zed/extension-surfaces.js';
 import { evaluateNative } from './source-harness.js';
 import { asanaManifest as manifestText, systemManifest as systemText } from './extension-fixtures.js';
@@ -55,13 +55,16 @@ test('registry and manifest validation reject unsupported versions, paths and co
 const runtime = async (readTextFile, initialLayout = null, platform = 'linux') => {
   let root = initialLayout;
   const memory = {}, opened = [], notices = [], layoutUpdates = [];
-  const host = { shared: key => memory[key], setShared: (key, value) => { memory[key] = structuredClone(value); },
-    appHome: () => '/herdr', readTextFile, layout: () => root, run: (command, args) => { assert.equal(command, 'layout.set'); root = args.layout; layoutUpdates.push(root); }, openOverlay: value => { opened.push(value); return 'overlay'; }, notify: value => notices.push(value),
+  const openOverlay = value => { opened.push(value); return 'overlay'; }, setShared = (key, value) => { memory[key] = structuredClone(value); };
+  const panel = await evaluateNative('../components/workspace-overlay.js', { shared: key => memory[key], settings: () => ({ zoom: 1 }), openOverlay, setShared },
+    'openWorkspacePanel, WORKSPACE_RECT_KEY, WORKSPACE_PANEL_OVERLAY, usableWorkspaceRect');
+  const host = { shared: key => memory[key], setShared,
+    appHome: () => '/herdr', readTextFile, layout: () => root, run: (command, args) => { assert.equal(command, 'layout.set'); root = args.layout; layoutUpdates.push(root); }, openOverlay, notify: value => notices.push(value),
     parseExtensionRegistry, parseExtensionManifest, extensionPopup, extensionMetadata, extensionServiceLayout,
     extensionSurfaceLayout, extensionSurfaceNodeId, gitActionPopup, resolveProviders,
-    platformSupported, workspaceRect, window: () => ({ platform }), settings: () => ({ zoom: 1 }) };
+    platformSupported, workspaceRect, windowHeightFromSidebar, window: () => ({ platform }), settings: () => ({ zoom: 1 }), ...panel };
   return { memory, opened, notices, layoutUpdates, ...await evaluateNative('../mods/herdr-zed/extensions.js', host,
-    'refreshExtensions, openExtension, extensionCatalog, extensionEnabled, setExtensionEnabled, extensionActive, extensionActions, openGitAction, workspaceRectNow, recordSize, visibleSurfaceCount, WORK_WIDTH_KEY, WINDOW_HEIGHT_KEY') };
+    'refreshExtensions, openExtension, extensionCatalog, extensionEnabled, setExtensionEnabled, extensionActive, extensionActions, openGitAction, workspaceRectNow, recordSize, visibleSurfaceCount, WORK_WIDTH_KEY, SIDEBAR_HEIGHT_KEY, closeWorkspacePanel') };
 };
 
 test('discovery reads declarations only; activation alone opens the existing provider popup', async () => {

@@ -1,16 +1,16 @@
 import { View, div } from 'gpui-kit';
-import { props, theme, openOverlay, run, nextCommand } from 'herdr';
+import { props, theme, run, nextCommand } from 'herdr';
 import { SystemMonitorCore } from './monitor.js';
 import { hardwarePreferences } from './components/system-monitor-model.js';
 import { SystemMonitor, systemClientPrefix, systemSnapshotPrefix, systemCommand, systemMessage } from './components/system-monitor.js';
-import { workspaceOverlay } from './components/workspace-overlay.js';
+import { openWorkspacePanel, workspacePanel } from './components/workspace-overlay.js';
 export default class SystemMod extends View {
   init(_props, cx) {
     const target = props() || {};
     this.view = target.view || 'details'; this.clients = new Map();
     this.monitor = new SystemMonitorCore({ details: this.view === 'details', page: target.page, overlay: target.overlay,
       active: () => this.clients.size > 0,
-      openDetails: page => openOverlay(workspaceOverlay({ mod: 'herdr-zed-system', props: { view: 'details', page } })),
+      openDetails: page => openWorkspacePanel({ mod: 'herdr-zed-system', props: { view: 'details', page } }),
     });
     if (this.view === 'service') {
       this.monitor.init(cx);
@@ -52,7 +52,7 @@ export default class SystemMod extends View {
   render() {
     const t = theme();
     if (this.view === 'service') return div().size_full();
-    if (this.view === 'details') return this.monitor.renderDetails(t);
+    if (this.view === 'details') return workspacePanel(this.monitor.renderDetails(t));
     if (this.view === 'settings') return this.monitor.renderSettings(t, Boolean(props()?.embedded));
     if (this.view === 'inline') return this.monitor.renderInline(t, { id: props()?.id || 'system-inline' });
     return div().size_full().min_h(0).overflow_y_scroll()

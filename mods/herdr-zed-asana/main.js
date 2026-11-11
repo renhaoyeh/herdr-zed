@@ -5,6 +5,7 @@ import { AsanaSettings } from './settings.js';
 import { asanaSource } from './source.js';
 import { importTarget, importRequest } from './import-target.js';
 import { sourceModuleOptions, publishSourceEvent } from './components/source-channel.js';
+import { workspacePanel } from './components/workspace-overlay.js';
 const extensionId = 'asana', catalogKey = 'herdr-zed.extensions.catalog';
 export default class SourceMod extends View {
   init(_props, cx) {
@@ -13,6 +14,7 @@ export default class SourceMod extends View {
     const options = sourceModuleOptions(asanaSource, this.target);
     this.browser = this.isPicker ? new AsanaProjectPicker(options) : new SourcePanel(options);
     this.browser.init(...(this.isPicker ? [this.target.context || {}, cx] : [cx]));
+    if (!this.isPicker) this.browser.handle.focus();
     if (!this.isPicker) {
       this.bindImport();
       cx.timer.every(250, cx => {
@@ -33,5 +35,5 @@ export default class SourceMod extends View {
     return true;
   }
   close() { if (this.settings) { this.settings.close(); return; } if (!this.isPicker) { this.browser.dispose(); publishSourceEvent(this.target.channel, { type: 'close' }); } }
-  render(cx) { if (this.settings) return this.settings.render(cx); return this.isPicker ? this.browser.render() : this.browser.render(this.target.context || null, cx); }
+  render(cx) { if (this.settings) return this.settings.render(cx); return this.isPicker ? this.browser.render() : workspacePanel(this.browser.render(this.target.context || null, cx)); }
 }

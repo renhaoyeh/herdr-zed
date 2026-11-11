@@ -87,14 +87,16 @@ the tests change in the same commit. Unknown keys inside `provides`, surfaces an
   settings or provides), is never active, and the Extensions page shows "Not available on this platform" with no
   switch.
 - `actions[].popup.placement` (optional, `"center"` by default or `"workspace"`; any other value is rejected). `workspace`
-  opens the panel over the work area through `workspaceOverlay` (components/workspace-overlay.js, §3.7): a `kind: 'popup'`,
-  `frame: 'none'` panel at the published work-area rectangle, sized to it (x = sidebar width, y = 32, width = the work
-  column, height = window minus 32 (header) and 32 (status bar)). A click outside closes it. The manifest `width` and
-  `height` are not used for the popup; they are the size of the centered fallback dialog, which opens while the work area
-  is not published yet (`null`). Providers that open workspace panels themselves (Tasks board, Calendar, SYSTEM details)
-  use the same function, so every workspace panel has one placement. The shell measures the work column
-  (`herdr-zed.work-width`) and the window height (`herdr-zed.window-height`) with `on_size_change`; Herdr's `window()`
-  reports no size.
+  opens the panel over the work area through `openWorkspacePanel` (components/workspace-overlay.js, §3.7): a
+  `kind: 'window'` named `herdr-zed.workspace-panel`, `frame: 'none'`, at the published work-area rectangle and sized to it
+  (x = sidebar width, y = 32, width = the work column, height = window minus 32 (header) and 32 (status bar)). A click
+  beside it does not close it: Esc does, a project switch or opening Settings closes it, and opening another workspace panel
+  replaces it. The manifest `width` and `height` are not used for the window; they are the size of the centered fallback
+  dialog, which opens while the work area is not published yet (`null`). Providers that open workspace panels themselves
+  (Tasks board, Calendar, SYSTEM details) use the same function, and their roots are wrapped by `workspacePanel`, so every
+  workspace panel has one placement and behaviour. The shell measures the work column (`herdr-zed.work-width`) and the
+  sidebar's flexible body (`herdr-zed.sidebar-height`) with `on_size_change`; `windowHeightFromSidebar` adds the fixed brand
+  and history rows back to get the window height. Herdr's `window()` reports no size.
 - Surfaces: `sidebar.bottom` surfaces mount above the history row and start hidden; `dock.right` surfaces start hidden;
   `status.right` surfaces start visible. Manage extensions offers a switch per active surface: "Show in sidebar", "Show
   in status bar", "Show in right dock".
@@ -263,10 +265,11 @@ px: x = sidebar width (0 when hidden), y = 32 (header), width = the work column,
 and 32 (status bar). The shell writes it whenever the value changes (on each render and each measured size change); it
 never writes it otherwise. Providers only read it.
 
-- Providers open workspace panels with `workspaceOverlay({ mod, props, width?, height?, modal? })`
-  (components/workspace-overlay.js, copied by `COPIES`). The result is the popup spec over the published rectangle
-  (device px at the window zoom), or, with `null`, the centered dialog of `width`/`height` (default 0.9 × 0.86). The
-  caller passes the result to `openOverlay`.
+- Providers open workspace panels with `openWorkspacePanel({ mod, props, width?, height?, modal? })`
+  (components/workspace-overlay.js, copied by `COPIES`). It opens the window spec over the published rectangle (device px
+  at the window zoom), or, with `null`, the centered dialog of `width`/`height` (default 0.9 × 0.86), and records the open
+  id in `herdr-zed.workspace-panel.overlay` so the shell can close it. Each panel root is wrapped by `workspacePanel(el)`:
+  it stops presses (a window is otherwise dragged by them) and closes the panel on Esc that its controls did not consume.
 - The shell's `popup.placement: "workspace"` actions use the same function (§2.1), so there is one placement path.
 
 ## 4. Mods and move order

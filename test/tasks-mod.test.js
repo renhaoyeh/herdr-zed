@@ -255,8 +255,8 @@ async function modules(records = {}, projects = [{ id: 'p', folder: '/project', 
     exec: async (...args) => { native.push(args); return { code: 0, stdout: '{}' }; },
     notify: message => assert.fail(message.body), openOverlay: spec => overlays.push(spec), closeOverlay: id => closed.push(id),
   };
-  base.workspaceOverlay = (await evaluateNative('../components/workspace-overlay.js', { shared: key => clone(memory[key]), settings: () => ({ zoom: 1 }) },
-    'workspaceOverlay')).workspaceOverlay;
+  base.openWorkspacePanel = (await evaluateNative('../components/workspace-overlay.js', { shared: key => clone(memory[key]), settings: () => ({ zoom: 1 }),
+    openOverlay: base.openOverlay, setShared: base.setShared, closeOverlay: base.closeOverlay, props: base.props }, 'openWorkspacePanel')).openWorkspacePanel;
   const client = await evaluateNative('../components/tasks.js', base,
     'tasksSnapshot, listTasks, projectBoardTasks, boardRecords, taskLinkForTab, threadBoardStatus, threadBoardTask, threadTaskArchived, threadVisibleInSidebar, taskActions, sessionThreadTitle, openTaskBoard');
   const owner = { ...base, ...policy, ...client };

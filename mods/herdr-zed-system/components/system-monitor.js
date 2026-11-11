@@ -1,8 +1,8 @@
 // Shared: edit components/system-monitor.js, then npm run sync:shared.
 import { div, svg, PathBuilder } from 'gpui-kit';
 import { h_flex, v_flex } from 'gpui-base';
-import { shared, openOverlay, run, nextCommand, layout } from 'herdr';
-import { workspaceOverlay } from './workspace-overlay.js';
+import { shared, run, nextCommand, layout } from 'herdr';
+import { openWorkspacePanel } from './workspace-overlay.js';
 import { Button } from './button.js';
 import { hardwareModules, hardwarePreferences, selectedHardwareCores, hardwareBytes, hardwarePercent, hardwareSpeed, hardwarePower, hardwareSensorSummary, hardwarePoint, hardwareChartPoints, hardwareChartScale, hardwareDisplayItems, hardwareDisplayHistory } from './system-monitor-model.js';
 import { processorLabel } from './system-monitor-topology.js';
@@ -174,7 +174,7 @@ export class SystemMonitor {
   }
   open(page = 'overview') {
     if (this.openDetails) return this.openDetails(page);
-    return openOverlay(workspaceOverlay({ mod: 'herdr-zed-system', props: { view: 'details', page } }));
+    return openWorkspacePanel({ mod: 'herdr-zed-system', props: { view: 'details', page } });
   }
   renderInline(t, { id = 'system-inline' } = {}) {
     const root = h_flex().id(id).flex_1().min_w(0).h_full().items_center().gap(2);
