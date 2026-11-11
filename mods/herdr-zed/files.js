@@ -2,7 +2,7 @@ import { div, svg } from 'gpui-kit';
 import { h_flex, v_flex, Editor, EditorState, TextView } from 'gpui-base';
 import { exec, readTextFile, watchFolder, settings, theme, window, props, openOverlay, closeOverlay, notify, shared, setShared } from 'herdr';
 import { execShell } from './shell.js';
-import { Button } from './components/button.js';
+import { Button, ToolbarButton } from './components/button.js';
 import { TreeItem, TreeItemIcon, TreeItemLabel, GitStatusColor } from './components/tree.js';
 import { Empty, EmptyTitle, EmptyDescription } from './components/empty.js';
 import { SidePanelLayout, SidePanelState } from './components/side-panel.js';
@@ -485,14 +485,14 @@ export default class FileViewer {
             .child(div().min_w(0).truncate().text_size(12).when(preview, el => el.italic().text_color(active ? t.muted : t.dim)).child(base))
             // Same-named files show their folder, as Zed does.
             .when(counts.get(base) > 1 && Boolean(folder), el => el.child(div().min_w(0).truncate().text_size(11).text_color(t.dim).child(folder)))
-            .child(Button(`close-file-tab-${id}`, t, { variant: 'row', size: 'icon-sm' })
+            .child(ToolbarButton(`close-file-tab-${id}`, t, { icon: true, row: true })
               .opacity(active || this.hoveredTab === id ? 1 : 0)
               .accessibility_label(`Close ${base}`)
               .on_click((_event, cx) => { cx.stop_propagation(); close(cx); })
               .child(icon('close').size(12)));
         })))
       .child(DropdownMenu('file-tab-options', this.optionsMenu,
-        Button('file-tab-options-trigger', t, { variant: 'ghost', size: 'icon' }).when(wrap, el => el.h(31)).when(!wrap, el => el.h_full()).w(32)
+        ToolbarButton('file-tab-options-trigger', t, { icon: true }).when(wrap, el => el.h(31)).when(!wrap, el => el.h_full())
           .accessibility_label('Tab options').child(icon('ellipsis')),
         [{ key: 'wrap-tabs', label: 'Wrap tabs', checked: wrap }],
         (_key, cx) => this.toggleWrapTabs(cx), t, { offset: { x: 8, y: 9 }, fullHeight: !wrap }));

@@ -1,7 +1,7 @@
 import { div } from 'gpui-kit';
 import { h_flex, v_flex } from 'gpui-base';
 import { openOverlay, closeOverlay, props, run, shared, setShared, notify } from 'herdr';
-import { Button } from './components/button.js';
+import { Button, ToolbarButton } from './components/button.js';
 import { glyph } from './components/icon.js';
 import { Switch } from './components/switch.js';
 import { ToggleGroup, ToggleGroupItem } from './components/toggle-group.js';
@@ -20,15 +20,25 @@ const SHELL_PAGES = [
   { key: 'extensions', title: 'Manage extensions', description: 'Manage installed workspace extensions. Changes apply immediately.' },
 ];
 
-// Extension pages are keyed `extension:<id>`, so an extension ID can never shadow a shell page.
-export const extensionPageKey = id => `extension:${id}`;
+// Extension pages are keyed `extension:<id>`, so an extension ID can never shadow a shell page. A sub-page (ARCHITECTURE
+// §2.1 settings.pages) is `extension:<id>:<page id>`.
+export const extensionPageKey = (id, page = null) => page ? `extension:${id}:${page}` : `extension:${id}`;
 
-// The key behind the `herdr-zed.settings:<id>` command: a shell page key (general, git, extensions) or an extension ID.
-export const settingsPageKey = id => SHELL_PAGES.some(page => page.key === id) ? id : extensionPageKey(id);
+// The key behind the `herdr-zed.settings:<id>` command: a shell page key (general, git, extensions), an extension ID, or
+// `<extension id>:<page id>` for one of its sub-pages.
+export const settingsPageKey = id => {
+  if (SHELL_PAGES.some(page => page.key === id)) return id;
+  const [extension, page] = String(id).split(':');
+  return page === undefined ? extensionPageKey(extension) : extensionPageKey(extension, page);
+};
 
-// Eligible extension pages only: the catalog's resolved list holds enabled, error-free, available packages that declare `settings`.
-export const extensionSettingsPages = () => (extensionCatalog().resolved?.settings || [])
-  .map(entry => ({ key: extensionPageKey(entry.id), title: entry.title, mod: entry.mod, view: entry.view }));
+// Eligible extension pages only: the catalog's resolved list holds enabled, error-free, available packages that declare
+// `settings`. Each entry is followed by its sub-pages (`indent`), in declaration order.
+export const extensionSettingsPages = () => (extensionCatalog().resolved?.settings || []).flatMap(entry => [
+  { key: extensionPageKey(entry.id), title: entry.title, mod: entry.mod, view: entry.view, page: null, indent: false },
+  ...(entry.pages || []).map(page => ({ key: extensionPageKey(entry.id, page.id), title: page.title, mod: entry.mod,
+    view: entry.view, page: page.id, indent: true })),
+]);
 
 // What a page key shows: a shell page, or an extension page that is eligible now. Null otherwise.
 export function settingsPage(key) {
@@ -48,7 +58,7 @@ export function settingsOverlay(key, context) {
   const page = settingsPage(key);
   const content = page.shell
     ? { mod: 'herdr-zed', props: { view: 'settings-page', page: key, context } }
-    : { mod: page.mod, props: { view: page.view, embedded: true, context } };
+    : { mod: page.mod, props: { view: page.view, embedded: true, page: page.page, context } };
   return { kind: 'dialog', modal: true, frame: 'none', width: 1040, height: 0.86,
     layout: { type: 'row', children: [
       { type: 'block', size: { px: 220 }, content: { mod: 'herdr-zed', props: { view: 'settings-nav', page: key, context } } },
@@ -92,21 +102,25 @@ export class SettingsNav {
   render(t) {
     const { page, context, overlay } = props();
     const done = () => closeSettingsDialog(overlay);
-    const entry = (key, label) => Button(`settings-nav-${key.replace(/\W/g, '-')}`, t, { variant: 'ghost' })
-      .w_full().h(32).px(10).justify_start()
+    const entry = (key, label, indent = false) => Button(`settings-nav-${key.replace(/\W/g, '-')}`, t, { variant: 'ghost' })
+      .w_full().h(32).px(indent ? 24 : 10).justify_start()
       .bg(page === key ? t.selected : t.popover).text_color(page === key ? t.foreground : t.muted)
-      .hover(el => el.bg(page === key ? t.selected : t.hover).text_color(t.foreground))
+      .hover(el => el.bg(page === key ? t.selected : t.hover))
       .accessibility_label(label)
       .on_click(() => openSettings(key, context))
       .child(div().min_w(0).truncate().child(label));
     const extensions = extensionSettingsPages();
+    // design.md, Separators: a 1px divider between Workspace, Extensions and Herdr settings.
+    const divider = () => div().h(1).flex_none().my(6).bg(t.border);
     return v_flex().size_full().min_h(0).p(12).gap(2).bg(t.popover).border(1).border_color(t.border)
       .on_key_down((event, cx) => { if (event.key === 'escape') { cx.stop_propagation(); done(); } })
       .child(DialogTitle().flex_none().px(10).pt(4).pb(8).child('Settings'))
       .child(heading(t, 'Workspace'))
       .children(SHELL_PAGES.map(item => entry(item.key, item.title)))
-      .when(extensions.length > 0, el => el.child(heading(t, 'Extensions')).children(extensions.map(item => entry(item.key, item.title))))
+      .when(extensions.length > 0, el => el.child(divider()).child(heading(t, 'Extensions'))
+        .children(extensions.map(item => entry(item.key, item.title, item.indent))))
       .child(div().flex_1())
+      .child(divider())
       .child(Button('settings-herdr', t, { variant: 'ghost' }).w_full().h(32).px(10).justify_start().text_color(t.muted)
         .on_click(() => { run('app.settings'); done(); }).child('Herdr settings…'));
   }
@@ -119,7 +133,7 @@ export class SettingsHeader {
     return h_flex().size_full().min_w(0).px(24).gap(12).items_center().bg(t.popover).text_color(t.foreground)
       .border_t(1).border_r(1).border_b(1).border_color(t.border)
       .child(div().flex_1().min_w(0).truncate().font_family('Georgia').text_size(16).child(settingsPage(page)?.title || 'Settings'))
-      .child(Button('settings-close', t, { variant: 'ghost', size: 'icon' }).accessibility_label('Close settings')
+      .child(ToolbarButton('settings-close', t, { icon: true }).accessibility_label('Close settings')
         .on_click(() => closeSettingsDialog(overlay)).child(glyph('close', 14)));
   }
 }

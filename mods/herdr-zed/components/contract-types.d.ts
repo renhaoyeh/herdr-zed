@@ -20,19 +20,25 @@ export interface Provides {
   gitCredentials?: GitCredentialsProvider;
 }
 
+export type Platform = 'macos' | 'windows' | 'linux';
+
 export interface ExtensionAction {
   id: string; title: string; icon: string; iconColor?: string;
   location: 'status.right' | 'git.actions';
-  popup: PopupDimensions & { modal: boolean };
+  /** ARCHITECTURE §2.1: `workspace` opens a popup over the work area (width and height are then ignored). */
+  popup: PopupDimensions & { modal: boolean; placement?: 'center' | 'workspace' };
 }
 export interface ExtensionSurface {
   id: string; location: 'sidebar.bottom' | 'status.right' | 'dock.right';
   view: string; title: string; icon: string;
 }
+/** ARCHITECTURE §2.1: a sub-item under a UI extension's Settings entry. */
+export interface ExtensionSettingsPage { id: string; title: string; }
 /** ARCHITECTURE §2.1: a UI extension's page in the shell's Settings dialog. */
-export interface ExtensionSettings { view: string; title: string; }
+export interface ExtensionSettings { view: string; title: string; pages?: ExtensionSettingsPage[]; }
 export interface ExtensionManifest {
   version: 1; id: ExtensionId; title: string;
+  platforms?: Platform[];
   dependencies?: string[]; requires?: ExtensionId[];
   services?: { view: string }[]; surfaces?: ExtensionSurface[];
   actions: ExtensionAction[]; provides?: Provides; settings?: ExtensionSettings;

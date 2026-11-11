@@ -10,6 +10,10 @@ const hasExactKeys = (value, keys) => plain(value) && Object.keys(value).length 
   && keys.every(key => Object.hasOwn(value, key));
 const providerKeys = ['launcher', 'threadDecorator', 'importer', 'gitCredentials'];
 const decorationFields = ['badge', 'subtitle', 'tone'];
+const platformNames = ['macos', 'windows', 'linux'];
+const placements = ['center', 'workspace'];
+// ARCHITECTURE §2.1 popup.placement "workspace": the work area between the header and the status bar.
+export const WORKSPACE_HEADER = 32, WORKSPACE_STATUS = 32;
 
 export function parseExtensionRegistry(text) {
   if (text === null) return [];
@@ -34,12 +38,14 @@ export function parseExtensionManifest(mod, text) {
       || !actionLocations.includes(action.location)
       || !name(action.icon) || (action.iconColor && !/^#[0-9a-f]{6}$/i.test(action.iconColor))
       || !action.popup || !name(action.popup.view) || !dimension(action.popup.width) || !dimension(action.popup.height)
-      || typeof action.popup.modal !== 'boolean') throw new Error('Invalid extension action.');
+      || typeof action.popup.modal !== 'boolean' || (action.popup.placement !== undefined && !placements.includes(action.popup.placement)))
+      throw new Error('Invalid extension action.');
     ids.add(action.id);
     return { id: `${value.id}.${action.id}`, extensionId: value.id, extensionTitle: value.title, mod,
       title: action.title, icon: action.icon, iconColor: action.iconColor || null,
       location: action.location,
-      popup: { view: action.popup.view, width: action.popup.width, height: action.popup.height, modal: action.popup.modal } };
+      popup: { view: action.popup.view, width: action.popup.width, height: action.popup.height, modal: action.popup.modal,
+        placement: action.popup.placement || 'center' } };
   });
   const surfaceIds = new Set();
   if (value.surfaces !== undefined && (!Array.isArray(value.surfaces) || value.surfaces.length > 8))
@@ -64,12 +70,30 @@ function validateMetadata(mod, value) {
   validateRequires(value.id, value.requires);
   validateProvides(value.provides);
   validateSettings(value.settings);
+  validatePlatforms(value.platforms);
 }
 
-// ARCHITECTURE §2.1: the Settings dialog hosts `view` embedded, listed under `title`. Exactly these two keys.
+// ARCHITECTURE §2.1: optional `platforms` (non-empty, unique). Absent means every platform.
+function validatePlatforms(list) {
+  if (list !== undefined && (!Array.isArray(list) || list.length === 0 || list.length > platformNames.length
+    || list.some(item => !platformNames.includes(item)) || new Set(list).size !== list.length))
+    throw new Error('Invalid extension platforms.');
+}
+
+// The platform rule (ARCHITECTURE §2.1): a package whose platforms do not include the window's platform contributes nothing.
+export const platformSupported = (platforms, platform) => !platforms || platforms.includes(platform);
+
+// ARCHITECTURE §2.1: the Settings dialog hosts `view` embedded, listed under `title`. `pages` (optional, 1-12) are
+// sub-items under the entry, each { id, title }. Keys are exactly these.
 function validateSettings(settings) {
-  if (settings !== undefined && (!hasExactKeys(settings, ['view', 'title']) || !name(settings.view) || !title(settings.title)))
-    throw new Error('Invalid extension settings.');
+  if (settings === undefined) return;
+  if (!plain(settings) || Object.keys(settings).some(key => !['view', 'title', 'pages'].includes(key))
+    || !name(settings.view) || !title(settings.title)) throw new Error('Invalid extension settings.');
+  const pages = settings.pages;
+  if (pages === undefined) return;
+  if (!Array.isArray(pages) || pages.length < 1 || pages.length > 12
+    || pages.some(page => !hasExactKeys(page, ['id', 'title']) || !name(page.id) || !title(page.title))
+    || new Set(pages.map(page => page.id)).size !== pages.length) throw new Error('Invalid extension settings.');
 }
 
 function validateRequires(id, requires) {
@@ -104,7 +128,9 @@ const validImporter = importer => hasExactKeys(importer, ['accepts', 'view'])
 // Only declared, enabled, error-free packages whose requirements are themselves available contribute.
 export function resolveProviders(packages = [], disabledMods = []) {
   const disabled = new Set(disabledMods);
-  let available = packages.filter(entry => entry && !entry.error && !disabled.has(entry.mod));
+  // An unsupported package (another platform) is never available: it is neither a provider nor a conflict.
+  const usable = entry => entry && !entry.error && !entry.unsupported && !disabled.has(entry.mod);
+  let available = packages.filter(usable);
   for (;;) {
     const ids = new Set(available.map(entry => entry.id));
     const next = available.filter(entry => (entry.requires || []).every(id => ids.has(id)));
@@ -113,7 +139,7 @@ export function resolveProviders(packages = [], disabledMods = []) {
   }
   const availableIds = new Set(available.map(entry => entry.id));
   const unavailable = packages
-    .filter(entry => entry && !entry.error && !disabled.has(entry.mod) && !available.includes(entry))
+    .filter(entry => usable(entry) && !available.includes(entry))
     .map(entry => ({ mod: entry.mod, id: entry.id, missing: (entry.requires || []).filter(id => !availableIds.has(id)) }));
   const conflicts = [];
   const unique = (provider, entries) => {
@@ -131,15 +157,21 @@ export function resolveProviders(packages = [], disabledMods = []) {
     .map(entry => ({ mod: entry.mod, id: entry.id, fields: [...entry.provides.threadDecorator.fields] }));
   // Settings pages: enabled, error-free, available packages that declare `settings`, in catalog order.
   const settings = available.filter(entry => entry.settings)
-    .map(entry => ({ mod: entry.mod, id: entry.id, view: entry.settings.view, title: entry.settings.title }));
+    .map(entry => ({ mod: entry.mod, id: entry.id, view: entry.settings.view, title: entry.settings.title,
+      pages: entry.settings.pages || [] }));
   return { launcher, gitCredentials, importers, decorators, settings, conflicts, unavailable };
+}
+
+function settingsMetadata(settings) {
+  if (!settings) return null;
+  return { view: settings.view, title: settings.title, pages: (settings.pages || []).map(({ id, title }) => ({ id, title })) };
 }
 
 export function extensionMetadata(mod, text) {
   parseExtensionManifest(mod, text);
   const value = JSON.parse(text);
   return { id: value.id, title: value.title, dependencies: value.dependencies || [], requires: value.requires || [],
-    provides: value.provides || {}, settings: value.settings ? { view: value.settings.view, title: value.settings.title } : null,
+    provides: value.provides || {}, platforms: value.platforms || null, settings: settingsMetadata(value.settings),
     services: (value.services || []).map(({ view }) => ({ view })),
     surfaces: (value.surfaces || []).map(surface => ({ ...surface, extensionId: value.id, mod })) };
 }
@@ -181,14 +213,43 @@ export function launcherAvailable(launcher, packages = [], root = null) {
   return (entry.services || []).every(service => mountedView(root, launcher.mod, service.view));
 }
 
-export function extensionPopup(action, project) {
+// `rect` (from workspaceRect) turns a `workspace` placement into a popup over the work area. Without it, the declared
+// centered dialog is used (the fallback when the work area size is not known yet).
+/** @param {any} action @param {any} project @param {{ x: number, y: number, width: number, height: number } | null} [rect] */
+export function extensionPopup(action, project, rect = null) {
   // Capture the originating project. Later workspace switches don't retarget an open dialog.
   const context = project ? { id: project.id, folder: project.folder, name: project.name, machine: project.machine || null } : null;
   const scope = JSON.stringify([context?.machine || '', context?.folder || '']);
+  const props = { view: action.popup.view, ...(context ? { context } : {}),
+    stateKey: `herdr-zed.extension.${action.extensionId}.${scope}` };
+  if (action.popup.placement === 'workspace' && rect)
+    return { mod: action.mod, kind: 'popup', frame: 'none', at: { x: rect.x, y: rect.y }, width: rect.width, height: rect.height, props };
   return { mod: action.mod, kind: 'dialog', frame: 'none', modal: action.popup.modal,
-    width: action.popup.width, height: action.popup.height,
-    props: { view: action.popup.view, ...(context ? { context } : {}),
-      stateKey: `herdr-zed.extension.${action.extensionId}.${scope}` } };
+    width: action.popup.width, height: action.popup.height, props };
+}
+
+// A picker opened without a pointer (keyboard or the new-thread command) is centred at the top of the work area, never in
+// the window's top-right corner (review L10). Device px, as the dropdown menus' anchors. Without a known work area it
+// falls back to the pointer.
+export function workspaceTopAnchor(rect, width, zoom = 1) {
+  if (!rect) return 'pointer';
+  return { x: (rect.x + Math.max(0, (rect.width - width) / 2)) * zoom, y: (rect.y + 8) * zoom };
+}
+
+// The work area for `workspace` popups: x = sidebar width (0 when hidden), y = header height, width = window width
+// minus x, height = window height minus header and status bar. `sidebar` is the layout node 'sidebar'; `workWidth`
+// (the work column, which is the window minus the sidebar) and `windowHeight` are measured by the shell's views.
+// Null when a size is unknown: the caller then uses the centered dialog.
+export function workspaceRect({ sidebar, workWidth, windowHeight }) {
+  if (!(workWidth > 0) || !(windowHeight > 0)) return null;
+  let x = 0;
+  if (sidebar && !sidebar.hidden) {
+    if (!Number.isFinite(sidebar.size?.px)) return null;
+    x = sidebar.size.px;
+  }
+  const height = windowHeight - WORKSPACE_HEADER - WORKSPACE_STATUS;
+  if (workWidth <= 0 || height <= 0) return null;
+  return { x, y: WORKSPACE_HEADER, width: workWidth, height };
 }
 
 // Git actions open with the selected repository (ARCHITECTURE §2.1), not the workspace project.

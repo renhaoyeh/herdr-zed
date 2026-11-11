@@ -12,7 +12,7 @@ const manifestWith = settings => JSON.stringify({ ...base, ...(settings === unde
 test('manifest settings: optional {view,title} with exactly those keys, parsed into metadata', () => {
   assert.equal(extensionMetadata('herdr-zed-demo', manifestWith()).settings, null, 'Absent settings means no Settings page');
   assert.deepEqual(extensionMetadata('herdr-zed-demo', manifestWith({ view: 'settings', title: 'Demo' })).settings,
-    { view: 'settings', title: 'Demo' });
+    { view: 'settings', title: 'Demo', pages: [] });
   assert.equal(parseExtensionManifest('herdr-zed-demo', manifestWith({ view: 'settings', title: 'Demo' })).length, 0);
   for (const bad of [{ view: 'settings' }, { title: 'Demo' }, { view: 'settings', title: '  ' }, { view: 'settings', title: 7 },
     { view: 'settings', title: 'Demo', width: 1040 }, { view: '../escape', title: 'Demo' }, { view: 'Settings', title: 'Demo' },
@@ -27,8 +27,8 @@ test('resolveProviders lists settings only for enabled, error-free, available pa
     pkg('calendar', { requires: ['missing'] }), pkg('tasks'), pkg('plain', { settings: null })];
   const resolved = resolveProviders(packages, ['herdr-zed-asana']);
   assert.deepEqual(resolved.settings, [
-    { mod: 'herdr-zed-agents', id: 'agents', view: 'settings', title: 'agents settings' },
-    { mod: 'herdr-zed-tasks', id: 'tasks', view: 'settings', title: 'tasks settings' },
+    { mod: 'herdr-zed-agents', id: 'agents', view: 'settings', title: 'agents settings', pages: [] },
+    { mod: 'herdr-zed-tasks', id: 'tasks', view: 'settings', title: 'tasks settings', pages: [] },
   ]);
   assert.deepEqual(resolved.unavailable.map(entry => entry.id), ['calendar']);
   assert.deepEqual(resolveProviders([]).settings, []);
@@ -59,6 +59,7 @@ function settingsRuntime({ settings = [], memory = {}, closeThrows = [] } = {}) 
   const host = {
     div: element, v_flex: element, h_flex: element, Button: id => element(id), DialogTitle: () => element(), DialogDescription: () => element(),
     Switch: (id, checked) => element(id, { checked }), ToggleGroup: id => element(id), ToggleGroupItem: (id, pressed) => element(id, { pressed }),
+    ToolbarButton: id => element(id),
     glyph: () => element(),
     AUTO_RESUME_KEY: 'herdr-zed.auto-resume', extensionCatalog: () => ({ resolved: { settings } }),
     BuildRulesSettings: class { init() { this.inited = true; } close() {} render() { return element('rules'); } },
@@ -97,7 +98,7 @@ test('an extension page embeds its own view with the current project as context'
   const r = settingsRuntime({ settings }); const s = await r.ready;
   s.openSettings('extension:agents', project);
   assert.deepEqual(r.opened[0].layout.children[1].children[1], { type: 'block', content: { mod: 'herdr-zed-agents',
-    props: { view: 'settings', embedded: true, context } } });
+    props: { view: 'settings', embedded: true, page: null, context } } });
   assert.equal(r.opened[0].layout.children[1].children[0].content.props.view, 'settings-header', 'the shell title bar sits above it');
   assert.equal(r.opened[0].layout.children[0].content.props.page, 'extension:agents');
 });

@@ -11,7 +11,8 @@ const statusRow = () => ({ id: 'status-content', type: 'row', children: [
   { id: 'status-tools', type: 'block', size: { px: 68 }, content: { mod: 'herdr-zed', props: { view: 'status-tools' } } },
 ] });
 const rootLayout = () => ({ id: 'root', type: 'row', children: [
-  { id: 'sidebar', type: 'column', size: { px: 280 }, children: [{ id: 'agents', type: 'block', content: { mod: 'herdr-zed' } }] },
+  { id: 'sidebar', type: 'column', size: { px: 280 }, children: [{ id: 'agents', type: 'block', content: { mod: 'herdr-zed' } },
+    { id: 'sidebar-history', type: 'block', size: { px: 32 }, content: { mod: 'herdr-zed', props: { view: 'sidebar-history' } } }] },
   { id: 'workspace-row', type: 'row', children: [{ id: 'editor', type: 'block', size: { weight: 1 }, content: { mod: 'herdr-zed', props: { view: 'editor' } } }] },
   { id: 'status', type: 'column', size: { px: 32 }, children: [statusRow()] },
 ] });
@@ -34,10 +35,13 @@ test('surface declarations preserve popup actions and expose validated generic n
 test('reconcile mounts provider views, preserves native geometry and visibility, then removes only owned mounts', () => {
   const packages = [packageFor('herdr-zed-system', systemText), packageFor('herdr-zed-simulator', simulatorText)];
   const root = rootLayout(), first = extensionSurfaceLayout(root, packages);
-  assert.equal(root.children[0].children.length, 1, 'Input layout remains immutable');
-  const sidebar = find(first, 'sidebar'), widgets = sidebar.children.at(-1);
+  assert.equal(root.children[0].children.length, 2, 'Input layout remains immutable');
+  const sidebar = find(first, 'sidebar'), widgets = sidebar.children.find(child => child.id === 'zed-extension-surface-herdr-zed-system-widgets');
+  assert.deepEqual(sidebar.children.map(child => child.id), ['agents', 'zed-extension-surface-herdr-zed-system-widgets', 'sidebar-history'],
+    'sidebar surfaces mount above the history row, which stays last');
   assert.deepEqual(widgets.content, { mod: 'herdr-zed-system', props: { view: 'widgets' } });
   assert.deepEqual(widgets.size, { px: 260 }); assert.equal(widgets.min, 96); assert.equal(widgets.max, 420);
+  assert.equal(widgets.hidden, true, 'a sidebar surface is hidden the first time it mounts');
   const status = find(first, 'status-content');
   assert.equal(status.type, 'row');
   assert.deepEqual(status.children.map(child => child.id), ['status-main', 'zed-extension-surface-herdr-zed-system-inline', 'status-tools']);
@@ -60,16 +64,18 @@ test('reconcile mounts provider views, preserves native geometry and visibility,
   assert.deepEqual(find(disabled, 'simulator'), resizedDock, 'Other extension mount and layout state are preserved');
 });
 
-test('status tools are sized to their icons, and a status.right surface mounts before them', () => {
-  assert.equal(statusToolsWidth(), 68, 'Changes and Files only');
-  assert.equal(statusToolsWidth({ actions: 1 }), 117, 'one action, divider, then Changes and Files');
-  assert.equal(statusToolsWidth({ actions: 6, dock: 1 }), 285, 'four actions plus overflow, one dock toggle');
+test('status tools are sized to their icons (28px) and dividers, and a status.right surface mounts before them', () => {
+  assert.equal(statusToolsWidth(), 60, 'Changes and Files only: two 28px buttons and padding');
+  assert.equal(statusToolsWidth({ readings: 1 }), 69, 'a divider before the readings group');
+  assert.equal(statusToolsWidth({ actions: 1 }), 105, 'one action, divider, then Changes and Files');
+  assert.equal(statusToolsWidth({ actions: 1, dock: 1 }), 150,'icons, divider, dock toggle, divider, Changes and Files');
+  assert.equal(statusToolsWidth({ actions: 6, dock: 1 }), 262, 'four actions plus overflow, one dock toggle');
   const system = packageFor('herdr-zed-system', systemText);
   const withOne = extensionSurfaceLayout(rootLayout(), [system], [], [], { actions: 2, dock: 0 });
-  assert.equal(find(withOne, 'status-tools').size.px, 149);
+  assert.equal(find(withOne, 'status-tools').size.px, 133);
   assert.equal(extensionSurfaceLayout(withOne, [system], [], [system], { actions: 2, dock: 0 }), null, 'unchanged counts do not rewrite the layout');
   const grown = extensionSurfaceLayout(withOne, [system], [], [system], { actions: 6, dock: 1 });
-  assert.equal(find(grown, 'status-tools').size.px, 285);
+  assert.equal(find(grown, 'status-tools').size.px, 262);
   assert.deepEqual(find(grown, 'status-content').children.map(child => child.id),
     ['status-main', 'zed-extension-surface-herdr-zed-system-inline', 'status-tools']);
 });

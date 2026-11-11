@@ -1,7 +1,7 @@
 import { div, svg } from 'gpui-kit';
 import { h_flex, Popup } from 'gpui-base';
 import { shared, setShared, settings } from 'herdr';
-import { Button } from './components/button.js';
+import { Button, ToolbarButton } from './components/button.js';
 
 const GIT_TOAST = 'herdr-zed.git-result-toast';
 export const gitToastProject = context => JSON.stringify([context?.machine || '', context?.workspaceFolder || context?.folder || context?.id || '']);
@@ -32,7 +32,7 @@ export function GitResultToast(t, project) {
         setShared('herdr-zed.right-panel', 'diff');
         clearGitToast();
       })))
-    .child(Button('git-toast-close', t, { variant: 'ghost', size: 'icon-sm' })
+    .child(ToolbarButton('git-toast-close', t, { icon: true, row: true })
       .accessibility_label('Dismiss Git notification').child(svg('mods/herdr-zed/assets/icons/close.svg').size(12))
       .on_click(() => clearGitToast()));
   return Popup.new('git-result-toast-layer', div().size(0)).relative().absolute().right(0).top(0)

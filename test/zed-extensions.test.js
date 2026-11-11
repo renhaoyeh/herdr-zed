@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseExtensionRegistry, parseExtensionManifest, extensionPopup, extensionMetadata, extensionServiceLayout, gitActionPopup, resolveProviders } from '../mods/herdr-zed/extension-model.js';
+import { parseExtensionRegistry, parseExtensionManifest, extensionPopup, extensionMetadata, extensionServiceLayout, gitActionPopup, resolveProviders,
+  platformSupported, workspaceRect } from '../mods/herdr-zed/extension-model.js';
 import { extensionSurfaceLayout, extensionSurfaceNodeId } from '../mods/herdr-zed/extension-surfaces.js';
 import { evaluateNative } from './source-harness.js';
 import { asanaManifest as manifestText, systemManifest as systemText } from './extension-fixtures.js';
@@ -51,15 +52,16 @@ test('registry and manifest validation reject unsupported versions, paths and co
   assert.throws(() => parseExtensionManifest('herdr-zed-asana', JSON.stringify({ ...manifest, actions: [manifest.actions[0], manifest.actions[0]] })));
 });
 
-const runtime = async (readTextFile, initialLayout = null) => {
+const runtime = async (readTextFile, initialLayout = null, platform = 'linux') => {
   let root = initialLayout;
   const memory = {}, opened = [], notices = [], layoutUpdates = [];
   const host = { shared: key => memory[key], setShared: (key, value) => { memory[key] = structuredClone(value); },
     appHome: () => '/herdr', readTextFile, layout: () => root, run: (command, args) => { assert.equal(command, 'layout.set'); root = args.layout; layoutUpdates.push(root); }, openOverlay: value => { opened.push(value); return 'overlay'; }, notify: value => notices.push(value),
     parseExtensionRegistry, parseExtensionManifest, extensionPopup, extensionMetadata, extensionServiceLayout,
-    extensionSurfaceLayout, extensionSurfaceNodeId, gitActionPopup, resolveProviders };
+    extensionSurfaceLayout, extensionSurfaceNodeId, gitActionPopup, resolveProviders,
+    platformSupported, workspaceRect, window: () => ({ platform }), settings: () => ({ zoom: 1 }) };
   return { memory, opened, notices, layoutUpdates, ...await evaluateNative('../mods/herdr-zed/extensions.js', host,
-    'refreshExtensions, openExtension, extensionCatalog, extensionEnabled, setExtensionEnabled, extensionActive, extensionActions, openGitAction') };
+    'refreshExtensions, openExtension, extensionCatalog, extensionEnabled, setExtensionEnabled, extensionActive, extensionActions, openGitAction, workspaceRectNow, recordSize, visibleSurfaceCount, WORK_WIDTH_KEY, WINDOW_HEIGHT_KEY') };
 };
 
 test('discovery reads declarations only; activation alone opens the existing provider popup', async () => {
@@ -187,7 +189,7 @@ test('status bar actions are icon-only: four buttons with title tooltips, the re
   const host = { shared: key => memory[key], setShared: (key, value) => { memory[key] = structuredClone(value); },
     openOverlay: value => { opened.push(value); return 'overlay'; }, notify: () => {}, layout: () => null, run: () => {},
     appHome: () => '/herdr', readTextFile: null,
-    h_flex: () => ui('h_flex'), ToolbarButton: (id, t, options) => Object.assign(ui('button'), { id, options }),
+    h_flex: () => ui('h_flex'), ToolbarButton: (id, t, options) => Object.assign(ui('button'), { id, options }), TOOLBAR_GLYPH: 16,
     glyph: name => Object.assign(ui('glyph'), { glyph: name }),
     DropdownMenu: (id, state, trigger, items, onSelect, t, options) => ({ id, items, onSelect, trigger, options, state }),
     STATUS_ACTION_LIMIT: 4, extensionSurfaceLayout, extensionSurfaceNodeId, extensionServiceLayout, extensionPopup, gitActionPopup,

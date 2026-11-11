@@ -334,6 +334,12 @@ export function terminalLabel(terminal) {
 
 // A live shell is usually waiting for input; a foreground command is running.
 // Agent reports take precedence: an idle/blocked agent still owns a foreground process.
+// design.md / review L12: the spinner shows only what an agent reports as working. A plain terminal running a foreground
+// process (npm run dev) keeps its terminal icon; terminalWorking is for the terminal's own state, not for the spinner.
+export function agentReportedWorking(terminal, status = terminal?.status) {
+  return status === 'working' && Boolean(terminal?.program?.agent || terminal?.agent);
+}
+
 export function terminalWorking(terminal) {
   if (!terminal || (terminal.state && terminal.state !== 'live')) return false;
   if (terminal.status) return terminal.status === 'working';

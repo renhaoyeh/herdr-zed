@@ -5,7 +5,7 @@ import { execShell } from './shell.js';
 import { readBuildRules, withBuildRulesFile } from './diff-ignore.js';
 import { openSettings } from './settings.js';
 import { utf8ByteLength } from './utf8.js';
-import { Button } from './components/button.js';
+import { Button, ToolbarButton } from './components/button.js';
 import { DropdownMenu, DropdownMenuState } from './components/dropdown-menu.js';
 import { Select, SelectState } from './components/select.js';
 import { TreeItem, TreeItemIcon, TreeItemLabel, GitStatusColor } from './components/tree.js';
@@ -843,7 +843,7 @@ export default class DiffViewer {
     return v_flex().id('git-output').size_full().min_w(0).min_h(0)
       .child(h_flex().h(32).flex_none().pl(12).gap(8).items_center().bg(t.chrome).border_b(1).border_color(t.border)
         .child(div().flex_1().min_w(0).truncate().text_size(12).child(`Git output: ${this.outputTitle}`))
-        .child(Button('git-output-close', t, { variant: 'ghost', size: 'icon' }).h_full().w(32)
+        .child(ToolbarButton('git-output-close', t, { icon: true })
           .accessibility_label('Close Git output').child(icon('close'))
           .on_click((_event, cx) => { this.output.release(); this.output = null; cx.notify(); })))
       .child(Editor.new(this.output).flex_1().min_h(0));
@@ -897,7 +897,7 @@ export default class DiffViewer {
             .accessibility_label(`${operation.label} current branch${ahead == null ? '' : `, ${ahead} commits ahead, ${behind} commits behind upstream`}`)
             .on_click((_event, cx) => this.remoteAction(action, cx)).child(this.pushing ? this.operation.progress : `${counts}${operation.label}`))
           .child(DropdownMenu('diff-git-actions', this.gitMenu,
-            Button('diff-git-menu', t, { size: 'icon' }).w(24).h(26).border_l(1).border_color(t.chrome)
+            ToolbarButton('diff-git-menu', t, { icon: true }).border_l(1).border_color(t.chrome)
               .disabled(Boolean(this.pushing)).accessibility_label('More Git operations')
               .child(icon('chevron-down')), items, choose, t, { side: 'top', offset: { x: 0, y: 15 } })))); // 8px above the footer's top border
   }
@@ -974,7 +974,7 @@ export default class DiffViewer {
     return v_flex().id('commit-details').flex_none().px(12).py(8).gap(4).border_b(1).border_color(t.border)
       .child(h_flex().h(20).gap(6).items_center().text_size(11).text_color(t.muted)
         .child(div().flex_none().child(commit.author))
-        .when(hasMore, el => el.child(Button('commit-description-toggle', t, { variant: 'ghost', size: 'icon-sm' })
+        .when(hasMore, el => el.child(ToolbarButton('commit-description-toggle', t, { icon: true, row: true })
           .accessibility_label(expanded ? 'Fold commit description' : 'Expand commit description')
           .child(icon(expanded ? 'chevron-down' : 'chevron-right'))
           .on_click((_event, cx) => { this.expandedCommitMessage = expanded ? null : commit.sha; cx.notify(); })))
@@ -1144,7 +1144,7 @@ export default class DiffViewer {
             .child(div().text_size(11).text_color(GitStatusColor.deleted).child(`−${removed}`))))
         .child(div().flex_1())
         .child(DropdownMenu('diff-file-view', this.fileViewMenu,
-          Button('diff-file-view-trigger', t, { variant: 'ghost', size: 'icon' }).h_full().w(32)
+          ToolbarButton('diff-file-view-trigger', t, { icon: true })
             .accessibility_label('Changes settings').child(icon('settings')),
           this.panelSettingsItems(), (key, cx) => this.choosePanelSetting(key, cx), t,
           { offset: { x: 0, y: 9 }, fullHeight: true })))) // 8px below the toolbar's bottom border
@@ -1168,7 +1168,7 @@ export default class DiffViewer {
         .child(Button('git-view-latest-commit', t, { variant: 'ghost' }).flex_1().min_w(0).h_full().px(10).justify_start()
           .accessibility_label(`View commit ${this.latestCommit.shortSha}`).child(div().truncate().text_size(12).child(this.latestCommit.subject))
           .on_click((_event, cx) => this.openCommit(this.latestCommit, cx)))
-        .child(Button('git-open-graph', t, { variant: 'ghost', size: 'icon' }).size(32)
+        .child(ToolbarButton('git-open-graph', t, { icon: true })
           .accessibility_label('Open Git Graph').child(icon('git-graph').size(14)).on_click((_event, cx) => this.openGraph(cx)))));
   }
 
@@ -1367,14 +1367,14 @@ export default class DiffViewer {
     }
     const t = theme(), mono = settings().font_family, { rows, sizes, limited, gutter, contentWidth, wrap } = this.rows(cx), split = this.split;
     const preview = this.commitPreview;
-    const choice = (id, label, value) => Button(id, t, { variant: 'ghost', size: 'icon' }).h_full().w(32)
+    const choice = (id, label, value) => ToolbarButton(id, t, { icon: true })
       .when(split === (value === 'split'), el => el.bg(t.selected).text_color(t.foreground))
       .accessibility_label(`${label} diff${split === (value === 'split') ? ', selected' : ''}`)
       .on_click((_event, cx) => this.setLayout(value, cx)).child(icon(`diff-${value}`).size(16));
     // The editor and the Git panel are side by side, each with its own 32px header, like Files; drag the line between them.
     const content = this.output ? this.outputView(t) : v_flex().size_full().min_w(0).min_h(0)
         .child(h_flex().h(32).flex_none().pl(12).gap(8).items_center().bg(t.chrome).border_b(1).border_color(t.border).text_size(12)
-          .when(Boolean(!this.managedTabs && this.graphReturn && this.previewMode), el => el.child(Button('diff-back-to-graph', t, { variant: 'ghost', size: 'icon' })
+          .when(Boolean(!this.managedTabs && this.graphReturn && this.previewMode), el => el.child(ToolbarButton('diff-back-to-graph', t, { icon: true })
             .h_full().w(32).accessibility_label('Back to Git Graph').child(icon('chevron-left'))
             .on_click((_event, cx) => this.openGraph(cx))))
           .child(div().flex_1().min_w(0).truncate().font_medium().child(preview ? `Commit ${preview.commit.shortSha}` : 'Changes'))
@@ -1382,7 +1382,7 @@ export default class DiffViewer {
             .child(choice('diff-unified', 'Unified', 'unified'))
             .child(choice('diff-split', 'Split', 'split')))
           .child(DropdownMenu('diff-options', this.optionsMenu,
-            Button('diff-options-trigger', t, { variant: 'ghost', size: 'icon' }).h_full().w(32)
+            ToolbarButton('diff-options-trigger', t, { icon: true })
               .accessibility_label('Diff options').child(icon('ellipsis')),
             [{ key: 'wrap', label: 'Wrap', checked: this.wrap }],
             (_key, cx) => this.toggleWrap(cx), t, { offset: { x: 8, y: 9 }, fullHeight: true })))

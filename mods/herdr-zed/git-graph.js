@@ -2,7 +2,7 @@ import { Input } from './components/input.js';
 import { div, svg, PathBuilder } from 'gpui-kit';
 import { h_flex, v_flex, v_virtual_list, Scrollbar, VirtualListScrollHandle, InputState, TextView } from 'gpui-base';
 import { shared, setShared } from 'herdr';
-import { Button } from './components/button.js';
+import { Button, ToolbarButton } from './components/button.js';
 import { DropdownMenu, DropdownMenuState, DropdownMenuContent, DropdownMenuItem } from './components/dropdown-menu.js';
 import { SidePanelLayout, SidePanelState } from './components/side-panel.js';
 import { GitStatusColor, TreeItem, TreeItemIcon, TreeItemLabel } from './components/tree.js';
@@ -297,11 +297,11 @@ export class GitGraph {
     return v_flex().size_full().min_w(0).border_l(1).border_color(t.border).bg(t.background).text_size(12)
       .child(v_flex().relative().flex_none().p(8).gap(8)
         .child(h_flex().h(20).justify_between()
-          .child(Button('graph-metadata-toggle', t, { variant: 'ghost', size: 'icon-sm' })
+          .child(ToolbarButton('graph-metadata-toggle', t, { icon: true, row: true })
             .accessibility_label('Toggle commit details').child(graphIcon(this.metadataCollapsed ? 'chevron-right' : 'chevron-down'))
             .on_click((_event, cx) => { this.metadataCollapsed = !this.metadataCollapsed; cx.notify(); }))
           .when(this.metadataCollapsed, el => el.child(div().truncate().text_color(t.muted).child(`${commit.author} · ${commit.shortSha}`)))
-          .child(Button('graph-detail-close', t, { variant: 'ghost', size: 'icon-sm' }).accessibility_label('Close commit details').child(graphIcon('close'))
+          .child(ToolbarButton('graph-detail-close', t, { icon: true, row: true }).accessibility_label('Close commit details').child(graphIcon('close'))
             .on_click((_event, cx) => this.clearSelection(cx))))
         .when(!this.metadataCollapsed, el => el
           .child(v_flex().items_center().gap(4)
@@ -324,7 +324,7 @@ export class GitGraph {
           .child(TextView.markdown(`graph-message-${commit.sha}`, commit.message || commit.subject).selectable(true).scrollable(false).w_full().text_size(12)))))
       .child(h_flex().flex_none().h(32).px(8).gap(8).text_color(t.muted)
         .child(div().flex_1().child(`${files.length} Changed ${files.length === 1 ? 'File' : 'Files'}`))
-        .child(Button('graph-file-tree-toggle', t, { variant: 'ghost', size: 'icon-sm' }).accessibility_label(tree ? 'Show flat view' : 'Show tree view')
+        .child(ToolbarButton('graph-file-tree-toggle', t, { icon: true, row: true }).accessibility_label(tree ? 'Show flat view' : 'Show tree view')
           .when(tree, el => el.bg(t.selected)).child(graphIcon('list-tree'))
           .on_click((_event, cx) => { setShared('herdr-zed.graph-file-tree', !tree); this.fileScroll.scroll_to_item(0, 'top'); cx.notify(); }))
         .child(div().text_color(GitStatusColor.added).child(`+${total('added')}`))
@@ -397,11 +397,11 @@ export class GitGraph {
       .when(!embedded, el => el.child(h_flex().h(32).flex_none().pl(12).bg(t.chrome).border_b(1).border_color(t.border)
         .child(graphIcon('git-graph')).child(div().flex_1().pl(6).text_size(12).child('Git Graph'))
         .child(DropdownMenu('graph-columns', this.columnMenu,
-          Button('graph-column-trigger', t, { variant: 'ghost', size: 'icon' }).size(32).accessibility_label('Git Graph columns').child(graphIcon('ellipsis')),
+          ToolbarButton('graph-column-trigger', t, { icon: true }).accessibility_label('Git Graph columns').child(graphIcon('ellipsis')),
           graphColumns.map((label, index) => ({ key: index, label, checked: !hidden.includes(index), disabled: hidden.length === 5 && !hidden.includes(index) })),
           (index, cx) => { setShared('herdr-zed.graph-hidden-columns', hidden.includes(index) ? hidden.filter(i => i !== index) : [...hidden, index]); cx.notify(); },
           t, { fullHeight: true }))
-        .child(Button('graph-close', t, { variant: 'ghost', size: 'icon' }).size(32).accessibility_label('Close Git Graph')
+        .child(ToolbarButton('graph-close', t, { icon: true }).accessibility_label('Close Git Graph')
           .child(graphIcon('close')).on_click((_event, cx) => this.onClose?.(cx)))))
       .child(h_flex().h(44).flex_none().p(6).gap(6).border_b(1).border_color(t.border)
         .child(h_flex().flex_1().min_w(0).h(32).border(1).border_color(t.border).bg(t.chrome)
@@ -414,9 +414,9 @@ export class GitGraph {
           .child(Button('graph-match-case', t, { variant: 'ghost' }).h(30).w(30).px(0).child('Aa')
             .accessibility_label('Match case').when(Boolean(this.matchCase), el => el.bg(t.selected).text_color(t.foreground))
             .on_click((_event, cx) => { this.matchCase = !this.matchCase; this.queueSearch(cx); })))
-        .child(Button('graph-prev-match', t, { variant: 'ghost', size: 'icon' }).size(28).accessibility_label('Previous match')
+        .child(ToolbarButton('graph-prev-match', t, { icon: true }).accessibility_label('Previous match')
           .on_click((_event, cx) => this.nextMatch(-1, cx)).child(graphIcon('chevron-left')))
-        .child(Button('graph-next-match', t, { variant: 'ghost', size: 'icon' }).size(28).accessibility_label('Next match')
+        .child(ToolbarButton('graph-next-match', t, { icon: true }).accessibility_label('Next match')
           .on_click((_event, cx) => this.nextMatch(1, cx)).child(graphIcon('chevron-right')))
         .child(div().w(64).text_size(11).text_color(t.muted).child(this.searching ? 'Searching…' : `${this.matches.length ? this.match + 1 : 0}/${this.matches.length}`)))
       .when(Boolean(this.searchError), el => el.child(div().px(8).py(4).text_size(12).text_color(t.muted).child(this.searchError)))

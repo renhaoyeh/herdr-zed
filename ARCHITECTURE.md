@@ -54,15 +54,19 @@ the tests change in the same commit. Unknown keys inside `provides`, surfaces an
                  "location": "status.right|git.actions",
                  "popup": { "view": "details", "width": 1000, "height": 700, "modal": false } }],
   "provides": { … },               // NEW: provider contracts, §2.2
-  "settings": { "view": "settings", "title": "Agents" }  // NEW: page in the Settings dialog, §2.1
+  "settings": { "view": "settings", "title": "Agents", "pages": [{ "id": "accounts", "title": "Accounts" }] },  // §2.1
+  "platforms": ["macos", "windows", "linux"]   // optional, §2.1
 }
 ```
+
+`popup` may also declare `"placement": "center" | "workspace"` (default `center`), see below.
 
 - Discovery reads declarations only; it never mounts views, initializes provider APIs or reads credentials.
 - `services` mount in the shell's `status-separator` row while the extension is enabled.
 - `surfaces` mount as native blocks at fixed locations; visibility is persisted per surface. A `status.right` surface
   mounts in the status row before the shell's `status-tools` block (its icons, dock toggles, Changes and Files), so it
-  sits left of the action icons; `status-tools` is resized to its content by the shell.
+  sits left of the action icons; `status-tools` is resized to its content by the shell. A `sidebar.bottom` surface
+  mounts above the shell's `sidebar-history` block, which is always the last row of the sidebar.
 - `actions` open a popup with the originating project captured at click time. `status.right` places an icon-only
   status-bar button (the title is its tooltip and accessible label, `iconColor` is kept); the first four show as
   buttons and the rest share one overflow menu with icon and title rows. `git.actions` (new) places an item in the
@@ -70,11 +74,26 @@ the tests change in the same commit. Unknown keys inside `provides`, surfaces an
 - `requires`: the Extensions manager shows a package as *unavailable* while a required extension is missing,
   failed or disabled; disabling a required extension shows which dependents become unavailable. Calendar
   declares `requires: ["tasks"]`; Asana and MantisBT do **not** require Tasks (import is optional, §2.2.3).
-- `settings` (optional, `{ view, title }`, exactly these keys): the package's page in the shell's Settings dialog. The
-  shell opens `view` embedded beside the Settings nav, with `{ context, embedded: true }` (the current project, or null);
-  `title` is its nav label. The page is listed only while the package is enabled, error-free and available. Settings
-  opens from the header gear, from the Extensions page, or from the provider's own panel with the shell command
-  `herdr-zed.settings:<extension id>`. The provider never gets a reply and never renders the nav or the frame.
+- `settings` (optional, `{ view, title, pages? }`, these keys only): the package's page in the shell's Settings dialog. The
+  shell opens `view` embedded beside the Settings nav, with `{ view, embedded: true, page, context }` (the current project,
+  or null; `page` is the sub-page ID, or null for the entry itself); `title` is its nav label. `pages` (optional, 1–12
+  unique `{ id, title }`) are sub-items listed indented under the entry, in declaration order. The page is listed only
+  while the package is enabled, error-free and available. Settings opens from the header gear, from the Extensions
+  page, or from the provider's own panel with the shell command `herdr-zed.settings:<extension id>` or
+  `herdr-zed.settings:<extension id>:<page id>`. The provider never gets a reply and never renders the nav or the frame.
+- `platforms` (optional, non-empty, unique subset of `macos`, `windows`, `linux`; absent means every platform): compared
+  with `window().platform`. A package for another platform contributes nothing (no actions, surfaces, services,
+  settings or provides), is never active, and the Extensions page shows "Not available on this platform" with no
+  switch.
+- `actions[].popup.placement` (optional, `center` by default or `workspace`): `workspace` opens a `kind: 'popup'`,
+  `frame: 'none'` panel over the work area: x = sidebar width (0 when hidden), y = 32 (the header), width = the work
+  column's width (the window minus the sidebar), height = window height minus 32 (header) and 32 (status bar). Width and
+  height in the manifest are ignored for it; a click outside closes it. While the work area size is not measured yet,
+  the declared centered dialog opens instead. The shell measures the work column (`herdr-zed.work-width`) and the window
+  height (`herdr-zed.window-height`) with `on_size_change`; Herdr's `window()` reports no size.
+- Surfaces: `sidebar.bottom` surfaces mount above the history row and start hidden; `dock.right` surfaces start hidden;
+  `status.right` surfaces start visible. Manage extensions offers a switch per active surface: "Show in sidebar", "Show
+  in status bar", "Show in right dock".
 
 ### 2.2 Provider contracts (new, typed, closed set)
 

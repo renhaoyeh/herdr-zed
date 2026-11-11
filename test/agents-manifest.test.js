@@ -21,7 +21,8 @@ test('the Agents manifest declares the Usage sidebar and status bar surfaces and
 test('the shell mounts both Usage surfaces at their locations and removes them when Agents is disabled', () => {
   const pkg = { mod: 'herdr-zed-agents', ...extensionMetadata('herdr-zed-agents', text) };
   const root = { id: 'root', type: 'row', children: [
-    { id: 'sidebar', type: 'column', size: { px: 280 }, children: [{ id: 'agents', type: 'block', content: { mod: 'herdr-zed' } }] },
+    { id: 'sidebar', type: 'column', size: { px: 280 }, children: [{ id: 'agents', type: 'block', content: { mod: 'herdr-zed' } },
+      { id: 'sidebar-history', type: 'block', size: { px: 32 }, content: { mod: 'herdr-zed', props: { view: 'sidebar-history' } } }] },
     { id: 'workspace-row', type: 'row', children: [{ id: 'editor', type: 'block', size: { weight: 1 }, content: { mod: 'herdr-zed', props: { view: 'editor' } } }] },
     { id: 'status', type: 'column', size: { px: 32 }, children: [{ id: 'status-content', type: 'row', children: [
       { id: 'status-main', type: 'block', size: { weight: 1 }, content: { mod: 'herdr-zed', props: { view: 'status' } } },
@@ -30,6 +31,8 @@ test('the shell mounts both Usage surfaces at their locations and removes them w
   ] };
   const mounted = extensionSurfaceLayout(root, [pkg]);
   assert.deepEqual(find(mounted, 'zed-extension-surface-herdr-zed-agents-usage').content, { mod: 'herdr-zed-agents', props: { view: 'usage-sidebar' } });
+  assert.deepEqual(find(mounted, 'sidebar').children.map(child => child.id).slice(-2),
+    ['zed-extension-surface-herdr-zed-agents-usage', 'sidebar-history'], 'the usage sidebar surface sits above the history row');
   assert.equal(find(mounted, 'status-content').children[1].content.props.view, 'usage-status');
   const unmounted = extensionSurfaceLayout(mounted, [pkg], ['herdr-zed-agents'], [pkg]);
   assert.equal(find(unmounted, 'zed-extension-surface-herdr-zed-agents-usage'), null);

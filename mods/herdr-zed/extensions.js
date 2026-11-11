@@ -1,12 +1,19 @@
 import { h_flex } from 'gpui-base';
-import { shared, setShared, appHome, readTextFile, openOverlay, notify, layout, run } from 'herdr';
-import { ToolbarButton } from './components/button.js';
+import { shared, setShared, appHome, readTextFile, openOverlay, notify, layout, run, settings, window } from 'herdr';
+import { ToolbarButton, TOOLBAR_GLYPH } from './components/button.js';
 import { glyph } from './components/icon.js';
 import { DropdownMenu } from './components/dropdown-menu.js';
-import { parseExtensionRegistry, parseExtensionManifest, extensionPopup, extensionMetadata, extensionServiceLayout, gitActionPopup, resolveProviders, launcherAvailable } from './extension-model.js';
+import { parseExtensionRegistry, parseExtensionManifest, extensionPopup, extensionMetadata, extensionServiceLayout, gitActionPopup, resolveProviders, launcherAvailable, platformSupported, workspaceRect } from './extension-model.js';
 import { extensionSurfaceLayout, extensionSurfaceNodeId, STATUS_ACTION_LIMIT } from './extension-surfaces.js';
 
 const DISABLED = 'herdr-zed.extensions.disabled';
+// Measured by the shell's views (on_size_change, logical px): the work column width and the window height.
+export const WORK_WIDTH_KEY = 'herdr-zed.work-width', WINDOW_HEIGHT_KEY = 'herdr-zed.window-height';
+export const recordSize = (key, value) => { if (value > 0 && shared(key) !== value) setShared(key, value); };
+
+// The work area for `workspace` popups now, or null while its size is unknown (ARCHITECTURE §2.1).
+export const workspaceRectNow = () => workspaceRect({ sidebar: layoutNode(layout(), 'sidebar'),
+  workWidth: shared(WORK_WIDTH_KEY), windowHeight: shared(WINDOW_HEIGHT_KEY) });
 export const extensionEnabled = mod => !(shared(DISABLED) || []).includes(mod);
 export function setExtensionEnabled(mod, enabled) {
   const disabled = new Set(shared(DISABLED) || []);
@@ -38,7 +45,8 @@ function syncExtensionServices() {
 function applyExtensionLayout(root, packages, disabled, previous) {
   try {
     const services = extensionServiceLayout(root, packages, disabled) || root;
-    const status = { actions: extensionActions('status.right').length, dock: activeSurfaces('dock.right').length };
+    const status = { actions: extensionActions('status.right').length, dock: activeSurfaces('dock.right').length,
+      readings: visibleSurfaceCount('status.right') };
     const next = extensionSurfaceLayout(services, packages, disabled, previous, status) || services;
     if (next !== root) run('layout.set', { layout: next });
   } catch (error) {
@@ -52,7 +60,7 @@ const layoutNode = (node, id) => node?.id === id ? node : (node?.children || [])
 
 // A package contributes only when it is enabled, parsed, and every extension it requires is active.
 export const extensionActive = mod => extensionEnabled(mod)
-  && (extensionCatalog().packages || []).some(entry => entry.mod === mod && !entry.error)
+  && (extensionCatalog().packages || []).some(entry => entry.mod === mod && !entry.error && !entry.unsupported)
   && !(extensionCatalog().resolved?.unavailable || []).some(entry => entry.mod === mod);
 
 // Publishes the catalog with the enabled flags and provider resolution derived from the current disabled list.
@@ -79,6 +87,10 @@ export const setExtensionSurfaceVisible = (surface, visible) => {
   run(visible ? 'layout.show' : 'layout.hide', { id });
 };
 
+// Re-sizes status-tools to what is shown now. Called from the status-tools view, which renders after a change, so it
+// never acts on a stale layout between a show/hide command and its effect.
+export function syncExtensionLayout() { syncExtensionServices(); }
+
 export async function refreshExtensions() {
   const previousPackages = extensionCatalog().packages || [];
   const request = `${Date.now()}:${Math.random()}`;
@@ -91,6 +103,12 @@ export async function refreshExtensions() {
       try {
         const text = await readTextFile(`${appHome()}/mods/${mod}/extension.json`);
         const entries = parseExtensionManifest(mod, text), metadata = extensionMetadata(mod, text);
+        // ARCHITECTURE §2.1 platforms: a package for another platform contributes nothing and shows as unavailable.
+        if (!platformSupported(metadata.platforms, window()?.platform)) {
+          packages.push({ mod, id: metadata.id, title: metadata.title, provides: {}, requires: [], platforms: metadata.platforms,
+            unsupported: true, services: [], surfaces: [] });
+          continue;
+        }
         if (entries.some(action => ids.has(action.id))) throw new Error('Duplicate contribution ID.');
         if (metadata.surfaces.some(surface => surfaceIds.has(extensionSurfaceNodeId(surface)))) throw new Error('Duplicate surface ID.');
         packages.push({ mod, id: metadata.id, title: metadata.title, provides: metadata.provides, requires: metadata.requires,
@@ -106,10 +124,15 @@ export async function refreshExtensions() {
   if (errors.length) notify({ title: 'Could not load extensions', body: errors.join('\n'), level: 'error' });
 }
 
+// Workspace placement opens over the work area; its at point is device px (the dropdown menus' convention), so the
+// logical rectangle is scaled by the zoom. Without a known size the declared centered dialog opens.
 export function openExtension(id, project) {
   const catalog = extensionCatalog(), action = catalog.actions.find(action => action.id === id);
   if (!catalog.ready || !action || !extensionActive(action.mod)) return;
-  try { return openOverlay(extensionPopup(action, project)); }
+  try {
+    const rect = action.popup.placement === 'workspace' ? workspaceRectNow() : null;
+    return openOverlay(extensionPopup(action, project, rect && { ...rect, x: rect.x * settings().zoom, y: rect.y * settings().zoom }));
+  }
   catch (error) { notify({ title: 'Could not open extension', body: error.message, level: 'error' }); }
 }
 
@@ -122,6 +145,8 @@ export function extensionActions(location) {
 // Surfaces declared at a location by active extensions only.
 const activeSurfaces = location => (extensionCatalog().packages || []).filter(entry => !entry.error && extensionActive(entry.mod))
   .flatMap(entry => entry.surfaces || []).filter(surface => surface.location === location);
+// How many surfaces at a location are active and shown: dividers and widths follow what is actually visible.
+export const visibleSurfaceCount = location => activeSurfaces(location).filter(surface => extensionSurfaceVisible(surface)).length;
 
 // Git actions open with the selected repository as context, not the workspace project captured by status actions.
 export function openGitAction(id, repository) {
@@ -142,10 +167,10 @@ export function ExtensionSlot(location, t, project, menu) {
     .children(shown.map(action => ToolbarButton(`extension-${action.id}`, t, { icon: true })
       .accessibility_label(action.title).tooltip(action.title)
       .on_click(() => choose(action.id))
-      .child(glyph(action.icon).text_color(action.iconColor || t.muted))))
+      .child(glyph(action.icon, TOOLBAR_GLYPH).text_color(action.iconColor || t.muted))))
     .when(overflow.length > 0, el => el.child(DropdownMenu('extension-overflow', menu,
       ToolbarButton('extension-overflow', t, { icon: true }).accessibility_label('More extensions').tooltip('More extensions')
-        .child(glyph('ellipsis')),
+        .child(glyph('ellipsis', TOOLBAR_GLYPH)),
       overflow.map(action => ({ key: action.id, label: action.title, icon: action.icon })),
       id => choose(id), t, { align: 'end', offset: { x: 0, y: 8 } })));
 }
@@ -159,6 +184,6 @@ export function ExtensionSurfaceSlot(location, t) {
       return ToolbarButton(`extension-surface-${surface.id}`, t, { icon: true, selected: visible })
         .accessibility_label(`${visible ? 'Hide' : 'Show'} ${surface.title} dock`)
         .on_click(() => setExtensionSurfaceVisible(surface, !extensionSurfaceVisible(surface)))
-        .child(glyph(surface.icon, 16));
+        .child(glyph(surface.icon, TOOLBAR_GLYPH));
     }));
 }

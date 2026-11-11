@@ -1,6 +1,7 @@
 const PREFIX = 'zed-extension-surface-';
 const nodeId = surface => surface.location === 'dock.right' ? surface.id : `${PREFIX}${surface.mod}-${surface.id}`;
-const block = surface => ({ id: nodeId(surface), type: 'block', hidden: surface.location === 'dock.right',
+// Sidebar and dock surfaces start hidden the first time they mount; status.right surfaces start visible.
+const block = surface => ({ id: nodeId(surface), type: 'block', hidden: surface.location !== 'status.right',
   ...(surface.location === 'dock.right' ? { size: { px: 380 }, min: 300, max: 900 } : {}),
   ...(surface.location === 'sidebar.bottom' ? { size: { px: 260 }, min: 96, max: 420 } : {}),
   ...(surface.location === 'status.right' ? { size: { px: 220 } } : {}),
@@ -10,17 +11,23 @@ const copyChildren = (node, children) => JSON.stringify(node.children || []) ===
 const update = (node, id, change) => node.id === id ? change(node)
   : node.children ? copyChildren(node, node.children.map(child => update(child, id, change))) : node;
 
-// The status row is [status (conversation toggle, machine), status.right surfaces..., status-tools]. Herdr sizes
-// blocks only in px or weight, so status-tools is sized to its content: icon buttons (32px each), 8px gaps between
-// groups, and a 1px divider before Changes and Files. ExtensionSlot shows at most STATUS_ACTION_LIMIT icons plus
-// one overflow button.
+// The status row is [status (context), status.right surfaces (live readings)..., status-tools]. Herdr sizes blocks only
+// in px or weight, so status-tools is sized to its content (design.md, Status bar and Separators): icon buttons (28px
+// each, ToolbarButton), 8px gaps between items, and a 1px divider before each group after the first: readings,
+// extension icons, dock toggles, Changes and Files. ExtensionSlot shows at most STATUS_ACTION_LIMIT icons plus one
+// overflow button. `readings` counts the visible status.right surfaces the readings divider follows.
 export const STATUS_ACTION_LIMIT = 4;
-const ICON_PX = 32, GAP_PX = 8, DIVIDER_PX = 1, PAD_PX = 4;
-export function statusToolsWidth({ actions = 0, dock = 0 } = {}) {
+export const ICON_PX = 28, GAP_PX = 8, DIVIDER_PX = 1, PAD_PX = 4;
+export function statusToolsWidth({ actions = 0, dock = 0, readings = 0 } = {}) {
   const actionButtons = actions > 0 ? Math.min(actions, STATUS_ACTION_LIMIT) + (actions > STATUS_ACTION_LIMIT ? 1 : 0) : 0;
-  const leading = Number(actionButtons > 0) + Number(dock > 0);
-  const groups = leading + (leading ? 1 : 0) + 1; // leading groups, divider, Changes and Files
-  return (actionButtons + dock + 2) * ICON_PX + (groups - 1) * GAP_PX + (leading ? DIVIDER_PX : 0) + PAD_PX;
+  const parts = [];
+  if (readings > 0) parts.push(DIVIDER_PX);
+  if (actionButtons > 0) parts.push(actionButtons * ICON_PX);
+  if (actionButtons > 0 && dock > 0) parts.push(DIVIDER_PX);
+  if (dock > 0) parts.push(dock * ICON_PX);
+  if (actionButtons > 0 || dock > 0) parts.push(DIVIDER_PX);
+  parts.push(2 * ICON_PX); // Changes and Files
+  return parts.reduce((sum, part) => sum + part, 0) + (parts.length - 1) * GAP_PX + PAD_PX;
 }
 
 // Native blocks keep provider contexts and subscriptions owned by their mounted view lifecycle.
@@ -61,7 +68,11 @@ export function extensionSurfaceLayout(root, packages, disabled = [], previous =
       return node.children ? copyChildren(node, node.children.map(child => addAt(child, target, transform))) : node;
     };
     if (surface.location === 'sidebar.bottom') {
-      if (find(next, 'sidebar')) next = addAt(next, 'sidebar', (node, item) => copyChildren(node, [...(node.children || []), item]));
+      // Mounted above the history row, which is always the last row of the sidebar (design.md, Sidebar).
+      next = addAt(next, 'sidebar', (node, item) => {
+        const at = (node.children || []).findIndex(child => child.id === 'sidebar-history');
+        return at < 0 ? node : copyChildren(node, [...node.children.slice(0, at), item, ...node.children.slice(at)]);
+      });
     } else if (surface.location === 'status.right') {
       // Mounted in the status row, before the tools block: the surface sits between the status and the action icons.
       next = addAt(next, 'status-content', (node, item) => {

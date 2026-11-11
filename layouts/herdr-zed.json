@@ -55,6 +55,19 @@
           "content": {
             "mod": "herdr-zed"
           }
+        },
+        {
+          "id": "sidebar-history",
+          "type": "block",
+          "size": {
+            "px": 32
+          },
+          "content": {
+            "mod": "herdr-zed",
+            "props": {
+              "view": "sidebar-history"
+            }
+          }
         }
       ]
     },

@@ -3,7 +3,7 @@ import { h_flex } from 'gpui-base';
 import { agents, spaces, shared, setShared, run, notify, exec, readTextFile, home, appHome, terminals, window } from 'herdr';
 import { agentCommand, commandKind, archivedAge, folderKey, projectGroups, threadTitle } from './components/session-model.js';
 import { RESUME_RECORDS_KEY, recordsWithout, sessionIdentity, windowsSessionIdentity, resumeCommand, accountEnv, executable, hasCredential } from './thread-identity.js';
-import { Button } from './components/button.js';
+import { Button, ToolbarButton } from './components/button.js';
 import { SidebarContent, SidebarGroup, SidebarMenuButton } from './components/sidebar.js';
 import { glyph } from './components/icon.js';
 
@@ -207,7 +207,7 @@ export const threadArchive = {
       .child(div().size(16).flex_none().flex().items_center().justify_center().child(icon))
       .child(div().flex_1().min_w(0).truncate().text_size(13).text_color(t.foreground).child(entry.title))
       .when(!hovered, el => el.child(div().flex_none().text_size(11).text_color(t.muted).child(age)))
-      .when(hovered, el => el.child(Button(`remove-history-${entry.id}`, t, { variant: 'row', size: 'icon-sm' })
+      .when(hovered, el => el.child(ToolbarButton(`remove-history-${entry.id}`, t, { icon: true, row: true })
         .accessibility_label('Remove from history')
         .on_click((_event, cx) => {
           cx.stop_propagation(); restoring.delete(entry.id); timedOutRestores.delete(entry.id);
