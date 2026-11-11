@@ -8,8 +8,28 @@ import { calendarContent, taskTokenId, taskTokenRef, mentionTrigger, calendarEnt
 
 import { taskIndex } from '../components/tasks-model.js';
 import { boardTasks } from '../mods/herdr-zed-tasks/agent-board-model.js';
+import { evaluateNative } from './source-harness.js';
 
 const draft = { title: 'Plan the next task', notes: 'Details', startDate: '2026-11-08', endDate: '2026-11-08', startTime: '09:00', endTime: '10:00', allDay: false };
+
+test('closing a Calendar composer returns keyboard focus only to its owning calendar', async () => {
+  let target = { overlay: 'parent' }, receive, focused = 0;
+  const commands = [];
+  const { CalendarMod } = await evaluateNative('../mods/herdr-zed-calendar/main.js', {
+    View: class {}, LocalCalendar: class { handle = { focus: () => focused++ }; init() {} close() {} },
+    props: () => target, nextCommand: () => new Promise(resolve => { receive = resolve; }),
+    run: command => commands.push(command), listTasks() {}, tasksSnapshot() {}, openTaskBoard() {},
+  }, 'CalendarMod');
+  const parent = new CalendarMod();
+  parent.init({}, { spawn: fn => { void fn({ notify() {} }); } });
+  receive('focus:another-calendar'); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(focused, 0);
+  target = { overlay: 'composer', calendarCreate: true, calendarParent: 'parent' };
+  const form = new CalendarMod(); form.init({}, {}); form.close();
+  assert.deepEqual(commands, ['herdr-zed-calendar.focus:parent']);
+  receive('focus:parent'); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(focused, 1);
+});
 
 test('due dates project into Calendar without copying tasks or mutating independent scheduled events', () => {
   const id = taskTokenId({ folder: '/project' }, 'local:one');
@@ -271,6 +291,7 @@ test('dragging a scrolled weekly timeline previews the range and opens a prefill
   h.render(); assert.ok(h.nodes.has('calendar-selection-2026-11-03')); assert.ok(h.nodes.has('calendar-selection-2026-11-04'));
   h.nodes.get('calendar-timeline-column-2026-11-04').up.left(pointer(10, 280, 1.5), h.cx);
   assert.equal(h.overlays.length, 1); assert.equal(h.overlays[0].modal, true); assert.equal(h.overlays[0].props.calendarCreate, true);
+  assert.equal(h.overlays[0].props.calendarParent, 'calendar');
   assert.equal(h.overlays[0].props.draft.startDate, '2026-11-03'); assert.equal(h.overlays[0].props.draft.endDate, '2026-11-04');
   assert.equal(h.overlays[0].props.draft.startTime, '09:00'); assert.equal(h.overlays[0].props.draft.endTime, '10:00');
   assert.deepEqual(h.view.selectedRange(), h.overlays[0].props.draft, 'the released range remains visible behind its dialog');

@@ -1,4 +1,5 @@
 import { View } from 'gpui-kit';
+import { props, nextCommand, run } from 'herdr';
 import LocalCalendar from './calendar.js';
 import { listTasks, tasksSnapshot, openTaskBoard } from './components/tasks.js';
 import { workspacePanel } from './components/workspace-overlay.js';
@@ -12,7 +13,18 @@ export default class CalendarMod extends View {
       return true;
     } });
     this.calendar.init(cx);
+    const target = props();
+    if (target?.overlay && !target.calendarCreate) cx.spawn(async cx => {
+      for (;;) {
+        const command = await nextCommand();
+        if (command === `focus:${target?.overlay}`) { this.calendar.handle.focus(); cx.notify(); }
+      }
+    });
   }
-  close() { this.calendar.close(); }
+  close() {
+    this.calendar.close();
+    const parent = props()?.calendarParent;
+    if (parent) run(`herdr-zed-calendar.focus:${parent}`);
+  }
   render() { return workspacePanel(this.calendar.render()); }
 }

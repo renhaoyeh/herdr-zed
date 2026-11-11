@@ -382,4 +382,5 @@ No code reads both the old and new key; whichever is chosen is the only path.
 - Asana/MantisBT tests still evaluate Tasks modules; `import-target.js` is duplicated in both integrations.
 - Pre-existing: `mcp-probe` stdio missing-command case fails on Windows (same in devkits); the hardware
   symlink and Windows live-helper tests can time out under full-suite load.
-- Nothing has been installed into a real Herdr home or exercised in the running app yet.
+- Shell and providers are installed in the local Herdr home; UI and keyboard behavior have been exercised in an isolated
+  macOS preview. Real account sign-in and task-agent launches have not been exercised.

@@ -112,7 +112,7 @@ export default class LocalCalendar {
       this.cancelRange(cx);
       try {
         openOverlay({ mod: 'herdr-zed-calendar', kind: 'dialog', frame: 'none', modal: true, width: 560, height: 480,
-          props: { view: 'calendar', calendarCreate: true, calendarPreview: previewId,
+          props: { view: 'calendar', calendarCreate: true, calendarPreview: previewId, calendarParent: props()?.overlay,
             draft: { startDate: this.selected, endDate: this.selected, ...initial } } });
       } catch (error) { clearPreview(previewId); throw error; }
       return;
