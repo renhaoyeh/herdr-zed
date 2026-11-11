@@ -3,7 +3,7 @@ import { props, theme, run, nextCommand } from 'herdr';
 import { SystemMonitorCore } from './monitor.js';
 import { hardwarePreferences } from './components/system-monitor-model.js';
 import { SystemMonitor, systemClientPrefix, systemSnapshotPrefix, systemCommand, systemMessage } from './components/system-monitor.js';
-import { openWorkspacePanel, workspacePanel } from './components/workspace-overlay.js';
+import { openWorkspacePanel, workspacePanel, releaseWorkspacePanel } from './components/workspace-overlay.js';
 export default class SystemMod extends View {
   init(_props, cx) {
     const target = props() || {};
@@ -48,7 +48,7 @@ export default class SystemMod extends View {
     if (snapshot.data) { const { sample, ...data } = snapshot.data; snapshot.data = data; }
     run(receiver + '.' + systemCommand(systemSnapshotPrefix, snapshot));
   }
-  close() { this.client?.close(); }
+  close() { releaseWorkspacePanel(); this.client?.close(); }
   render() {
     const t = theme();
     if (this.view === 'service') return div().size_full();

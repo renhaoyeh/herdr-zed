@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { extensionMetadata, parseExtensionManifest } from '../mods/herdr-zed/extension-model.js';
-import { extensionSurfaceLayout, extensionSurfaceNodeId, statusToolsWidth, surfaceEmptyKey, emptyStatusSurfaces, statusReadings } from '../mods/herdr-zed/extension-surfaces.js';
+import { extensionSurfaceLayout, extensionSurfaceNodeId, statusToolsWidth, surfaceEmptyKey, emptyStatusSurfaces } from '../mods/herdr-zed/extension-surfaces.js';
 import { systemManifest as systemText, simulatorManifest as simulatorText } from './extension-fixtures.js';
 
 const packageFor = (mod, text) => ({ mod, ...extensionMetadata(mod, text) });
@@ -18,9 +18,9 @@ const rootLayout = () => ({ id: 'root', type: 'row', children: [
 ] });
 const find = (node, id) => node?.id === id ? node : (node?.children || []).map(child => find(child, id)).find(Boolean) || null;
 
-test('surface declarations preserve popup actions and expose validated generic native views', () => {
+test('surface-only extensions expose validated native views without duplicate actions', () => {
   const actions = parseExtensionManifest('herdr-zed-system', systemText), system = extensionMetadata('herdr-zed-system', systemText);
-  assert.equal(actions[0].id, 'system.open');
+  assert.deepEqual(actions, []);
   assert.deepEqual(system.surfaces.map(({ id, location, view }) => ({ id, location, view })), [
     { id: 'widgets', location: 'sidebar.bottom', view: 'widgets' },
     { id: 'inline', location: 'status.right', view: 'inline' },
@@ -64,18 +64,17 @@ test('reconcile mounts provider views, preserves native geometry and visibility,
   assert.deepEqual(find(disabled, 'simulator'), resizedDock, 'Other extension mount and layout state are preserved');
 });
 
-test('status tools are sized to their icons (28px) and dividers, and a status.right surface mounts before them', () => {
+test('status tools fit every icon with spacing only, and a status.right surface mounts before them', () => {
   assert.equal(statusToolsWidth(), 60, 'Changes and Files only: two 28px buttons and padding');
-  assert.equal(statusToolsWidth({ readings: 1 }), 69, 'a divider before the readings group');
-  assert.equal(statusToolsWidth({ actions: 1 }), 105, 'one action, divider, then Changes and Files');
-  assert.equal(statusToolsWidth({ actions: 1, dock: 1 }), 150,'icons, divider, dock toggle, divider, Changes and Files');
-  assert.equal(statusToolsWidth({ actions: 6, dock: 1 }), 262, 'four actions plus overflow, one dock toggle');
+  assert.equal(statusToolsWidth({ actions: 1 }), 96, 'one action, spacing, then Changes and Files');
+  assert.equal(statusToolsWidth({ actions: 1, dock: 1 }), 132, 'icons, dock toggle, Changes and Files with spacing');
+  assert.equal(statusToolsWidth({ actions: 6, dock: 1 }), 272, 'six directly visible actions and one dock toggle');
   const system = packageFor('herdr-zed-system', systemText);
   const withOne = extensionSurfaceLayout(rootLayout(), [system], [], [], { actions: 2, dock: 0 });
-  assert.equal(find(withOne, 'status-tools').size.px, 133);
+  assert.equal(find(withOne, 'status-tools').size.px, 124);
   assert.equal(extensionSurfaceLayout(withOne, [system], [], [system], { actions: 2, dock: 0 }), null, 'unchanged counts do not rewrite the layout');
   const grown = extensionSurfaceLayout(withOne, [system], [], [system], { actions: 6, dock: 1 });
-  assert.equal(find(grown, 'status-tools').size.px, 262);
+  assert.equal(find(grown, 'status-tools').size.px, 272);
   assert.deepEqual(find(grown, 'status-content').children.map(child => child.id),
     ['status-main', 'zed-extension-surface-herdr-zed-system-inline', 'status-tools']);
 });
@@ -103,19 +102,16 @@ test('a status.right reading a provider reports empty is hidden, takes no width,
   const empty = emptyStatusSurfaces([system], read);
   assert.deepEqual([...empty], [nodeId]);
   assert.deepEqual(emptyStatusSurfaces([system], () => false), new Set(), 'false or absent keys are shown');
-  assert.equal(statusReadings([system], [], empty), 0, 'an empty reading does not count toward the readings divider');
-  assert.equal(statusReadings([system], [], new Set()), 1);
-  assert.equal(statusReadings([system], ['herdr-zed-system'], new Set()), 0, 'disabled packages count nothing');
 
-  const hidden = extensionSurfaceLayout(rootLayout(), [system], [], [], { actions: 2, dock: 0, readings: 0 }, empty);
+  const hidden = extensionSurfaceLayout(rootLayout(), [system], [], [], { actions: 2, dock: 0 }, empty);
   assert.equal(find(hidden, nodeId).hidden, true, 'mounted hidden when reported empty');
-  assert.equal(find(hidden, 'status-tools').size.px, 133, 'the status row closes up: no divider before the actions');
-  assert.equal(extensionSurfaceLayout(hidden, [system], [], [system], { actions: 2, dock: 0, readings: 0 }, empty), null,
+  assert.equal(find(hidden, 'status-tools').size.px, 124, 'actions reserve no divider space');
+  assert.equal(extensionSurfaceLayout(hidden, [system], [], [system], { actions: 2, dock: 0 }, empty), null,
     'unchanged emptiness does not rewrite the layout');
 
-  const shown = extensionSurfaceLayout(hidden, [system], [], [system], { actions: 2, dock: 0, readings: 1 }, new Set());
+  const shown = extensionSurfaceLayout(hidden, [system], [], [system], { actions: 2, dock: 0 }, new Set());
   assert.equal(find(shown, nodeId).hidden, false, 'shown again when the key clears');
-  assert.equal(find(shown, 'status-tools').size.px, 142, 'the readings divider returns with the reading');
+  assert.equal(find(shown, 'status-tools').size.px, 124, 'showing readings does not add divider space');
   assert.deepEqual(find(shown, 'status-content').children.map(child => child.id), ['status-main', nodeId, 'status-tools']);
 
   memory[surfaceEmptyKey('system', 'inline')] = null;

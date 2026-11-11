@@ -1,17 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { access, readFile } from 'node:fs/promises';
-import { parseExtensionManifest, extensionPopup } from '../mods/herdr-zed/extension-model.js';
+import { parseExtensionManifest } from '../mods/herdr-zed/extension-model.js';
 
 const text = await readFile(new URL('../mods/herdr-zed-simulator/extension.json', import.meta.url), 'utf8');
 
-test('simulator declares a panel-sized nonmodal popup for its existing panel view', () => {
-  const [action] = parseExtensionManifest('herdr-zed-simulator', text);
-  assert.equal(action.id, 'simulator.open');
-  assert.deepEqual(extensionPopup(action, null), {
-    mod: 'herdr-zed-simulator', kind: 'dialog', frame: 'none', modal: false, width: 480, height: 760,
-    props: { view: 'simulator-popup', stateKey: 'herdr-zed.extension.simulator.["",""]' },
-  });
+test('simulator has no duplicate status action beside its dock toggle', () => {
+  assert.deepEqual(parseExtensionManifest('herdr-zed-simulator', text), []);
 });
 
 test('simulator declares the existing panel as its right dock surface', () => {
@@ -20,8 +15,8 @@ test('simulator declares the existing panel as its right dock surface', () => {
 });
 
 test('simulator extension icon resolves to a canonical Devkits icon asset', async () => {
-  const [action] = parseExtensionManifest('herdr-zed-simulator', text);
-  await access(new URL(`../assets/icons/${action.icon}.svg`, import.meta.url));
+  const surface = JSON.parse(text).surfaces[0];
+  await access(new URL(`../assets/icons/${surface.icon}.svg`, import.meta.url));
 });
 
 test('popup close dismisses its overlay while the original panel close still toggles its block', async () => {

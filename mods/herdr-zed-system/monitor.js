@@ -1,6 +1,6 @@
 import { div, PathBuilder } from 'gpui-kit';
 import { h_flex, v_flex } from 'gpui-base';
-import { exec, appHome, closeOverlay, shared, setShared, run } from 'herdr';
+import { exec, appHome, closeOverlay, shared, setShared, run, props } from 'herdr';
 import { Button } from './components/button.js';
 import { Checkbox } from './components/checkbox.js';
 import { ToggleGroup, ToggleGroupItem } from './components/toggle-group.js';
@@ -512,6 +512,7 @@ export class SystemMonitorCore extends SystemClient {
     const visible = hardwareDisplayItems(data, config);
     const columns = (this.hardwareWidth || 1400) >= 1100 ? 3 : 2;
     return DialogContent('hardware-details', t).track_focus(this.handle).gap(16)
+      .when(Boolean(props()?.docked), el => el.border(0).rounded(0))
       .on_size_change((size, cx) => { if (this.hardwareWidth !== size.width) { this.hardwareWidth = size.width; cx.notify(); } })
       .accessibility_label('System monitor for this computer')
       .on_key_down((event, cx) => {

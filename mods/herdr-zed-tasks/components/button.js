@@ -22,8 +22,8 @@ export function Button(id, t, { variant = 'default', size = 'sm', disabled = fal
       });
   }
   const quiet = variant === 'ghost' || variant === 'row';
-  return NativeButton.new(id).flex_none().flex().items_center().justify_center().gap(8).rounded(0)
-    .when(icon, el => el.size(size === 'icon-sm' ? 24 : 28))
+  return NativeButton.new(id).flex_none().flex().items_center().justify_center().p(0).gap(8).rounded(0)
+    .when(icon, el => el.size(size === 'icon-sm' ? 24 : 28).gap(0).overflow_hidden())
     .when(!icon, el => el.h(32).px(12).text_size(12))
     .when(variant === 'default', el => el.bg(t.solid).text_color(t.solid_foreground).when(!disabled, e => e.hover(h => h.opacity(0.9))))
     .when(variant === 'destructive', el => el.bg(t.destructive || t.ansi1).text_color('#ffffff').when(!disabled, e => e.hover(h => h.opacity(0.9))))
@@ -51,6 +51,7 @@ export function ToolbarButton(id, t, { icon = false, row = false, selected = fal
     .disabled(disabled).opacity(disabled ? 0.45 : 1)
     .bg(selected ? t.selected : '#00000000')
     .text_color(selected ? t.foreground : t.muted)
-    .when(!disabled && selected, el => el.hover(hovered => hovered.bg(t.selected)));
+    // Dense row actions sit inside a row that already uses hover. Keep the action distinguishable from that row.
+    .when(!disabled, el => el.hover(hovered => hovered.bg(selected ? t.selected : row ? t.chrome : t.hover)));
   return icon ? button : button.h_full().px(8);
 }

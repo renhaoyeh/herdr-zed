@@ -76,7 +76,7 @@ export default class HerdrZed extends View {
     if (view === 'settings-nav') { this.settingsNav = new SettingsNav(); return; }
     if (view === 'settings-header') { this.settingsHeader = new SettingsHeader(); return; }
     if (view === 'settings-page') { this.settingsPage = new SettingsPage(); this.settingsPage.init(cx); return; }
-    if (view === 'status-tools') { clearGitToast(); setShared('herdr-zed.git-output-request', null); this.extensionMenu = new DropdownMenuState(cx); return; }
+    if (view === 'status-tools') { clearGitToast(); setShared('herdr-zed.git-output-request', null); return; }
     if (view === 'pane') { this.threadMenu = new DropdownMenuState(cx); return; }
     if (view === 'file-menu') { this.fileMenu = new FileMenu(); this.fileMenu.init(cx); return; }
     if (view === 'branch-menu') { this.branchMenu = new BranchMenu(); this.branchMenu.init(cx); return; }
@@ -409,7 +409,7 @@ export default class HerdrZed extends View {
       .child(h_flex().flex_1().min_w(0).h_full().items_center().justify_center()
         )
       .child(h_flex().flex_1().min_w(0).h_full().items_center().justify_end()
-        .child(ToolbarButton('settings', t, { icon: true })
+        .child(ToolbarButton('settings', t, { icon: true }).h_full()
           .tooltip('Settings').accessibility_label('Settings')
           .on_click(() => openSettings('general', this.projects().find(project => project.active))).child(glyph('gear', TOOLBAR_GLYPH)))
         .when(Boolean(win?.buttons), el => el
@@ -455,11 +455,11 @@ export default class HerdrZed extends View {
       .child(div().flex_1())
       .child(h_flex().h_full().flex_none().items_center()
         // + then maximize then ⋯, as in Zed's panel toolbars.
-        .child(DropdownMenuTrigger(ToolbarButton(`new-thread-${p.pane}`, t, { icon: true })
+        .child(DropdownMenuTrigger(ToolbarButton(`new-thread-${p.pane}`, t, { icon: true }).h_full()
           .tooltip('New thread…').accessibility_label('New thread…').child(glyph('plus', TOOLBAR_GLYPH)), 280,
           (cx, at) => this.newThread(cx, thread?.space, at), 'end'))
         .when(Boolean(project && layoutNode(layout(), 'workspace-view')), el => el.child(
-          ToolbarButton(`maximize-thread-${p.pane}`, t, { icon: true })
+          ToolbarButton(`maximize-thread-${p.pane}`, t, { icon: true }).h_full()
             .tooltip(maximized ? 'Restore thread' : 'Maximize thread').accessibility_label(maximized ? 'Restore thread' : 'Maximize thread')
             .on_click((_event, cx) => {
               cx.stop_propagation();
@@ -467,7 +467,7 @@ export default class HerdrZed extends View {
               run('pane.focus', { pane: p.pane });
             }).child(glyph(maximized ? 'minimize' : 'maximize', TOOLBAR_GLYPH))))
         .child(DropdownMenu(`thread-actions-${p.pane}`, this.threadMenu,
-          ToolbarButton(`thread-menu-${p.pane}`, t, { icon: true })
+          ToolbarButton(`thread-menu-${p.pane}`, t, { icon: true }).h_full()
             .tooltip('Thread options').accessibility_label('Thread options').child(glyph('ellipsis', TOOLBAR_GLYPH)),
           actions, choose, t, { offset: { x: 8, y: 9 }, fullHeight: true })));
   }
@@ -479,41 +479,32 @@ export default class HerdrZed extends View {
   // then Changes and Files). statusTools is sized to its content by the layout transform.
   statusBar(t) {
     const space = this.projects().find(project => project.active), conversation = layoutNode(layout(), 'workspace-view');
-    // The context group (left) is divided from what follows it (design.md, Separators).
-    const context = Boolean((space && conversation) || space?.machine);
-    // The divider closes the context group itself, not the whole status block (which stretches to the readings).
     const group = h_flex().id('herdr-zed-status-context').flex_none().h_full().gap(8).items_center()
-      .when(Boolean(space && conversation), el => el.child(ToolbarButton('open-conversation', t,
-        { icon: true, disabled: !hasConversation(space), selected: conversationVisible(space) })
+      .when(Boolean(space && conversation && hasConversation(space)), el => el.child(ToolbarButton('open-conversation', t,
+        { icon: true, selected: conversationVisible(space) }).h_full()
         .tooltip(conversationVisible(space) ? 'Hide thread' : 'Show thread')
         .accessibility_label(conversationVisible(space) ? 'Hide thread' : 'Show thread')
         .on_click(() => this.showConversation(!conversationVisible(space))).child(glyph('agent', TOOLBAR_GLYPH))))
-      .when(Boolean(space?.machine), el => el.child(h_flex().flex_none().gap(8).items_center().child(glyph('terminal', 12)).child(space.machine)))
-      .when(context, el => el.pr(8).border_r(1).border_color(t.border));
-    return h_flex().id('herdr-zed-status').relative().size_full().gap(8).items_center().bg(t.background)
+      .when(Boolean(space?.machine), el => el.child(h_flex().flex_none().gap(8).items_center().child(glyph('terminal', 12)).child(space.machine)));
+    return h_flex().id('herdr-zed-status').relative().size_full().items_center().bg(t.background)
       .text_size(11).text_color(t.muted).child(group);
   }
 
   statusTools(t) {
     const space = this.projects().find(project => project.active), editor = layoutNode(layout(), 'editor');
     const showing = name => Boolean(editor) && shared('herdr-zed.right-panel') === name;
-    this.extensionMenu ??= new DropdownMenuState();
-    const actions = ExtensionSlot('status.right', t, space, this.extensionMenu), dock = ExtensionSurfaceSlot('dock.right', t);
-    // Sized to what is shown now (design.md, Separators): dividers before the readings, between icons and dock toggles,
-    // and before Changes and Files.
+    const actions = ExtensionSlot('status.right', t, space), dock = ExtensionSurfaceSlot('dock.right', t);
+    // Groups use spacing only; the layout owns the status bar's top boundary.
     syncExtensionLayout();
-    const divider = () => div().w(1).h(16).flex_none().bg(t.border);
-    const readings = visibleSurfaceCount('status.right');
     return h_flex().id('herdr-zed-status-tools').relative().h_full().flex_none().pr(4).gap(8).items_center().bg(t.background)
       .text_size(11).text_color(t.muted)
-      .children([readings > 0 ? divider() : null, actions, actions && dock ? divider() : null, dock,
-        actions || dock ? divider() : null].filter(Boolean))
+      .children([actions, dock].filter(Boolean))
       // The toast is an absolute layer anchored to this block; it sits in the zero-gap group so it adds no spacing.
       .child(h_flex().id('status-panel-actions').flex_none().h_full().gap(0)
-        .child(ToolbarButton('open-diff', t, { icon: true, selected: showing('diff'), disabled: !space })
+        .child(ToolbarButton('open-diff', t, { icon: true, selected: showing('diff'), disabled: !space }).h_full()
           .accessibility_label(showing('diff') ? 'Hide changes' : 'Show changes')
           .tooltip('Changes').on_click(() => toggleEditor(editor, 'diff')).child(glyph('git-compare', TOOLBAR_GLYPH)))
-        .child(ToolbarButton('open-files', t, { icon: true, selected: showing('files'), disabled: !space })
+        .child(ToolbarButton('open-files', t, { icon: true, selected: showing('files'), disabled: !space }).h_full()
           .accessibility_label(showing('files') ? 'Hide files' : 'Show files')
           .tooltip('Files').on_click(() => toggleEditor(editor, 'files')).child(glyph('folder', TOOLBAR_GLYPH)))
         .child(GitResultToast(t, space)));
@@ -744,15 +735,14 @@ export default class HerdrZed extends View {
               .child(glyph(this.folded.has(space.id) ? 'chevron-right' : 'chevron-down', 12)))
             .when(Boolean(space.machine), el => el.child(div().text_size(9).text_color(t.muted).child(space.machine)))
             .child(div().flex_1())
-            .child(ToolbarButton(`new-thread-${space.id}`, t, { icon: true, row: true })
+            .child(DropdownMenuTrigger(ToolbarButton(`new-thread-${space.id}`, t, { icon: true, row: true })
               .tooltip(`New thread in ${space.name}`).accessibility_label(`New thread in ${space.name}`)
-              .on_click((event, cx) => {
-                cx.stop_propagation();
+              .child(glyph('plus', ROW_GLYPH)).opacity(this.hoveredProject === space.id ? 1 : 0), 280,
+              (cx, at) => {
                 this.folded.delete(space.id);
-                cx.spawn(async cx => { await this.repeatThread(cx, space.id, event.position); });
+                cx.spawn(async cx => { await this.repeatThread(cx, space.id, at); });
                 cx.notify();
-              })
-              .child(glyph('plus', ROW_GLYPH)).opacity(this.hoveredProject === space.id ? 1 : 0))
+              }, 'start', SIDEBAR_MENU))
             .child(DropdownMenuTrigger(ToolbarButton(`project-menu-${space.id}`, t, { icon: true, row: true })
               .tooltip(`More actions for ${space.name}`).accessibility_label(`More actions for ${space.name}`), 200,
               (_cx, at) => openOverlay({ mod: 'herdr-zed', kind: 'popup', frame: 'none', width: 200, at,
@@ -770,11 +760,11 @@ export default class HerdrZed extends View {
   // The sidebar's last row (design.md, Sidebar): the thread history toggle.
   sidebarHistory(t) {
     const open = historyOpen();
-    return SidebarFooter(t)
-      .child(ToolbarButton('zed-thread-history', t, { icon: true, row: true, selected: open })
+    return SidebarFooter(t).px(4).gap(0)
+      .child(ToolbarButton('zed-thread-history', t, { icon: true, selected: open }).h_full()
         .tooltip(open ? 'Show threads' : 'Show thread history')
         .accessibility_label(open ? 'Show threads' : 'Show thread history')
-        .on_click((_event, cx) => { setShared(HISTORY_OPEN, !open); cx.notify(); }).child(glyph('clock', ROW_GLYPH)))
+        .on_click((_event, cx) => { setShared(HISTORY_OPEN, !open); cx.notify(); }).child(glyph('clock', TOOLBAR_GLYPH)))
       .child(div().flex_1());
   }
 }

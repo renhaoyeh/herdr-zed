@@ -9,7 +9,7 @@ const load = async (shared = {}, zoom = 1, extra = {}) => evaluateNative('../com
   { shared: key => shared[key], settings: () => ({ zoom }), openOverlay: extra.openOverlay ?? (() => 'overlay-1'),
     setShared: extra.setShared ?? (() => null), closeOverlay: extra.closeOverlay ?? (() => null), props: extra.props ?? (() => ({})),
     div: extra.div ?? (() => { throw new Error('no div'); }) },
-  'workspaceOverlay, openWorkspacePanel, workspacePanel, usableWorkspaceRect, WORKSPACE_RECT_KEY, WORKSPACE_PANEL_KEY, WORKSPACE_PANEL_OVERLAY, WORKSPACE_FALLBACK');
+  'workspaceOverlay, openWorkspacePanel, releaseWorkspacePanel, workspacePanel, usableWorkspaceRect, WORKSPACE_RECT_KEY, WORKSPACE_PANEL_KEY, WORKSPACE_PANEL_OVERLAY, WORKSPACE_PANEL_ACTIVE, WORKSPACE_FALLBACK');
 
 const rect = { x: 280, y: 32, width: 1000, height: 968, updatedAt: 1 };
 
@@ -86,6 +86,22 @@ test('workspacePanel wraps the panel: a press inside it is stopped (no window dr
   assert.deepEqual(closed, [], 'other keys do not close it');
   onKey({ key: 'escape' }, cx);
   assert.deepEqual(closed, ['overlay-7']);
+});
+
+test('active action follows the open panel, clears on close, and survives a replaced panel closing late', async () => {
+  const memory = {}, opened = [];
+  let target = {};
+  const r = await load(memory, 1, { props: () => target,
+    openOverlay: spec => { opened.push(spec); return `panel-${opened.length}`; },
+    setShared: (key, value) => { memory[key] = value; } });
+  r.openWorkspacePanel({ mod: 'herdr-zed-calendar', props: { workspaceAction: 'calendar.open' } });
+  assert.deepEqual(memory[r.WORKSPACE_PANEL_ACTIVE], { overlay: 'panel-1', action: 'calendar.open' });
+  r.openWorkspacePanel({ mod: 'herdr-zed-tasks', props: { workspaceAction: 'tasks.open' } });
+  target = { overlay: 'panel-1' }; r.releaseWorkspacePanel();
+  assert.equal(memory[r.WORKSPACE_PANEL_ACTIVE].action, 'tasks.open');
+  target = { overlay: 'panel-2' }; r.releaseWorkspacePanel();
+  assert.equal(memory[r.WORKSPACE_PANEL_ACTIVE], null);
+  assert.equal(memory[r.WORKSPACE_PANEL_OVERLAY], null);
 });
 
 test('workspacePanel without an overlay id does not close anything on Escape', async () => {

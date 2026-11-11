@@ -69,7 +69,7 @@ test('form dialogs are 560 wide and modal with Cancel + Save', async () => {
 
 test('working panels are 0.9×0.86, non-modal, and close from a header X rather than Done', async () => {
   const system = JSON.parse(await source('mods/herdr-zed-system/extension.json'));
-  assert.deepEqual(system.actions[0].popup, { view: 'details', width: 0.9, height: 0.86, modal: false, placement: 'workspace' });
+  assert.deepEqual(system.actions, [], 'CPU metrics already open the System panel');
   const monitor = await source('mods/herdr-zed-system/monitor.js');
   assert.match(monitor, /renderDetails[\s\S]*Button\('hardware-details-close', t, \{ variant: 'ghost', size: 'icon' \}\)/);
   assert.doesNotMatch(monitor, /hardware-details-done/);

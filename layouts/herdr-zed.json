@@ -194,6 +194,7 @@
             {
               "id": "status-content",
               "type": "row",
+              "resizable": false,
               "divider": {
                 "width": 0,
                 "color": "border"

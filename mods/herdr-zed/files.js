@@ -487,6 +487,7 @@ export default class FileViewer {
             .when(counts.get(base) > 1 && Boolean(folder), el => el.child(div().min_w(0).truncate().text_size(11).text_color(t.dim).child(folder)))
             .child(ToolbarButton(`close-file-tab-${id}`, t, { icon: true, row: true })
               .opacity(active || this.hoveredTab === id ? 1 : 0)
+              .tooltip(`Close ${base}`)
               .accessibility_label(`Close ${base}`)
               .on_click((_event, cx) => { cx.stop_propagation(); close(cx); })
               .child(icon('close').size(12)));

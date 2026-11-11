@@ -68,8 +68,8 @@ the tests change in the same commit. Unknown keys inside `provides`, surfaces an
   sits left of the action icons; `status-tools` is resized to its content by the shell. A `sidebar.bottom` surface
   mounts above the shell's `sidebar-history` block, which is always the last row of the sidebar.
 - `actions` open a popup with the originating project captured at click time. `status.right` places an icon-only
-  status-bar button (the title is its tooltip and accessible label, `iconColor` is kept); the first four show as
-  buttons and the rest share one overflow menu with icon and title rows. `git.actions` (new) places an item in the
+  status-bar button (the title is its tooltip and accessible label, `iconColor` is kept); every active action is shown
+  directly. `git.actions` (new) places an item in the
   shell's Git actions menu, with the selected repository (`{ machine, folder }`) as context.
 - `requires`: the Extensions manager shows a package as *unavailable* while a required extension is missing,
   failed or disabled; disabling a required extension shows which dependents become unavailable. Calendar
@@ -268,7 +268,10 @@ never writes it otherwise. Providers only read it.
 - Providers open workspace panels with `openWorkspacePanel({ mod, props, width?, height?, modal? })`
   (components/workspace-overlay.js, copied by `COPIES`). It opens the window spec over the published rectangle (device px
   at the window zoom), or, with `null`, the centered dialog of `width`/`height` (default 0.9 × 0.86), and records the open
-  id in `herdr-zed.workspace-panel.overlay` so the shell can close it. Each panel root is wrapped by `workspacePanel(el)`:
+  id in `herdr-zed.workspace-panel.overlay` so the shell can close it. Status actions pass their ID as `props.workspaceAction`;
+  `herdr-zed.workspace-panel.active` holds `{ overlay, action }` for the selected status button. Provider `close()` calls
+  `releaseWorkspacePanel()`, which clears only the closing overlay's state, preserving a replacement panel's active action.
+  Each panel root is wrapped by `workspacePanel(el)`:
   it stops presses (a window is otherwise dragged by them) and closes the panel on Esc that its controls did not consume.
 - The shell's `popup.placement: "workspace"` actions use the same function (§2.1), so there is one placement path.
 
@@ -276,7 +279,7 @@ never writes it otherwise. Providers only read it.
 
 `herdr-zed.surface-empty.<extension id>.<surface id>` = `true` while a `status.right` surface has nothing to show; `false`
 or absent (or `null`) means shown. The shell hides such a reading (`layout.hide`) so it takes no width, and shows it again
-when the key clears. Hidden readings do not count toward the readings divider (`statusReadings`).
+when the key clears. Hidden readings take no space in the row.
 
 - The provider writes the key only when its value changes, from a timer or sync logic, never during render (every
   `setShared` re-renders all mods, so a write from render would loop).

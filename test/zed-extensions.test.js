@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseExtensionRegistry, parseExtensionManifest, extensionPopup, extensionMetadata, extensionServiceLayout, gitActionPopup, resolveProviders,
   platformSupported, workspaceRect, windowHeightFromSidebar } from '../mods/herdr-zed/extension-model.js';
-import { extensionSurfaceLayout, extensionSurfaceNodeId, surfaceEmptyKey, emptyStatusSurfaces, statusReadings } from '../mods/herdr-zed/extension-surfaces.js';
+import { extensionSurfaceLayout, extensionSurfaceNodeId, surfaceEmptyKey, emptyStatusSurfaces } from '../mods/herdr-zed/extension-surfaces.js';
 import { evaluateNative } from './source-harness.js';
 import { asanaManifest as manifestText, systemManifest as systemText } from './extension-fixtures.js';
 
@@ -57,11 +57,11 @@ const runtime = async (readTextFile, initialLayout = null, platform = 'linux') =
   const memory = {}, opened = [], notices = [], layoutUpdates = [];
   const openOverlay = value => { opened.push(value); return 'overlay'; }, setShared = (key, value) => { memory[key] = structuredClone(value); };
   const panel = await evaluateNative('../components/workspace-overlay.js', { shared: key => memory[key], settings: () => ({ zoom: 1 }), openOverlay, setShared },
-    'openWorkspacePanel, WORKSPACE_RECT_KEY, WORKSPACE_PANEL_OVERLAY, usableWorkspaceRect');
+    'openWorkspacePanel, WORKSPACE_RECT_KEY, WORKSPACE_PANEL_OVERLAY, WORKSPACE_PANEL_ACTIVE, usableWorkspaceRect');
   const host = { shared: key => memory[key], setShared,
     appHome: () => '/herdr', readTextFile, layout: () => root, run: (command, args) => { assert.equal(command, 'layout.set'); root = args.layout; layoutUpdates.push(root); }, openOverlay, notify: value => notices.push(value),
     parseExtensionRegistry, parseExtensionManifest, extensionPopup, extensionMetadata, extensionServiceLayout,
-    extensionSurfaceLayout, extensionSurfaceNodeId, surfaceEmptyKey, emptyStatusSurfaces, statusReadings, gitActionPopup, resolveProviders,
+    extensionSurfaceLayout, extensionSurfaceNodeId, surfaceEmptyKey, emptyStatusSurfaces, gitActionPopup, resolveProviders,
     platformSupported, workspaceRect, windowHeightFromSidebar, window: () => ({ platform }), settings: () => ({ zoom: 1 }), ...panel };
   return { memory, opened, notices, layoutUpdates, ...await evaluateNative('../mods/herdr-zed/extensions.js', host,
     'refreshExtensions, openExtension, extensionCatalog, extensionEnabled, setExtensionEnabled, extensionActive, extensionActions, openGitAction, workspaceRectNow, recordSize, visibleSurfaceCount, WORK_WIDTH_KEY, SIDEBAR_HEIGHT_KEY, closeWorkspacePanel') };
@@ -181,7 +181,7 @@ function ui(name) {
   return proxy;
 }
 
-test('status bar actions are icon-only: four buttons with title tooltips, the rest in one overflow menu', async () => {
+test('status bar actions all remain visible as icon buttons with titles and the same activation path', async () => {
   const memory = {}, opened = [];
   const action = n => ({ id: `x.a${n}`, extensionId: 'x', extensionTitle: 'X', mod: 'herdr-zed-x', title: `Action ${n}`, icon: 'globe',
     iconColor: n === 1 ? '#ff0000' : null, location: 'status.right', popup: { view: 'details', width: 400, height: 300, modal: false } });
@@ -191,18 +191,17 @@ test('status bar actions are icon-only: four buttons with title tooltips, the re
     resolved: resolveProviders([]) }; };
   const host = { shared: key => memory[key], setShared: (key, value) => { memory[key] = structuredClone(value); },
     openOverlay: value => { opened.push(value); return 'overlay'; }, notify: () => {}, layout: () => null, run: () => {},
-    appHome: () => '/herdr', readTextFile: null,
+    appHome: () => '/herdr', readTextFile: null, WORKSPACE_PANEL_ACTIVE: 'herdr-zed.workspace-panel.active',
     h_flex: () => ui('h_flex'), ToolbarButton: (id, t, options) => Object.assign(ui('button'), { id, options }), TOOLBAR_GLYPH: 16,
     glyph: name => Object.assign(ui('glyph'), { glyph: name }),
-    DropdownMenu: (id, state, trigger, items, onSelect, t, options) => ({ id, items, onSelect, trigger, options, state }),
-    STATUS_ACTION_LIMIT: 4, extensionSurfaceLayout, extensionSurfaceNodeId, extensionServiceLayout, extensionPopup, gitActionPopup,
+    extensionSurfaceLayout, extensionSurfaceNodeId, extensionServiceLayout, extensionPopup, gitActionPopup,
     parseExtensionRegistry, parseExtensionManifest, extensionMetadata, resolveProviders };
   const { ExtensionSlot } = await evaluateNative('../mods/herdr-zed/extensions.js', host, 'ExtensionSlot, openExtension');
 
   publish(6);
-  const slot = ExtensionSlot('status.right', { muted: 'muted' }, null, 'menu-state');
+  const slot = ExtensionSlot('status.right', { muted: 'muted' }, null);
   const buttons = slot.kids.filter(child => child.id?.startsWith('extension-') && child.id !== 'extension-overflow');
-  assert.deepEqual(buttons.map(button => button.id), ['extension-x.a1', 'extension-x.a2', 'extension-x.a3', 'extension-x.a4']);
+  assert.deepEqual(buttons.map(button => button.id), Array.from({ length: 6 }, (_, index) => `extension-x.a${index + 1}`));
   for (const [index, button] of buttons.entries()) {
     assert.equal(button.options.icon, true, 'icon-only button');
     assert.deepEqual(button.calls.tooltip, [`Action ${index + 1}`]);
@@ -212,16 +211,18 @@ test('status bar actions are icon-only: four buttons with title tooltips, the re
   const colored = buttons[0].kids[0];
   assert.equal(colored.glyph, 'globe'); assert.deepEqual(colored.calls.text_color, ['#ff0000'], 'iconColor is kept');
 
-  const overflow = slot.kids.find(child => child.id === 'extension-overflow');
-  assert.deepEqual(overflow.items, [{ key: 'x.a5', label: 'Action 5', icon: 'globe' }, { key: 'x.a6', label: 'Action 6', icon: 'globe' }]);
-  assert.equal(overflow.state, 'menu-state');
-  overflow.onSelect('x.a6', {});
-  assert.equal(opened.length, 1, 'an overflow row opens the same popup as an icon');
+  assert.equal(slot.kids.some(child => child.id === 'extension-overflow'), false);
+  buttons[5].calls.on_click[0]();
+  assert.equal(opened.length, 1, 'the sixth icon opens its panel directly');
 
   publish(4);
-  const fits = ExtensionSlot('status.right', { muted: 'muted' }, null, 'menu-state');
-  assert.equal(fits.kids.some(child => child.id === 'extension-overflow'), false, 'no overflow menu at four actions');
+  const fits = ExtensionSlot('status.right', { muted: 'muted' }, null);
   assert.equal(fits.kids.length, 4);
+  memory['herdr-zed.workspace-panel.active'] = { overlay: 'calendar', action: 'x.a2' };
+  const active = ExtensionSlot('status.right', { muted: 'muted' }, null);
+  assert.deepEqual(active.kids.map(button => button.options.selected), [false, true, false, false]);
+  memory['herdr-zed.workspace-panel.active'] = null;
+  assert.ok(ExtensionSlot('status.right', { muted: 'muted' }, null).kids.every(button => !button.options.selected));
 });
 
 function findLayout(node, id) {

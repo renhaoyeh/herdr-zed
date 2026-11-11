@@ -2,10 +2,9 @@ import { h_flex } from 'gpui-base';
 import { shared, setShared, appHome, readTextFile, openOverlay, notify, layout, run, window } from 'herdr';
 import { ToolbarButton, TOOLBAR_GLYPH } from './components/button.js';
 import { glyph } from './components/icon.js';
-import { DropdownMenu } from './components/dropdown-menu.js';
 import { parseExtensionRegistry, parseExtensionManifest, extensionPopup, extensionMetadata, extensionServiceLayout, gitActionPopup, resolveProviders, launcherAvailable, platformSupported, workspaceRect, windowHeightFromSidebar } from './extension-model.js';
-import { extensionSurfaceLayout, extensionSurfaceNodeId, STATUS_ACTION_LIMIT, surfaceEmptyKey, emptyStatusSurfaces, statusReadings } from './extension-surfaces.js';
-import { openWorkspacePanel, WORKSPACE_RECT_KEY, WORKSPACE_PANEL_OVERLAY, usableWorkspaceRect } from './components/workspace-overlay.js';
+import { extensionSurfaceLayout, extensionSurfaceNodeId, surfaceEmptyKey, emptyStatusSurfaces } from './extension-surfaces.js';
+import { openWorkspacePanel, WORKSPACE_RECT_KEY, WORKSPACE_PANEL_OVERLAY, WORKSPACE_PANEL_ACTIVE, usableWorkspaceRect } from './components/workspace-overlay.js';
 
 const DISABLED = 'herdr-zed.extensions.disabled';
 // Measured by the shell's views (on_size_change, logical px): the work column width and the sidebar's flexible body
@@ -25,6 +24,7 @@ export function closeWorkspacePanel() {
   const id = shared(WORKSPACE_PANEL_OVERLAY);
   if (!id) return;
   setShared(WORKSPACE_PANEL_OVERLAY, null);
+  setShared(WORKSPACE_PANEL_ACTIVE, null);
   run('overlay.close', { id });
 }
 
@@ -69,8 +69,7 @@ function applyExtensionLayout(root, packages, disabled, previous) {
     const services = extensionServiceLayout(root, packages, disabled) || root;
     // Providers report status.right readings with nothing to show (ARCHITECTURE §3.8); those mount hidden and take no width.
     const empty = emptyStatusSurfaces(packages, shared);
-    const status = { actions: extensionActions('status.right').length, dock: activeSurfaces('dock.right').length,
-      readings: statusReadings(packages, disabled, empty) };
+    const status = { actions: extensionActions('status.right').length, dock: activeSurfaces('dock.right').length };
     const next = extensionSurfaceLayout(services, packages, disabled, previous, status, empty) || services;
     if (next !== root) run('layout.set', { layout: next });
   } catch (error) {
@@ -153,13 +152,21 @@ export async function refreshExtensions() {
 export function openExtension(id, project) {
   const catalog = extensionCatalog(), action = catalog.actions.find(action => action.id === id);
   if (!catalog.ready || !action || !extensionActive(action.mod)) return;
+  const active = shared(WORKSPACE_PANEL_ACTIVE);
+  if (active?.action === id) return active.overlay;
   try {
     const popup = extensionPopup(action, project);
     return action.popup.placement === 'workspace'
-      ? openWorkspacePanel({ mod: popup.mod, props: popup.props, width: popup.width, height: popup.height, modal: popup.modal })
+      ? openWorkspacePanel({ mod: popup.mod, props: { ...popup.props, workspaceAction: action.id }, width: popup.width, height: popup.height, modal: popup.modal })
       : openOverlay(popup);
   }
   catch (error) { notify({ title: 'Could not open extension', body: error.message, level: 'error' }); }
+}
+
+// Status buttons toggle the panel they represent; command-driven opens stay idempotent.
+export function toggleExtension(id, project) {
+  if (shared(WORKSPACE_PANEL_ACTIVE)?.action === id) return closeWorkspacePanel();
+  return openExtension(id, project);
 }
 
 // Actions contributed to a location by active extensions only.
@@ -182,23 +189,19 @@ export function openGitAction(id, repository) {
   catch (error) { notify({ title: 'Could not open extension', body: error.message, level: 'error' }); }
 }
 
-// Status bar actions are icon-only (title is the tooltip and label). The first STATUS_ACTION_LIMIT show as buttons;
-// the rest sit in one overflow menu with icon and title rows. `menu` is the overflow DropdownMenuState.
-export function ExtensionSlot(location, t, project, menu) {
+// Every active status action is an icon button; its title is the tooltip and accessible label.
+export function ExtensionSlot(location, t, project) {
   const entries = extensionActions(location);
   if (!entries.length) return null;
-  const shown = entries.slice(0, STATUS_ACTION_LIMIT), overflow = entries.slice(STATUS_ACTION_LIMIT);
-  const choose = id => openExtension(id, project);
+  const choose = id => toggleExtension(id, project);
   return h_flex().h_full().flex_none().items_center()
-    .children(shown.map(action => ToolbarButton(`extension-${action.id}`, t, { icon: true })
-      .accessibility_label(action.title).tooltip(action.title)
-      .on_click(() => choose(action.id))
-      .child(glyph(action.icon, TOOLBAR_GLYPH).text_color(action.iconColor || t.muted))))
-    .when(overflow.length > 0, el => el.child(DropdownMenu('extension-overflow', menu,
-      ToolbarButton('extension-overflow', t, { icon: true }).accessibility_label('More extensions').tooltip('More extensions')
-        .child(glyph('ellipsis', TOOLBAR_GLYPH)),
-      overflow.map(action => ({ key: action.id, label: action.title, icon: action.icon })),
-      id => choose(id), t, { align: 'end', offset: { x: 0, y: 8 } })));
+    .children(entries.map(action => {
+      const selected = shared(WORKSPACE_PANEL_ACTIVE)?.action === action.id;
+      return ToolbarButton(`extension-${action.id}`, t, { icon: true, selected }).h_full()
+        .accessibility_label(action.title).tooltip(action.title)
+        .on_click(() => choose(action.id))
+        .child(glyph(action.icon, TOOLBAR_GLYPH).text_color(action.iconColor || (selected ? t.foreground : t.muted)));
+    }));
 }
 
 export function ExtensionSurfaceSlot(location, t) {
@@ -207,8 +210,9 @@ export function ExtensionSurfaceSlot(location, t) {
   return h_flex().h_full().flex_none().items_center()
     .children(entries.map(surface => {
       const visible = extensionSurfaceVisible(surface);
-      return ToolbarButton(`extension-surface-${surface.id}`, t, { icon: true, selected: visible })
-        .accessibility_label(`${visible ? 'Hide' : 'Show'} ${surface.title} dock`)
+      const label = `${visible ? 'Hide' : 'Show'} ${surface.title} dock`;
+      return ToolbarButton(`extension-surface-${surface.id}`, t, { icon: true, selected: visible }).h_full()
+        .accessibility_label(label).tooltip(label)
         .on_click(() => setExtensionSurfaceVisible(surface, !extensionSurfaceVisible(surface)))
         .child(glyph(surface.icon, TOOLBAR_GLYPH));
     }));

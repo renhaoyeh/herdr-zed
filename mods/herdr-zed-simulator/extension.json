@@ -4,19 +4,6 @@
   "title": "iOS Simulator",
   "platforms": ["macos"],
   "dependencies": ["herdr-zed-sim-frames"],
-  "actions": [
-    {
-      "id": "open",
-      "title": "iOS Simulator",
-      "icon": "smartphone",
-      "popup": {
-        "view": "simulator-popup",
-        "width": 480,
-        "height": 760,
-        "modal": false
-      },
-      "location": "status.right"
-    }
-  ],
+  "actions": [],
   "surfaces": [{ "id": "simulator", "location": "dock.right", "view": "simulator", "title": "iOS Simulator", "icon": "smartphone" }]
 }

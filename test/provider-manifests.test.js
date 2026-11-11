@@ -13,13 +13,13 @@ test('the iOS Simulator is a macOS-only package; the other providers declare no 
   }
 });
 
-test('working panels open anchored over the work area; the Simulator popup stays centered', async () => {
-  for (const id of ['tasks', 'calendar', 'asana', 'mantisbt', 'system']) {
+test('working panels open over the work area; Simulator uses its dock entry only', async () => {
+  for (const id of ['tasks', 'calendar', 'asana', 'mantisbt']) {
     const [action] = parseExtensionManifest(`herdr-zed-${id}`, await load(id));
     assert.equal(action.popup.placement, 'workspace', `${id} popup placement`);
   }
-  const [simulator] = parseExtensionManifest('herdr-zed-simulator', await load('simulator'));
-  assert.equal(simulator.popup.placement, 'center');
+  assert.deepEqual(parseExtensionManifest('herdr-zed-simulator', await load('simulator')), []);
+  assert.deepEqual(parseExtensionManifest('herdr-zed-system', await load('system')), []);
 });
 
 test('Agents Settings declares its six pages in the order the Settings nav lists them, each with a title', async () => {

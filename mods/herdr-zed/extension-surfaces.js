@@ -14,20 +14,14 @@ const update = (node, id, change) => node.id === id ? change(node)
   : node.children ? copyChildren(node, node.children.map(child => update(child, id, change))) : node;
 
 // The status row is [status (context), status.right surfaces (live readings)..., status-tools]. Herdr sizes blocks only
-// in px or weight, so status-tools is sized to its content (design.md, Status bar and Separators): icon buttons (28px
-// each, ToolbarButton), 8px gaps between items, and a 1px divider before each group after the first: readings,
-// extension icons, dock toggles, Changes and Files. ExtensionSlot shows at most STATUS_ACTION_LIMIT icons plus one
-// overflow button. `readings` counts the visible status.right surfaces the readings divider follows (statusReadings).
-export const STATUS_ACTION_LIMIT = 4;
-export const ICON_PX = 28, GAP_PX = 8, DIVIDER_PX = 1, PAD_PX = 4;
-export function statusToolsWidth({ actions = 0, dock = 0, readings = 0 } = {}) {
-  const actionButtons = actions > 0 ? Math.min(actions, STATUS_ACTION_LIMIT) + (actions > STATUS_ACTION_LIMIT ? 1 : 0) : 0;
+// in px or weight, so status-tools is sized to its content: 28px icon buttons and 8px gaps between groups.
+// Every active extension action has its own button, followed by dock toggles, Changes and Files.
+export const ICON_PX = 28, GAP_PX = 8, PAD_PX = 4;
+export function statusToolsWidth({ actions = 0, dock = 0 } = {}) {
+  const actionButtons = actions;
   const parts = [];
-  if (readings > 0) parts.push(DIVIDER_PX);
   if (actionButtons > 0) parts.push(actionButtons * ICON_PX);
-  if (actionButtons > 0 && dock > 0) parts.push(DIVIDER_PX);
   if (dock > 0) parts.push(dock * ICON_PX);
-  if (actionButtons > 0 || dock > 0) parts.push(DIVIDER_PX);
   parts.push(2 * ICON_PX); // Changes and Files
   return parts.reduce((sum, part) => sum + part, 0) + (parts.length - 1) * GAP_PX + PAD_PX;
 }
@@ -40,9 +34,6 @@ export const surfaceEmptyKey = (extension, surface) => `herdr-zed.surface-empty.
 export const emptyStatusSurfaces = (packages, read) => new Set(packages.filter(entry => entry.id)
   .flatMap(entry => (entry.surfaces || []).filter(surface => surface.location === 'status.right'
     && read(surfaceEmptyKey(entry.id, surface.id)) === true).map(nodeId)));
-// Readings the status row shows: enabled status.right surfaces that are not reported empty.
-export const statusReadings = (packages, disabled, empty) => packages.filter(entry => !entry.error && !disabled.includes(entry.mod))
-  .flatMap(entry => entry.surfaces || []).filter(surface => surface.location === 'status.right' && !empty.has(nodeId(surface))).length;
 
 export function extensionSurfaceLayout(root, packages, disabled = [], previous = [], status = null, empty = new Set()) {
   if (!root) return null;

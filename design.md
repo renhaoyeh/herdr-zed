@@ -26,14 +26,16 @@ titles). Where they conflict, this file wins.
 ## Status bar
 
 - Left: context (conversation toggle, machine). Right, in order: `status.right` surfaces (live readings) →
-  extension action icons (icon only, tooltip = title; at most 4, the rest in an overflow ⋯) → dock toggles
-  → separator → Changes, Files.
-- Each group after the first is divided by a 1px line (see Separators); the status tools are sized to what is shown.
+  extension action icons (all shown, icon only, tooltip = title) → dock toggles → Changes, Files.
+- Groups use spacing, with no vertical dividers inside the status bar; the status tools are sized to what is shown.
+- Button hover/selection backgrounds fill the bar's height. The sidebar footer has a 4px horizontal inset.
+- Hide the thread toggle when the project has no visible thread to open.
+- Clicking an active extension status button closes its panel; clicking another opens that panel. Opening an already open
+  extension through a command preserves its existing instance.
 
 ## Separators
 
-- 1px `border`-colored dividers separate distinct groups: in the status bar between context, live readings,
-  extension icons, dock toggles and Changes/Files; in the sidebar between the thread list, optional
+- 1px `border`-colored dividers separate distinct groups: in the sidebar between the thread list, optional
   extension surfaces and the bottom history row (always the last row); in the Settings nav between
   Workspace, Extensions and "Herdr settings…".
 - No dividers inside a group; spacing alone separates items of the same kind.
@@ -44,15 +46,17 @@ titles). Where they conflict, this file wins.
 - Glyphs come from `assets/icons/` via `glyph(name, size)`; never font glyphs or emoji. One icon per meaning
   (settings = `settings`, close = `close`, more = `ellipsis`, new = `plus`, Changes = `git-compare`).
 - Sizes: 14px in rows and menus, 16px in toolbars and the status bar. Icon-only buttons have a 28×28 hit
-  area (24×24 in dense rows) and always a tooltip + accessibility label.
+  area (24×24 in dense rows); status-bar buttons are 28px wide and fill the bar height. Always supply a tooltip + accessibility label.
 - Every icon-only button is the shared `ToolbarButton` icon variant (`components/button.js`): `icon: true` for a
   28×28 toolbar target with a 16px glyph, `icon: true, row: true` for a 24×24 row target with a 14px glyph.
-  Window caption buttons (minimize, maximize, close) keep their own full-height targets.
+  Header and status-bar buttons extend this with `h_full()`. Window caption buttons keep their own full-height targets.
 - Every toolbar or status-bar action is an icon button. In a menu, either every item has an icon or none.
 - One hover treatment for all interactive elements: background `hover`, no border or color shift; selected
   state uses `selected`; disabled is 45% opacity and never hovers. Non-interactive rows never hover.
   Exception: filled buttons (default, destructive) dim to 90% on hover instead.
 - Hover-revealed row actions (e.g. thread close) keep their space reserved so rows don't shift.
+- Nested row actions use the `chrome` background on hover, appearing darker than their hovered parent row in the dark theme.
+- The hover color remains distinct from the selected pane header, so actions remain visible when the pane is focused.
 - A thread row spins, blocks or ticks only from what its agent reports. A plain terminal, even one running a
   foreground command, shows the terminal icon.
 

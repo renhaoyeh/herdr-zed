@@ -108,7 +108,7 @@ test('SYSTEM samples in its service only and broadcasts snapshots to isolated mo
   Object.assign(providerHost, await evaluateNative('../components/system-monitor.js', providerHost, exports));
   providerHost.SystemClient = providerHost.SystemMonitor;
   Object.assign(providerHost, await evaluateNative('../mods/herdr-zed-system/monitor.js', providerHost, 'SystemMonitorCore'));
-  Object.assign(providerHost, { View: class {}, props: () => ({ view: 'service' }) });
+  Object.assign(providerHost, { View: class {}, props: () => ({ view: 'service' }), releaseWorkspacePanel() {} });
   const { SystemMod } = await evaluateNative('../mods/herdr-zed-system/main.js', providerHost, 'SystemMod');
   const service = new SystemMod(), serviceCx = context(); service.init(null, serviceCx);
   assert.equal(commands.length, 0, 'No reader runs without consumers');

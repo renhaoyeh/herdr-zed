@@ -392,7 +392,7 @@ test('closing the independent Tasks composer preserves its project-scoped unsave
   const { TaskComposer } = await evaluateNative('../mods/herdr-zed-tasks/task-composer.js', h.owner, 'TaskComposer');
   const target = { view: 'task-composer', project: h.state.projects[0], overlay: 'draft' };
   const { TasksMod } = await evaluateNative('../mods/herdr-zed-tasks/main.js', { ...h.base, View: class {}, TaskRuntime: class { agentClient = { init() {}, close() {} }; taskAssignees() { return []; } },
-    TaskComposer, props: () => target }, 'TasksMod');
+    TaskComposer, releaseWorkspacePanel() {}, props: () => target }, 'TasksMod');
   const view = new TasksMod(); view.init(null, clock.cx); view.composer.title.set_value('Unfinished'); view.close();
   assert.equal(h.memory['herdr-zed.task-drafts']['["","/project"]'].name, 'Unfinished');
   assert.equal(h.memory['herdr-zed.agent-board']['["","/project"]'], undefined);

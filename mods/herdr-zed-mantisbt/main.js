@@ -5,7 +5,7 @@ import { MantisSettings } from './settings.js';
 import { mantisSource } from './source.js';
 import { importTarget, importRequest } from './import-target.js';
 import { sourceModuleOptions, publishSourceEvent } from './components/source-channel.js';
-import { workspacePanel } from './components/workspace-overlay.js';
+import { workspacePanel, releaseWorkspacePanel } from './components/workspace-overlay.js';
 const extensionId = 'mantisbt', catalogKey = 'herdr-zed.extensions.catalog';
 export default class SourceMod extends View {
   init(_props, cx) {
@@ -34,6 +34,6 @@ export default class SourceMod extends View {
     this.browser.onImport = target ? snapshot => openOverlay(importRequest(target, { source: extensionId, context: this.target.context, snapshot })) : undefined;
     return true;
   }
-  close() { if (this.settings) { this.settings.close(); return; } if (!this.isPicker) { this.browser.dispose(); publishSourceEvent(this.target.channel, { type: 'close' }); } }
+  close() { releaseWorkspacePanel(); if (this.settings) { this.settings.close(); return; } if (!this.isPicker) { this.browser.dispose(); publishSourceEvent(this.target.channel, { type: 'close' }); } }
   render(cx) { if (this.settings) return this.settings.render(cx); return this.isPicker ? this.browser.render() : workspacePanel(this.browser.render(this.target.context || null, cx)); }
 }

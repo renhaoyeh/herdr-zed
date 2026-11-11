@@ -9,7 +9,7 @@ import DeleteTask from './delete-task.js';
 import { findProject } from './task-sources.js';
 import { boardTheme } from './components/task-theme.js';
 import { Button } from './components/button.js';
-import { workspacePanel } from './components/workspace-overlay.js';
+import { workspacePanel, releaseWorkspacePanel } from './components/workspace-overlay.js';
 // Tasks runs as a popup/dialog extension view (see extension.json); the service view runs in the status row.
 export default class TasksMod extends View {
   init(_props, cx) {
@@ -37,7 +37,7 @@ export default class TasksMod extends View {
       if (this.target.focus) setShared('herdr-zed.board-focus', this.target.focus);
     }
   }
-  close() { this.composer?.saveDraft(); this.runtime.agentClient.close(); }
+  close() { releaseWorkspacePanel(); this.composer?.saveDraft(); this.runtime.agentClient.close(); }
   render(cx) {
     if (this.target.view === 'service') return div().size_full();
     const t = boardTheme();

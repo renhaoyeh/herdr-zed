@@ -10,6 +10,7 @@ export const WORKSPACE_PANEL_KEY = 'herdr-zed.workspace-panel';
 // A docked panel (props.docked) fills the work area edge to edge: it draws square corners and no outer border.
 // The open workspace panel's overlay id. The shell closes it on a project switch or when Settings opens.
 export const WORKSPACE_PANEL_OVERLAY = 'herdr-zed.workspace-panel.overlay';
+export const WORKSPACE_PANEL_ACTIVE = 'herdr-zed.workspace-panel.active';
 // The centered fallback while no work area is published (and the default size of a provider panel).
 export const WORKSPACE_FALLBACK = { width: 0.9, height: 0.86 };
 
@@ -42,7 +43,17 @@ export function workspaceOverlay(spec) {
 export function openWorkspacePanel(spec) {
   const id = openOverlay(workspaceOverlay(spec));
   setShared(WORKSPACE_PANEL_OVERLAY, id);
+  setShared(WORKSPACE_PANEL_ACTIVE, { overlay: id, action: spec.props.workspaceAction ?? null });
   return id;
+}
+
+// A replaced panel can finish closing after its replacement opens. Clear only the closing copy's state.
+export function releaseWorkspacePanel() {
+  const overlay = props()?.overlay;
+  const active = /** @type {{ overlay?: string } | null} */ (shared(WORKSPACE_PANEL_ACTIVE));
+  if (!overlay || active?.overlay !== overlay) return;
+  setShared(WORKSPACE_PANEL_ACTIVE, null);
+  if (shared(WORKSPACE_PANEL_OVERLAY) === overlay) setShared(WORKSPACE_PANEL_OVERLAY, null);
 }
 
 /**

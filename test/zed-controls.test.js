@@ -33,11 +33,22 @@ test('ToolbarButton icon: 28px target with a 16px glyph in bars; 24px with a 14p
   assert.equal(TOOLBAR_GLYPH, 16); assert.equal(ROW_GLYPH, 14);
   const bar = ToolbarButton('a', t, { icon: true });
   assert.equal(bar.attrs.size, 28);
+  assert.equal(bar.attrs.p, 0, 'the glyph is centered without inherited padding');
+  assert.equal(bar.attrs.overflow_hidden, true, 'icon content stays inside its target');
   assert.equal(bar.attrs.bg, '#00000000', 'transparent at rest, so the bar behind shows');
   const row = ToolbarButton('b', t, { icon: true, row: true });
   assert.equal(row.attrs.size, 24);
+  assert.equal(row.hoverStyle.bg, 'CHROME', 'nested actions deepen against a row using HOVER');
   assert.equal(row.attrs.px, undefined, 'an icon button has no text padding');
   assert.equal(bar.attrs.h_full, undefined, 'an icon button is a square target, not full height');
+});
+
+test('shipped hover colors remain visible over focused pane headers in both themes', async () => {
+  for (const name of ['devkits', 'devkits-light']) {
+    const { colors } = JSON.parse(await readFile(new URL(`../themes/${name}.json`, import.meta.url), 'utf8'));
+    assert.notEqual(colors.hover, colors.selected, `${name}: focused pane actions need visible hover feedback`);
+    assert.notEqual(colors.hover, colors.chrome, `${name}: unfocused pane actions need visible hover feedback`);
+  }
 });
 
 test('one hover treatment: the background `hover`, with no border or colour shift', () => {

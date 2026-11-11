@@ -33,20 +33,7 @@ export const systemManifest = `{
     { "id": "widgets", "location": "sidebar.bottom", "view": "widgets", "title": "System widgets", "icon": "chart-column" },
     { "id": "inline", "location": "status.right", "view": "inline", "title": "System metrics", "icon": "chart-column" }
   ],
-  "actions": [
-    {
-      "id": "open",
-      "title": "SYSTEM",
-      "icon": "chart-column",
-      "popup": {
-        "view": "details",
-        "width": 0.9,
-        "height": 0.86,
-        "modal": false
-      },
-      "location": "status.right"
-    }
-  ]
+  "actions": []
 }
 `;
 
@@ -55,20 +42,7 @@ export const simulatorManifest = `{
   "id": "simulator",
   "title": "iOS Simulator",
   "dependencies": ["herdr-zed-sim-frames"],
-  "actions": [
-    {
-      "id": "open",
-      "title": "iOS Simulator",
-      "icon": "smartphone",
-      "popup": {
-        "view": "simulator-popup",
-        "width": 480,
-        "height": 760,
-        "modal": false
-      },
-      "location": "status.right"
-    }
-  ],
+  "actions": [],
   "surfaces": [{ "id": "simulator", "location": "dock.right", "view": "simulator", "title": "iOS Simulator", "icon": "smartphone" }]
 }
 `;

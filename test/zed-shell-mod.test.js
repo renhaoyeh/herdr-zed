@@ -105,18 +105,33 @@ test('native sidebar, pane menu, dock controls and empty editor render without e
     'DropdownMenu', 'DropdownMenuTrigger', 'DropdownMenuContent', 'DropdownMenuItem', 'DropdownMenuLabel', 'DropdownMenuSeparator',
     'AlertDialogContent', 'AlertDialogTitle', 'AlertDialogDescription', 'AlertDialogFooter', 'AlertDialogCancel', 'AlertDialogAction',
     'Empty', 'EmptyTitle', 'EmptyDescription', 'AgentIcon', 'glyph', 'GitResultToast']) host[name] = (...args) => ui(typeof args[0] === 'string' ? args[0] : null);
+  const triggerAnchor = { x: 252, y: 80 };
+  host.DropdownMenuTrigger = (trigger, _width, open) => trigger.on_click((_event, context) => open(context, triggerAnchor));
   Object.assign(host, await evaluateNative('../mods/herdr-zed/start-panel.js', host, 'startPanel'));
   Object.assign(host, await evaluateNative('../mods/herdr-zed/decorations.js', host, 'threadDecorations, decorationTone'));
   Object.assign(host, { threadArchive: { threadBusy: () => false, archiveThread() {}, restoreThread() {}, historyList: () => ui() }, historyEligible: () => false });
   const { HerdrZed } = await evaluateNative('../mods/herdr-zed/main.js', host, 'HerdrZed');
   const view = new HerdrZed(); view.init(null, cx);
   const sidebar = view.render(cx);
+  const launches = [];
+  view.repeatThread = async (_cx, project, at) => { launches.push({ project, at }); };
+  elements(sidebar).find(element => element.attributes.id === 'new-thread-s').click({}, cx);
+  await jobs.pop()(cx);
+  assert.deepEqual(launches, [{ project: 's', at: triggerAnchor }], 'sidebar + opens from the painted trigger, without nonexistent click coordinates');
   assert.match(text(sidebar), /Native thread/);
   assert.ok(elements(sidebar).some(element => element.attributes.accessibility_label === 'Blocked'));
   for (status of ['working', 'done', 'idle']) assert.doesNotThrow(() => view.render(cx));
   target = { view: 'pane', pane: 'p' }; view.init(null, cx); const pane = view.render(cx);
   target = { view: 'header' }; const header = view.render(cx);
   target = { view: 'status' }; const left = view.render(cx);
+  assert.ok(elements(left).some(element => element.attributes.id === 'open-conversation'), 'a real thread offers its toggle');
+  const savedTabs = nativeSpaces[0].tabs;
+  nativeSpaces[0].tabs = [];
+  assert.ok(!elements(view.render(cx)).some(element => element.attributes.id === 'open-conversation'), 'a project without a thread shows no toggle');
+  nativeSpaces[0].tabs = savedTabs;
+  nativeSpaces[0].pending = true;
+  assert.ok(!elements(view.render(cx)).some(element => element.attributes.id === 'open-conversation'), 'a pending project shows no toggle');
+  delete nativeSpaces[0].pending;
   assert.ok(!elements(left).some(element => element.attributes.id === 'open-files'), 'Changes and Files live in the status-tools block');
   target = { view: 'status-tools' }; const bottom = view.render(cx);
   assert.ok(elements(bottom).some(element => element.attributes.id === 'open-files'));

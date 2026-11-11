@@ -7,7 +7,7 @@
     {
       "id": "open",
       "title": "MantisBT",
-      "icon": "list-todo",
+      "icon": "mantisbt",
       "popup": {
         "view": "browser",
         "width": 0.9,

@@ -191,8 +191,7 @@ export class SystemMonitor {
           .on_click(() => this.open(id))
           .when(Boolean(label), el => el.child(div().text_color(t.muted).child(label)))
           .child(div().font_family('Geist Mono').text_color(t.foreground).child(hardwareStatusValue(id, data)));
-        })))
-      .child(div().flex_1());
+        })));
   }
 
   renderWidgets(t, { id: prefix = 'system', style = 'compact', cpuMode = 'total', onWidgetSize } = {}) {

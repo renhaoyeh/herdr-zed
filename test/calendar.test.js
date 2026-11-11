@@ -17,7 +17,7 @@ test('closing a Calendar composer returns keyboard focus only to its owning cale
   const commands = [];
   const { CalendarMod } = await evaluateNative('../mods/herdr-zed-calendar/main.js', {
     View: class {}, LocalCalendar: class { handle = { focus: () => focused++ }; init() {} close() {} },
-    props: () => target, nextCommand: () => new Promise(resolve => { receive = resolve; }),
+    releaseWorkspacePanel() {}, props: () => target, nextCommand: () => new Promise(resolve => { receive = resolve; }),
     run: command => commands.push(command), listTasks() {}, tasksSnapshot() {}, openTaskBoard() {},
   }, 'CalendarMod');
   const parent = new CalendarMod();

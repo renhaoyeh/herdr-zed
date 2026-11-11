@@ -9,20 +9,16 @@ import { parseExtensionManifest } from '../mods/herdr-zed/extension-model.js';
 
 const run = promisify(execFile);
 
-test('SYSTEM extension declares a parsed popup and the existing service and details views', async () => {
+test('SYSTEM exposes its sampler and readings without a duplicate status action', async () => {
   const text = await readFile(new URL('../mods/herdr-zed-system/extension.json', import.meta.url), 'utf8');
   const manifest = JSON.parse(text);
-  const [action] = parseExtensionManifest('herdr-zed-system', text);
+  assert.deepEqual(parseExtensionManifest('herdr-zed-system', text), []);
   assert.deepEqual(manifest.services, [{ view: 'service' }]);
-  assert.equal(action.id, 'system.open');
-  assert.equal(action.icon, 'chart-column');
-  assert.equal(action.location, 'status.right');
-  assert.deepEqual(action.popup, { view: 'details', width: 0.9, height: 0.86, modal: false, placement: 'workspace' });
+  assert.deepEqual(manifest.surfaces.map(surface => surface.view), ['widgets', 'inline']);
 
   const main = await readFile(new URL('../mods/herdr-zed-system/main.js', import.meta.url), 'utf8');
   assert.match(main, /if \(this\.view === 'service'\) \{\s*this\.monitor\.init\(cx\)/);
   assert.match(main, /this\.monitor\.renderDetails\(t\)/);
-  assert.doesNotMatch(manifest.actions[0].popup.view, /service|inline|widgets/);
 });
 
 test('hardware reader CLI runs when invoked through a symlink path', async t => {

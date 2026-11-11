@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseExtensionRegistry, parseExtensionManifest, extensionMetadata, extensionPopup, extensionServiceLayout, gitActionPopup, resolveProviders,
   launcherAvailable, platformSupported, workspaceRect, workspaceTopAnchor, windowHeightFromSidebar } from '../mods/herdr-zed/extension-model.js';
-import { extensionSurfaceLayout, extensionSurfaceNodeId, STATUS_ACTION_LIMIT, surfaceEmptyKey, emptyStatusSurfaces, statusReadings } from '../mods/herdr-zed/extension-surfaces.js';
+import { extensionSurfaceLayout, extensionSurfaceNodeId, surfaceEmptyKey, emptyStatusSurfaces } from '../mods/herdr-zed/extension-surfaces.js';
 import { evaluateNative } from './source-harness.js';
 
 const action = (popup = {}) => ({ id: 'open', title: 'Open', icon: 'globe', location: 'status.right',
@@ -79,7 +79,6 @@ test('gitActionPopup, service layout and launcher helpers still take the same de
   assert.equal(gitActionPopup({ ...action, mod: 'herdr-zed-demo' }, { machine: null, folder: '/w' }).kind, 'dialog');
   assert.equal(extensionServiceLayout({ children: [] }, []), null);
   assert.equal(launcherAvailable(null, [], null), false);
-  assert.ok(STATUS_ACTION_LIMIT > 0);
   assert.equal(typeof extensionSurfaceNodeId, 'function');
   assert.equal(typeof extensionSurfaceLayout, 'function');
   assert.deepEqual(parseExtensionRegistry('{"version":1,"extensions":["herdr-zed-demo"]}'), ['herdr-zed-demo']);
@@ -98,16 +97,16 @@ const runtime = async (manifest, platform, layout = null) => {
     run: (command, args) => { runs.push([command, args]); if (command === 'layout.set') root = args.layout; },
     openOverlay: value => { opened.push(value); return 'overlay'; }, notify() {},
     parseExtensionRegistry, parseExtensionManifest, extensionMetadata, extensionPopup, extensionServiceLayout, gitActionPopup,
-    resolveProviders, launcherAvailable, platformSupported, workspaceRect, extensionSurfaceLayout, extensionSurfaceNodeId, surfaceEmptyKey, emptyStatusSurfaces, statusReadings,
-    STATUS_ACTION_LIMIT, ToolbarButton() {}, TOOLBAR_GLYPH: 16, glyph() {}, DropdownMenu() {}, h_flex() {},
+    resolveProviders, launcherAvailable, platformSupported, workspaceRect, extensionSurfaceLayout, extensionSurfaceNodeId, surfaceEmptyKey, emptyStatusSurfaces,
+    ToolbarButton() {}, TOOLBAR_GLYPH: 16, glyph() {}, DropdownMenu() {}, h_flex() {},
     ...await evaluateNative('../components/workspace-overlay.js', { shared: key => memory[key], settings: () => ({ zoom: 1 }),
       openOverlay: value => { opened.push(value); return 'overlay'; }, setShared: (key, value) => { memory[key] = structuredClone(value); } },
-      'openWorkspacePanel, usableWorkspaceRect, WORKSPACE_RECT_KEY, WORKSPACE_PANEL_OVERLAY'),
+      'openWorkspacePanel, usableWorkspaceRect, WORKSPACE_RECT_KEY, WORKSPACE_PANEL_OVERLAY, WORKSPACE_PANEL_ACTIVE'),
     windowHeightFromSidebar,
   };
   // extensions.js reads the publisher's own names from the same host; evaluate it once the host is complete.
   return { memory, opened, runs, ...await evaluateNative('../mods/herdr-zed/extensions.js', host,
-    'refreshExtensions, openExtension, extensionCatalog, extensionActive, extensionActions, extensionSurfaceVisible, setExtensionSurfaceVisible, visibleSurfaceCount, WORK_WIDTH_KEY, SIDEBAR_HEIGHT_KEY, recordSize, workspaceRectNow, publishWorkspaceRect, closeWorkspacePanel') };
+    'refreshExtensions, openExtension, toggleExtension, extensionCatalog, extensionActive, extensionActions, extensionSurfaceVisible, setExtensionSurfaceVisible, visibleSurfaceCount, WORK_WIDTH_KEY, SIDEBAR_HEIGHT_KEY, recordSize, workspaceRectNow, publishWorkspaceRect, closeWorkspacePanel') };
 };
 
 const platformManifest = JSON.parse(text({ platforms: ['macos'], settings: { view: 'settings', title: 'Demo' },
@@ -147,6 +146,7 @@ test('opening a workspace action uses the published work area and falls back to 
   r.openExtension('demo.open', null);
   assert.equal(r.opened[0].kind, 'dialog', 'no measured size yet: centered dialog');
   assert.equal(r.memory['herdr-zed.workspace-rect'], undefined, 'nothing is published while unmeasured');
+  r.closeWorkspacePanel();
   r.recordSize(r.WORK_WIDTH_KEY, 1000); r.recordSize(r.SIDEBAR_HEIGHT_KEY, 700);
   assert.equal(r.memory[r.WORK_WIDTH_KEY], 1000);
   assert.deepEqual([r.memory['herdr-zed.workspace-rect'].x, r.memory['herdr-zed.workspace-rect'].y, r.memory['herdr-zed.workspace-rect'].width, r.memory['herdr-zed.workspace-rect'].height],
@@ -165,12 +165,30 @@ test('a workspace panel closes by its recorded id on a project switch or Setting
   await r.refreshExtensions();
   r.recordSize(r.WORK_WIDTH_KEY, 1000); r.recordSize(r.SIDEBAR_HEIGHT_KEY, 700);
   r.openExtension('demo.open', null);
+  assert.equal(r.memory['herdr-zed.workspace-panel.active'].action, 'demo.open');
   r.closeWorkspacePanel();
   assert.deepEqual(r.runs.at(-1), ['overlay.close', { id: 'overlay' }]);
   assert.equal(r.memory['herdr-zed.workspace-panel.overlay'], null);
+  assert.equal(r.memory['herdr-zed.workspace-panel.active'], null);
   const count = r.runs.length;
   r.closeWorkspacePanel();
   assert.equal(r.runs.length, count, 'with no open panel there is nothing to close');
+});
+
+test('repeated status clicks close the open panel without reopening it; commands preserve the existing instance', async () => {
+  const manifest = JSON.stringify({ ...JSON.parse(text()), actions: [action({ placement: 'workspace' })] });
+  const r = await runtime(manifest, 'linux');
+  await r.refreshExtensions();
+  r.toggleExtension('demo.open', null);
+  assert.equal(r.opened.length, 1);
+  r.openExtension('demo.open', null);
+  assert.equal(r.opened.length, 1, 'an open command does not rebuild the panel');
+  r.toggleExtension('demo.open', null);
+  assert.equal(r.opened.length, 1, 'the second click closes without reopening');
+  assert.equal(r.memory['herdr-zed.workspace-panel.active'], null);
+  assert.deepEqual(r.runs.at(-1), ['overlay.close', { id: 'overlay' }]);
+  r.toggleExtension('demo.open', null);
+  assert.equal(r.opened.length, 2, 'a subsequent click opens it again');
 });
 
 test('surface visibility and the status counts follow what is shown', async () => {
