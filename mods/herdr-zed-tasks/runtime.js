@@ -253,6 +253,7 @@ export class TaskRuntime {
         }).catch(error => notify({ title: 'Could not stop generation', body: error.message, level: 'error' }));
       },
       close: () => this.close(),
+      importSource: source => this.taskSources.open(project, source),
       thread: id => { this.focusThread(id); this.close(); },
       start: (agent, task, options, eventCx) => eventCx.spawn(async cx => {
         const currentProject = this.projects().find(item => item.id === project.id) || project;

@@ -3,7 +3,17 @@ import { folderKey } from './components/session-model.js';
 import { createSourceChannel, sourceChannels, consumeSourceEvents, closeSourceChannel } from './components/source-channel.js';
 
 // Source browsers are independently running mods (herdr-zed-asana, herdr-zed-mantisbt); Tasks only exchanges messages with them.
-const SOURCES = ['asana', 'mantisbt'];
+const SOURCE_MODS = { 'herdr-zed-asana': 'asana', 'herdr-zed-mantisbt': 'mantisbt' };
+const SOURCES = Object.values(SOURCE_MODS);
+const SOURCE_LABELS = { asana: 'Asana', mantisbt: 'MantisBT' };
+
+// The source browsers the shell reports as enabled and loaded without error, for the board's "Import from" menu.
+export function installedSources(catalog) {
+  const packages = catalog?.packages || [], unavailable = new Set((catalog?.resolved?.unavailable || []).map(entry => entry.mod));
+  return Object.entries(SOURCE_MODS)
+    .filter(([mod]) => !unavailable.has(mod) && packages.some(entry => entry.mod === mod && entry.enabled && !entry.error))
+    .map(([, key]) => ({ key, label: SOURCE_LABELS[key] }));
+}
 
 // The project whose context names this folder (or the given id). Null when no open project matches.
 export function findProject(projects, context = {}) {

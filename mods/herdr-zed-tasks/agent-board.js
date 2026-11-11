@@ -1,7 +1,7 @@
 import { div } from 'gpui-kit';
 import { h_flex, v_flex, InputState, Input, TextareaState, Textarea, TextView } from 'gpui-base';
-import { shared, setShared, openOverlay, appHome, readTextFile, agents as currentAgents, spaces as currentSpaces } from 'herdr';
-import { SourceTaskReader } from './task-sources.js';
+import { shared, setShared, openOverlay, closeOverlay, props, appHome, readTextFile, agents as currentAgents, spaces as currentSpaces } from 'herdr';
+import { SourceTaskReader, installedSources } from './task-sources.js';
 import { TaskSession } from './task-session.js';
 import { boardStatuses, boardKey, liveVersion, boardPriorityOptions, boardPriorities, canStartTask, taskActions, taskManualStatusOptions, taskChildren, canAddSubtask } from './agent-board-model.js';
 import { launcherLabel, launcherOption, accountAddresses } from './components/session-model.js';
@@ -47,6 +47,7 @@ export default class AgentBoard {
       { minWidth: 360, maxWidth: 880, defaultWidth: 500, minContentWidth: 320, label: 'Resize task details' });
     this.outputs = new Map();
     this.cardMenu = new DropdownMenuState(cx);
+    this.importMenu = new DropdownMenuState(cx);
     cx.timer.every(5000, cx => {
       if (shared('herdr-zed.tasks-open') && this.project?.id === shared('herdr-zed.board-project') && this.currentTask?.gid === this.selected)
         this.loadOutput(this.currentTask, this.project, cx);
@@ -285,6 +286,8 @@ export default class AgentBoard {
               }).child(glyph('plus', 14)))))
           .child(v_flex().id(`board-column-${status.key}`).flex_1().min_h(0).overflow_y_scrollbar().px(8).gap(8).pb(24).children(rows.map(card)));
       }));
+    // Import menu: only source browsers that are installed and enabled; the menu itself toggles on its trigger.
+    const sources = installedSources(shared('herdr-zed.extensions.catalog'));
     const tab = (id, label, active, action) => button(id, t).h(28).px(10).rounded(999).border(1)
       .bg(active ? t.selected : t.control).border_color(t.controlBorder).text_color(active ? t.foreground : t.muted)
       .hover(el => el.bg(active ? t.selected : t.hover).text_color(active ? t.foreground : t.secondary))
@@ -302,8 +305,13 @@ export default class AgentBoard {
         .child(glyph('columns-3', 15)).child(div().font_semibold().child('Tasks'))
         .child(div().text_color(t.muted).child('/')).child(div().truncate().text_color(t.muted).child(project.name))
         .child(div().flex_1())
+        .when(sources.length > 0, el => el.child(DropdownMenu('board-import-menu', this.importMenu,
+          button('board-import', t).pl(8).pr(10).h(28).child('Import from…'),
+          sources.map(source => ({ key: source.key, label: source.label })), key => actions.importSource(key), t)))
         .child(button('board-new-task', t).pl(8).pr(10)
-          .on_click(() => this.compose(project)).child(glyph('plus', 14)).child('New task')))
+          .on_click(() => this.compose(project)).child(glyph('plus', 14)).child('New task'))
+        .child(button('board-close', t, { size: 'icon' }).accessibility_label('Close Tasks')
+          .on_click(() => closeOverlay(props().overlay)).child(glyph('close', 14))))
       .child(h_flex().h(44).flex_none().px(8).gap(4).items_center().text_size(12)
         .child(tab('board-active', 'All tasks', !this.archived && !this.attentionOnly, () => { this.archived = false; this.attentionOnly = false; this.selected = null; }))
         .child(tab('board-archived', 'Archived', this.archived, () => { this.archived = true; this.attentionOnly = false; this.selected = null; }))

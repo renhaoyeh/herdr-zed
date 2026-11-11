@@ -265,7 +265,7 @@ async function modules(records = {}, projects = [{ id: 'p', folder: '/project', 
     'projectBoardTasks, boardRecords, taskLinkForTab, threadBoardStatus, threadBoardTask, sessionThreadTitle, rememberBoardTask, setTaskArchived, setTaskDueDate, deleteLocalTask, createLocalTask'));
   Object.assign(owner, await evaluateNative('../components/source-channel.js', owner,
     'createSourceChannel, sourceChannels, consumeSourceEvents, closeSourceChannel'));
-  Object.assign(owner, await evaluateNative('../mods/herdr-zed-tasks/task-sources.js', owner, 'TaskSources, resolveTaskImport, findProject'));
+  Object.assign(owner, await evaluateNative('../mods/herdr-zed-tasks/task-sources.js', owner, 'TaskSources, resolveTaskImport, findProject, installedSources'));
   Object.assign(owner, await evaluateNative('../mods/herdr-zed-tasks/task-prompt.js', owner, 'taskPrompt'));
   // Stand-in for the Agents public client: records each launch and resolves with the prepare metadata it chose.
   const launches = [];
@@ -446,4 +446,39 @@ test('Restore conversation is not started by Tasks: the board shows an inline er
   assert.equal(h.memory['herdr-zed.archived-threads'], undefined);
   assert.equal(h.owner.boardRecords(project)[task.gid].status, 'done');
   assert.deepEqual(h.launches, []); assert.deepEqual(h.native, []);
+});
+
+test('Import from offers only enabled source browsers that loaded without error', async () => {
+  const h = await modules();
+  const catalog = (packages, unavailable = []) => ({ packages, resolved: { unavailable: unavailable.map(mod => ({ mod })) } });
+  assert.deepEqual(h.owner.installedSources(null), []);
+  assert.deepEqual(h.owner.installedSources(catalog([
+    { mod: 'herdr-zed-asana', enabled: true }, { mod: 'herdr-zed-mantisbt', enabled: false },
+  ])), [{ key: 'asana', label: 'Asana' }]);
+  assert.deepEqual(h.owner.installedSources(catalog([
+    { mod: 'herdr-zed-asana', enabled: true, error: 'bad manifest' }, { mod: 'herdr-zed-mantisbt', enabled: true },
+  ])), [{ key: 'mantisbt', label: 'MantisBT' }]);
+  assert.deepEqual(h.owner.installedSources(catalog([
+    { mod: 'herdr-zed-asana', enabled: true }, { mod: 'herdr-zed-mantisbt', enabled: true },
+  ], ['herdr-zed-mantisbt'])), [{ key: 'asana', label: 'Asana' }]);
+  assert.deepEqual(h.owner.installedSources(catalog([{ mod: 'herdr-zed-simulator', enabled: true }])), []);
+});
+
+test('Import from opens the chosen source browser for the board project through the existing source channel', async () => {
+  const h = await modules();
+  const project = h.state.projects[0];
+  h.runtime.agentBoard = { render: (_p, _a, _l, actions) => actions };
+  const actions = h.runtime.boardPanel(project, context().cx);
+  actions.importSource('mantisbt');
+  const overlay = h.overlays.at(-1);
+  assert.equal(overlay.mod, 'herdr-zed-mantisbt');
+  assert.equal(overlay.props.importLabel, 'Import into Tasks');
+  assert.equal(overlay.props.context.folder, '/project');
+  assert.equal(overlay.props.stateKey, 'herdr-zed.mantisbt');
+});
+
+test('the board header has a Close Tasks control bound to its own overlay, and Import from only appears with sources', async () => {
+  const source = await readFile(new URL('../mods/herdr-zed-tasks/agent-board.js', import.meta.url), 'utf8');
+  assert.match(source, /button\('board-close', t, \{ size: 'icon' \}\)\.accessibility_label\('Close Tasks'\)\s*\.on_click\(\(\) => closeOverlay\(props\(\)\.overlay\)\)/);
+  assert.match(source, /\.when\(sources\.length > 0, el => el\.child\(DropdownMenu\('board-import-menu'/);
 });

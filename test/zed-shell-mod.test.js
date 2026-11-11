@@ -124,3 +124,9 @@ test('native sidebar, pane menu, dock controls and empty editor render without e
   assert.equal(commands.some(([name]) => name === 'tab.new' || name === 'space.new'), false, 'Rendering never starts a thread');
 });
 
+
+test('Close project asks in a modal dialog whose confirm action is destructive', async () => {
+  const main = await readFile(new URL('../mods/herdr-zed/main.js', import.meta.url), 'utf8');
+  assert.match(main, /openOverlay\(\{ mod: 'herdr-zed', kind: 'dialog', frame: 'none', modal: true, width: 440, height: 220,\s*props: \{ view: 'close-project'/);
+  assert.match(main, /Button\('confirm-close-project', t, \{ variant: 'destructive' \}\)/);
+});
