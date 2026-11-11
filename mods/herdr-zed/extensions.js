@@ -15,8 +15,9 @@ export const recordSize = (key, value) => { if (value > 0 && shared(key) !== val
 
 // The work area for `workspace` panels now, or null while its size is unknown (ARCHITECTURE §2.1).
 export const workspaceRectNow = () => {
-  const sidebar = layoutNode(layout(), 'sidebar');
-  return workspaceRect({ sidebar, workWidth: shared(WORK_WIDTH_KEY), windowHeight: windowHeightFromSidebar(sidebar, shared(SIDEBAR_HEIGHT_KEY)) });
+  const root = layout(), sidebar = layoutNode(root, 'sidebar');
+  return workspaceRect({ sidebar, dividerWidth: root?.divider?.width ?? 0, workWidth: shared(WORK_WIDTH_KEY),
+    windowHeight: windowHeightFromSidebar(sidebar, shared(SIDEBAR_HEIGHT_KEY)) });
 };
 
 // A workspace panel shows the selected project's work: it closes on a project switch and when Settings opens.

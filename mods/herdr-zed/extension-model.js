@@ -234,16 +234,16 @@ export function workspaceTopAnchor(rect, width, zoom = 1) {
   return { x: (rect.x + Math.max(0, (rect.width - width) / 2)) * zoom, y: (rect.y + 8) * zoom };
 }
 
-// The work area for `workspace` popups: x = sidebar width (0 when hidden), y = header height, width = window width
-// minus x, height = window height minus header and status bar. `sidebar` is the layout node 'sidebar'; `workWidth`
+// The work area for `workspace` popups: x = sidebar width plus its layout divider (0 when hidden), y = header height,
+// width = the measured work column, height = window height minus header and status bar. `sidebar` is the layout node 'sidebar'; `workWidth`
 // (the work column, which is the window minus the sidebar) and `windowHeight` are measured by the shell's views.
 // Null when a size is unknown: the caller then uses the centered dialog.
-export function workspaceRect({ sidebar, workWidth, windowHeight }) {
+export function workspaceRect({ sidebar, dividerWidth = 0, workWidth, windowHeight }) {
   if (!(workWidth > 0) || !(windowHeight > 0)) return null;
   let x = 0;
   if (sidebar && !sidebar.hidden) {
     if (!Number.isFinite(sidebar.size?.px)) return null;
-    x = sidebar.size.px;
+    x = sidebar.size.px + dividerWidth;
   }
   const height = windowHeight - WORKSPACE_HEADER - WORKSPACE_STATUS;
   if (workWidth <= 0 || height <= 0) return null;

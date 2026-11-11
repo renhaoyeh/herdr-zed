@@ -89,7 +89,7 @@ the tests change in the same commit. Unknown keys inside `provides`, surfaces an
 - `actions[].popup.placement` (optional, `"center"` by default or `"workspace"`; any other value is rejected). `workspace`
   opens the panel over the work area through `openWorkspacePanel` (components/workspace-overlay.js, §3.7): a
   `kind: 'window'` named `herdr-zed.workspace-panel`, `frame: 'none'`, at the published work-area rectangle and sized to it
-  (x = sidebar width, y = 32, width = the work column, height = window minus 32 (header) and 32 (status bar)). A click
+  (x = sidebar width plus its layout divider, y = 32, width = the work column, height = window minus 32 (header) and 32 (status bar)). A click
   beside it does not close it: Esc does, a project switch or opening Settings closes it, and opening another workspace panel
   replaces it. The manifest `width` and `height` are not used for the window; they are the size of the centered fallback
   dialog, which opens while the work area is not published yet (`null`). Providers that open workspace panels themselves
@@ -261,7 +261,7 @@ the key is removed when the extension is disabled (shell clears it). Providers p
 ### 3.7 Work area (shell → providers, read-only)
 
 `herdr-zed.workspace-rect` = `{ x, y, width, height, updatedAt }`, or `null` while the work area is not measured. Logical
-px: x = sidebar width (0 when hidden), y = 32 (header), width = the work column, height = window height minus 32 (header)
+px: x = sidebar width plus its layout divider (0 when hidden), y = 32 (header), width = the work column, height = window height minus 32 (header)
 and 32 (status bar). The shell writes it whenever the value changes (on each render and each measured size change); it
 never writes it otherwise. Providers only read it.
 

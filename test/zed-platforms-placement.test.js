@@ -36,6 +36,15 @@ test('the workspace rectangle: x is the sidebar width (0 when hidden), y the hea
   assert.equal(workspaceRect({ sidebar: { size: { px: 300 } }, workWidth: 100, windowHeight: 60 }), null, 'no room left');
 });
 
+test('workspace panels start after the layout divider, preserving its pixels and the measured work width', () => {
+  const geometry = { sidebar: { size: { px: 280 } }, workWidth: 1000, windowHeight: 700 };
+  const rect = workspaceRect({ ...geometry, dividerWidth: 1 });
+  assert.equal(rect.x, 281);
+  assert.equal(rect.x + rect.width, 1281, 'the panel fills the work column without covering its left divider');
+  assert.equal(workspaceRect({ ...geometry, dividerWidth: 2 }).x, 282);
+  assert.equal(workspaceRect({ ...geometry, sidebar: { ...geometry.sidebar, hidden: true }, dividerWidth: 1 }).x, 0);
+});
+
 test('the window height is the sidebar column: its measured body plus the fixed brand and history rows, so the panel ends at the status bar', () => {
   // The live layout: brand 32, agents (flexible), history 32 inside a column that spans the window (1032 tall).
   const sidebar = { id: 'sidebar', children: [{ id: 'brand', size: { px: 32 } }, { id: 'agents' }, { id: 'sidebar-history', size: { px: 32 } }] };
@@ -132,7 +141,7 @@ test('the same package is fully active on its platform', async () => {
 
 test('opening a workspace action uses the published work area and falls back to the centered dialog while unmeasured', async () => {
   const manifest = JSON.stringify({ ...JSON.parse(text()), actions: [action({ placement: 'workspace' })] });
-  const layout = { id: 'root', children: [{ id: 'sidebar', type: 'column', size: { px: 280 }, children: [] }] };
+  const layout = { id: 'root', divider: { width: 1 }, children: [{ id: 'sidebar', type: 'column', size: { px: 280 }, children: [] }] };
   const r = await runtime(manifest, 'linux', layout);
   await r.refreshExtensions();
   r.openExtension('demo.open', null);
@@ -141,11 +150,11 @@ test('opening a workspace action uses the published work area and falls back to 
   r.recordSize(r.WORK_WIDTH_KEY, 1000); r.recordSize(r.SIDEBAR_HEIGHT_KEY, 700);
   assert.equal(r.memory[r.WORK_WIDTH_KEY], 1000);
   assert.deepEqual([r.memory['herdr-zed.workspace-rect'].x, r.memory['herdr-zed.workspace-rect'].y, r.memory['herdr-zed.workspace-rect'].width, r.memory['herdr-zed.workspace-rect'].height],
-    [280, 32, 1000, 636], 'the shell publishes the work area it measured');
+    [281, 32, 1000, 636], 'the shell publishes the work area after its divider');
   r.openExtension('demo.open', null);
   assert.equal(r.opened[1].kind, 'window');
   assert.equal(r.opened[1].key, 'herdr-zed.workspace-panel', 'one window name: opening another replaces it');
-  assert.deepEqual([r.opened[1].at, r.opened[1].width, r.opened[1].height], [{ x: 280, y: 32 }, 1000, 636]);
+  assert.deepEqual([r.opened[1].at, r.opened[1].width, r.opened[1].height], [{ x: 281, y: 32 }, 1000, 636]);
   assert.equal(r.memory['herdr-zed.workspace-panel.overlay'], 'overlay', 'the open panel id is recorded for the shell');
 });
 

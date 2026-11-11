@@ -35,6 +35,7 @@ titles). Where they conflict, this file wins.
   extension surfaces and the bottom history row (always the last row); in the Settings nav between
   Workspace, Extensions and "Herdr settings…".
 - No dividers inside a group; spacing alone separates items of the same kind.
+- Workspace panels start after the sidebar divider, inside the work column, and leave the layout's divider visible.
 
 ## Icons and hover
 
