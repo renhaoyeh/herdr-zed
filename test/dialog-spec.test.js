@@ -1,9 +1,19 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 
 // ui-review §3.3: confirm 440 modal, form 560 modal with Cancel + Save, working panel 0.9×0.86 non-modal with a header X.
 const source = path => readFile(new URL(`../${path}`, import.meta.url), 'utf8');
+
+// Every shell and provider source file, copies of shared components included; vendored code is not ours to edit.
+async function modSources(dir = new URL('../mods/', import.meta.url), found = []) {
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    const path = new URL(`${entry.name}${entry.isDirectory() ? '/' : ''}`, dir);
+    if (entry.isDirectory()) { if (entry.name !== 'vendor' && entry.name !== 'node_modules') await modSources(path, found); }
+    else if (entry.name.endsWith('.js')) found.push(path);
+  }
+  return found;
+}
 
 test('confirm dialogs are 440 wide and modal; destructive ones use the destructive variant', async () => {
   const deleteTask = await source('mods/herdr-zed-tasks/delete-task.js');
@@ -14,6 +24,22 @@ test('confirm dialogs are 440 wide and modal; destructive ones use the destructi
   assert.match(account, /width: 440,\s*props: \{ view: 'remove-account'/);
   assert.match(account, /Button\('confirm-remove-account', t, \{ variant: 'destructive' \}\)/);
   assert.match(account, /AlertDialogCancel\('cancel-remove-account'/);
+});
+
+test('the simulator storage delete is a separate 440 modal confirm with Cancel and a destructive Delete', async () => {
+  const xcode = await source('mods/herdr-zed-simulator/xcode-storage.js');
+  assert.match(xcode, /openOverlay\(\{ mod: 'herdr-zed-simulator', kind: 'dialog', frame: 'none', modal: true, width: 440,\s*props: \{ view: 'simulator-storage-confirm'/);
+  assert.match(xcode, /AlertDialogContent\('xcode-storage-confirm', t\)/);
+  assert.match(xcode, /AlertDialogCancel\('xcode-storage-confirm-cancel', t\)/);
+  assert.match(xcode, /Button\('xcode-storage-confirm-delete', t, \{ variant: 'destructive' \}\)/);
+  assert.doesNotMatch(xcode, /confirming/, 'the storage panel no longer confirms inline');
+});
+
+test('no dialog closes with a Done button: the close control is the header X, and a Save page says Save', async () => {
+  for (const path of await modSources()) {
+    const text = await readFile(path, 'utf8');
+    assert.doesNotMatch(text, /child\('Done'\)|-done'|action\('done'/, `${path.pathname} draws a Done button`);
+  }
 });
 
 test('form dialogs are 560 wide and modal with Cancel + Save', async () => {

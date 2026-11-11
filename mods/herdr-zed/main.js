@@ -13,7 +13,7 @@ import { createNativeThread } from './native-threads.js';
 import { startPanel } from './start-panel.js';
 import { threadArchive, historyEligible } from './thread-archive.js';
 import { startThreadResume } from './thread-resume.js';
-import { SettingsNav, SettingsPage, openSettings } from './settings.js';
+import { SettingsNav, SettingsPage, SettingsHeader, openSettings } from './settings.js';
 import { ExtensionSlot, ExtensionSurfaceSlot, refreshExtensions, openExtension, extensionCatalog, openGitAction, activeLauncher } from './extensions.js';
 import { pollLaunchIntake } from './launch-intake.js';
 import { readNewTerminalCommand } from './components/extension-contract.js';
@@ -56,6 +56,7 @@ export default class HerdrZed extends View {
     const view = props()?.view;
     if (view === 'launcher') { this.launcher = new NativeLauncher(); this.launcher.init(cx); return; }
     if (view === 'settings-nav') { this.settingsNav = new SettingsNav(); return; }
+    if (view === 'settings-header') { this.settingsHeader = new SettingsHeader(); return; }
     if (view === 'settings-page') { this.settingsPage = new SettingsPage(); this.settingsPage.init(cx); return; }
     if (view === 'status-tools') { clearGitToast(); setShared('herdr-zed.git-output-request', null); this.extensionMenu = new DropdownMenuState(cx); return; }
     if (view === 'pane') { this.threadMenu = new DropdownMenuState(cx); return; }
@@ -619,6 +620,7 @@ export default class HerdrZed extends View {
   renderView(cx) {
     const t = theme();
     if (props()?.view === 'settings-nav') return this.settingsNav.render(t);
+    if (props()?.view === 'settings-header') return this.settingsHeader.render(t);
     if (props()?.view === 'settings-page') return this.settingsPage.render(t);
     if (props()?.view === 'launcher') return this.launcher.render(t);
     if (props()?.view === 'file-menu') return this.fileMenu.render();

@@ -129,9 +129,10 @@ export class GitHubAccount {
         .child(Button('git-author-cancel', t, { variant: 'secondary' }).disabled(Boolean(this.saving)).on_click((_event, cx) => cancel(cx)).child('Cancel'))
         .child(Button('git-author-save', t).disabled(!this.loaded || this.saving || !this.name.value().trim() || !this.email.value().trim())
           .on_click((_event, cx) => this.save(cx)).child(this.saving ? 'Saving…' : 'Save')));
-    const title = DialogTitle().child(embedded ? 'GitHub' : 'GitHub account');
+    // Embedded in the shell's Settings dialog the page has no title of its own: the shell's header names it.
     if (embedded) return v_flex().id('github-account').size_full().min_h(0).gap(12).text_color(t.foreground).overflow_y_scroll()
-      .child(title).child(body);
+      .child(body);
+    const title = DialogTitle().child('GitHub account');
     return DialogContent('github-account', t).gap(12).on_key_down((event, cx) => {
       if (event.key === 'escape') { cx.stop_propagation(); cancel(cx); }
     }).child(title).child(body);

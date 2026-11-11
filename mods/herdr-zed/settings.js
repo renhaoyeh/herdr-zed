@@ -2,6 +2,7 @@ import { div } from 'gpui-kit';
 import { h_flex, v_flex } from 'gpui-base';
 import { openOverlay, closeOverlay, props, run, shared, setShared, notify } from 'herdr';
 import { Button } from './components/button.js';
+import { glyph } from './components/icon.js';
 import { Switch } from './components/switch.js';
 import { ToggleGroup, ToggleGroupItem } from './components/toggle-group.js';
 import { DialogTitle, DialogDescription } from './components/dialog.js';
@@ -37,8 +38,9 @@ export function settingsPage(key) {
 export const settingsContext = project => project
   ? { id: project.id, folder: project.folder, name: project.name, machine: project.machine || null } : null;
 
-// Layout of the dialog: the nav block (shell props only) beside the page. Shell pages are the shell's own views;
-// extension pages are the provider's settings view, embedded so it draws no frame or close button of its own.
+// Layout of the dialog: the nav block (shell props only) beside the page column. The column is a title bar with the
+// one close control, then the page. Shell pages are the shell's own views; extension pages are the provider's settings
+// view, embedded so it draws no frame, title or close button of its own.
 export function settingsOverlay(key, context) {
   const page = settingsPage(key);
   const content = page.shell
@@ -47,7 +49,10 @@ export function settingsOverlay(key, context) {
   return { kind: 'dialog', modal: true, frame: 'none', width: 1040, height: 0.86,
     layout: { type: 'row', children: [
       { type: 'block', size: { px: 220 }, content: { mod: 'herdr-zed', props: { view: 'settings-nav', page: key, context } } },
-      { type: 'block', content },
+      { type: 'column', children: [
+        { type: 'block', size: { px: 32 }, content: { mod: 'herdr-zed', props: { view: 'settings-header', page: key } } },
+        { type: 'block', content },
+      ] },
     ] } };
 }
 
@@ -79,7 +84,7 @@ function closeSettingsDialog(overlay) {
 
 const heading = (t, label) => div().px(10).pt(14).pb(4).text_size(11).text_color(t.muted).child(label);
 
-// Left column: Workspace pages, eligible extension pages, then Herdr settings and Done.
+// Left column: Workspace pages, eligible extension pages, then Herdr settings. Esc and the header X close the dialog.
 export class SettingsNav {
   render(t) {
     const { page, context, overlay } = props();
@@ -100,8 +105,19 @@ export class SettingsNav {
       .when(extensions.length > 0, el => el.child(heading(t, 'Extensions')).children(extensions.map(item => entry(item.key, item.title))))
       .child(div().flex_1())
       .child(Button('settings-herdr', t, { variant: 'ghost' }).w_full().h(32).px(10).justify_start().text_color(t.muted)
-        .on_click(() => { run('app.settings'); done(); }).child('Herdr settings…'))
-      .child(Button('settings-done', t, { variant: 'secondary' }).w_full().h(32).mt(8).on_click(done).child('Done'));
+        .on_click(() => { run('app.settings'); done(); }).child('Herdr settings…'));
+  }
+}
+
+// The title bar above every Settings page, shell or extension: the page's title and the one close control.
+export class SettingsHeader {
+  render(t) {
+    const { page, overlay } = props();
+    return h_flex().size_full().min_w(0).px(24).gap(12).items_center().bg(t.popover).text_color(t.foreground)
+      .border_t(1).border_r(1).border_b(1).border_color(t.border)
+      .child(div().flex_1().min_w(0).truncate().font_family('Georgia').text_size(16).child(settingsPage(page)?.title || 'Settings'))
+      .child(Button('settings-close', t, { variant: 'ghost', size: 'icon' }).accessibility_label('Close settings')
+        .on_click(() => closeSettingsDialog(overlay)).child(glyph('close', 14)));
   }
 }
 
@@ -166,8 +182,7 @@ export class SettingsPage {
     if (!page) return div().size_full().bg(t.popover);
     const body = this.page === 'general' ? this.general(t) : this.page === 'git' ? this.git(t) : this.extensions.render(t);
     return v_flex().size_full().min_w(0).min_h(0).p(24).gap(20).bg(t.popover).text_color(t.foreground)
-      .border_t(1).border_r(1).border_b(1).border_color(t.border)
-      .child(DialogTitle().flex_none().child(page.title))
+      .border_r(1).border_b(1).border_color(t.border)
       .child(DialogDescription(t).flex_none().child(page.description))
       .child(body);
   }

@@ -2,9 +2,8 @@ import { div } from 'gpui-kit';
 import { v_flex, h_flex } from 'gpui-base';
 import { props, closeOverlay } from 'herdr';
 import { quotaResetLabel, quotaElapsedPercent } from '../components/session-model.js';
-import { Button } from '../components/button.js';
 import { Progress } from '../components/progress.js';
-import { DialogContent, DialogTitle, DialogDescription, DialogFooter } from '../components/dialog.js';
+import { DialogContent, DialogHeader, DialogDescription } from '../components/dialog.js';
 export class UsageDetails {
   init(cx) { this.handle = cx.focus_handle(); this.handle.focus(); cx.timer.every(60000, cx => cx.notify()); }
   render(t) { return this.usageDetails(t); }
@@ -15,7 +14,7 @@ export class UsageDetails {
       .accessibility_label(`${account.name} usage details`).on_key_down((event, cx) => {
         if (event.key === 'escape') { cx.stop_propagation(); close(); }
       })
-      .child(DialogTitle().flex_none().child(account.name))
+      .child(DialogHeader(t, account.name, { id: 'usage-details-close', label: `Close ${account.name} usage details`, onClose: close }))
       .child(DialogDescription(t).flex_none().child(account.supported ? 'Account quota usage' : 'Not supported'))
       .child(v_flex().id('usage-windows').flex_1().min_h(0).overflow_y_scrollbar().gap(16)
         .when(Boolean(account.error), el => el.child(div().text_size(12).text_color(t.muted).child(account.error)))
@@ -37,7 +36,6 @@ export class UsageDetails {
               .child(quotaResetLabel(window)));
         })))
       .when(Boolean(account.fetchedAt), el => el.child(DialogDescription(t).flex_none()
-        .child(`Updated ${new Date(account.fetchedAt).toLocaleString()}`)))
-      .child(DialogFooter().flex_none().child(Button('usage-details-done', t).on_click(close).child('Done')));
+        .child(`Updated ${new Date(account.fetchedAt).toLocaleString()}`)));
   }
 }

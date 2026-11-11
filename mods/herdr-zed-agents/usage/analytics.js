@@ -4,7 +4,8 @@ import { exec, appHome, knownAgents, closeOverlay, props, theme } from 'herdr';
 import { summarize } from './analytics-model.js';
 import { costLabel, pricingDate } from './analytics-pricing.js';
 import { Button } from '../components/button.js';
-import { DialogContent, DialogTitle, DialogDescription, DialogFooter } from '../components/dialog.js';
+import { DialogContent, DialogTitle, DialogDescription } from '../components/dialog.js';
+import { glyph } from '../components/icon.js';
 
 const number = value => String(Math.round(value || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 const short = value => value >= 1e9 ? `${(value / 1e9).toFixed(1)}B` : value >= 1e6 ? `${(value / 1e6).toFixed(1)}M` : value >= 1000 ? `${(value / 1000).toFixed(1)}K` : number(value);
@@ -48,7 +49,8 @@ export default class Analytics {
         .child(DialogTitle().flex_1().child('Token statistics'))
         .children([[1, 'Today'], [7, '7 days'], [30, '30 days'], [0, 'All time']].map(([days, text]) =>
           Button(`analytics-range-${days}`, t, { variant: this.days === days ? 'default' : 'ghost' }).child(text)
-            .on_click((_event, cx) => { this.days = days; this.page = 0; cx.notify(); }))))
+            .on_click((_event, cx) => { this.days = days; this.page = 0; cx.notify(); })))
+        .child(Button('analytics-close', t, { variant: 'ghost', size: 'icon' }).accessibility_label('Close token statistics').on_click(close).child(glyph('close', 14))))
       .child(h_flex().flex_none().items_center().gap(4)
         .children([['', 'All'], ['codex', 'Codex'], ['claude', 'Claude']].map(([provider, text]) =>
           Button(`analytics-provider-${provider || 'all'}`, t, { variant: (this.filters.provider || '') === provider ? 'default' : 'ghost' })
@@ -108,8 +110,6 @@ export default class Analytics {
           .child(div().text_size(12).child(`${this.page + 1} / ${pages}`))
           .child(Button('analytics-next', t, { variant: 'secondary' }).disabled(this.page + 1 >= pages).child('Next').on_click((_e, cx) => { this.page++; cx.notify(); }))))
         .children((this.data?.errors || []).map(error => DialogDescription(t).child(error))))
-      .child(DialogFooter().flex_none().items_center()
-        .child(DialogDescription(t).flex_1().child(this.data ? `${this.data.fileCount} history files · Updated ${new Date(this.data.updatedAt).toLocaleTimeString()}${this.loading ? ' · Updating…' : ''}` : ''))
-        .child(Button('analytics-done', t).child('Done').on_click(close)));
+      .child(DialogDescription(t).flex_none().child(this.data ? `${this.data.fileCount} history files · Updated ${new Date(this.data.updatedAt).toLocaleTimeString()}${this.loading ? ' · Updating…' : ''}` : ''));
   }
 }

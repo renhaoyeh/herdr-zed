@@ -1,11 +1,12 @@
 import { div } from 'gpui-kit';
 import { h_flex, v_flex } from 'gpui-base';
-import { exec, appHome, home, notify, closeOverlay, props, theme } from 'herdr';
+import { exec, appHome, home, notify, closeOverlay, openOverlay, props, theme, shared, setShared } from 'herdr';
 import { Button } from './components/button.js';
 import { glyph } from './components/icon.js';
 import { Checkbox } from './components/checkbox.js';
 import { DropdownMenuLabel } from './components/dropdown-menu.js';
 import { DialogContent, DialogTitle, DialogDescription, DialogFooter } from './components/dialog.js';
+import { AlertDialogContent, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel } from './components/alert-dialog.js';
 
 // Decimal units, as Finder reports sizes.
 export const bytes = value => value >= 1e9 ? `${(value / 1e9).toFixed(1)} GB` : value >= 1e6 ? `${(value / 1e6).toFixed(1)} MB`
@@ -48,11 +49,16 @@ export function lastUsedLabel(value, now = Date.now()) {
 
 const reader = () => `${appHome()}/mods/herdr-zed-simulator/xcode-storage-reader.js`;
 
+// A deletion's outcome, published by its confirmation. The storage panel rescans when the revision changes.
+export const STORAGE_RESULT = 'herdr-zed.simulator-storage-result';
+
 export default class XcodeStorage {
   init(cx) {
     this.closed = false;
+    this.cx = cx;
     this.handle = cx.focus_handle(); this.handle.focus();
-    this.selected = new Set(); this.confirming = false;
+    this.selected = new Set();
+    this.seenResult = shared(STORAGE_RESULT)?.revision ?? null;
     this.scan(cx);
   }
 
@@ -89,31 +95,24 @@ export default class XcodeStorage {
   // Checked items that can be deleted; booted simulators never are.
   chosen() { return this.items().filter(item => this.selected.has(item.key) && !item.booted); }
 
-  remove(cx) {
+  // The confirmation finished: keep what could not be removed in view, forget the selection and measure again.
+  finishDeletion(result) {
+    this.deleteErrors = result.errors || [];
+    this.selected.clear();
+    this.scan(this.cx);
+  }
+
+  // Opens the confirmation for the checked items. Booted simulators are never checked, so never listed.
+  review() {
     const chosen = this.chosen();
-    if (!chosen.length || this.busy) return;
-    this.busy = true; this.error = null; cx.notify();
-    cx.spawn(async cx => {
-      try {
-        const result = await exec('node', [reader(), 'delete', JSON.stringify(chosen.map(({ kind, id, label }) => ({ kind, id, label })))]);
-        if (this.closed) return;
-        const data = JSON.parse(result.stdout || '{}');
-        if (data.error) throw new Error(data.error);
-        const freed = sum(chosen.filter(item => data.removed.some(r => r.kind === item.kind && r.id === item.id)));
-        if (data.removed.length) notify({ title: 'Xcode storage cleaned', body: `Deleted ${data.removed.length} items · ${bytes(freed)} freed` });
-        if (data.errors.length) this.error = data.errors.join('\n');
-        this.selected.clear();
-      } catch (error) { if (!this.closed) this.error = error.message; }
-      finally {
-        this.busy = false; this.confirming = false;
-        if (!this.closed) { this.scan(cx); cx.notify(); }
-      }
-    });
+    if (!chosen.length) return;
+    openOverlay({ mod: 'herdr-zed-simulator', kind: 'dialog', frame: 'none', modal: true, width: 440,
+      props: { view: 'simulator-storage-confirm', items: chosen.map(({ kind, id, label, size }) => ({ kind, id, label, size })) } });
   }
 
   toggle(keys, checked, cx) {
     for (const key of keys) checked ? this.selected.add(key) : this.selected.delete(key);
-    this.confirming = false; cx.notify();
+    cx.notify();
   }
 
   row(id, t, item, columns, checkbox) {
@@ -122,7 +121,7 @@ export default class XcodeStorage {
         .text_color(color || t.muted).when(width === 88, el => el.text_right()).child(text)));
     if (!checkbox) return cells(h_flex().id(id).h(36).px(8).gap(8).flex_none().items_center().border_b(1).border_color(t.border).pl(32));
     return cells(Checkbox(id, this.selected.has(item.key), t).h(36).px(8).flex_none().border_b(1).border_color(t.border)
-      .disabled(Boolean(this.busy)).accessibility_label(`${item.label}, ${bytes(item.size)}`)
+      .accessibility_label(`${item.label}, ${bytes(item.size)}`)
       .on_change((checked, cx) => this.toggle([item.key], checked, cx)));
   }
 
@@ -130,7 +129,7 @@ export default class XcodeStorage {
   groupHeader(id, t, title, items, size) {
     const keys = items.filter(item => !item.booted).map(item => item.key);
     return Checkbox(id, keys.length > 0 && keys.every(key => this.selected.has(key)), t)
-      .h(28).px(8).flex_none().bg(t.hover).disabled(Boolean(this.busy) || !keys.length)
+      .h(28).px(8).flex_none().bg(t.hover).disabled(!keys.length)
       .accessibility_label(`All ${title}, ${bytes(size)}`)
       .on_change((checked, cx) => this.toggle(keys, checked, cx))
       .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.muted).child(title))
@@ -144,7 +143,9 @@ export default class XcodeStorage {
   }
 
   render() {
-    const t = theme(), close = () => { if (!this.busy) closeOverlay(props().overlay); };
+    const t = theme(), close = () => closeOverlay(props().overlay);
+    const result = shared(STORAGE_RESULT);
+    if (result && result.revision !== this.seenResult) { this.seenResult = result.revision; this.finishDeletion(result); }
     const items = this.items();
     const derived = items.filter(item => item.kind === 'derived'), simulators = items.filter(item => item.kind === 'simulator');
     const missing = derived.filter(item => item.missing).map(item => item.key);
@@ -166,7 +167,7 @@ export default class XcodeStorage {
         .when(!data, el => el.child(DialogDescription(t).py(8).child(this.loading ? 'Measuring Xcode storage…' : 'No storage information available.')))
         .when(Boolean(data), el => el
           .child(this.section(t, 'DERIVED DATA', missing.length ? Button('xcode-storage-select-missing', t, { variant: 'secondary' })
-            .disabled(Boolean(this.busy)).child(`Select ${missing.length} with missing workspace`)
+            .child(`Select ${missing.length} with missing workspace`)
             .on_click((_event, cx) => this.toggle(missing, true, cx)) : null))
           .children(derivedGroups(derived).flatMap(group => [
             this.groupHeader(`xcode-storage-group-${group.name}`, t,
@@ -189,18 +190,60 @@ export default class XcodeStorage {
           .child(this.section(t, 'ARCHIVES · MANAGE IN XCODE › ORGANIZER'))
           .child(this.row('xcode-storage-archives', t, { label: data.archives.count === 1 ? '1 archive' : `${data.archives.count} archives` }, [
             [data.archives.oldest ? `Since ${data.archives.oldest}` : '', 128], ['', 88], [bytes(data.archives.size), 88, t.foreground]], false))))
-      .children([...(data?.errors || []), ...(this.error ? [this.error] : [])].map(text => div().flex_none().text_size(12).text_color(t.blocked).child(text)))
+      .children([...(data?.errors || []), ...(this.error ? [this.error] : []), ...(this.deleteErrors || [])].map(text => div().flex_none().text_size(12).text_color(t.blocked).child(text)))
       .child(DialogFooter().flex_none().items_center()
-        .child(DialogDescription(t).flex_1().min_w(0).child(this.busy ? 'Deleting…' : this.confirming
-          ? `Delete ${chosen.length} items (${bytes(chosenSize)})? This cannot be undone.`
-          : chosen.length ? `${chosen.length} selected · ${bytes(chosenSize)}` : this.loading && data ? 'Measuring…' : ''))
-        .when(this.confirming, el => el
-          .child(Button('xcode-storage-cancel', t, { variant: 'secondary' }).disabled(Boolean(this.busy)).child('Cancel')
-            .on_click((_event, cx) => { this.confirming = false; cx.notify(); }))
-          .child(Button('xcode-storage-delete', t, { variant: 'destructive' }).disabled(Boolean(this.busy)).child(this.busy ? 'Deleting…' : 'Delete')
-            .on_click((_event, cx) => this.remove(cx))))
-        .when(!this.confirming, el => el
-          .child(Button('xcode-storage-review', t, { variant: 'secondary' }).disabled(!chosen.length || this.loading).child('Delete…')
-            .on_click((_event, cx) => { this.confirming = true; cx.notify(); }))));
+        .child(DialogDescription(t).flex_1().min_w(0).child(chosen.length ? `${chosen.length} selected · ${bytes(chosenSize)}` : this.loading && data ? 'Measuring…' : ''))
+        .child(Button('xcode-storage-review', t, { variant: 'secondary' }).disabled(!chosen.length || this.loading).child('Delete…')
+          .on_click(() => this.review())));
+  }
+}
+
+// The confirmation for a storage deletion: its own modal dialog, 440 wide. It runs the delete, publishes the outcome for
+// the storage panel to rescan, and closes. The reader checks booted state again before it removes anything.
+export class XcodeStorageConfirm {
+  init(cx) {
+    this.handle = cx.focus_handle(); this.handle.focus();
+    this.busy = false;
+    this.items = props().items || [];
+  }
+
+  close() { this.handle?.release?.(); }
+
+  dismiss() { if (!this.busy) closeOverlay(props().overlay); }
+
+  remove(cx) {
+    if (this.busy || !this.items.length) return;
+    this.busy = true; cx.notify();
+    const items = this.items, overlay = props().overlay;
+    cx.spawn(async () => {
+      let outcome = { removed: 0, freed: 0, errors: [] };
+      try {
+        const result = await exec('node', [reader(), 'delete', JSON.stringify(items.map(({ kind, id, label }) => ({ kind, id, label })))]);
+        const data = JSON.parse(result.stdout || '{}');
+        if (data.error) throw new Error(data.error);
+        const removed = items.filter(item => data.removed.some(r => r.kind === item.kind && r.id === item.id));
+        outcome = { removed: removed.length, freed: sum(removed), errors: data.errors || [] };
+      } catch (error) { outcome = { removed: 0, freed: 0, errors: [error.message] }; }
+      if (outcome.removed) notify({ title: 'Xcode storage cleaned', body: `Deleted ${outcome.removed} items · ${bytes(outcome.freed)} freed` });
+      setShared(STORAGE_RESULT, { revision: (shared(STORAGE_RESULT)?.revision || 0) + 1, errors: outcome.errors });
+      try { closeOverlay(overlay); } catch { /* already closed */ }
+    });
+  }
+
+  render() {
+    const t = theme(), items = this.items;
+    const count = items.length, total = sum(items);
+    const derived = items.filter(item => item.kind === 'derived').length, simulators = count - derived;
+    const parts = [derived && (derived === 1 ? '1 DerivedData folder' : `${derived} DerivedData folders`),
+      simulators && (simulators === 1 ? '1 simulator' : `${simulators} simulators`)].filter(Boolean);
+    return AlertDialogContent('xcode-storage-confirm', t).accessibility_label(`Delete ${count} items?`).track_focus(this.handle)
+      .on_key_down((event, cx) => { if (event.key === 'escape') { cx.stop_propagation(); this.dismiss(); } })
+      .child(AlertDialogTitle().child(`Delete ${count === 1 ? '1 item' : `${count} items`}?`))
+      .child(AlertDialogDescription(t).child(`Frees ${bytes(total)} from ${parts.join(' and ')}.${simulators ? ' Deleting a simulator removes its apps and data.' : ''} This cannot be undone.`))
+      .child(AlertDialogFooter().children([
+        AlertDialogCancel('xcode-storage-confirm-cancel', t).disabled(this.busy).on_click(() => this.dismiss()).child('Cancel'),
+        Button('xcode-storage-confirm-delete', t, { variant: 'destructive' }).disabled(this.busy)
+          .on_click((_event, cx) => this.remove(cx)).child(this.busy ? 'Deleting…' : 'Delete'),
+      ]));
   }
 }

@@ -32,6 +32,7 @@ async function harness(memory = { 'herdr-zed.usage.snapshot': snapshot }) {
   const base = { ...sessions, div: element, v_flex: element, h_flex: element, glyph: element, AgentIcon: element,
     Button: id => element().id(id), Progress: id => element().id(id),
     DialogContent: id => element().id(id), DialogTitle: element, DialogDescription: element, DialogFooter: element,
+    DialogHeader: (_theme, title, { id }) => { texts.push(title); return element().id(id); },
     shared: key => clone(memory[key]), setShared: (key, value) => { memory[key] = clone(value); },
     openOverlay: spec => { opened.push(spec); return spec; }, closeOverlay() {}, run: command => runs.push(command),
     layout: () => ({ content: { mod: 'herdr-zed-agents', props: { view: 'service' } } }),
@@ -79,7 +80,8 @@ test('the usage details dialog renders the account windows without throwing', as
   h.mount('usage-details', { account });
   assert.ok(h.texts.includes('Work'));
   assert.ok(h.texts.some(text => text.includes('42% used')));
-  assert.ok(h.nodes.has('usage-details-done'));
+  assert.ok(h.nodes.has('usage-details-close'), 'the header X closes it; there is no Done footer');
+  assert.ok(!h.nodes.has('usage-details-done'));
 });
 
 test('Usage views render without a snapshot and do not throw', async () => {

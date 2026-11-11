@@ -148,7 +148,7 @@ test('finishing, cancelling, or escaping account sign-in deep-links back to the 
     return el;
   };
   const { AccountLogin } = await load({ div: element, v_flex: element, h_flex: element,
-    Input: { new: element }, theme: () => ({}),
+    Input: { new: element }, theme: () => ({}), glyph: () => element(),
     Button: id => element(id),
     closeOverlay: id => closed.push(id), openOverlay: spec => overlays.push(spec), run: (...args) => runs.push(args) });
   const view = new AccountLogin();
@@ -156,7 +156,7 @@ test('finishing, cancelling, or escaping account sign-in deep-links back to the 
   view.phase = 'name'; view.render();
   actions['codex-login-cancel']();
   actions.keyDown({ key: 'escape' }, { stop_propagation() {} });
-  view.phase = 'success'; view.render(); actions['codex-login-done']();
+  view.phase = 'success'; view.render(); actions['codex-login-close']();
   assert.deepEqual(closed, ['login', 'login', 'login']);
   // Settings is the shell's dialog: the login reopens its Agents page by deep link, never by its own overlay.
   assert.deepEqual(overlays, []);

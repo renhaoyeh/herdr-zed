@@ -5,7 +5,7 @@ import AsanaPanel from './ui.js';
 import { asanaSource } from './source.js';
 import { sourceModuleOptions } from './components/source-channel.js';
 import { Button } from './components/button.js';
-import { DialogContent, DialogTitle, DialogDescription, DialogFooter } from './components/dialog.js';
+import { DialogContent, DialogHeader, DialogDescription } from './components/dialog.js';
 
 // Asana's Settings page: the personal access token and field display. The panel owns the token state
 // (saveToken, clearToken, copyToken, fieldSettings); this view draws it in the shell's theme tokens.
@@ -31,7 +31,6 @@ export class AsanaSettings {
       panel.syncFields(cx);
     }
     const body = v_flex().gap(16).text_color(t.foreground)
-      .child(DialogTitle().child('Asana'))
       .when(panel.needsToken === null || panel.needsToken === undefined, el => el.child(DialogDescription(t).child('Loading connection…')))
       .when(panel.needsToken !== null && panel.needsToken !== undefined, el => el
         .child(DialogDescription(t).child(panel.token ? 'Your saved token is masked below. Replace it to change accounts, or clear it below.' : asanaSource.tokenHelp))
@@ -50,8 +49,9 @@ export class AsanaSettings {
             .on_click((_event, cx) => panel.clearToken(cx)).child('Clear saved token'))))
         .child(panel.fieldSettings(t)));
     if (this.embedded) return v_flex().id('asana-settings').size_full().min_h(0).overflow_y_scroll().child(body);
+    const close = () => closeOverlay(this.target.overlay);
     return DialogContent('asana-settings', t).overflow_y_scroll().on_key_down((event, cx) => {
-      if (event.key === 'escape') { cx.stop_propagation(); closeOverlay(this.target.overlay); }
-    }).child(body).child(DialogFooter().flex_none().child(Button('asana-settings-done', t).on_click(() => closeOverlay(this.target.overlay)).child('Done')));
+      if (event.key === 'escape') { cx.stop_propagation(); close(); }
+    }).child(DialogHeader(t, 'Asana', { id: 'asana-settings-close', label: 'Close Asana settings', onClose: close })).child(body);
   }
 }

@@ -4,7 +4,7 @@ import { exec, appHome, closeOverlay, shared, setShared, run } from 'herdr';
 import { Button } from './components/button.js';
 import { Checkbox } from './components/checkbox.js';
 import { ToggleGroup, ToggleGroupItem } from './components/toggle-group.js';
-import { DialogContent, DialogTitle, DialogDescription, DialogFooter } from './components/dialog.js';
+import { DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from './components/dialog.js';
 import { glyph } from './components/icon.js';
 import { hardwareModules, hardwarePreferences, selectedHardwareCores, hardwareBytes, hardwarePercent, hardwareSpeed, hardwarePower, hardwarePoint, hardwareSensorSummary, appendHardwareHistory, hardwareChartPoints, hardwareDisplayItems, hardwareDisplayHistory } from './components/system-monitor-model.js';
 import { topologyGroups, topologyLabel, processorLabel } from './components/system-monitor-topology.js';
@@ -489,17 +489,17 @@ export class SystemMonitorCore extends SystemClient {
       }));
   }
 
-  // The System Monitor page of the shell's Settings dialog. Standalone it keeps its own frame and Done.
+  // The System Monitor page of the shell's Settings dialog. Embedded it has no title or frame of its own; standalone
+  // it keeps a frame with its title and the header X.
   renderSettings(t, embedded) {
     const close = () => closeOverlay(this.overlay);
     const page = v_flex().id('system-settings').size_full().min_h(0).gap(16).text_color(t.foreground)
-      .child(DialogTitle().flex_none().child('System Monitor'))
       .child(this.hardwareSettings(t));
     if (embedded) return page;
     return DialogContent('system-settings', t).track_focus(this.handle)
       .on_key_down((event, cx) => { if (event.key === 'escape') { cx.stop_propagation(); close(); } })
-      .child(page)
-      .child(DialogFooter().flex_none().child(Button('system-settings-done', t).on_click(close).child('Done')));
+      .child(DialogHeader(t, 'System Monitor', { id: 'system-settings-close', label: 'Close System Monitor settings', onClose: close }))
+      .child(page);
   }
 
   renderDetails(t) {

@@ -50,6 +50,13 @@ function shell(overrides = {}) {
     div: factory('div'), v_flex: factory('v_flex'), h_flex: factory('h_flex'), svg: factory('svg'), glyph: factory('glyph'),
     DialogContent: factory('DialogContent'), DialogTitle: factory('DialogTitle'), DialogDescription: factory('DialogDescription'),
     DialogFooter: factory('DialogFooter'), Button: (id, ...rest) => make('Button', [id, ...rest]), Checkbox: factory('Checkbox'),
+    // The shared title bar: logs its title as a DialogTitle child, and its close control as Button#<id> with the handler stored.
+    DialogHeader: (_t, title, { id, label, onClose }) => {
+      log.push(['DialogTitle', 'child', JSON.stringify(title)]);
+      make('Button', [id]).accessibility_label(label);
+      events[`Button#${id}`] = { on_click: onClose };
+      return make('DialogHeader', []);
+    },
     DropdownMenuTrigger: factory('DropdownMenuTrigger'), Select: factory('Select'), SelectState: class { constructor() { this.search = { release() {} }; } },
     Input: { new: state => make('Input', [state?.id || 'input']) }, InputState: { new: fakeInput }, ...overrides,
   };
@@ -68,7 +75,7 @@ test('each provider manifest declares its Settings page and the shell parser acc
   }
 });
 
-test('Agents Settings embedded in the shell draws no frame, Done footer or Escape close', async () => {
+test('Agents Settings embedded in the shell draws no frame, title or close control, and leaves Escape to the shell', async () => {
   const { host, log, events, closed, factory } = shell({ props: () => ({ view: 'manage-launchers', embedded: true, overlay: 'shell' }),
     ...sessions, availableAgents: () => [], spaces: () => [] });
   const { sessionMenu } = await evaluateNative('../mods/herdr-zed-agents/session-menu.js', host, 'sessionMenu');
@@ -77,22 +84,24 @@ test('Agents Settings embedded in the shell draws no frame, Done footer or Escap
     availableAgents: () => [], agentsPage: () => page }, theme(), ctx([]));
   assert.ok(!names(log).some(name => name.startsWith('DialogContent')), 'no dialog frame');
   assert.ok(names(log).includes('v_flex#manage-launchers'), 'the shell owns the frame');
-  assert.ok(log.some(([name, method, arg]) => name === 'DialogTitle' && method === 'child' && arg === '"Agents"'), 'own page title');
-  assert.ok(!names(log).some(name => name.startsWith('Button#manage-launchers-done')), 'no Done footer');
+  assert.ok(!log.some(([name, method, arg]) => name === 'DialogTitle' && method === 'child' && arg === '"Agents"'), 'no title of its own');
+  assert.ok(!names(log).some(name => name.startsWith('Button#manage-launchers-close')), 'no close control of its own');
   let stopped = false;
   events['v_flex#manage-launchers'].on_key_down({ key: 'escape' }, { stop_propagation() { stopped = true; } });
   assert.deepEqual(closed, [], 'Escape is left to the shell');
   assert.equal(stopped, false);
 });
 
-test('Agents Settings standalone keeps its dialog frame, Done footer and Escape close', async () => {
+test('Agents Settings standalone keeps its dialog frame, a header X in place of Done, and Escape close', async () => {
   const { host, log, events, closed, factory } = shell({ props: () => ({ view: 'manage-launchers', overlay: 'legacy' }),
     ...sessions, availableAgents: () => [], spaces: () => [] });
   const { sessionMenu } = await evaluateNative('../mods/herdr-zed-agents/session-menu.js', host, 'sessionMenu');
   sessionMenu.manageLaunchers.call({ launchers: [], manageIndex: 0, handle: { focus() {} }, settingsPage: 'agents',
     availableAgents: () => [], agentsPage: () => factory('page')() }, theme(), ctx([]));
   assert.ok(names(log).includes('DialogContent#manage-launchers'));
-  events['Button#manage-launchers-done'].on_click({}, ctx([]));
+  assert.ok(log.some(([name, method, arg]) => name === 'DialogTitle' && method === 'child' && arg === '"Settings"'), 'the header names the dialog');
+  assert.ok(!names(log).some(name => name.startsWith('Button#manage-launchers-done')), 'no Done footer');
+  events['Button#manage-launchers-close'].on_click({}, ctx([]));
   assert.deepEqual(closed, ['legacy']);
 });
 
@@ -112,7 +121,7 @@ test('GitHub account Settings embedded lists signed-in accounts, keeps Save and 
   view.render(theme());
   assert.ok(!names(log).some(name => name.startsWith('DialogContent')), 'no dialog frame');
   assert.ok(!names(log).some(name => name.startsWith('Select')), 'signed-in accounts are listed, not a popup');
-  assert.ok(log.some(([, method, arg]) => method === 'child' && arg === '"GitHub"'), 'own page title');
+  assert.ok(!log.some(([, method, arg]) => method === 'child' && arg === '"GitHub"'), 'no page title of its own');
   for (const id of ['default', '0', '1']) assert.ok(events[`Button#git-account-${id}`], `account row ${id}`);
   assert.ok(log.some(([name, method, arg]) => name === 'Button#git-account-1' && method === 'disabled' && arg === 'true'),
     'a row that needs sign-in is disabled');
@@ -170,7 +179,7 @@ for (const { id, file, cls, panel, source, title, prefix } of [
     return { view: new Settings(), panel: () => panels[0], log, events, closed };
   }
 
-  test(`${title} Settings embedded draws its connection form without a frame, title close or footer`, async () => {
+  test(`${title} Settings embedded draws its connection form without a frame, title or close control`, async () => {
     const context = { folder: '/repo', name: 'repo', machine: '' };
     const { view, panel, log, events, closed } = await load({ embedded: true, overlay: 'shell', context }, shell());
     view.init(ctx([]));
@@ -179,8 +188,8 @@ for (const { id, file, cls, panel, source, title, prefix } of [
     assert.equal(panel().calls.filter(([name]) => name === 'openSettings').length, 1, 'the saved connection seeds the form once');
     assert.ok(panel().calls.some(([name]) => name === 'syncFields'), 'field display loads');
     assert.ok(!names(log).some(name => name.startsWith('DialogContent')), 'no frame');
-    assert.ok(log.some(([, method, arg]) => method === 'child' && arg === `"${title}"`), 'own page title');
-    assert.ok(!log.some(([name]) => name.includes(`${prefix}-settings-done`)), 'no Done footer');
+    assert.ok(!log.some(([, method, arg]) => method === 'child' && arg === `"${title}"`), 'no page title of its own');
+    assert.ok(!log.some(([name]) => name.includes(`${prefix}-settings-close`)), 'no close control of its own');
     assert.deepEqual(closed, []);
     events[`Button#${prefix}-save-token`].on_click({}, ctx([]));
     assert.deepEqual(panel().calls.at(-1), ['saveToken']);
@@ -190,11 +199,13 @@ for (const { id, file, cls, panel, source, title, prefix } of [
     view.close(); assert.equal(panel().disposed, true);
   });
 
-  test(`${title} Settings standalone keeps its frame and a Done footer`, async () => {
+  test(`${title} Settings standalone keeps its frame, its title and a header X in place of Done`, async () => {
     const { view, log, events, closed } = await load({ overlay: 'standalone', context: { folder: '/repo' } }, shell());
     view.init(ctx([])); view.render(ctx([]));
-    assert.ok(names(log).includes(`Button#${prefix}-settings-done`), 'Done is drawn');
-    events[`Button#${prefix}-settings-done`].on_click({}, ctx([]));
+    assert.ok(log.some(([, method, arg]) => method === 'child' && arg === `"${title}"`), 'the header names the page');
+    assert.ok(names(log).includes(`Button#${prefix}-settings-close`), 'the header X is drawn');
+    assert.ok(!names(log).some(name => name.includes('-settings-done')), 'no Done footer');
+    events[`Button#${prefix}-settings-close`].on_click({}, ctx([]));
     assert.deepEqual(closed, ['standalone']);
   });
 }
@@ -223,7 +234,7 @@ test('the Asana browser gear and the MantisBT My Account item deep-link to the s
   assert.deepEqual(runs.at(-1), ['herdr-zed.settings:mantisbt']);
 });
 
-test('System Monitor Settings embedded draws no frame or Done, and the details entries deep-link to the shell page', async () => {
+test('System Monitor Settings embedded draws no frame, title or Done, and the details entries deep-link to the shell page', async () => {
   const runs = [], closed = [];
   const { host, log, events, make } = shell({ run: (...args) => runs.push(args), closeOverlay: id => closed.push(id),
     hardwarePreferences: () => ({ order: ['cpu'], visible: { cpu: true }, interval: 1, cpuGraph: 'total', cores: null }),
@@ -236,13 +247,15 @@ test('System Monitor Settings embedded draws no frame or Done, and the details e
 
   monitor.renderSettings(theme(), true);
   assert.ok(!names(log).some(name => name.startsWith('DialogContent')), 'no frame when embedded');
-  assert.ok(!names(log).some(name => name.includes('system-settings-done')), 'no Done when embedded');
-  assert.ok(log.some(([name, method, arg]) => name.startsWith('DialogTitle') && method === 'child' && arg === '"System Monitor"'));
+  assert.ok(!names(log).some(name => name.includes('system-settings-close')), 'no close control when embedded');
+  assert.ok(!log.some(([name, method, arg]) => name.startsWith('DialogTitle') && method === 'child' && arg === '"System Monitor"'), 'no title when embedded');
 
   log.length = 0;
   monitor.renderSettings(theme(), false);
   assert.ok(names(log).includes('DialogContent#system-settings'), 'standalone keeps its frame');
-  events['Button#system-settings-done'].on_click({}, { notify() {} });
+  assert.ok(log.some(([name, method, arg]) => name === 'DialogTitle' && method === 'child' && arg === '"System Monitor"'), 'the header names it');
+  assert.ok(!names(log).some(name => name.includes('system-settings-done')), 'no Done footer');
+  events['Button#system-settings-close'].on_click({}, { notify() {} });
   assert.deepEqual(closed, ['shell']);
 
   log.length = 0;

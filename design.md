@@ -6,7 +6,7 @@ titles). Where they conflict, this file wins. Rationale and the audit behind the
 ## Settings
 
 - There is one Settings dialog, opened from the header gear (and `herdr-zed.settings`). Layout: 220px nav on
-  the left, the page on the right, 1040×0.86, modal, Done in the nav.
+  the left, the page on the right under a 32px title bar with an X, 1040×0.86, modal. No Done buttons anywhere.
 - Nav sections: **Workspace** (General, Git, Extensions) and **Extensions** (one page per enabled extension
   that declares `settings`). "Herdr settings…" at the bottom opens Herdr's native settings.
 - Extensions never open their own settings dialogs. They declare `settings: { view, title }` and deep-link
@@ -22,11 +22,13 @@ titles). Where they conflict, this file wins. Rationale and the audit behind the
 
 ## Dialogs
 
+Closing is an X in the header (or Cancel/Esc); there are no Done buttons.
+
 | Type | Size | Modal | Closing |
 | --- | --- | --- | --- |
 | Confirm | 440 wide | yes | Cancel + primary; destructive variant when it ends work or deletes data |
 | Form | 560 wide, height auto ≤ 0.8 | yes | Cancel + Save |
-| Settings | 1040×0.86 | yes | Done; a page with unsaved edits has its own Save/Discard |
+| Settings | 1040×0.86 | yes | X in the title bar; a page with unsaved edits has its own Save/Discard |
 | Working panel | 0.9×0.86 | no | X at the top-right of the panel header |
 | Menu / picker | 224 or 280 wide | — | Esc |
 
@@ -43,5 +45,5 @@ One save semantic per page: autosave, or explicit Save — never both on one pag
 ## Visual exceptions
 
 - Tasks and Calendar use the rounded Linear board theme (inherited from devkits).
-- Asana and MantisBT browsers imitate their products' look (fixed palettes and fonts). Open decision: keep as
-  an exception or move to theme tokens. Their Settings pages use Sera regardless.
+- Asana and MantisBT browsers imitate their products' look (fixed palettes and fonts), by decision. Their
+  Settings pages use Sera.

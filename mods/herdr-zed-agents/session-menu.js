@@ -8,7 +8,7 @@ import { Button } from './components/button.js';
 import { Checkbox } from './components/checkbox.js';
 import { Switch } from './components/switch.js';
 import { ToggleGroup, ToggleGroupItem } from './components/toggle-group.js';
-import { DialogContent, DialogTitle, DialogDescription, DialogFooter } from './components/dialog.js';
+import { DialogContent, DialogHeader, DialogDescription, DialogFooter } from './components/dialog.js';
 import { glyph, AgentIcon } from './components/icon.js';
 import { Select, SelectState } from './components/select.js';
 import { accountStorageDirectory, storageGroups, storageSize } from './account-storage-model.js';
@@ -444,7 +444,7 @@ export const sessionMenu = {
         else return;
         cx.stop_propagation(); cx.notify();
       })
-      .child(DialogTitle().flex_none().child(embedded ? 'Agents' : 'Settings'))
+      .when(!embedded, el => el.child(DialogHeader(t, 'Settings', { id: 'manage-launchers-close', label: 'Close settings', onClose: done })))
       .child(h_flex().flex_1().min_h(0).gap(16).items_start()
         .child(v_flex().id('settings-pages').w(140).flex_none().gap(2)
           .children(pages.map(item => v_flex().id(`settings-section-${item.id}`).gap(2).child(Button(`settings-page-${item.id}`, t, { variant: 'ghost' }).h(32).px(8).gap(8).justify_start()
@@ -461,8 +461,7 @@ export const sessionMenu = {
           .when(page === 'agent-profiles', el => el.child(this.agentProfilesPage(t)))
           .when(page === 'global-rules', el => el.child(this.globalRulesPage(t)))
           .when(page === 'shared-mcp', el => el.child(this.devkitsPage(t)))
-          .when(page === 'ecc', el => el.child(this.eccPage(t)))))
-      .when(!embedded, el => el.child(DialogFooter().flex_none().child(Button('manage-launchers-done', t).on_click(done).child('Done'))));
+          .when(page === 'ecc', el => el.child(this.eccPage(t)))));
   },
 
   // Auto in New thread starts one of these accounts, chosen by quota at each launch.

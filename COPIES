@@ -3,7 +3,7 @@
 # so each needs its own copy.
 agent-selection.js: herdr-zed-agents
 agents.js: herdr-zed-agents herdr-zed-tasks
-alert-dialog.js: herdr-zed herdr-zed-agents
+alert-dialog.js: herdr-zed herdr-zed-agents herdr-zed-simulator
 button.js: herdr-zed herdr-zed-agents herdr-zed-asana herdr-zed-calendar herdr-zed-github herdr-zed-mantisbt herdr-zed-simulator herdr-zed-system herdr-zed-tasks
 checkbox.js: herdr-zed herdr-zed-agents herdr-zed-asana herdr-zed-calendar herdr-zed-mantisbt herdr-zed-simulator herdr-zed-system
 claude-usage-hook.js: herdr-zed-agents
@@ -12,7 +12,7 @@ dialog.js: herdr-zed herdr-zed-agents herdr-zed-asana herdr-zed-github herdr-zed
 dropdown-menu.js: herdr-zed herdr-zed-agents herdr-zed-asana herdr-zed-github herdr-zed-mantisbt herdr-zed-simulator herdr-zed-tasks
 empty.js: herdr-zed
 extension-contract.js: herdr-zed herdr-zed-agents herdr-zed-github
-icon.js: herdr-zed herdr-zed-agents herdr-zed-calendar herdr-zed-system herdr-zed-tasks herdr-zed-simulator
+icon.js: herdr-zed herdr-zed-agents herdr-zed-asana herdr-zed-calendar herdr-zed-github herdr-zed-mantisbt herdr-zed-system herdr-zed-tasks herdr-zed-simulator
 input.js: herdr-zed herdr-zed-agents herdr-zed-github
 progress.js: herdr-zed-agents
 select.js: herdr-zed herdr-zed-agents herdr-zed-github herdr-zed-tasks

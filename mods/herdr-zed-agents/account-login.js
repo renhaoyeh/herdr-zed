@@ -7,6 +7,7 @@ import { appHome, exec, hc, readTextFile, writeTextFile, theme, closeOverlay, ru
 import { commandArgv } from './components/session-shell.js';
 import { launcherLabel } from './components/session-model.js';
 import { Button } from './components/button.js';
+import { glyph } from './components/icon.js';
 
 // Each account owns a private credentials directory; the CLI itself signs in, stores, and refreshes tokens.
 export const accountProviders = {
@@ -423,11 +424,14 @@ export default class AccountLogin {
         else if (event.key === 'enter' && this.phase === 'success') { cx.stop_propagation(); this.finish(); }
         else if (event.key === 'enter' && this.phase === 'waiting' && !pasteCode) { cx.stop_propagation(); this.openBrowser(cx); }
       })
-      .child(v_flex().gap(6)
-        .child(div().font_family('Georgia').text_size(22).font_normal().child(this.phase === 'success'
-          ? `${source.label} account connected` : `Add ${source.label} account`))
-        .child(div().text_size(13).text_color(t.muted).child(this.phase === 'success'
-          ? `${this.email} is ready in your agent menu.` : `Connect a ${source.service} account to use with ${source.label}.`)))
+      .child(h_flex().flex_none().gap(12).items_start()
+        .child(v_flex().flex_1().min_w(0).gap(6)
+          .child(div().font_family('Georgia').text_size(22).font_normal().child(this.phase === 'success'
+            ? `${source.label} account connected` : `Add ${source.label} account`))
+          .child(div().text_size(13).text_color(t.muted).child(this.phase === 'success'
+            ? `${this.email} is ready in your agent menu.` : `Connect a ${source.service} account to use with ${source.label}.`)))
+        .when(this.phase === 'success', el => el.child(Button(`${id}-login-close`, t, { variant: 'ghost', size: 'icon' })
+          .accessibility_label('Close').on_click(() => this.finish()).child(glyph('close', 14)))))
       .child(v_flex().flex_1().min_h(0).overflow_y_scrollbar().gap(10)
         .when(pasteCallback, el => el
           .child(v_flex().gap(12)
@@ -459,7 +463,6 @@ export default class AccountLogin {
           .when(Boolean(this.codeError), el => el.child(div().text_size(12).text_color(t.destructive || t.foreground).child(this.codeError))))
         .when(Boolean(this.error), el => el.child(div().id(`${id}-login-error`).text_size(12).text_color(t.destructive || t.foreground).child(this.error))))
       .child(h_flex().flex_none().gap(8).justify_end()
-        .when(this.phase === 'success', el => el.child(action('done', 'Done', () => this.finish(), true)))
         .when(this.phase !== 'success', el => el
           .child(action('cancel', 'Cancel', () => this.finish()))
           .when(pasteCallback, el => el.child(action('callback', this.submittingCallback ? 'Connecting…' : 'Connect account', (_event, cx) => this.submitCallback(cx), true)))

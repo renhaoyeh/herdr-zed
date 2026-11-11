@@ -12,9 +12,10 @@ const plist = (workspace, date = '2026-10-11T17:27:01Z') => `<?xml version="1.0"
 // Loads the dialog with a fake native host; it never runs real commands.
 async function loadDialog(host) {
   const read = name => readFile(new URL(`../mods/herdr-zed-simulator/${name}`, import.meta.url), 'utf8');
-  const sources = await Promise.all(['components/button.js', 'components/checkbox.js', 'components/dropdown-menu.js', 'components/dialog.js', 'components/icon.js', 'xcode-storage.js'].map(read));
+  const sources = await Promise.all(['components/button.js', 'components/checkbox.js', 'components/dropdown-menu.js', 'components/dialog.js', 'components/icon.js',
+    'components/alert-dialog.js', 'xcode-storage.js'].map(read));
   const body = sources.join('\n').replace(/^import [\s\S]*?;\r?\n/gm, '').replace('export default class', 'class').replace(/^export /gm, '');
-  return new Function(...Object.keys(host), `${body}\nreturn { XcodeStorage, workspaceLabel, derivedGroups, bytes, simulatorGroups, lastUsedLabel };`)(...Object.values(host));
+  return new Function(...Object.keys(host), `${body}\nreturn { XcodeStorage, XcodeStorageConfirm, workspaceLabel, derivedGroups, bytes, simulatorGroups, lastUsedLabel };`)(...Object.values(host));
 }
 
 function fakeHost(overrides = {}) {
@@ -37,7 +38,8 @@ function fakeHost(overrides = {}) {
   };
   const native = { new: id => element().id(id) };
   return { nodes, host: { div: element, h_flex: element, v_flex: element, svg: element, NativeButton: native, NativeCheckbox: native,
-    theme: () => ({}), props: () => ({ overlay: 'o1' }), home: () => '/Users/me', appHome: () => '/herdr', notify() {}, closeOverlay() {}, ...overrides } };
+    theme: () => ({}), props: () => ({ overlay: 'o1' }), home: () => '/Users/me', appHome: () => '/herdr', notify() {}, closeOverlay() {},
+    shared: () => undefined, setShared() {}, openOverlay: () => 'o2', ...overrides } };
 }
 
 const cx = { focus_handle: () => ({ focus() {} }), notify() {}, stop_propagation() {}, spawn: fn => fn(cx) };
@@ -156,8 +158,13 @@ test('the dialog checks missing workspaces first, deletes only after confirming,
     if (args[1] === 'delete') return { code: 0, stdout: JSON.stringify({ removed: JSON.parse(args[2]), errors: [] }) };
     return { code: 0, stdout: JSON.stringify(data) };
   };
-  const { nodes, host } = fakeHost({ exec, notify: note => notes.push(note) });
-  const { XcodeStorage } = await loadDialog(host);
+  // The panel and its confirmation are separate mods' views; they share only the Herdr shared state.
+  const store = {}, shared = key => store[key], setShared = (key, value) => { store[key] = value; };
+  const opened = [], closed = [];
+  const panel = fakeHost({ exec, notify: note => notes.push(note), shared, setShared,
+    openOverlay: spec => { opened.push(spec); return 'confirm-1'; } });
+  const { XcodeStorage } = await loadDialog(panel.host);
+  const { nodes } = panel;
   const view = new XcodeStorage(); view.init(cx); await new Promise(resolve => setImmediate(resolve));
   view.render();
   assert.ok(!nodes.has('xcode-storage-simulator:S1'));
@@ -172,15 +179,31 @@ test('the dialog checks missing workspaces first, deletes only after confirming,
   assert.equal(nodes.get('xcode-storage-derived:App-bbbbbbbbbbbbbbbbbbbbbbbbbbbb').checked, false);
   nodes.get('xcode-storage-simulator:S2').change(true, cx);
   view.render();
-  assert.ok(!nodes.has('xcode-storage-delete'));
   nodes.get('xcode-storage-review').click({}, cx);
-  view.render();
-  assert.equal(calls.length, 1);
-  nodes.get('xcode-storage-delete').click({}, cx);
+  assert.equal(calls.length, 1, 'opening the confirmation deletes nothing');
+  assert.equal(opened.length, 1);
+  assert.equal(opened[0].kind, 'dialog'); assert.equal(opened[0].modal, true); assert.equal(opened[0].width, 440);
+  assert.equal(opened[0].props.view, 'simulator-storage-confirm');
+  assert.deepEqual(opened[0].props.items.map(item => [item.kind, item.id]), [['derived', 'App-aaaaaaaaaaaaaaaaaaaaaaaaaaaa'], ['simulator', 'S2']]);
+  assert.equal(view.selected.size, 2, 'the panel keeps its selection until the deletion finishes');
+
+  // The confirmation runs in its own overlay with the items it was opened with.
+  const confirmation = fakeHost({ exec, notify: note => notes.push(note), shared, setShared, closeOverlay: id => closed.push(id),
+    props: () => ({ overlay: 'confirm-1', items: opened[0].props.items }) });
+  const { XcodeStorageConfirm } = await loadDialog(confirmation.host);
+  const dialog = new XcodeStorageConfirm(); dialog.init(cx);
+  dialog.render();
+  assert.ok(confirmation.nodes.has('xcode-storage-confirm-cancel'));
+  confirmation.nodes.get('xcode-storage-confirm-delete').click({}, cx);
   await new Promise(resolve => setImmediate(resolve));
   assert.deepEqual(JSON.parse(calls[1][1]).map(item => [item.kind, item.id]), [['derived', 'App-aaaaaaaaaaaaaaaaaaaaaaaaaaaa'], ['simulator', 'S2']]);
-  assert.deepEqual(calls[2], ['scan']);
+  assert.deepEqual(closed, ['confirm-1'], 'the confirmation closes once the deletion is reported');
   assert.match(notes[0].body, /2 items · 5\.0 GB freed/);
+
+  // The panel sees the reported result on its next render and measures again, keeping its place open.
+  view.render();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(calls[2], ['scan']);
   assert.equal(view.selected.size, 0);
 });
 

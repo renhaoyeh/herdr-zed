@@ -7,7 +7,7 @@ import { tasksMcpServer } from './components/session-model.js';
 import { Button } from './components/button.js';
 import { Switch } from './components/switch.js';
 import { glyph } from './components/icon.js';
-import { DialogContent, DialogTitle, DialogDescription, DialogFooter } from './components/dialog.js';
+import { DialogContent, DialogHeader, DialogDescription, DialogFooter } from './components/dialog.js';
 
 const mcpLabels = { command: 'Command', args: 'Arguments', url: 'Local URL', env_vars: 'Environment variables',
   bearer_token_env_var: 'Bearer token environment variable', env_http_headers: 'Header environment variables',
@@ -94,7 +94,7 @@ export const sharedMcpSettings = {
       || { id: `missing:${name}`, name, missing: true }) : this.mcpRows || [];
     const selected = rows.find(row => row.id === this.mcpSelected) || rows[0];
     return v_flex().h_full().flex_1().min_h(0).gap(12)
-      .when(!embedded, el => el.child(DialogTitle().flex_none().child('Shared MCP'))
+      .when(!embedded, el => el.child(DialogHeader(t, 'Shared MCP', { id: 'mcp-close', label: 'Close Shared MCP', onClose: () => this.finishSharedMcp() }))
         .child(DialogDescription(t).flex_none().child('Shared MCP for all local Codex accounts and Profiles. Enable changes save automatically and apply to new sessions; connection details are read-only.')))
       .when(this.mcpLoading, el => el.child(div().text_color(t.muted).child('Loading servers…')))
       .when(!this.mcpLoading && Boolean(this.mcpConfig), el => el.child(h_flex().flex_1().min_h(0).items_stretch().gap(16)
@@ -113,7 +113,6 @@ export const sharedMcpSettings = {
             .child(div().text_size(12).text_color(t.muted).child('No additional shared MCP servers are configured.')))))))
       .when(Boolean(this.mcpError), el => el.child(div().text_size(12).text_color(t.ansi1).child(this.mcpError)))
       .child(DialogFooter().flex_none().child(Button('mcp-refresh', t, { variant: 'secondary' }).disabled(Boolean(this.mcpLoading || this.mcpSaving || this.kitSaving))
-        .on_click((_event, cx) => this.initSharedMcp(cx)).child('Refresh'))
-        .when((props() || {}).view === 'shared-mcp', el => el.child(Button('mcp-done', t).on_click(() => this.finishSharedMcp()).child('Done'))));
+        .on_click((_event, cx) => this.initSharedMcp(cx)).child('Refresh')));
   },
 };

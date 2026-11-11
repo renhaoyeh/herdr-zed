@@ -59,6 +59,7 @@ function settingsRuntime({ settings = [], memory = {}, closeThrows = [] } = {}) 
   const host = {
     div: element, v_flex: element, h_flex: element, Button: id => element(id), DialogTitle: () => element(), DialogDescription: () => element(),
     Switch: (id, checked) => element(id, { checked }), ToggleGroup: id => element(id), ToggleGroupItem: (id, pressed) => element(id, { pressed }),
+    glyph: () => element(),
     AUTO_RESUME_KEY: 'herdr-zed.auto-resume', extensionCatalog: () => ({ resolved: { settings } }),
     BuildRulesSettings: class { init() { this.inited = true; } close() {} render() { return element('rules'); } },
     GitAuthorSettings: class { constructor(target) { this.target = target; } init() { this.inited = true; } close() {} render() { return element('author'); } },
@@ -69,7 +70,7 @@ function settingsRuntime({ settings = [], memory = {}, closeThrows = [] } = {}) 
     shared: key => memory[key], setShared: (key, value) => { memory[key] = value; },
   };
   return { memory, opened, closed, runs, notices, setProps: next => { current = next; },
-    ready: evaluateNative('../mods/herdr-zed/settings.js', host, 'openSettings, settingsOverlay, settingsPage, settingsContext, extensionSettingsPages, SettingsNav, SettingsPage, SETTINGS_OVERLAY') };
+    ready: evaluateNative('../mods/herdr-zed/settings.js', host, 'openSettings, settingsOverlay, settingsPage, settingsContext, extensionSettingsPages, SettingsNav, SettingsHeader, SettingsPage, SETTINGS_OVERLAY') };
 }
 
 const project = { id: 'p', folder: '/work', name: 'Work', machine: undefined, token: 'private' };
@@ -83,7 +84,10 @@ test('a shell page opens the one dialog layout: nav beside the page, Sera size, 
   assert.equal(id, 'overlay-1'); assert.equal(r.memory['herdr-zed.settings.overlay'], 'overlay-1');
   assert.deepEqual(r.opened[0], { kind: 'dialog', modal: true, frame: 'none', width: 1040, height: 0.86, layout: { type: 'row', children: [
     { type: 'block', size: { px: 220 }, content: { mod: 'herdr-zed', props: { view: 'settings-nav', page: 'general', context } } },
-    { type: 'block', content: { mod: 'herdr-zed', props: { view: 'settings-page', page: 'general', context } } },
+    { type: 'column', children: [
+      { type: 'block', size: { px: 32 }, content: { mod: 'herdr-zed', props: { view: 'settings-header', page: 'general' } } },
+      { type: 'block', content: { mod: 'herdr-zed', props: { view: 'settings-page', page: 'general', context } } },
+    ] },
   ] } });
   assert.equal(JSON.stringify(r.opened[0]).includes('private'), false, 'The project token is never handed to a page');
 });
@@ -92,8 +96,9 @@ test('an extension page embeds its own view with the current project as context'
   const settings = [{ mod: 'herdr-zed-agents', id: 'agents', view: 'settings', title: 'Agents' }];
   const r = settingsRuntime({ settings }); const s = await r.ready;
   s.openSettings('extension:agents', project);
-  assert.deepEqual(r.opened[0].layout.children[1], { type: 'block', content: { mod: 'herdr-zed-agents',
+  assert.deepEqual(r.opened[0].layout.children[1].children[1], { type: 'block', content: { mod: 'herdr-zed-agents',
     props: { view: 'settings', embedded: true, context } } });
+  assert.equal(r.opened[0].layout.children[1].children[0].content.props.view, 'settings-header', 'the shell title bar sits above it');
   assert.equal(r.opened[0].layout.children[0].content.props.page, 'extension:agents');
 });
 
@@ -101,14 +106,14 @@ test('switching pages closes the open dialog and reopens with the new layout', a
   const r = settingsRuntime(); const s = await r.ready;
   s.openSettings('general', project); s.openSettings('git', project);
   assert.deepEqual(r.closed, ['overlay-1']); assert.equal(r.opened.length, 2);
-  assert.equal(r.opened[1].layout.children[1].content.props.page, 'git');
+  assert.equal(r.opened[1].layout.children[1].children[1].content.props.page, 'git');
   assert.equal(r.memory['herdr-zed.settings.overlay'], 'overlay-2');
 });
 
 test('an already-closed dialog is not an error, and an ineligible page opens nothing', async () => {
   const r = settingsRuntime({ memory: { 'herdr-zed.settings.overlay': 'gone' }, closeThrows: ['gone'] }); const s = await r.ready;
   assert.equal(s.openSettings('extensions', null), 'overlay-1');
-  assert.equal(r.opened[0].layout.children[1].content.props.context, null, 'No project means no context');
+  assert.equal(r.opened[0].layout.children[1].children[1].content.props.context, null, 'No project means no context');
   const before = r.opened.length;
   assert.equal(s.openSettings('extension:missing', project), null);
   assert.equal(r.opened.length, before); assert.deepEqual(r.closed, []);
@@ -117,27 +122,43 @@ test('an already-closed dialog is not an error, and an ineligible page opens not
   assert.equal(s.settingsPage('general').shell, true);
 });
 
-test('the nav lists Workspace pages and only eligible extensions, and closes through Done or Herdr settings', async () => {
+test('the nav lists Workspace pages and only eligible extensions, with no Done; it closes through the header X or Herdr settings', async () => {
   const settings = [{ mod: 'herdr-zed-agents', id: 'agents', view: 'settings', title: 'Agents' }];
   const r = settingsRuntime({ settings }); const s = await r.ready;
   s.openSettings('extension:agents', project);
   r.setProps({ page: 'extension:agents', context, overlay: 'overlay-1' });
   const nav = new s.SettingsNav().render(theme);
   const labels = text(nav);
-  for (const label of ['Settings', 'Workspace', 'General', 'Git', 'Extensions', 'Agents', 'Herdr settings…', 'Done']) assert.match(labels, new RegExp(label));
+  for (const label of ['Settings', 'Workspace', 'General', 'Git', 'Extensions', 'Agents', 'Herdr settings…']) assert.match(labels, new RegExp(label));
+  assert.equal(find(nav, 'settings-done'), null, 'the nav has no Done');
   assert.equal(find(nav, 'settings-nav-extension-agents').__attrs.bg, theme.selected, 'The open page is the selected entry');
   assert.equal(find(nav, 'settings-nav-general').__attrs.bg, theme.chrome);
   assert.equal(find(nav, 'settings-nav-extension-missing'), null);
   find(nav, 'settings-nav-git').__handlers.on_click(undefined, cx());
-  assert.deepEqual(r.closed, ['overlay-1']); assert.equal(r.opened[1].layout.children[1].content.props.page, 'git');
+  assert.deepEqual(r.closed, ['overlay-1']); assert.equal(r.opened[1].layout.children[1].children[1].content.props.page, 'git');
   r.setProps({ page: 'git', context, overlay: 'overlay-2' });
   const again = new s.SettingsNav().render(theme);
   find(again, 'settings-herdr').__handlers.on_click(undefined, cx());
   assert.deepEqual(r.runs, [['app.settings']]); assert.deepEqual(r.closed, ['overlay-1', 'overlay-2']);
   assert.equal(r.memory['herdr-zed.settings.overlay'], null);
   r.setProps({ page: 'general', context, overlay: 'overlay-3' });
-  find(new s.SettingsNav().render(theme), 'settings-done').__handlers.on_click(undefined, cx());
+  find(new s.SettingsHeader().render(theme), 'settings-close').__handlers.on_click(undefined, cx());
   assert.deepEqual(r.closed.at(-1), 'overlay-3');
+  assert.equal(r.memory['herdr-zed.settings.overlay'], null);
+});
+
+test('every Settings page gets one title bar naming it, with the close X; the page draws no title of its own', async () => {
+  const settings = [{ mod: 'herdr-zed-agents', id: 'agents', view: 'settings', title: 'Agents' }];
+  const r = settingsRuntime({ settings }); const s = await r.ready;
+  r.setProps({ page: 'git', context, overlay: 'overlay-9' });
+  const header = new s.SettingsHeader().render(theme);
+  assert.match(text(header), /Git/);
+  assert.equal(find(header, 'settings-close').__attrs.accessibility_label, 'Close settings');
+  r.setProps({ page: 'extension:agents', context, overlay: 'overlay-9' });
+  assert.match(text(new s.SettingsHeader().render(theme)), /Agents/, 'extension pages are named by their Settings title');
+  r.setProps({ page: 'general', context: null, overlay: 'overlay-9' });
+  const page = new s.SettingsPage(); page.init(cx());
+  assert.doesNotMatch(text(page.render(theme)), /\bGeneral\b/, 'the header names the page, not the page body');
 });
 
 test('the General page binds each preference to its shared key and defaults as before', async () => {
