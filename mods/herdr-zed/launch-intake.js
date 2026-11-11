@@ -1,19 +1,32 @@
-// Shell side of ARCHITECTURE §3.1: take provider launch requests, validate them, open the tab, and record which
+// Shell side of ARCHITECTURE §3.1: claim provider launch requests, validate them, open the tab, and record which
 // provider launched each tab in the thread read model (`herdr-zed.threads`). Pure except for the injected API.
 import { validateLaunchRequest } from './components/extension-contract.js';
 
 export const LAUNCH_REQUESTS = 'herdr-zed.launch.requests';
+export const LAUNCH_HANDLED = 'herdr-zed.launch.handled';
 export const LAUNCH_PENDING = 'herdr-zed.launch.pending';
 export const THREADS = 'herdr-zed.threads';
 // A tab can appear slightly after its request expires; the pending match keeps this grace beyond expiresAt.
 const PENDING_GRACE_MS = 60_000;
 
-/** Takes and clears every queued request, so each request is processed once. */
-export function takeLaunchRequests(shared, setShared) {
-  const queued = shared(LAUNCH_REQUESTS);
-  if (!Array.isArray(queued) || queued.length === 0) return [];
-  setShared(LAUNCH_REQUESTS, []);
-  return queued;
+/**
+ * Which queued requests this poll processes: unexpired, well-formed and not handled before. The queue is only read.
+ * `handled` is [{ id, expiresAt }] (the caller merges its in-memory list with the shared one). Entries whose request
+ * can no longer be processed are pruned; the returned list is what the caller keeps.
+ */
+export function claimLaunchRequests(queued, handled, now) {
+  const seen = new Map();
+  for (const entry of Array.isArray(handled) ? handled : []) {
+    if (entry && typeof entry.id === 'string' && typeof entry.expiresAt === 'number' && entry.expiresAt > now) seen.set(entry.id, entry.expiresAt);
+  }
+  const claimed = [];
+  for (const item of Array.isArray(queued) ? queued : []) {
+    if (!item || typeof item !== 'object' || typeof item.id !== 'string' || seen.has(item.id)
+      || typeof item.expiresAt !== 'number' || !(item.expiresAt > now)) continue;
+    seen.set(item.id, item.expiresAt);
+    claimed.push(item);
+  }
+  return { claimed, handled: [...seen].map(([id, expiresAt]) => ({ id, expiresAt })) };
 }
 
 /** Validates each request. Returns the accepted values and one message per distinct rejection. */
@@ -74,4 +87,26 @@ export function openLaunch(request, api) {
   else api.run('space.new', { name: target.projectName, folder: target.folder, machine: target.machine || '',
     tab: request.name, argv: request.argv });
   if (target.overlay) api.closeOverlay(target.overlay);
+}
+
+/**
+ * One poll of the shell's launch intake. `state.handled` is the view's in-memory [{ id, expiresAt }] list. The shell
+ * writes `herdr-zed.launch.handled` and its own tab keys; it never writes `herdr-zed.launch.requests`, which only the
+ * provider appends to (and prunes). Every claimed request is handled once, whether it is accepted or rejected.
+ * `api`: { shared, setShared, spaces, run, closeOverlay, notify, launcherId }.
+ */
+export function pollLaunchIntake(api, state, now) {
+  const storedHandled = api.shared(LAUNCH_HANDLED) || [];
+  const { claimed, handled } = claimLaunchRequests(api.shared(LAUNCH_REQUESTS), [...state.handled, ...storedHandled], now);
+  state.handled = handled;
+  if (JSON.stringify(handled) !== JSON.stringify(storedHandled)) api.setShared(LAUNCH_HANDLED, handled);
+  const spaces = api.spaces().map(space => ({ id: space.id, machine: space.machine || null }));
+  const { accepted, errors } = acceptLaunchRequests(claimed, { now, launcherId: api.launcherId, spaces });
+  for (const body of errors) api.notify({ title: 'Launch request rejected', body, level: 'error' });
+  for (const request of accepted) openLaunch(request, { spaces: api.spaces, shared: api.shared, setShared: api.setShared, run: api.run, closeOverlay: api.closeOverlay });
+  const pending = api.shared(LAUNCH_PENDING) || [], threads = api.shared(THREADS) || {};
+  if (!pending.length && !Object.keys(threads).length) return;
+  const next = reconcileLaunches({ pending, threads }, api.spaces(), now);
+  if (JSON.stringify(next.pending) !== JSON.stringify(pending)) api.setShared(LAUNCH_PENDING, next.pending);
+  if (JSON.stringify(next.threads) !== JSON.stringify(threads)) api.setShared(THREADS, next.threads);
 }

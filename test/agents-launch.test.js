@@ -9,8 +9,8 @@ import { evaluateNative } from './source-harness.js';
 
 const clone = value => value === undefined ? undefined : JSON.parse(JSON.stringify(value));
 
-async function launcher({ platform = 'macos', spaces = [{ id: 'one', machine: null }], prepare } = {}) {
-  const memory = {};
+async function launcher({ platform = 'macos', spaces = [{ id: 'one', machine: null }], prepare, queued } = {}) {
+  const memory = queued ? { 'herdr-zed.launch.requests': queued } : {};
   const host = { ...contract, terminalArgv, window: () => ({ platform }), spaces: () => spaces,
     shared: key => clone(memory[key]), setShared: (key, value) => { memory[key] = clone(value); },
     prepareSession: prepare || (async () => ({ argv: ['codex', '--model', 'gpt'], session: { model: 'gpt', effort: 'high' } })) };
@@ -41,6 +41,26 @@ test('a provider launch appends the prepared argv byte for byte; only local shel
   await remote.emitLaunch(agent, { space: 'remote', folder: '/srv' }, {});
   assert.deepEqual(remote.memory['herdr-zed.launch.requests'][0].argv, ['codex', '--model', 'gpt']);
   assert.deepEqual(remote.memory['herdr-zed.launch.requests'][0].target, { space: 'remote', folder: '/srv', machine: 'box' });
+});
+
+test('appending a launch prunes expired queue entries and keeps unexpired ones the shell has not claimed yet', async () => {
+  const expired = { id: 'launch:old', expiresAt: Date.now() - 1 }, waiting = { id: 'launch:waiting', expiresAt: Date.now() + 20000 };
+  const h = await launcher({ queued: [expired, waiting] });
+  await h.emitLaunch(agent, target, {});
+  const queue = h.memory['herdr-zed.launch.requests'];
+  assert.equal(queue.length, 2);
+  assert.equal(queue[0].id, 'launch:waiting', 'the unexpired entry the shell has not claimed yet is kept');
+  assert.equal(queue.some(item => item.id === 'launch:old'), false, 'the expired entry is pruned');
+});
+
+test('the Agents Terminal row sends herdr-zed.new-terminal and opens nothing itself', async () => {
+  const source = await readFile(new URL('../mods/herdr-zed-agents/main.js', import.meta.url), 'utf8');
+  const body = source.match(/\n  openTerminal\(target\) \{([\s\S]*?)\n  \}\n/)?.[1];
+  assert.ok(body, 'openTerminal exists');
+  assert.equal(body.trim(), 'run(`herdr-zed.${newTerminalCommand(target)}`);');
+  for (const key of ['tab.new', 'space.new', 'layout.select', 'conversation-visible', 'selected-project', 'closeOverlay'])
+    assert.equal(body.includes(key), false, `${key} belongs to the shell`);
+  assert.match(source, /startThread\(agent, target = props\(\) \|\| \{\}, options = \{\}\) \{\n    if \(!agent\) \{ this\.openTerminal\(target\); return; \}/);
 });
 
 test('the caller origin is passed through to the launch request and malformed origins are refused', async () => {

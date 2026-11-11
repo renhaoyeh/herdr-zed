@@ -38,6 +38,8 @@ export async function emitLaunch(agent, target = {}, options = {}, origin = null
   };
   const checked = validateLaunchRequest(request, { now: Date.now(), launcherId: LAUNCHER_ID, spaces: spaces() });
   if (!checked.ok) throw new Error(checked.error);
-  setShared(LAUNCH_REQUESTS, [...(shared(LAUNCH_REQUESTS) || []), request]);
+  // The shell never writes this queue (it only records handled IDs), so the provider prunes expired entries here.
+  const now = Date.now(), queued = (shared(LAUNCH_REQUESTS) || []).filter(item => item && item.expiresAt > now);
+  setShared(LAUNCH_REQUESTS, [...queued, request]);
   return { id: request.id, model: session.model ?? null, effort: session.effort ?? null, profile: request.profile };
 }

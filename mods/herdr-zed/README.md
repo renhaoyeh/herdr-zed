@@ -14,7 +14,7 @@ declarations (`extension.json`) and shared-state messages.
 ## Install
 
 ```sh
-node install-zed.js
+node install.js
 ```
 
 Run from the repository root. The installer copies this mod to `mods/herdr-zed/`
@@ -50,9 +50,8 @@ Registry: `data/herdr-zed/extensions.json`. Extensions can be enabled or disable
 from the Extensions manager (bottom-right icon of the status bar); the choice persists.
 Disabling removes the package's entries and blocks new activation without deleting
 its data. Run the native command `herdr-zed.extensions-refresh` to reload declarations
-in an open workspace. `install-zed-extension.js <mod-name>` registers a package that
-exists under the repository's `mods/` folder; no provider packages exist in this
-repository yet.
+in an open workspace. `node install.js --extension <mod-name>` installs and registers a
+provider package from the repository's `mods/` folder.
 
 ## Conversation history
 

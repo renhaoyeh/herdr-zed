@@ -1,5 +1,6 @@
 import { View, div } from 'gpui-kit';
-import { props, theme, shared, setShared, spaces, run, closeOverlay } from 'herdr';
+import { props, theme, shared, setShared, spaces, run } from 'herdr';
+import { newTerminalCommand } from './components/extension-contract.js';
 import AccountLogin from './account-login.js';
 import { sessionMenu } from './session-menu.js';
 import { accountActions } from './account-actions.js';
@@ -54,17 +55,10 @@ export default class AgentsMod extends View {
       .then(() => this.remember(agent, { space, folder }, options))
       .catch(error => { this.startError = error.message; this.viewCx?.notify(); });
   }
-  // A plain terminal needs no account, so the picker opens it directly, as the native picker does.
+  // A plain terminal needs no account. The shell owns the tab and its shared keys: it opens the same Terminal choice
+  // as its native picker and closes the picker overlay carried in the target (ARCHITECTURE §3.1, herdr-zed.new-terminal).
   openTerminal(target) {
-    const project = spaces().find(item => item.id === target.space);
-    const machine = project?.machine || target.machine || null;
-    const key = JSON.stringify([machine || '', folderKey(target.folder) || target.space]);
-    setShared('herdr-zed.conversation-visible', { ...(shared('herdr-zed.conversation-visible') || {}), [key]: true });
-    setShared('herdr-zed.selected-project', null);
-    run('layout.select', { stack: 'workspace-view', child: 'main' });
-    if (target.space) run('tab.new', { space: target.space, folder: target.folder });
-    else run('space.new', { name: target.projectName, folder: target.folder, machine: machine || '' });
-    if (target.overlay) closeOverlay(target.overlay);
+    run(`herdr-zed.${newTerminalCommand(target)}`);
   }
   // The launcher remembers the last agent per project; Auto is remembered as its own choice.
   remember(agent, target, options = {}) {

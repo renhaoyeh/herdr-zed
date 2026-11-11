@@ -15,8 +15,9 @@ import { startPanel } from './start-panel.js';
 import { threadArchive, historyEligible } from './thread-archive.js';
 import { GitAuthorSettings } from './git-author-settings.js';
 import { ExtensionsManager, openExtensions } from './extensions-manager.js';
-import { ExtensionSlot, ExtensionSurfaceSlot, refreshExtensions, openExtension, extensionCatalog, openGitAction } from './extensions.js';
-import { takeLaunchRequests, acceptLaunchRequests, reconcileLaunches, openLaunch, LAUNCH_PENDING, THREADS } from './launch-intake.js';
+import { ExtensionSlot, ExtensionSurfaceSlot, refreshExtensions, openExtension, extensionCatalog, openGitAction, activeLauncher } from './extensions.js';
+import { pollLaunchIntake } from './launch-intake.js';
+import { readNewTerminalCommand } from './components/extension-contract.js';
 import { threadDecorations, decorationTone } from './decorations.js';
 import { DropdownMenu, DropdownMenuState, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from './components/dropdown-menu.js';
 import { Button, ToolbarButton } from './components/button.js';
@@ -64,6 +65,7 @@ export default class HerdrZed extends View {
     if (view === 'git-author-settings') { this.gitAuthorSettings = new GitAuthorSettings(); this.gitAuthorSettings.init(cx); return; }
     if (view === 'header') {
       cx.spawn(async cx => { await refreshExtensions(); cx.notify(); });
+      this.launchIntake = { handled: [] };
       this.launchTimer = cx.timer.every(100, () => this.pollLaunches());
       cx.spawn(async cx => {
       for (;;) {
@@ -73,6 +75,9 @@ export default class HerdrZed extends View {
         if (command === 'extensions') openExtensions();
         if (command === 'extensions-refresh') { await refreshExtensions(); cx.notify(); }
         if (command.startsWith('extension:')) openExtension(command.slice('extension:'.length), this.projects().find(project => project.active));
+        // herdr-zed.new-terminal: the Agents picker's Terminal row (ARCHITECTURE §3.1). Same tab as the native Terminal.
+        const terminal = readNewTerminalCommand(command, spaces().map(space => ({ id: space.id, machine: space.machine || null })));
+        if (terminal) this.newTerminal(terminal);
       }
       });
     }
@@ -248,25 +253,22 @@ export default class HerdrZed extends View {
       ]));
   }
 
-  // Context handed to a provider launcher: the same fields the native picker reads.
-  launcherContext(project) {
+  // Fields handed to a provider launcher's picker and settings as flat props, like the native picker (the Agents
+  // mod reads props().space, .folder, .projectName, .machine; Herdr adds props().overlay itself).
+  launcherTarget(project) {
     return { space: project.pending ? null : project.id, folder: project.folder, projectName: project.name, machine: project.machine || null };
   }
 
-  // Long-lived intake (ARCHITECTURE §3.1): take every queued request, open the valid ones, then reconcile pending tabs.
+  // Long-lived intake (ARCHITECTURE §3.1): claim unhandled requests, open the valid ones, then reconcile pending tabs.
   pollLaunches() {
-    const now = Date.now(), launcher = extensionCatalog().resolved?.launcher;
-    const requests = takeLaunchRequests(shared, setShared);
-    if (requests.length) {
-      const { accepted, errors } = acceptLaunchRequests(requests, { now, launcherId: launcher?.id, spaces: spaces().map(space => ({ id: space.id, machine: space.machine || null })) });
-      for (const body of errors) notify({ title: 'Launch request rejected', body, level: 'error' });
-      for (const request of accepted) openLaunch(request, { spaces, shared, setShared, run, closeOverlay });
-    }
-    const pending = shared(LAUNCH_PENDING) || [], threads = shared(THREADS) || {};
-    if (!pending.length && !Object.keys(threads).length) return;
-    const next = reconcileLaunches({ pending, threads }, spaces(), now);
-    if (JSON.stringify(next.pending) !== JSON.stringify(pending)) setShared(LAUNCH_PENDING, next.pending);
-    if (JSON.stringify(next.threads) !== JSON.stringify(threads)) setShared(THREADS, next.threads);
+    pollLaunchIntake({ shared, setShared, spaces, run, closeOverlay, notify, launcherId: activeLauncher()?.id }, this.launchIntake, Date.now());
+  }
+
+  // The Agents Terminal row's request (herdr-zed.new-terminal): exactly the native picker's Terminal choice.
+  newTerminal(terminal) {
+    if (!terminal.ok) { notify({ title: 'Terminal request rejected', body: terminal.error, level: 'error' }); return; }
+    try { createNativeThread(null, terminal.value); }
+    catch (error) { notify({ title: 'Could not start session', body: error.message, level: 'error' }); }
   }
 
   // Decorations are read from the shared envelopes of the active decorators (ARCHITECTURE §3.3).
@@ -277,21 +279,20 @@ export default class HerdrZed extends View {
   newThread(cx, id, at) {
     const project = this.projects().find(project => id ? project.id === id : project.active);
     if (!project) { this.openProject(cx); return; }
-    const launcher = extensionCatalog().resolved?.launcher;
+    const launcher = activeLauncher();
     if (launcher) {
       openOverlay({ mod: launcher.mod, kind: 'popup', frame: 'none', width: launcher.picker.width, at,
-        props: { view: launcher.picker.view, context: this.launcherContext(project) } });
+        props: { view: launcher.picker.view, ...this.launcherTarget(project) } });
       return;
     }
     openOverlay({ mod: 'herdr-zed', kind: 'popup', frame: 'none', width: 280, at,
-      props: { view: 'launcher', space: project.pending ? null : project.id, folder: project.folder,
-        projectName: project.name, machine: project.machine || null } });
+      props: { view: 'launcher', ...this.launcherTarget(project) } });
   }
 
-  // The launcher provider's settings dialog, opened with the same context as its picker.
+  // The launcher provider's settings dialog, opened with the same fields as its picker.
   openLauncherSettings(launcher, project) {
     openOverlay({ mod: launcher.mod, kind: 'dialog', frame: 'none', modal: true, width: launcher.settings.width, height: launcher.settings.height,
-      props: { view: launcher.settings.view, context: this.launcherContext(project) } });
+      props: { view: launcher.settings.view, ...this.launcherTarget(project) } });
   }
 
   showConversation(visible = true, project = this.projects().find(project => project.active)) {
@@ -410,7 +411,7 @@ export default class HerdrZed extends View {
     const project = this.projects().find(project => project.id === thread?.space);
     const maximized = conversationMaximized(project);
     this.threadMenu ??= new DropdownMenuState();
-    const launcher = extensionCatalog().resolved?.launcher;
+    const launcher = activeLauncher();
     const launcherTitle = extensionCatalog().packages?.find(entry => entry.mod === launcher?.mod)?.title;
     const decoration = this.decorationsNow().get(thread?.tab.id);
     const actions = [

@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parseExtensionManifest, extensionMetadata, extensionPopup, resolveProviders } from '../mods/herdr-zed/extension-model.js';
-import { validateLaunchRequest, validateDecorations, gitCredentialArgs, projectKey } from '../components/extension-contract.js';
+import { parseExtensionManifest, extensionMetadata, extensionPopup, resolveProviders, launcherAvailable } from '../mods/herdr-zed/extension-model.js';
+import { validateLaunchRequest, validateLaunchTarget, validateDecorations, gitCredentialArgs, projectKey, newTerminalCommand, readNewTerminalCommand } from '../components/extension-contract.js';
 
 const action = (overrides = {}) => ({ id: 'open', title: 'Open', icon: 'globe', location: 'status.right',
   popup: { view: 'details', width: 1000, height: 700, modal: false }, ...overrides });
@@ -337,6 +337,61 @@ test('projectKey matches the shell project scope encoding', () => {
 });
 
 // ---- real manifests ----
+
+// ---- launch target and Terminal command (§3.1) ----
+
+test('validateLaunchTarget accepts a pending project (space null) and rejects unknown keys and bad fields', () => {
+  assert.equal(validateLaunchTarget({ space: null, folder: '/w', projectName: 'W', machine: null }, spaces).ok, true);
+  assert.equal(validateLaunchTarget({ folder: '/w', overlay: 'picker' }, spaces).ok, true);
+  assert.equal(validateLaunchTarget({ space: 'local-space', folder: '/w' }, spaces).ok, true);
+  assert.equal(validateLaunchTarget({ space: 'missing', folder: '/w' }, spaces).ok, false);
+  assert.equal(validateLaunchTarget({ folder: '/w', view: 'launcher' }, spaces).ok, false, 'picker props other than the target are not a target');
+  assert.equal(validateLaunchTarget({ folder: 4 }, spaces).ok, false);
+  assert.equal(validateLaunchTarget('/w', spaces).ok, false);
+  assert.equal(check(request({ target: { space: null, folder: '/w' } })).ok, true, 'a launch request accepts the same shape');
+});
+
+test('newTerminalCommand carries only the target fields of a picker, and readNewTerminalCommand validates them', () => {
+  const picker = { view: 'launcher', overlay: 'picker-1', space: 'remote-space', folder: '/a b/%c', projectName: 'App', machine: 'remote', page: 'x' };
+  const command = newTerminalCommand(picker);
+  assert.match(command, /^new-terminal:/);
+  const read = readNewTerminalCommand(command, spaces);
+  assert.deepEqual(read, { ok: true, value: { space: 'remote-space', folder: '/a b/%c', projectName: 'App', machine: 'remote', overlay: 'picker-1' } });
+  assert.deepEqual(readNewTerminalCommand(newTerminalCommand({ folder: '/w', space: null }), spaces).value, { space: null, folder: '/w' });
+  assert.equal(readNewTerminalCommand('new-thread', spaces), null, 'other commands are not Terminal requests');
+  assert.equal(readNewTerminalCommand('extension:open', spaces), null);
+  assert.equal(readNewTerminalCommand('new-terminal:%7B', spaces).ok, false, 'malformed JSON is rejected');
+  assert.equal(readNewTerminalCommand(newTerminalCommand({ space: 'nope', folder: '/w' }), spaces).ok, false);
+  assert.equal(readNewTerminalCommand(newTerminalCommand({ space: 'local-space', folder: '' }), spaces).ok, false);
+  assert.equal(readNewTerminalCommand(newTerminalCommand({ space: 'remote-space', folder: '/w', machine: null }), spaces).ok, false);
+});
+
+// ---- launcher availability (§3.6) ----
+
+const agentsPackage = { mod: 'herdr-zed-agents', id: 'agents', services: [{ view: 'service' }], provides: { launcher } };
+const serviceNode = (mod, view) => ({ id: `zed-extension-service-${mod}-${view}`, type: 'block', content: { mod, props: { view } } });
+const rootWith = (...children) => ({ id: 'root', type: 'column', children: [{ id: 'status-separator', type: 'row', children }] });
+
+test('a launcher is available only while every declared service is mounted in the layout', () => {
+  const resolved = { mod: 'herdr-zed-agents', id: 'agents', ...launcher };
+  assert.equal(launcherAvailable(resolved, [agentsPackage], rootWith(serviceNode('herdr-zed-agents', 'service'))), true);
+  assert.equal(launcherAvailable(resolved, [agentsPackage], rootWith()), false, 'declared but not mounted');
+  assert.equal(launcherAvailable(resolved, [agentsPackage], rootWith(serviceNode('herdr-zed-agents', 'sidebar'))), false, 'another view of the mod is not its service');
+  assert.equal(launcherAvailable(resolved, [agentsPackage], rootWith(serviceNode('herdr-zed-tasks', 'service'))), false, 'another mod is not the launcher');
+  const nested = { id: 'root', type: 'column', children: [{ id: 'deep', type: 'row', children: [serviceNode('herdr-zed-agents', 'service')] }] };
+  assert.equal(launcherAvailable(resolved, [agentsPackage], nested), true, 'the service may sit anywhere in the layout');
+  const twoServices = { ...agentsPackage, services: [{ view: 'service' }, { view: 'usage' }] };
+  assert.equal(launcherAvailable(resolved, [twoServices], rootWith(serviceNode('herdr-zed-agents', 'service'))), false, 'every declared service must be mounted');
+  assert.equal(launcherAvailable(resolved, [twoServices], rootWith(serviceNode('herdr-zed-agents', 'service'), serviceNode('herdr-zed-agents', 'usage'))), true);
+});
+
+test('no launcher, no layout or no package never counts as available', () => {
+  const resolved = { mod: 'herdr-zed-agents', id: 'agents', ...launcher };
+  assert.equal(launcherAvailable(null, [agentsPackage], rootWith(serviceNode('herdr-zed-agents', 'service'))), false);
+  assert.equal(launcherAvailable(resolved, [agentsPackage], null), false);
+  assert.equal(launcherAvailable(resolved, [], rootWith(serviceNode('herdr-zed-agents', 'service'))), false);
+  assert.equal(launcherAvailable(resolved, [{ ...agentsPackage, services: [] }], rootWith()), true, 'a package that declares no service has nothing to mount');
+});
 
 test('every extension.json under mods/ parses with the real manifest parser', async () => {
   const modsDir = fileURLToPath(new URL('../mods/', import.meta.url));

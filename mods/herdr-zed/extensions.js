@@ -2,7 +2,7 @@ import { h_flex } from 'gpui-base';
 import { shared, setShared, appHome, readTextFile, openOverlay, notify, layout, run } from 'herdr';
 import { ToolbarButton } from './components/button.js';
 import { glyph } from './components/icon.js';
-import { parseExtensionRegistry, parseExtensionManifest, extensionPopup, extensionMetadata, extensionServiceLayout, gitActionPopup, resolveProviders } from './extension-model.js';
+import { parseExtensionRegistry, parseExtensionManifest, extensionPopup, extensionMetadata, extensionServiceLayout, gitActionPopup, resolveProviders, launcherAvailable } from './extension-model.js';
 import { extensionSurfaceLayout, extensionSurfaceNodeId } from './extension-surfaces.js';
 
 const DISABLED = 'herdr-zed.extensions.disabled';
@@ -59,6 +59,13 @@ function publishCatalog(patch) {
   const packages = (patch.packages || current.packages || []).map(entry => ({ ...entry, enabled: !disabled.includes(entry.mod) }));
   setShared(CATALOG, { ...current, ...patch, packages, resolved: resolveProviders(packages, disabled) });
 }
+
+// The launcher the + button and the provider's launch intake use: the resolved one, only while its service is mounted.
+// Otherwise the shell uses its native picker (ARCHITECTURE §2.2.1, §3.6).
+export const activeLauncher = () => {
+  const catalog = extensionCatalog(), launcher = catalog.resolved?.launcher;
+  return launcherAvailable(launcher, catalog.packages, layout()) ? launcher : null;
+};
 
 export const extensionSurfaceVisible = surface => {
   const node = layoutNode(layout(), extensionSurfaceNodeId(surface));

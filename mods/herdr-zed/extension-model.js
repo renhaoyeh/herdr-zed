@@ -160,6 +160,17 @@ export function extensionServiceLayout(root, packages, disabled = []) {
   return changed ? next : null;
 }
 
+// ARCHITECTURE §3.6: a launcher counts as available only while every service its package declares is mounted in the
+// layout (a block whose content is that mod's service view). Otherwise the shell uses its native picker.
+const mountedView = (node, mod, view) => Boolean(node && (node.content?.mod === mod && node.content.props?.view === view
+  || (node.children || []).some(child => mountedView(child, mod, view))));
+export function launcherAvailable(launcher, packages = [], root = null) {
+  if (!launcher || !root) return false;
+  const entry = packages.find(item => item && item.mod === launcher.mod);
+  if (!entry) return false;
+  return (entry.services || []).every(service => mountedView(root, launcher.mod, service.view));
+}
+
 export function extensionPopup(action, project) {
   // Capture the originating project. Later workspace switches don't retarget an open dialog.
   const context = project ? { id: project.id, folder: project.folder, name: project.name, machine: project.machine || null } : null;

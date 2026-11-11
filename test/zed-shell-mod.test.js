@@ -1,11 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
-import { installZed, zedKeys } from '../install-zed.js';
+import { readFile } from 'node:fs/promises';
 import { evaluateNative } from './source-harness.js';
 import * as model from '../components/session-model.js';
+import * as contract from '../components/extension-contract.js';
 import { terminalArgv } from '../components/session-shell.js';
 
 const layoutSource = new URL('../layouts/herdr-zed.json', import.meta.url);
@@ -83,7 +81,7 @@ test('native sidebar, pane menu, dock controls and empty editor render without e
   const program = { key: 'codex', name: 'Codex', run: ['codex'], icon: 'icons/codex.svg', tint: true };
   const nativeSpaces = [{ id: 's', name: 'workspace', folder: '/workspace', active: true, tabs: [{ id: 't', name: 'Native thread', named: true, active: true }] }];
   const cx = { notify() {}, stop_propagation() {}, focus_handle: () => ({ focus() {} }), spawn: fn => { jobs.push(fn); } };
-  const host = { ...model, View: class {}, div: ui, svg: ui, image: ui, h_flex: ui, v_flex: ui,
+  const host = { ...model, ...contract, View: class {}, div: ui, svg: ui, image: ui, h_flex: ui, v_flex: ui, activeLauncher: () => null,
     props: () => target, theme: () => ({}), window: () => ({ platform: 'macos' }), settings: () => ({ zoom: 1 }),
     shared: key => memory[key], setShared: (key, value) => { memory[key] = value; }, layout: () => root,
     spaces: () => nativeSpaces,
@@ -126,17 +124,3 @@ test('native sidebar, pane menu, dock controls and empty editor render without e
   assert.equal(commands.some(([name]) => name === 'tab.new' || name === 'space.new'), false, 'Rendering never starts a thread');
 });
 
-test('standalone install needs visual assets only, preserves existing state and bindings, and refuses overwrite', async t => {
-  const home = await mkdtemp(join(tmpdir(), 'herdr-zed-test-'));
-  t.after(() => rm(home, { recursive: true, force: true }));
-  const state = '{"layout":"devkits","herdr-zed.projects":["/real/project"]}';
-  const keys = { global: { 'cmd-t': 'tab.new' }, 'layout:devkits': { f5: 'custom.run' }, 'layout:herdr-zed': { 'cmd-n': 'custom.new' } };
-  await writeFile(join(home, 'keys.json'), JSON.stringify(keys)); await writeFile(join(home, 'shared.json'), state);
-  await installZed(home);
-  assert.equal(await readFile(join(home, 'shared.json'), 'utf8'), state);
-  assert.deepEqual(JSON.parse(await readFile(join(home, 'keys.json'), 'utf8')), { ...keys, 'layout:herdr-zed': { ...zedKeys, 'cmd-n': 'custom.new' } });
-  assert.equal(await readFile(join(home, 'mods/herdr-zed/main.js'), 'utf8'), await readFile(new URL('../mods/herdr-zed/main.js', import.meta.url), 'utf8'));
-  await assert.rejects(readFile(join(home, 'mods/devkits/main.js')), { code: 'ENOENT' });
-  await assert.rejects(readFile(join(home, 'mods/devkits-agents/main.js')), { code: 'ENOENT' });
-  await assert.rejects(installZed(home), /Refusing to overwrite/);
-});
