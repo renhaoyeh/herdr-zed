@@ -39,6 +39,9 @@ This repository's [design.md](design.md) (Settings, status bar, dialog types, te
   `HERDR_APP_HOME` (default `~/.config/herdr-app`) into the ignored `types/herdr/`; never edit those files.
 - Use mocked native APIs and temporary Herdr homes. Never launch agents or modify real projects,
   sessions, account data or the user's installed layouts to verify a change.
+- Keep previews and UI tests in the background. Never activate, raise or focus a test window over the user's current
+  window. Dispatch test input only inside the isolated test process; if a check requires foreground focus, report that
+  limitation instead of taking focus from the user.
 
 ## Commit messages
 
