@@ -3,6 +3,7 @@
 import { div, svg } from 'gpui-kit';
 import { h_flex, v_flex, Popup } from 'gpui-base';
 import { settings } from 'herdr';
+import { glyph } from './icon.js';
 
 // The press's position outlives render: a re-render between mouse down and click
 // rebuilds the trigger's handlers, and a closure variable would reset to the pointer.
@@ -68,6 +69,7 @@ export function DropdownMenu(id, state, trigger, items, onSelect, t, { side = 'b
     if (!state.open) state.trigger?.focus();
     cx.notify();
   };
+  const hasIcons = items.some(item => Boolean(item.icon));
   const enabled = items.map((item, index) => item.disabled ? -1 : index).filter(index => index >= 0);
   // Linear menus: rounded, shadowed, inset rounded rows with leading icons.
   const linear = t.appearance === 'linear';
@@ -97,8 +99,8 @@ export function DropdownMenu(id, state, trigger, items, onSelect, t, { side = 'b
         .when(item.disabled, el => el.opacity(0.4).cursor_default())
         .when(!item.disabled && state.index === index, el => el.bg(linear ? t.menuHover : t.selected).aria_active_descendant()
           .when(linear && !item.destructive, el => el.text_color(t.foreground)))
-        .when(Boolean(item.icon), el => el.child(svg(`mods/herdr-zed/assets/icons/${item.icon}.svg`).size(14).flex_none()
-          .text_color(item.destructive ? t.destructive || t.ansi1 : t.muted)))
+        .when(hasIcons, el => el.child(item.icon ? glyph(item.icon, 14)
+          .text_color(item.destructive ? t.destructive || t.ansi1 : t.muted) : div().size(14).flex_none()))
         .on_hover((inside, cx) => { if (inside && !item.disabled) { state.index = index; cx.notify(); } })
         .on_click((_event, cx) => choose(item, cx))
         .when(Boolean(item.color), el => el.child(div().size(14).flex_none().bg(item.color)))

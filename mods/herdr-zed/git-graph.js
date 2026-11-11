@@ -358,12 +358,13 @@ export class GitGraph {
   contextMenu(t) {
     const menu = this.menu;
     const hidden = this.hidden;
-    const actions = menu.columns ? graphColumns.map((label, index) => ({ label, checked: !hidden.includes(index),
+    const columnIcons = ['branch', 'git-graph', 'file', 'calendar', 'user-round', 'git-commit'];
+    const actions = menu.columns ? graphColumns.map((label, index) => ({ label, icon: columnIcons[index], checked: !hidden.includes(index),
       disabled: hidden.length === 5 && !hidden.includes(index), run: () => setShared('herdr-zed.graph-hidden-columns',
         hidden.includes(index) ? hidden.filter(i => i !== index) : [...hidden, index]) })) : [
-      { label: 'View Changes', run: cx => { this.selected = menu.commit; this.openSelected(cx); } },
-      { label: 'Copy Commit SHA', run: cx => cx.write_to_clipboard(menu.commit.sha) },
-      { label: 'Copy Commit Message', run: cx => cx.write_to_clipboard(menu.commit.message) },
+      { label: 'View Changes', icon: 'git-compare', run: cx => { this.selected = menu.commit; this.openSelected(cx); } },
+      { label: 'Copy Commit SHA', icon: 'copy', run: cx => cx.write_to_clipboard(menu.commit.sha) },
+      { label: 'Copy Commit Message', icon: 'copy', run: cx => cx.write_to_clipboard(menu.commit.message) },
     ];
     const choose = (index, cx) => { if (actions[index].disabled) return; this.menu = null; actions[index].run(cx); this.focus?.focus(); cx.notify(); };
     return DropdownMenuContent('graph-context-menu', undefined, t).absolute().left(menu.x).top(menu.y).w(224)
@@ -377,7 +378,7 @@ export class GitGraph {
       }).children(actions.map((action, i) => DropdownMenuItem(`graph-action-${i}`, t).when(menu.index === i, el => el.bg(t.selected))
         .when(Boolean(action.disabled), el => el.opacity(0.4).cursor_default())
         .on_hover((inside, cx) => { if (inside) { menu.index = i; cx.notify(); } })
-        .child(div().flex_1().child(action.label))
+        .child(graphIcon(action.icon).text_color(t.muted)).child(div().flex_1().child(action.label))
         .when(Boolean(action.checked), el => el.child(graphIcon('check')))
         .on_click((_event, cx) => choose(i, cx))));
   }
@@ -398,7 +399,7 @@ export class GitGraph {
         .child(graphIcon('git-graph')).child(div().flex_1().pl(6).text_size(12).child('Git Graph'))
         .child(DropdownMenu('graph-columns', this.columnMenu,
           ToolbarButton('graph-column-trigger', t, { icon: true }).accessibility_label('Git Graph columns').child(graphIcon('ellipsis')),
-          graphColumns.map((label, index) => ({ key: index, label, checked: !hidden.includes(index), disabled: hidden.length === 5 && !hidden.includes(index) })),
+          graphColumns.map((label, index) => ({ key: index, label, icon: ['branch', 'git-graph', 'file', 'calendar', 'user-round', 'git-commit'][index], checked: !hidden.includes(index), disabled: hidden.length === 5 && !hidden.includes(index) })),
           (index, cx) => { setShared('herdr-zed.graph-hidden-columns', hidden.includes(index) ? hidden.filter(i => i !== index) : [...hidden, index]); cx.notify(); },
           t, { fullHeight: true }))
         .child(ToolbarButton('graph-close', t, { icon: true }).accessibility_label('Close Git Graph')

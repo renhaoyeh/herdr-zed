@@ -251,7 +251,7 @@ export const sessionMenu = {
             .on_change((checked, cx) => { section.choose(checked); cx.notify(); })
             .child(div().font_family('Geist').font_normal().text_size(12).text_color(t.foreground).child('Fast mode')));
         const value = section.items.find(item => item.checked)?.key || 'default';
-        const options = section.items.map((item, index) => ({ key: item.key, label: item.label,
+        const options = section.items.map((item, index) => ({ key: item.key, label: item.label, icon: section.id === 'permissions' ? 'lock' : section.id === 'effort' ? 'priority-high' : 'agent',
           color: section.id === 'permissions' ? colors[index] : item.key === 'default' ? t.muted : t.foreground }));
         return h_flex().flex_none().gap(12).items_center()
           .child(div().w(108).flex_none().text_size(13).child(section.label))

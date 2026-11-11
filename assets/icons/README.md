@@ -1,0 +1,1 @@
+UI icons listed in ZED-SOURCES.json are copied from Zed at the pinned revision, under GPL-3.0-or-later. See ZED-LICENSE-GPL.txt. Upstream artwork and viewBoxes are preserved. Other icons and service branding retain their existing licenses; CODICONS-LICENSE.txt applies to the existing Codicons assets.

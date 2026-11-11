@@ -304,8 +304,8 @@ export default class AgentBoard {
         .child(div().text_color(t.muted).child('/')).child(div().truncate().text_color(t.muted).child(project.name))
         .child(div().flex_1())
         .when(sources.length > 0, el => el.child(DropdownMenu('board-import-menu', this.importMenu,
-          button('board-import', t).pl(8).pr(10).h(28).child('Import from…'),
-          sources.map(source => ({ key: source.key, label: source.label })), key => actions.importSource(key), t)))
+          button('board-import', t).pl(8).pr(10).h(28).child('Import from…').child(glyph('chevron-down', 12)),
+          sources.map(source => ({ key: source.key, label: source.label, icon: source.key })), key => actions.importSource(key), t)))
         .child(button('board-new-task', t).pl(8).pr(10)
           .on_click(() => this.compose(project)).child(glyph('plus', 14)).child('New task'))
         .child(button('board-close', t, { size: 'icon' }).accessibility_label('Close Tasks').tooltip('Close Tasks')

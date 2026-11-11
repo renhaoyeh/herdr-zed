@@ -16,13 +16,14 @@ async function load(host = {}) {
     ...host };
   const source = await readFile(new URL('../mods/herdr-zed/diff.js', import.meta.url), 'utf8');
   const sidePanel = await readFile(new URL('../components/side-panel.js', import.meta.url), 'utf8');
+  const icons = await readFile(new URL('../components/icon.js', import.meta.url), 'utf8');
   const menu = await readFile(new URL('../components/dropdown-menu.js', import.meta.url), 'utf8');
   const history = await readFile(new URL('../mods/herdr-zed/git-history.js', import.meta.url), 'utf8');
   const shell = await readFile(new URL('../mods/herdr-zed/shell.js', import.meta.url), 'utf8');
   const command = await readFile(new URL('../components/session-shell.js', import.meta.url), 'utf8');
   const utf8 = await readFile(new URL('../mods/herdr-zed/utf8.js', import.meta.url), 'utf8');
   const toast = await readFile(new URL('../mods/herdr-zed/git-result-toast.js', import.meta.url), 'utf8');
-  return new Function(...Object.keys(host), (utf8 + '\n' + command + '\n' + shell + '\n' + menu + '\n' + history + '\n' + sidePanel + '\n' + toast + '\n' + source).replace(/^import .*;\r?\n/gm, '')
+  return new Function(...Object.keys(host), (utf8 + '\n' + command + '\n' + shell + '\n' + icons + '\n' + menu + '\n' + history + '\n' + sidePanel + '\n' + toast + '\n' + source).replace(/^import .*;\r?\n/gm, '')
     .replace('export default class', 'class').replace(/^export /gm, '') + '\nreturn { DiffViewer, ALL_REPOSITORIES, readAllDiff, readRepositories, DropdownMenu, DropdownMenuState, showGitToast, clearGitToast, utf8ByteLength, parseDiff, parseDiffBatches, parseDiffAsync, parseDiffIndex, readDiff, readPushState, pushBranch, gitRemoteAction, affectsDiff, pairLines, changedRanges, changeSections, changeTree, wrapLine, isBuildOutput };')(...Object.values(host));
 }
 const run = promisify(execFile);

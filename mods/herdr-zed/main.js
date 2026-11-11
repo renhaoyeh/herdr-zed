@@ -195,12 +195,11 @@ export default class HerdrZed extends View {
     const close = () => { closeOverlay(target.overlay); this.closeProject(target.project); };
     const workflow = workflowSettings();
     const actions = [
-      ...(workflow ? [{ id: 'menu-agent-settings', label: `${workflow.title}…`, enabled: true,
+      ...(workflow ? [{ id: 'menu-agent-settings', icon: 'agent', label: `${workflow.title}…`, enabled: true,
         action: () => openSettings(settingsPageKey(workflow.id), target.project) }] : []),
-      { id: 'menu-project-up', label: 'Move up', enabled: index > 0, separated: Boolean(workflow), action: () => this.moveProject(target.project.id, -1) },
-      { id: 'menu-project-down', label: 'Move down', enabled: index >= 0 && index < projects.length - 1, action: () => this.moveProject(target.project.id, 1) },
-      // Move up/down have no icon in assets/icons, so the menu's items all stay icon-less (design.md, Icons and hover).
-      { id: 'menu-close-project', label: 'Close project', enabled: true, action: close, separated: true },
+      { id: 'menu-project-up', icon: 'arrow-up', label: 'Move up', enabled: index > 0, separated: Boolean(workflow), action: () => this.moveProject(target.project.id, -1) },
+      { id: 'menu-project-down', icon: 'arrow-down', label: 'Move down', enabled: index >= 0 && index < projects.length - 1, action: () => this.moveProject(target.project.id, 1) },
+      { id: 'menu-close-project', icon: 'close', label: 'Close project', enabled: true, action: close, separated: true },
     ];
     const activate = action => {
       if (!action.enabled) return;
@@ -515,7 +514,7 @@ export default class HerdrZed extends View {
         { icon: true, selected: conversationVisible(space) }).h_full()
         .tooltip(conversationVisible(space) ? 'Hide thread' : 'Show thread')
         .accessibility_label(conversationVisible(space) ? 'Hide thread' : 'Show thread')
-        .on_click(() => this.showConversation(!conversationVisible(space))).child(glyph('agent', TOOLBAR_GLYPH))))
+        .on_click(() => this.showConversation(!conversationVisible(space))).child(glyph('thread', TOOLBAR_GLYPH))))
       .when(Boolean(space?.machine), el => el.child(h_flex().flex_none().gap(8).items_center().child(glyph('terminal', 12)).child(space.machine)));
     return h_flex().id('herdr-zed-status').relative().size_full().items_center().bg(t.background)
       .text_size(11).text_color(t.muted).child(group);
@@ -534,10 +533,10 @@ export default class HerdrZed extends View {
       .child(h_flex().id('status-panel-actions').flex_none().h_full().gap(0)
         .child(ToolbarButton('open-diff', t, { icon: true, selected: showing('diff'), disabled: !space }).h_full()
           .accessibility_label(showing('diff') ? 'Hide changes' : 'Show changes')
-          .tooltip('Changes').on_click(() => toggleEditor(editor, 'diff')).child(glyph('git-compare', TOOLBAR_GLYPH)))
+          .tooltip('Changes').on_click(() => toggleEditor(editor, 'diff')).child(glyph('branch', TOOLBAR_GLYPH)))
         .child(ToolbarButton('open-files', t, { icon: true, selected: showing('files'), disabled: !space }).h_full()
           .accessibility_label(showing('files') ? 'Hide files' : 'Show files')
-          .tooltip('Files').on_click(() => toggleEditor(editor, 'files')).child(glyph('folder', TOOLBAR_GLYPH)))
+          .tooltip('Files').on_click(() => toggleEditor(editor, 'files')).child(glyph('file-tree', TOOLBAR_GLYPH)))
         .child(GitResultToast(t, space)));
   }
 

@@ -860,23 +860,23 @@ export default class DiffViewer {
     const pushUnavailable = Boolean(this.pushUnavailable('push'));
     const page = this.gitMenu.page;
     // Provider actions for the repository come first; the shell's own commit author item always stays available.
-    const providerActions = extensionActions('git.actions').map((action, index) => ({ key: `ext:${action.id}`, label: action.title,
+    const providerActions = extensionActions('git.actions').map((action, index) => ({ key: `ext:${action.id}`, icon: 'git-compare', label: action.title,
       separator: index === 0, disabled: Boolean(this.pushing) }));
     const items = page ? [
-      { key: 'back', label: '‹ Git operations' },
-      ...(this.pushState?.remotes || []).map(remote => ({ key: `remote:${remote}`, label: remote })),
-      ...(page === 'fetch' && this.pushState?.remotes.length > 1 ? [{ key: 'all', label: 'All' }] : []),
+      { key: 'back', icon: 'chevron-left', label: 'Git operations' },
+      ...(this.pushState?.remotes || []).map(remote => ({ key: `remote:${remote}`, icon: 'server', label: remote })),
+      ...(page === 'fetch' && this.pushState?.remotes.length > 1 ? [{ key: 'all', icon: 'server', label: 'All' }] : []),
     ] : [
-      { key: 'fetch', label: 'Fetch', disabled: Boolean(this.pushUnavailable('fetch')) },
-      { key: 'fetch-from', label: 'Fetch From…', disabled: Boolean(this.pushUnavailable('fetch')) },
-      { key: 'pull', label: 'Pull', disabled: Boolean(this.pushUnavailable('pull')) },
-      { key: 'pull-rebase', label: 'Pull (Rebase)', disabled: Boolean(this.pushUnavailable('pull-rebase')) },
-      { key: 'push', label: 'Push', disabled: pushUnavailable, separator: true },
-      { key: 'push-to', label: 'Push To…', disabled: pushUnavailable },
-      { key: 'push-tags', label: 'Push Tags', description: 'All local tags', disabled: Boolean(this.pushUnavailable('push-tags')) },
-      { key: 'force-push', label: 'Force Push (with lease)', disabled: pushUnavailable },
+      { key: 'fetch', icon: 'arrow-down', label: 'Fetch', disabled: Boolean(this.pushUnavailable('fetch')) },
+      { key: 'fetch-from', icon: 'arrow-down', label: 'Fetch From…', disabled: Boolean(this.pushUnavailable('fetch')) },
+      { key: 'pull', icon: 'arrow-down', label: 'Pull', disabled: Boolean(this.pushUnavailable('pull')) },
+      { key: 'pull-rebase', icon: 'branch', label: 'Pull (Rebase)', disabled: Boolean(this.pushUnavailable('pull-rebase')) },
+      { key: 'push', icon: 'arrow-up', label: 'Push', disabled: pushUnavailable, separator: true },
+      { key: 'push-to', icon: 'arrow-up', label: 'Push To…', disabled: pushUnavailable },
+      { key: 'push-tags', icon: 'tag', label: 'Push Tags', description: 'All local tags', disabled: Boolean(this.pushUnavailable('push-tags')) },
+      { key: 'force-push', icon: 'arrow-up', label: 'Force Push (with lease)', disabled: pushUnavailable },
       ...providerActions,
-      { key: 'commit-author', label: 'Commit author…', separator: providerActions.length === 0, disabled: Boolean(this.pushing || this.allRepositories) },
+      { key: 'commit-author', icon: 'user-round', label: 'Commit author…', separator: providerActions.length === 0, disabled: Boolean(this.pushing || this.allRepositories) },
     ];
     const choose = (key, cx) => {
       if (key === 'commit-author') openGitAuthor(this.context);
@@ -1010,9 +1010,9 @@ export default class DiffViewer {
   panelSettingsItems() {
     const files = this.panelTab === 'history' ? this.commitPreview?.files || [] : this.files;
     return [
-      { key: 'list', label: 'List', checked: this.fileView === 'list' },
-      { key: 'tree', label: 'Tree', checked: this.fileView === 'tree' },
-      { key: 'filter-rules', label: 'Filter rules…', separator: true, description: `${files.length - this.visibleFiles(files).length} hidden` },
+      { key: 'list', icon: 'list-todo', label: 'List', checked: this.fileView === 'list' },
+      { key: 'tree', icon: 'list-tree', label: 'Tree', checked: this.fileView === 'tree' },
+      { key: 'filter-rules', icon: 'filter', label: 'Filter rules…', separator: true, description: `${files.length - this.visibleFiles(files).length} hidden` },
     ];
   }
 
@@ -1385,7 +1385,7 @@ export default class DiffViewer {
           .child(DropdownMenu('diff-options', this.optionsMenu,
             ToolbarButton('diff-options-trigger', t, { icon: true })
               .accessibility_label('Diff options').child(icon('ellipsis')),
-            [{ key: 'wrap', label: 'Wrap', checked: this.wrap }],
+            [{ key: 'wrap', icon: 'text-wrap', label: 'Wrap', checked: this.wrap }],
             (_key, cx) => this.toggleWrap(cx), t, { offset: { x: 8, y: 9 }, fullHeight: true })))
         .when(Boolean(preview), el => el.child(this.commitHeader(preview, t)))
         .when(!preview && this.allRepositories && Boolean(this.error) && rows.length > 0,

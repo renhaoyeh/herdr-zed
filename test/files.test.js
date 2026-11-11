@@ -358,7 +358,7 @@ test('file actions copy project-relative and native full paths, and remote Revea
   let target = { folder: 'C:\\dev\\my project', path: 'src/你好.ts', overlay: 'actions' };
   const { FileMenu, FileViewer, fullPath } = await load({ theme: () => ({}), props: () => target,
     window: () => ({ platform: 'windows' }), closeOverlay: id => closed.push(id), openOverlay: value => overlays.push(value),
-    DropdownMenuContent: element, DropdownMenuItem: element, DropdownMenuSeparator: () => element('separator') });
+    svg: element, DropdownMenuContent: element, DropdownMenuItem: element, DropdownMenuSeparator: () => element('separator') });
   const cx = { focus_handle: () => ({ focus() {} }), stop_propagation() {}, notify() {}, write_to_clipboard: text => copied.push(text) };
   const menu = new FileMenu(); menu.init(cx); menu.render();
   nodes.get('file-menu-relative').click({}, cx);

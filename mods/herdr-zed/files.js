@@ -84,9 +84,9 @@ export class FileMenu {
   render() {
     const t = theme(), target = props(), platform = window()?.platform;
     const actions = [
-      { key: 'relative', label: 'Copy Relative Path' },
-      { key: 'full', label: 'Copy Full Path' },
-      { key: 'reveal', label: platform === 'windows' ? 'Reveal in File Explorer' : platform === 'macos' ? 'Reveal in Finder' : 'Reveal in File Manager', disabled: Boolean(target.machine) },
+      { key: 'relative', icon: 'copy', label: 'Copy Relative Path' },
+      { key: 'full', icon: 'copy', label: 'Copy Full Path' },
+      { key: 'reveal', icon: 'folder-open', label: platform === 'windows' ? 'Reveal in File Explorer' : platform === 'macos' ? 'Reveal in Finder' : 'Reveal in File Manager', disabled: Boolean(target.machine) },
     ];
     const choose = (action, cx) => {
       cx.stop_propagation();
@@ -119,7 +119,7 @@ export class FileMenu {
           .when(action.disabled, el => el.opacity(0.4).cursor_default())
           .when(!action.disabled && this.index === i, el => el.bg(t.selected))
           .on_hover((inside, cx) => { if (inside && !action.disabled) { this.index = i; cx.notify(); } })
-          .on_click((_event, cx) => choose(action, cx)).child(action.label),
+          .on_click((_event, cx) => choose(action, cx)).child(icon(action.icon).text_color(t.muted)).child(action.label),
       ]));
   }
 }
@@ -495,7 +495,7 @@ export default class FileViewer {
       .child(DropdownMenu('file-tab-options', this.optionsMenu,
         ToolbarButton('file-tab-options-trigger', t, { icon: true }).when(wrap, el => el.h(31)).when(!wrap, el => el.h_full())
           .accessibility_label('Tab options').child(icon('ellipsis')),
-        [{ key: 'wrap-tabs', label: 'Wrap tabs', checked: wrap }],
+        [{ key: 'wrap-tabs', icon: 'text-wrap', label: 'Wrap tabs', checked: wrap }],
         (_key, cx) => this.toggleWrapTabs(cx), t, { offset: { x: 8, y: 9 }, fullHeight: !wrap }));
   }
 }

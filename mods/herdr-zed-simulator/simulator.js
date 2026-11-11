@@ -538,6 +538,7 @@ export class SimulatorMenu {
     const rows = (this.devices ?? []).flatMap((d, i) => [...(i === firstUnused && i > 0 ? [DropdownMenuSeparator(t), DropdownMenuLabel(t).child('NEVER USED')] : []), DropdownMenuItem(`simulator-device-${d.id}`, t).h(40)
       .when(d.id === target?.id, el => el.bg(t.selected))
       .on_click(() => this.choose(d))
+      .child(glyph('smartphone').text_color(t.muted))
       .child(v_flex().flex_1().min_w(0)
         .child(h_flex().gap(6).items_center()
           .child(div().min_w(0).truncate().child(d.name))
@@ -564,9 +565,11 @@ export class SimulatorMenu {
       .when(Boolean(target?.booted), el => el
         .child(DropdownMenuItem('simulator-repair-input', t).tooltip('For taps that do nothing; restarts SpringBoard and closes apps')
           .on_click(() => this.repair(target))
+          .child(glyph('refresh-cw').text_color(t.muted))
           .child(div().flex_1().child('Repair input'))
           .child(div().text_size(11).text_color(t.muted).child('restarts SpringBoard'))))
       .child(DropdownMenuItem('simulator-xcode-storage', t).on_click(() => this.storage())
+        .child(glyph('folder').text_color(t.muted))
         .child(div().flex_1().child('Xcode storage…')));
   }
 }

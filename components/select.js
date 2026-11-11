@@ -66,7 +66,7 @@ export function Select(id, state, value, options, label, onChange, t, { width = 
     })
     .when(Boolean(selected.icon), el => el.child(optionIcon(selected)))
     .child(div().when(!naturalWidth, el => el.flex_1()).min_w(0).truncate().text_color(triggerColor).child(selected.label))
-    .when(!linear, el => el.child(svg('mods/herdr-zed/assets/icons/chevron-down.svg').size(12).flex_none().text_color(boxed ? t.muted : selected.color)));
+    .child(svg('mods/herdr-zed/assets/icons/chevron-down.svg').size(12).flex_none().text_color(linear || boxed ? t.muted : selected.color));
   const list = DropdownMenuContent(`${id}-options`, undefined, t).w(fullWidth ? state.width || width : Math.max(linear ? 208 : 168, width)).mt(fullWidth ? 0 : 4).rounded(linear ? 12 : radius ? radius + 2 : 0)
     .when(linear, el => el.p(0).font_family(t.fontFamily).font_normal().shadow_md())
     .when(!linear && radius > 0, el => el.font_family('Arial').shadow_lg())
@@ -97,6 +97,7 @@ export function Select(id, state, value, options, label, onChange, t, { width = 
       .when(!hasIcons, el => el.child(div().size(14).flex_none().when(selected.key === option.key, el => el
         .child(svg('mods/herdr-zed/assets/icons/check.svg').size(14)))))
       .when(Boolean(option.icon), el => el.child(optionIcon(option)))
+      .when(hasIcons && !option.icon, el => el.child(div().size(14).flex_none()))
       .child(div().flex_1().min_w(0).truncate().child(option.label))
       .when(hasIcons, el => el.child(div().size(14).flex_none().when(selected.key === option.key, el => el
         .child(svg('mods/herdr-zed/assets/icons/check.svg').size(14))))))));
