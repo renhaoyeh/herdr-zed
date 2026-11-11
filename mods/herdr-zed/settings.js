@@ -49,7 +49,7 @@ export function settingsOverlay(key, context) {
   return { kind: 'dialog', modal: true, frame: 'none', width: 1040, height: 0.86,
     layout: { type: 'row', children: [
       { type: 'block', size: { px: 220 }, content: { mod: 'herdr-zed', props: { view: 'settings-nav', page: key, context } } },
-      { type: 'column', children: [
+      { type: 'column', background: 'popover', children: [
         { type: 'block', size: { px: 32 }, content: { mod: 'herdr-zed', props: { view: 'settings-header', page: key } } },
         { type: 'block', content },
       ] },

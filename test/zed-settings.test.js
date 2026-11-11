@@ -84,7 +84,7 @@ test('a shell page opens the one dialog layout: nav beside the page, Sera size, 
   assert.equal(id, 'overlay-1'); assert.equal(r.memory['herdr-zed.settings.overlay'], 'overlay-1');
   assert.deepEqual(r.opened[0], { kind: 'dialog', modal: true, frame: 'none', width: 1040, height: 0.86, layout: { type: 'row', children: [
     { type: 'block', size: { px: 220 }, content: { mod: 'herdr-zed', props: { view: 'settings-nav', page: 'general', context } } },
-    { type: 'column', children: [
+    { type: 'column', background: 'popover', children: [
       { type: 'block', size: { px: 32 }, content: { mod: 'herdr-zed', props: { view: 'settings-header', page: 'general' } } },
       { type: 'block', content: { mod: 'herdr-zed', props: { view: 'settings-page', page: 'general', context } } },
     ] },
