@@ -32,7 +32,8 @@ export default class SystemMod extends View {
         for (const receiver of new Set([...this.clients.values()].map(client => client.receiver))) this.publish(receiver);
       });
     } else {
-      if (this.view === 'details') { this.monitor.handle = cx.focus_handle(); this.monitor.handle.focus(); }
+      if (this.view === 'details' || this.view === 'settings') this.monitor.handle = cx.focus_handle();
+      if (this.view === 'details') this.monitor.handle.focus();
       this.client = new SystemMonitor({ receiver: 'herdr-zed-system', onSnapshot: snapshot => {
         this.monitor.hardware = snapshot.data; this.monitor.hardwareHistory = snapshot.history;
         this.monitor.hardwareError = snapshot.error; this.monitor.hardwareCheckedAt = snapshot.updatedAt;
@@ -51,6 +52,7 @@ export default class SystemMod extends View {
     const t = theme();
     if (this.view === 'service') return div().size_full();
     if (this.view === 'details') return this.monitor.renderDetails(t);
+    if (this.view === 'settings') return this.monitor.renderSettings(t, Boolean(props()?.embedded));
     if (this.view === 'inline') return this.monitor.renderInline(t, { id: props()?.id || 'system-inline' });
     return div().size_full().min_h(0).overflow_y_scroll()
       .child(this.monitor.renderWidgets(t, { id: props()?.id || 'system-widgets', style: 'compact', cpuMode: props()?.cpuMode || 'total' }));

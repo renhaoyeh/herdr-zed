@@ -136,8 +136,8 @@ test('logout failures keep the account; changed entries or failed atomic writes 
   }
 });
 
-test('finishing, cancelling, or escaping account sign-in returns to the large Manage dialog', async () => {
-  const actions = {}, closed = [], overlays = [];
+test('finishing, cancelling, or escaping account sign-in deep-links back to the Agents Settings page', async () => {
+  const actions = {}, closed = [], overlays = [], runs = [];
   const element = id => {
     const el = new Proxy({}, { get(_target, key) {
       if (key === 'when') return (condition, render) => { if (condition) render(el); return el; };
@@ -150,7 +150,7 @@ test('finishing, cancelling, or escaping account sign-in returns to the large Ma
   const { AccountLogin } = await load({ div: element, v_flex: element, h_flex: element,
     Input: { new: element }, theme: () => ({}),
     Button: id => element(id),
-    closeOverlay: id => closed.push(id), openOverlay: spec => overlays.push(spec) });
+    closeOverlay: id => closed.push(id), openOverlay: spec => overlays.push(spec), run: (...args) => runs.push(args) });
   const view = new AccountLogin();
   view.target = { overlay: 'login', returnTo: { view: 'manage-launchers', space: 'api' } };
   view.phase = 'name'; view.render();
@@ -158,11 +158,9 @@ test('finishing, cancelling, or escaping account sign-in returns to the large Ma
   actions.keyDown({ key: 'escape' }, { stop_propagation() {} });
   view.phase = 'success'; view.render(); actions['codex-login-done']();
   assert.deepEqual(closed, ['login', 'login', 'login']);
-  assert.equal(overlays.length, 3);
-  for (const spec of overlays) {
-    assert.deepEqual(spec, { mod: 'herdr-zed-agents', kind: 'dialog', frame: 'none', modal: false, width: 1040, height: 0.86,
-      props: { view: 'manage-launchers', space: 'api', refreshAgents: true } });
-  }
+  // Settings is the shell's dialog: the login reopens its Agents page by deep link, never by its own overlay.
+  assert.deepEqual(overlays, []);
+  assert.deepEqual(runs, [['herdr-zed.settings:agents'], ['herdr-zed.settings:agents'], ['herdr-zed.settings:agents']]);
 });
 
 async function scenario({ success = true, confirm = true, existing = false, failure, beforeStartReply = false,

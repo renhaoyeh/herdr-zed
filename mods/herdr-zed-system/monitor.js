@@ -1,6 +1,6 @@
 import { div, PathBuilder } from 'gpui-kit';
 import { h_flex, v_flex } from 'gpui-base';
-import { exec, appHome, closeOverlay, shared, setShared } from 'herdr';
+import { exec, appHome, closeOverlay, shared, setShared, run } from 'herdr';
 import { Button } from './components/button.js';
 import { Checkbox } from './components/checkbox.js';
 import { ToggleGroup, ToggleGroupItem } from './components/toggle-group.js';
@@ -282,7 +282,7 @@ export class SystemMonitorCore extends SystemClient {
             .children(Array.from({ length: columns - group.processors.slice(row * columns, row * columns + columns).length }, () => div().flex_1().flex_basis(0).min_w(0).h(tileHeight)))))))
         .when(!selected.length, el => el.child(DialogDescription(t).child('No processors selected. Choose cores in Settings.'))))
       .child(Button('hardware-configure-cores', t, { variant: 'ghost' }).self_start().h(28).px(0).child('Choose displayed processors…')
-        .on_click((_event, cx) => { this.hardwarePage = 'settings'; cx.notify(); }));
+        .on_click(() => run('herdr-zed.settings:system')));
   }
 
   hardwareModuleDetails(id, t) {
@@ -489,12 +489,26 @@ export class SystemMonitorCore extends SystemClient {
       }));
   }
 
+  // The System Monitor page of the shell's Settings dialog. Standalone it keeps its own frame and Done.
+  renderSettings(t, embedded) {
+    const close = () => closeOverlay(this.overlay);
+    const page = v_flex().id('system-settings').size_full().min_h(0).gap(16).text_color(t.foreground)
+      .child(DialogTitle().flex_none().child('System Monitor'))
+      .child(this.hardwareSettings(t));
+    if (embedded) return page;
+    return DialogContent('system-settings', t).track_focus(this.handle)
+      .on_key_down((event, cx) => { if (event.key === 'escape') { cx.stop_propagation(); close(); } })
+      .child(page)
+      .child(DialogFooter().flex_none().child(Button('system-settings-done', t).on_click(close).child('Done')));
+  }
+
   renderDetails(t) {
     const close = () => closeOverlay(this.overlay), data = this.hardware, config = hardwareConfig();
     const page = this.hardwarePage || 'overview';
     const ids = config.order.filter(id => hardwareAvailable(id, data));
+    // Settings is the shell's page for this extension: the entry opens it rather than a page here.
     const nav = [{ id: 'overview', name: 'Overview' }, ...ids.map(id => ({ id, name: hardwareTitle(id) })), { id: 'settings', name: 'Settings' }];
-    const selected = nav.some(item => item.id === page) ? page : 'overview';
+    const selected = ids.includes(page) || page === 'overview' ? page : 'overview';
     const visible = hardwareDisplayItems(data, config);
     const columns = (this.hardwareWidth || 1400) >= 1100 ? 3 : 2;
     return DialogContent('hardware-details', t).track_focus(this.handle).gap(16)
@@ -512,15 +526,18 @@ export class SystemMonitorCore extends SystemClient {
           Button(`hardware-page-${item.id}`, t, { variant: 'ghost' }).h(32).px(10).justify_start()
             .bg(selected === item.id ? t.selected : t.popover).text_color(selected === item.id ? t.foreground : t.muted)
             .accessibility_label(`${item.name}${selected === item.id ? ', selected' : ''}`)
-            .on_click((_event, cx) => { this.cancelHardwareDrag(cx); this.hardwarePage = item.id; cx.notify(); }).child(item.name))))
+            .on_click((_event, cx) => {
+              this.cancelHardwareDrag(cx);
+              if (item.id === 'settings') { run('herdr-zed.settings:system'); return; }
+              this.hardwarePage = item.id; cx.notify();
+            }).child(item.name))))
         .child(v_flex().id('hardware-details-scroll').h_full().flex_1().min_w(0).min_h(0).overflow_y_scroll().gap(16)
-          .when(selected === 'settings', el => el.child(this.hardwareSettings(t)))
           .when(selected === 'overview', el => el
             .when(!visible.length, el => el.child(DialogDescription(t).child('No widgets selected. Choose what to display in Settings.')))
             .children(Array.from({ length: Math.ceil(visible.length / columns) }, (_, row) => h_flex().flex_none().items_stretch().gap(16)
               .children(visible.slice(row * columns, row * columns + columns).map(item => this.hardwareMetricCard(item.module, t, false, item)))
               .children(Array.from({ length: Math.max(0, columns - visible.slice(row * columns, row * columns + columns).length) }, () => div().flex_1().flex_basis(0).min_w(0))))))
-          .when(selected !== 'settings' && selected !== 'overview', el => el.child(this.hardwareModuleDetails(selected, t)))))
+          .when(selected !== 'overview', el => el.child(this.hardwareModuleDetails(selected, t)))))
       .child(DialogFooter().flex_none()
         .child(div().flex_1().self_center().text_size(10).text_color(t.muted)
           .child(data?.updatedAt ? `Updated ${new Date(data.updatedAt).toLocaleTimeString()} · History stays on this computer` : 'Reading system data…'))

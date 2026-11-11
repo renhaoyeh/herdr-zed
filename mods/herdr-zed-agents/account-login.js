@@ -3,7 +3,7 @@ import { ensureClaudeStatusLine } from './components/claude-usage-hook.js';
 import { div } from 'gpui-kit';
 import { v_flex, h_flex, InputState } from 'gpui-base';
 import { WebSocket } from 'websocket';
-import { appHome, exec, hc, readTextFile, writeTextFile, theme, closeOverlay, openOverlay, window, shared, setShared } from 'herdr';
+import { appHome, exec, hc, readTextFile, writeTextFile, theme, closeOverlay, run, window, shared, setShared } from 'herdr';
 import { commandArgv } from './components/session-shell.js';
 import { launcherLabel } from './components/session-model.js';
 import { Button } from './components/button.js';
@@ -405,8 +405,8 @@ export default class AccountLogin {
 
   finish() {
     closeOverlay(this.target.overlay);
-    if (this.target.returnTo) openOverlay({ mod: 'herdr-zed-agents', kind: 'dialog', frame: 'none', modal: false, width: 1040, height: 0.86,
-      props: { ...this.target.returnTo, refreshAgents: true } });
+    // Settings is opened by the shell; its Agents page reloads accounts on profile-revision.
+    if (this.target.returnTo) run('herdr-zed.settings:agents');
   }
 
   render() {

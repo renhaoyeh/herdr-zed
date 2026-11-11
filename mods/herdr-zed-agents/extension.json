@@ -2,6 +2,7 @@
   "version": 1,
   "id": "agents",
   "title": "Agents",
+  "settings": { "view": "manage-launchers", "title": "Agents" },
   "services": [{ "view": "service" }],
   "surfaces": [
     { "id": "usage", "location": "sidebar.bottom", "view": "usage-sidebar", "title": "Usage", "icon": "chart-column" },

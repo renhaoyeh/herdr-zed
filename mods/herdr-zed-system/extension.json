@@ -2,6 +2,7 @@
   "version": 1,
   "id": "system",
   "title": "System Monitor",
+  "settings": { "view": "settings", "title": "System Monitor" },
   "services": [
     { "view": "service" }
   ],

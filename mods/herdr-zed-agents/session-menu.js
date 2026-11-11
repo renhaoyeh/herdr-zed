@@ -423,13 +423,17 @@ export const sessionMenu = {
         { id: 'shared-mcp', label: 'Capabilities', icon: glyph('folder') },
         { id: 'ecc', label: 'ECC', icon: glyph('agent') }] : [])];
     const page = pages.some(item => item.id === this.settingsPage) ? this.settingsPage : 'agents';
-    return DialogContent('manage-launchers', t).accessibility_label('Settings')
+    // Embedded in the shell's Settings dialog, the shell owns the frame, the close control and Escape.
+    const embedded = Boolean((props() || {}).embedded);
+    const frame = embedded ? v_flex().id('manage-launchers').size_full().min_h(0).gap(20).text_color(t.foreground) : DialogContent('manage-launchers', t);
+    return frame.accessibility_label('Settings')
       .on_mouse_up('left', (_event, cx) => cancelDrag(cx))
       .on_hover((inside, cx) => { if (!inside) cancelDrag(cx); })
       .track_focus(this.handle).on_key_down((event, cx) => {
         if (event.key === 'escape') {
-          if (this.dragKey || this.modelDrag) cancelDrag(cx); else done();
-          cx.stop_propagation(); return;
+          if (this.dragKey || this.modelDrag) { cancelDrag(cx); cx.stop_propagation(); }
+          else if (!embedded) { done(); cx.stop_propagation(); }
+          return;
         }
         if (page !== 'agents') return;
         if (event.modifiers?.alt && ['up', 'down'].includes(event.key)) {
@@ -440,7 +444,7 @@ export const sessionMenu = {
         else return;
         cx.stop_propagation(); cx.notify();
       })
-      .child(DialogTitle().flex_none().child('Settings'))
+      .child(DialogTitle().flex_none().child(embedded ? 'Agents' : 'Settings'))
       .child(h_flex().flex_1().min_h(0).gap(16).items_start()
         .child(v_flex().id('settings-pages').w(140).flex_none().gap(2)
           .children(pages.map(item => v_flex().id(`settings-section-${item.id}`).gap(2).child(Button(`settings-page-${item.id}`, t, { variant: 'ghost' }).h(32).px(8).gap(8).justify_start()
@@ -458,7 +462,7 @@ export const sessionMenu = {
           .when(page === 'global-rules', el => el.child(this.globalRulesPage(t)))
           .when(page === 'shared-mcp', el => el.child(this.devkitsPage(t)))
           .when(page === 'ecc', el => el.child(this.eccPage(t)))))
-      .child(DialogFooter().flex_none().child(Button('manage-launchers-done', t).on_click(done).child('Done')));
+      .when(!embedded, el => el.child(DialogFooter().flex_none().child(Button('manage-launchers-done', t).on_click(done).child('Done'))));
   },
 
   // Auto in Add session starts one of these accounts, chosen by quota at each launch.

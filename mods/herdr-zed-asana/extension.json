@@ -2,6 +2,7 @@
   "version": 1,
   "id": "asana",
   "title": "Asana",
+  "settings": { "view": "settings", "title": "Asana" },
   "actions": [
     {
       "id": "open",

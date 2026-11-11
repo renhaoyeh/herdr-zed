@@ -1,5 +1,6 @@
 import { div, svg } from 'gpui-kit';
 import { h_flex, v_flex, Input, InputState } from 'gpui-base';
+import { run } from 'herdr';
 import { TaskSourceController, TaskSourceProjectPicker } from './components/task-source.js';
 import { mantisSource } from './source.js';
 import { filterProjects } from './source-api.js';
@@ -253,7 +254,7 @@ export default class MantisPanel extends TaskSourceController {
     return v_flex().w(125).h_full().flex_none().border_r(1).border_color('#a9c7df').bg(mantisTheme.sidebar)
       .child(nav('mantis-my-view', 'My View', 'house', !this.settingsOpen && this.needsToken === false && this.tab === 'mine', (_event, cx) => this.chooseView('mine', cx)))
       .child(nav('mantis-view-issues', 'View Issues', 'list-todo', !this.settingsOpen && this.needsToken === false && this.tab === 'all', (_event, cx) => this.chooseView('all', cx)))
-      .child(nav('mantis-account', 'My Account', 'gear', Boolean(this.settingsOpen) || this.needsToken === true, (_event, cx) => this.openSettings(cx)));
+      .child(nav('mantis-account', 'My Account', 'gear', Boolean(this.settingsOpen) || this.needsToken === true, () => run('herdr-zed.settings:mantisbt')));
   }
 
   filters() {

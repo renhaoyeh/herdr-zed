@@ -1,6 +1,6 @@
 import { div, svg } from 'gpui-kit';
 import { v_flex, h_flex, Input, TextView } from 'gpui-base';
-import { theme, settings } from 'herdr';
+import { theme, settings, run } from 'herdr';
 import { sourcePathKey as folderKey } from './components/task-source-model.js';
 import { TaskSourceController, TaskSourceProjectPicker } from './components/task-source.js';
 import { asanaSource } from './source.js';
@@ -108,7 +108,7 @@ export default class AsanaPanel extends TaskSourceController {
         .child(div().flex_1())
         .when(this.needsToken === false && !this.settingsOpen, el => el.child(asanaButton('asana-settings', t, { variant: 'ghost', size: 'icon' })
           .disabled(this.tokenBusy).accessibility_label(`${this.source.name} settings`)
-          .on_click((_event, cx) => this.openSettings(cx))
+          .on_click(() => run('herdr-zed.settings:asana'))
           .child(glyph('gear', 14))))
         .child(asanaButton('asana-close', t, { variant: 'ghost', size: 'icon' }).rounded(6).accessibility_label(`Close ${this.source.name} tasks`)
           .on_mouse_down('left', (_event, cx) => cx.stop_propagation()).on_click(close).child(glyph('close'))))

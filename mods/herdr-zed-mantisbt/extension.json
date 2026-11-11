@@ -2,6 +2,7 @@
   "version": 1,
   "id": "mantisbt",
   "title": "MantisBT",
+  "settings": { "view": "settings", "title": "MantisBT" },
   "actions": [
     {
       "id": "open",
