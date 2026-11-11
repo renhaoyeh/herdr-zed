@@ -1,6 +1,6 @@
 # herdr-zed Architecture
 
-Status: **phase 3 done** (all providers ported with history and wired to the contracts). Phase 4 (installer, vendor/) pending; see Known gaps.
+Status: **phases 1–4 done** (shell and providers ported with history, contracts wired, installer and vendor/). See Known gaps.
 Mod names below (`herdr-zed`, `herdr-zed-*`) are working names pending the naming decision in
 [Open questions](#open-questions).
 
@@ -119,8 +119,8 @@ or inspect import payloads.
 "provides": { "gitCredentials": {} }
 ```
 
-Supplies per-repository credential configuration that the shell adds to **every** Git command it runs
-for that repository (status, fetch, pull, push, history). `herdr-zed-github` declares it. The shell knows
+Supplies per-repository credential configuration that the shell adds to the Git network commands it runs
+for that repository (fetch, pull, push, push tags); local reads run without it. `herdr-zed-github` declares it. The shell knows
 nothing about gh: it only reads, validates and applies the binding (§3.5). With no provider, or no binding
 for a repository, Git runs with the machine's own credential configuration, unchanged.
 
@@ -142,12 +142,14 @@ installed Devkits without reading or consuming Devkits' queues (e.g. `devkits.ag
 user clicks + / New Thread
  └ shell: catalog has one usable launcher?
      no  → native picker → createNativeThread(knownAgent)              (argv unchanged)
-     yes → openOverlay({ mod: <launcher mod>, kind: 'popup', props: {
-              view: picker.view, overlay, context: { space, folder, projectName, machine } } })
+     yes (and every service it declares is mounted) → openOverlay({ mod: <launcher mod>, kind: 'popup',
+              props: { view: picker.view, space, folder, projectName, machine } })   (flat, like the native picker)
  └ provider: user picks; provider prepares account (may take seconds, shows its own progress/errors)
  └ provider appends to shared 'herdr-zed.launch.requests':
-       { id, source: '<extension id>', target, name, argv, profile, expiresAt }
- └ shell (polls in its own view, 100 ms) takes and removes every request, then validates:
+       { id, source: '<extension id>', target, name, argv, profile, expiresAt, origin? }
+       and prunes expired entries while appending (the shell never writes this key)
+ └ shell (polls in its own view, 100 ms) claims unexpired requests whose id is not in
+   'herdr-zed.launch.handled' (ids + expiresAt, pruned at expiry), records them as handled, then validates:
        - source is the current launcher's extension id and it is enabled
        - expiresAt is a number, > now and ≤ now + 60 s
        - target = { space?, folder, projectName?, machine?, overlay? } with folder a non-empty string;
@@ -162,7 +164,10 @@ user clicks + / New Thread
   and expose `{ tabId, profile, source }` in the thread read model (`herdr-zed.threads`) for decorators.
 - Local-shell wrapping (`terminalArgv`) is the provider's job for provider launches; the shell applies it
   only on the native knownAgents path, as today.
-- **Settings**: the shell opens `settings.view` as a dialog with `{ context }`; there is no reply.
+- **Terminal**: a launcher's picker opens a plain terminal with the shell command `herdr-zed.new-terminal`
+  (target encoded in the command name, validated with `validateLaunchTarget`); it never opens tabs itself.
+- **Settings**: the shell opens `settings.view` as a dialog with `{ context }`, from the thread title bar ⋯
+  menu; there is no reply.
   Entry point location is an open question.
 - Closing or failing the picker never leaves a request behind; requests older than `expiresAt` are dropped
   by the shell on its next poll, so a crashed provider cannot start a thread later.
@@ -306,17 +311,11 @@ No code reads both the old and new key; whichever is chosen is the only path.
 6. **Work layer wording.** The brief's Work line was partly garbled; this document assumes Tasks owns
    tasks and prompts, and Calendar is an independent mod that requires Tasks and reads only its read model.
 
-## Known gaps (after phase 3)
+## Known gaps
 
-- Git credentials are applied to network operations only (fetch, pull, push, push tags); local reads
-  (status, history, graph, files) run without the binding. §3.5 says every Git command; decide which is intended.
-- The Agents picker's Terminal row opens a tab itself and writes shell keys (`herdr-zed.conversation-visible`,
-  `herdr-zed.selected-project`), which breaks the layer rule. Move it to the shell.
-- A launcher whose service view is not mounted still counts as available (§3.6 says fall back to native).
-- `herdr-zed.launch.requests` take-and-clear can race with a provider append.
 - Tasks "Restore conversation" has no path yet (inline error only). Pending-profile/resume code in Tasks has
   no writers and can be removed.
 - Asana/MantisBT tests still evaluate Tasks modules; `import-target.js` is duplicated in both integrations.
 - Pre-existing: `mcp-probe` stdio missing-command case fails on Windows (same in devkits); the hardware
-  symlink CLI test can time out under full-suite load.
-- `ecc-install` is skipped until vendor/ and the installer arrive (phase 4).
+  symlink and Windows live-helper tests can time out under full-suite load.
+- Nothing has been installed into a real Herdr home or exercised in the running app yet.

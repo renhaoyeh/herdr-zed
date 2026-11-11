@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "install:herdr": "node install.js",
+    "update:herdr": "node install.js --update",
+    "install:extension": "node install.js --extension",
     "sync:shared": "node sync-shared.js",
     "test": "node sync-shared.js --check && node typecheck.js && node --test \"test/*.test.js\"",
     "typecheck": "node typecheck.js"

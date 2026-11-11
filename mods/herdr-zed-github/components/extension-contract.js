@@ -13,6 +13,7 @@ const LOGIN_PATTERN = /^[a-z0-9][a-z0-9_.-]*$/i;
 const MAX_CREDENTIAL_PAIRS = 8;
 const MAX_ORIGIN_REF = 200;
 const EXTENSION_ID_PATTERN = /^[a-z][a-z0-9-]*$/;
+const TARGET_KEYS = ['space', 'folder', 'projectName', 'machine', 'overlay'];
 
 /** @type {(value: unknown) => value is Record<string, any>} */
 const plain = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -32,6 +33,28 @@ const validOrigin = origin => plain(origin) && hasOnlyKeys(origin, ['extension',
   && typeof origin.extension === 'string' && EXTENSION_ID_PATTERN.test(origin.extension)
   && typeof origin.ref === 'string' && origin.ref.length > 0 && origin.ref.length <= MAX_ORIGIN_REF;
 
+// §3.1 target shape, shared by launch requests and the Terminal command. `space: null` means a project that
+// is not a space yet (the picker's context for a pending project); it is treated as absent.
+/**
+ * @param {unknown} target
+ * @param {{ id: string, machine?: string | null }[]} [spaces]
+ * @returns {Validation<LaunchTarget>}
+ */
+export function validateLaunchTarget(target, spaces = []) {
+  if (!plain(target) || !hasOnlyKeys(target, TARGET_KEYS)) return fail('Launch request target is invalid.');
+  if (typeof target.folder !== 'string' || target.folder.length === 0) return fail('Launch target folder must be a non-empty string.');
+  if (target.projectName !== undefined && typeof target.projectName !== 'string') return fail('Launch target projectName must be a string.');
+  if (target.overlay !== undefined && typeof target.overlay !== 'string') return fail('Launch target overlay must be a string.');
+  if (target.machine !== undefined && target.machine !== null && typeof target.machine !== 'string')
+    return fail('Launch target machine must be a string or null.');
+  if (target.space !== undefined && target.space !== null) {
+    const space = spaces.find(item => item.id === target.space);
+    if (!space) return fail('Launch target space is unknown.');
+    if ((target.machine || null) !== (space.machine || null)) return fail('Launch target machine does not match its space.');
+  }
+  return { ok: true, value: /** @type {LaunchTarget} */ (target) };
+}
+
 // §3.1. `argv` is returned as the very same array the provider sent: no quoting, rewriting or copying.
 /**
  * @param {unknown} request
@@ -46,26 +69,37 @@ export function validateLaunchRequest(request, { now, launcherId, spaces = [] })
   if (!Number.isFinite(expiresAt)) return fail('Launch request expiresAt must be a number.');
   if (expiresAt <= now) return fail('Launch request has expired.');
   if (expiresAt > now + MAX_LAUNCH_LEAD_MS) return fail('Launch request expiresAt is too far in the future.');
-  if (!plain(target) || !hasOnlyKeys(target, ['space', 'folder', 'projectName', 'machine', 'overlay']))
-    return fail('Launch request target is invalid.');
-  if (typeof target.folder !== 'string' || target.folder.length === 0) return fail('Launch target folder must be a non-empty string.');
-  if (target.projectName !== undefined && typeof target.projectName !== 'string') return fail('Launch target projectName must be a string.');
-  if (target.overlay !== undefined && typeof target.overlay !== 'string') return fail('Launch target overlay must be a string.');
-  if (target.machine !== undefined && target.machine !== null && typeof target.machine !== 'string')
-    return fail('Launch target machine must be a string or null.');
-  if (target.space !== undefined) {
-    const space = spaces.find(item => item.id === target.space);
-    if (!space) return fail('Launch target space is unknown.');
-    if ((target.machine || null) !== (space.machine || null)) return fail('Launch target machine does not match its space.');
-  }
+  const checkedTarget = validateLaunchTarget(target, spaces);
+  if (!checkedTarget.ok) return fail(checkedTarget.error);
   if (typeof name !== 'string' || name.trim().length === 0 || name.length > MAX_NAME_LENGTH)
     return fail(`Launch request name must be a non-empty string of at most ${MAX_NAME_LENGTH} characters.`);
   if (!Array.isArray(argv) || argv.length === 0 || argv.some(item => typeof item !== 'string'))
     return fail('Launch request argv must be a non-empty array of strings.');
   if (profile !== null && typeof profile !== 'string') return fail('Launch request profile must be a string or null.');
   if (origin !== undefined && !validOrigin(origin)) return fail('Launch request origin must be { extension, ref } with a valid extension ID and a ref of at most 200 characters.');
-  return { ok: true, value: { id, source, target: /** @type {LaunchTarget} */ (target), name, argv, profile, expiresAt,
+  return { ok: true, value: { id, source, target: checkedTarget.value, name, argv, profile, expiresAt,
     ...(origin === undefined ? {} : { origin: /** @type {LaunchOrigin} */ (origin) }) } };
+}
+
+// Terminal row (ARCHITECTURE §3.1): the Agents picker asks the shell for the native Terminal choice. The mod command
+// channel delivers only a command string (as the usage and system clients do), so the target travels as encoded JSON:
+// run('herdr-zed.' + newTerminalCommand(target)). The shell reads it with readNewTerminalCommand and opens the tab
+// exactly as the native picker's Terminal choice does: createNativeThread(null, target).
+export const NEW_TERMINAL_PREFIX = 'new-terminal:';
+/** @param {Record<string, any>} [target] @returns {string} */
+export function newTerminalCommand(target = {}) {
+  const { space, folder, projectName, machine, overlay } = target;
+  const body = Object.fromEntries(Object.entries({ space, folder, projectName, machine, overlay })
+    .filter(([, value]) => value !== undefined));
+  return `${NEW_TERMINAL_PREFIX}${encodeURIComponent(JSON.stringify(body))}`;
+}
+/** @returns {null | Validation<LaunchTarget>} null when the command is not a Terminal request */
+export function readNewTerminalCommand(command, spaces = []) {
+  if (typeof command !== 'string' || !command.startsWith(NEW_TERMINAL_PREFIX)) return null;
+  let target;
+  try { target = JSON.parse(decodeURIComponent(command.slice(NEW_TERMINAL_PREFIX.length))); }
+  catch { return fail('Terminal request is not valid JSON.'); }
+  return validateLaunchTarget(target, spaces);
 }
 
 // §3.3. `value` is the stored envelope `{ updatedAt, threads }`. Invalid entries are dropped; the rest is kept.

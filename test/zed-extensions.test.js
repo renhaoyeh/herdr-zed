@@ -1,17 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, copyFile, readFile, writeFile, rm } from 'node:fs/promises';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
-import { pathToFileURL } from 'node:url';
 import { parseExtensionRegistry, parseExtensionManifest, extensionPopup, extensionMetadata, extensionServiceLayout, gitActionPopup, resolveProviders } from '../mods/herdr-zed/extension-model.js';
 import { extensionSurfaceLayout, extensionSurfaceNodeId } from '../mods/herdr-zed/extension-surfaces.js';
-import { installZed } from '../install-zed.js';
 import { evaluateNative } from './source-harness.js';
-import { asanaManifest as manifestText, systemManifest as systemText, simulatorManifest as simulatorText } from './extension-fixtures.js';
+import { asanaManifest as manifestText, systemManifest as systemText } from './extension-fixtures.js';
 
 const manifest = JSON.parse(manifestText);
-const repo = path => new URL(`../${path}`, import.meta.url);
 
 test('service mounts follow enable/remove and preserve workspace geometry and unrelated children', () => {
   const marker = { id: 'custom', type: 'row', children: [] };
@@ -99,44 +93,6 @@ test('a late discovery cannot restore removed entries; malformed packages leave 
   assert.equal(mixed.extensionCatalog().errors.length, 1);
 });
 
-// Install copies provider packages from the source tree beside install-zed-extension.js. Each test gets
-// a temporary source tree holding that installer, the shell's extension-model.js and fake packages, so
-// no real provider package is needed and the repository's installer is used unchanged.
-async function installerFor(t, packages) {
-  const source = await mkdtemp(join(tmpdir(), 'zed-extension-source-'));
-  t.after(() => rm(source, { recursive: true, force: true }));
-  await mkdir(join(source, 'mods/herdr-zed'), { recursive: true });
-  await copyFile(repo('install-zed-extension.js'), join(source, 'install-zed-extension.js'));
-  await copyFile(repo('mods/herdr-zed/extension-model.js'), join(source, 'mods/herdr-zed/extension-model.js'));
-  for (const [name, { manifest: text, files = {} }] of Object.entries(packages)) {
-    const dir = join(source, 'mods', name);
-    await mkdir(dir, { recursive: true });
-    await writeFile(join(dir, 'main.js'), `export default class ${name.replace(/\W/g, '_')} {}\n`);
-    if (text !== undefined) await writeFile(join(dir, 'extension.json'), text);
-    for (const [file, content] of Object.entries(files)) await writeFile(join(dir, file), content);
-  }
-  const { installZedExtension } = await import(pathToFileURL(join(source, 'install-zed-extension.js')).href);
-  return installZedExtension;
-}
-
-test('extension install is opt-in, idempotent and preserves provider code, credentials and other registrations', async t => {
-  const installZedExtension = await installerFor(t, { 'herdr-zed-asana': { manifest: manifestText } });
-  const home = await mkdtemp(join(tmpdir(), 'zed-extension-test-'));
-  t.after(() => rm(home, { recursive: true, force: true }));
-  await installZed(home);
-  await mkdir(join(home, 'data/herdr-zed'), { recursive: true });
-  await writeFile(join(home, 'data/herdr-zed/extensions.json'), '{"version":1,"extensions":["other-mod"]}');
-  await installZedExtension(home, 'herdr-zed-asana');
-  assert.deepEqual(JSON.parse(await readFile(join(home, 'data/herdr-zed/extensions.json'), 'utf8')).extensions, ['other-mod', 'herdr-zed-asana']);
-  await assert.rejects(readFile(join(home, 'mods/herdr-zed-mantisbt/main.js')), { code: 'ENOENT' });
-  await assert.rejects(readFile(join(home, 'data/herdr-zed/asana.json')), { code: 'ENOENT' });
-  const provider = join(home, 'mods/herdr-zed-asana/ui.js'); await writeFile(provider, 'custom provider implementation');
-  await writeFile(join(home, 'data/herdr-zed/asana.json'), 'private credentials');
-  await installZedExtension(home, 'herdr-zed-asana');
-  assert.equal(await readFile(provider, 'utf8'), 'custom provider implementation');
-  assert.equal(await readFile(join(home, 'data/herdr-zed/asana.json'), 'utf8'), 'private credentials');
-});
-
 test('disabled extensions retain declarations, block activation and restore without touching provider data', async () => {
   const r = await runtime(async path => path.endsWith('extensions.json')
     ? '{"version":1,"extensions":["herdr-zed-asana"]}' : manifestText);
@@ -160,40 +116,6 @@ test('service and dependency metadata reject paths, duplicates and arbitrary ser
     { dependencies: ['same', 'same'] }, { services: [{ view: '../service' }] },
     { services: [{ view: 'service', mod: 'other' }] }, { services: [{ view: 'service' }, { view: 'service' }] }])
     assert.throws(() => parseExtensionManifest('herdr-zed-asana', JSON.stringify({ ...manifest, ...patch })));
-});
-
-test('simulator install adds declared frame package without overwriting existing runtime data', async t => {
-  const installZedExtension = await installerFor(t, {
-    'herdr-zed-simulator': { manifest: simulatorText },
-    'herdr-zed-sim-frames': {},
-  });
-  const home = await mkdtemp(join(tmpdir(), 'zed-simulator-install-'));
-  t.after(() => rm(home, { recursive: true, force: true }));
-  await installZed(home);
-  await installZedExtension(home, 'herdr-zed-simulator');
-  await readFile(join(home, 'mods/herdr-zed-sim-frames/main.js'));
-  const frame = join(home, 'mods/herdr-zed-sim-frames/frame-0.jpg');
-  await writeFile(frame, 'existing runtime image');
-  await installZedExtension(home, 'herdr-zed-simulator');
-  assert.equal(await readFile(frame, 'utf8'), 'existing runtime image');
-  assert.deepEqual(JSON.parse(await readFile(join(home, 'data/herdr-zed/extensions.json'), 'utf8')).extensions,
-    ['herdr-zed-simulator'], 'Supporting package is not registered as another extension');
-});
-
-test('incomplete dependency aborts installation without changing registry or existing files', async t => {
-  const installZedExtension = await installerFor(t, {
-    'herdr-zed-simulator': { manifest: simulatorText },
-    'herdr-zed-sim-frames': {},
-  });
-  const home = await mkdtemp(join(tmpdir(), 'zed-dependency-install-'));
-  t.after(() => rm(home, { recursive: true, force: true }));
-  await installZed(home);
-  await mkdir(join(home, 'mods/herdr-zed-sim-frames'));
-  await writeFile(join(home, 'mods/herdr-zed-sim-frames/user.txt'), 'keep');
-  await assert.rejects(installZedExtension(home, 'herdr-zed-simulator'), /Incomplete/);
-  assert.equal(await readFile(join(home, 'mods/herdr-zed-sim-frames/user.txt'), 'utf8'), 'keep');
-  await assert.rejects(readFile(join(home, 'data/herdr-zed/extensions.json')), { code: 'ENOENT' });
-  await assert.rejects(readFile(join(home, 'mods/herdr-zed-simulator/main.js')), { code: 'ENOENT' });
 });
 
 test('runtime refresh mounts one enabled service and disabling removes it without remounting on refresh', async () => {

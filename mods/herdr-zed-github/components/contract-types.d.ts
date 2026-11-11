@@ -39,7 +39,7 @@ export interface ExtensionManifest {
 
 /** §3.1 provider → shell, appended to `herdr-zed.launch.requests`. */
 export interface LaunchTarget {
-  space?: string; folder: string; projectName?: string; machine?: string | null; overlay?: string;
+  space?: string | null; folder: string; projectName?: string; machine?: string | null; overlay?: string;
 }
 /** Optional provider record a launch belongs to; echoed into the thread read model. */
 export interface LaunchOrigin { extension: ExtensionId; ref: string; }
