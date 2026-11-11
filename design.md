@@ -5,6 +5,7 @@ titles). Where they conflict, this file wins.
 
 ## Settings
 
+- Switches match Devkits Sera: square 28×16 tracks, 10px square knobs, an outlined off state and a solid on state.
 - The main window header has independent Agents, Extensions and Settings buttons. Settings opens from its gear
   (and `herdr-zed.settings`), with a fixed 220px nav and General/Git preferences. It has no Agents/Extensions links.
   "App settings…" opens Herdr's appearance, keyboard and terminal settings. One management dialog is open
