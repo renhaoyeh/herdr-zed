@@ -52,7 +52,7 @@ the tests change in the same commit. Unknown keys inside `provides`, surfaces an
                  "view": "widgets", "title": "…", "icon": "…" }],
   "actions":  [{ "id": "open", "title": "…", "icon": "…", "iconColor": "#RRGGBB",
                  "location": "status.right|git.actions",
-                 "popup": { "view": "details", "width": 1000, "height": 700, "modal": false } }],
+                 "popup": { "view": "details", "width": 1000, "height": 700, "modal": false, "placement": "center|workspace" } }],
   "provides": { … },               // NEW: provider contracts, §2.2
   "settings": { "view": "settings", "title": "Agents", "pages": [{ "id": "accounts", "title": "Accounts" }] },  // §2.1
   "platforms": ["macos", "windows", "linux"]   // optional, §2.1
@@ -77,7 +77,8 @@ the tests change in the same commit. Unknown keys inside `provides`, surfaces an
 - `settings` (optional, `{ view, title, pages? }`, these keys only): the package's page in the shell's Settings dialog. The
   shell opens `view` embedded beside the Settings nav, with `{ view, embedded: true, page, context }` (the current project,
   or null; `page` is the sub-page ID, or null for the entry itself); `title` is its nav label. `pages` (optional, 1–12
-  unique `{ id, title }`) are sub-items listed indented under the entry, in declaration order. The page is listed only
+  entries, each exactly `{ id, title }`, ids `[a-z][a-z0-9-]*` and unique within the package, titles non-blank) are
+  sub-items listed indented under the entry, in declaration order. Unknown keys in `settings` or a page are rejected. The page is listed only
   while the package is enabled, error-free and available. Settings opens from the header gear, from the Extensions
   page, or from the provider's own panel with the shell command `herdr-zed.settings:<extension id>` or
   `herdr-zed.settings:<extension id>:<page id>`. The provider never gets a reply and never renders the nav or the frame.
@@ -85,12 +86,15 @@ the tests change in the same commit. Unknown keys inside `provides`, surfaces an
   with `window().platform`. A package for another platform contributes nothing (no actions, surfaces, services,
   settings or provides), is never active, and the Extensions page shows "Not available on this platform" with no
   switch.
-- `actions[].popup.placement` (optional, `center` by default or `workspace`): `workspace` opens a `kind: 'popup'`,
-  `frame: 'none'` panel over the work area: x = sidebar width (0 when hidden), y = 32 (the header), width = the work
-  column's width (the window minus the sidebar), height = window height minus 32 (header) and 32 (status bar). Width and
-  height in the manifest are ignored for it; a click outside closes it. While the work area size is not measured yet,
-  the declared centered dialog opens instead. The shell measures the work column (`herdr-zed.work-width`) and the window
-  height (`herdr-zed.window-height`) with `on_size_change`; Herdr's `window()` reports no size.
+- `actions[].popup.placement` (optional, `"center"` by default or `"workspace"`; any other value is rejected). `workspace`
+  opens the panel over the work area through `workspaceOverlay` (components/workspace-overlay.js, §3.7): a `kind: 'popup'`,
+  `frame: 'none'` panel at the published work-area rectangle, sized to it (x = sidebar width, y = 32, width = the work
+  column, height = window minus 32 (header) and 32 (status bar)). A click outside closes it. The manifest `width` and
+  `height` are not used for the popup; they are the size of the centered fallback dialog, which opens while the work area
+  is not published yet (`null`). Providers that open workspace panels themselves (Tasks board, Calendar, SYSTEM details)
+  use the same function, so every workspace panel has one placement. The shell measures the work column
+  (`herdr-zed.work-width`) and the window height (`herdr-zed.window-height`) with `on_size_change`; Herdr's `window()`
+  reports no size.
 - Surfaces: `sidebar.bottom` surfaces mount above the history row and start hidden; `dock.right` surfaces start hidden;
   `status.right` surfaces start visible. Manage extensions offers a switch per active surface: "Show in sidebar", "Show
   in status bar", "Show in right dock".
@@ -252,6 +256,19 @@ the key is removed when the extension is disabled (shell clears it). Providers p
 | Manifest error | Package shown as unavailable; its contributions are not mounted |
 | Provider service not mounted | Launcher treated as unavailable (native picker); importer hidden |
 
+### 3.7 Work area (shell → providers, read-only)
+
+`herdr-zed.workspace-rect` = `{ x, y, width, height, updatedAt }`, or `null` while the work area is not measured. Logical
+px: x = sidebar width (0 when hidden), y = 32 (header), width = the work column, height = window height minus 32 (header)
+and 32 (status bar). The shell writes it whenever the value changes (on each render and each measured size change); it
+never writes it otherwise. Providers only read it.
+
+- Providers open workspace panels with `workspaceOverlay({ mod, props, width?, height?, modal? })`
+  (components/workspace-overlay.js, copied by `COPIES`). The result is the popup spec over the published rectangle
+  (device px at the window zoom), or, with `null`, the centered dialog of `width`/`height` (default 0.9 × 0.86). The
+  caller passes the result to `openOverlay`.
+- The shell's `popup.placement: "workspace"` actions use the same function (§2.1), so there is one placement path.
+
 ## 4. Mods and move order
 
 | # | Target | Source in devkits | Notes |
@@ -304,7 +321,7 @@ No code reads both the old and new key; whichever is chosen is the only path.
 - In scope (as used by moved mods): `button`, `dropdown-menu`, `checkbox`, `toggle-group`, `dialog`,
   `alert-dialog`, `icon`, `input`, `select`, `switch`, `empty`, `sidebar`, `tree`, `side-panel`,
   `session-model`, `session-shell`, `system-monitor*`, `task-source*`, `source-channel`, `task-theme`,
-  `tasks-model`, `tasks`, `shared-mcp*`, `agent-session-windows`, `agent-process-windows`, `progress`,
+  `tasks-model`, `tasks`, `workspace-overlay`, `shared-mcp*`, `agent-session-windows`, `agent-process-windows`, `progress`,
   `usage`, `claude-usage-hook`, `agent-selection`, `agents`.
 - New: `extension-contract.js` (launch/decoration/git-credential validators) and `contract-types.d.ts`
   (contract types). Providers copy both to validate and type-check their own messages before sending.

@@ -154,3 +154,38 @@ test('a switch change goes through the shell, and an unsupported package has no 
   byId(page, 'extension-surface-toggle-widgets').__handlers.on_change(false, { notify() {} });
   assert.deepEqual(m.changes, [['enabled', 'herdr-zed-system', false], ['surface', 'widgets', false]]);
 });
+
+test('only the open page is selected in the nav, whichever sub-page or extension is open', async () => {
+  const settings = [{ mod: 'herdr-zed-agents', id: 'agents', view: 'manage', title: 'Agents', pages }, { mod: 'herdr-zed-github', id: 'github', view: 'settings', title: 'GitHub' }];
+  for (const page of ['git', 'extension:agents', 'extension:agents:accounts', 'extension:github']) {
+    const s = await settingsHost(settings, { page });
+    const nav = new s.SettingsNav().render(theme);
+    const selected = all(nav).filter(node => node.__attrs.bg === 'SELECTED' && node.__id?.startsWith('settings-nav-'));
+    assert.equal(selected.length, 1, `one selected row for ${page}`);
+    assert.equal(selected[0].__attrs.accessibility_label, { git: 'Git', 'extension:agents': 'Agents', 'extension:agents:accounts': 'Accounts', 'extension:github': 'GitHub' }[page]);
+    for (const node of all(nav).filter(node => node.__id?.startsWith('settings-nav-') && node !== selected[0]))
+      assert.notEqual(node.__attrs.bg, 'SELECTED', node.__id);
+  }
+});
+
+test('a nav row is drawn in the overlay it belongs to, so a reopened nav starts with no carried-over hover', async () => {
+  const settings = [{ mod: 'herdr-zed-github', id: 'github', view: 'settings', title: 'GitHub' }];
+  const s = await settingsHost(settings, { page: 'git' });
+  const first = all(new s.SettingsNav().render({ ...theme })).map(node => node.__id).filter(id => id?.startsWith('settings-nav-'));
+  s.setProps({ page: 'git', context: null, overlay: 'overlay-9' });
+  const second = all(new s.SettingsNav().render(theme)).map(node => node.__id).filter(id => id?.startsWith('settings-nav-'));
+  assert.equal(first.length, second.length);
+  assert.ok(second.every(id => id.startsWith('settings-nav-overlay-9-')));
+  assert.ok(first.every(id => !id.includes('overlay-')));
+});
+
+test('Manage extensions: a package that is not available on this platform says so in the muted colour, not as an error', async () => {
+  const packages = [{ mod: 'herdr-zed-mac', id: 'mac', title: 'Mac only', unsupported: true, surfaces: [] },
+    { mod: 'herdr-zed-tasks', id: 'tasks', title: 'Tasks', error: 'Invalid manifest.', surfaces: [] }];
+  const m = await managerHost(catalogWith(packages));
+  const colours = { ...theme, ansi1: 'ERROR' };
+  const page = new m.ExtensionsManager().render(colours);
+  const statusNode = text => all(page).find(node => (node.__nodes || []).includes(text));
+  assert.equal(statusNode('Not available on this platform').__attrs.text_color, colours.muted, 'not an error');
+  assert.equal(statusNode('Invalid manifest.').__attrs.text_color, 'ERROR', 'a real error stays in the error colour');
+});

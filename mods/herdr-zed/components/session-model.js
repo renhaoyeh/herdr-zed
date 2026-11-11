@@ -135,16 +135,19 @@ export function accountAddresses(read) {
   return key => usage.find(item => item.key === key)?.email || saved[key]?.email || null;
 }
 
-// With `address`, a Default account is named by its signed-in address, or No account (marked unknown) when none
-// is known; named accounts keep their own name. Every account list uses this one rule.
+// The program a Default account runs, as the New thread picker names it.
+export const programName = agent => sessionKind(agent) === 'claude' ? 'Claude Code' : 'Codex CLI';
+
+// With `address`, a Default account is named like the New thread picker: "Program · address" when its signed-in address is
+// known, else the program name. Named accounts keep their own name. Every account list uses this one rule.
 export function launcherOption(agent, address = null) {
   const kind = sessionKind(agent);
-  let label = launcherLabel(agent.name || kind || 'Unnamed agent'), unknown = false;
+  let label = launcherLabel(agent.name || kind || 'Unnamed agent');
   if (address && label === 'Default account' && !agent.profileKey && kind) {
     const email = address(agent.key);
-    label = email || noAccountLabel; unknown = !email;
+    label = email ? `${programName(agent)} · ${email}` : programName(agent);
   }
-  return { key: agent.key, label, ...(unknown ? { unknown } : {}),
+  return { key: agent.key, label,
     icon: agent.icon || (kind ? `icons/${kind}.svg` : 'agent'), iconTint: agent.icon ? Boolean(agent.tint) : !kind };
 }
 

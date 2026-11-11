@@ -39,7 +39,8 @@ export class ExtensionsManager {
         .children((catalog.packages || []).map(entry => {
           const enabled = extensionEnabled(entry.mod);
           const status = packageStatus(entry, catalog);
-          const problem = entry.unsupported || entry.error || (catalog.resolved?.conflicts || []).some(item => item.mods.includes(entry.mod))
+          // A platform the package does not run on is not a problem: its status line is muted.
+          const problem = entry.error || (catalog.resolved?.conflicts || []).some(item => item.mods.includes(entry.mod))
             || (enabled && (catalog.resolved?.unavailable || []).some(item => item.mod === entry.mod));
           const active = extensionActive(entry.mod);
           // Unsupported packages contribute nothing and so get no switch at all.

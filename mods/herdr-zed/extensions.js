@@ -1,19 +1,28 @@
 import { h_flex } from 'gpui-base';
-import { shared, setShared, appHome, readTextFile, openOverlay, notify, layout, run, settings, window } from 'herdr';
+import { shared, setShared, appHome, readTextFile, openOverlay, notify, layout, run, window } from 'herdr';
 import { ToolbarButton, TOOLBAR_GLYPH } from './components/button.js';
 import { glyph } from './components/icon.js';
 import { DropdownMenu } from './components/dropdown-menu.js';
 import { parseExtensionRegistry, parseExtensionManifest, extensionPopup, extensionMetadata, extensionServiceLayout, gitActionPopup, resolveProviders, launcherAvailable, platformSupported, workspaceRect } from './extension-model.js';
 import { extensionSurfaceLayout, extensionSurfaceNodeId, STATUS_ACTION_LIMIT } from './extension-surfaces.js';
+import { workspaceOverlay, WORKSPACE_RECT_KEY, usableWorkspaceRect } from './components/workspace-overlay.js';
 
 const DISABLED = 'herdr-zed.extensions.disabled';
 // Measured by the shell's views (on_size_change, logical px): the work column width and the window height.
 export const WORK_WIDTH_KEY = 'herdr-zed.work-width', WINDOW_HEIGHT_KEY = 'herdr-zed.window-height';
-export const recordSize = (key, value) => { if (value > 0 && shared(key) !== value) setShared(key, value); };
+export const recordSize = (key, value) => { if (value > 0 && shared(key) !== value) { setShared(key, value); publishWorkspaceRect(); } };
 
 // The work area for `workspace` popups now, or null while its size is unknown (ARCHITECTURE §2.1).
 export const workspaceRectNow = () => workspaceRect({ sidebar: layoutNode(layout(), 'sidebar'),
   workWidth: shared(WORK_WIDTH_KEY), windowHeight: shared(WINDOW_HEIGHT_KEY) });
+
+// ARCHITECTURE §3.7: the shell publishes the work area (logical px) whenever it changes, null while unmeasured. Providers
+// open their workspace panels over it through components/workspace-overlay.js. Written only when it differs.
+export function publishWorkspaceRect() {
+  const rect = workspaceRectNow(), current = usableWorkspaceRect(shared(WORKSPACE_RECT_KEY));
+  if (!rect ? !shared(WORKSPACE_RECT_KEY) : current && ['x', 'y', 'width', 'height'].every(key => current[key] === rect[key])) return;
+  setShared(WORKSPACE_RECT_KEY, rect ? { ...rect, updatedAt: Date.now() } : null);
+}
 export const extensionEnabled = mod => !(shared(DISABLED) || []).includes(mod);
 export function setExtensionEnabled(mod, enabled) {
   const disabled = new Set(shared(DISABLED) || []);
@@ -124,14 +133,15 @@ export async function refreshExtensions() {
   if (errors.length) notify({ title: 'Could not load extensions', body: errors.join('\n'), level: 'error' });
 }
 
-// Workspace placement opens over the work area; its at point is device px (the dropdown menus' convention), so the
-// logical rectangle is scaled by the zoom. Without a known size the declared centered dialog opens.
+// Workspace placement opens over the work area (workspaceOverlay: device px at point, zoom-scaled). Without a known size the
+// declared centered dialog opens.
 export function openExtension(id, project) {
   const catalog = extensionCatalog(), action = catalog.actions.find(action => action.id === id);
   if (!catalog.ready || !action || !extensionActive(action.mod)) return;
   try {
-    const rect = action.popup.placement === 'workspace' ? workspaceRectNow() : null;
-    return openOverlay(extensionPopup(action, project, rect && { ...rect, x: rect.x * settings().zoom, y: rect.y * settings().zoom }));
+    const popup = extensionPopup(action, project);
+    return openOverlay(action.popup.placement === 'workspace'
+      ? workspaceOverlay({ mod: popup.mod, props: popup.props, width: popup.width, height: popup.height, modal: popup.modal }) : popup);
   }
   catch (error) { notify({ title: 'Could not open extension', body: error.message, level: 'error' }); }
 }

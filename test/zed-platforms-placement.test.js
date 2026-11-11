@@ -36,19 +36,13 @@ test('the workspace rectangle: x is the sidebar width (0 when hidden), y the hea
   assert.equal(workspaceRect({ sidebar: { size: { px: 300 } }, workWidth: 100, windowHeight: 60 }), null, 'no room left');
 });
 
-test('a workspace popup opens over the work area; without a known area it is the declared centered dialog', () => {
+test('a workspace action declares its size but the shell opens it through workspaceOverlay: the centered dialog stays the declaration', () => {
   const [work] = parseExtensionManifest('herdr-zed-demo', text({ actions: [action({ placement: 'workspace' })] }));
-  const rect = { x: 280, y: 32, width: 1000, height: 636 };
-  const popup = extensionPopup({ ...work, mod: 'herdr-zed-demo', extensionId: 'demo' }, null, rect);
-  assert.equal(popup.kind, 'popup'); assert.equal(popup.frame, 'none');
-  assert.deepEqual([popup.at, popup.width, popup.height], [{ x: 280, y: 32 }, 1000, 636]);
-  assert.equal(popup.modal, undefined, 'a popup closes on an outside click, so it carries no modal flag');
-  assert.equal(popup.props.view, 'details');
-  const fallback = extensionPopup({ ...work, mod: 'herdr-zed-demo', extensionId: 'demo' }, null, null);
-  assert.deepEqual([fallback.kind, fallback.width, fallback.height, fallback.modal], ['dialog', 400, 300, false]);
+  const declared = extensionPopup({ ...work, mod: 'herdr-zed-demo', extensionId: 'demo' }, null);
+  assert.deepEqual([declared.kind, declared.width, declared.height, declared.modal], ['dialog', 400, 300, false]);
+  assert.equal(declared.props.view, 'details');
   const centred = parseExtensionManifest('herdr-zed-demo', text())[0];
-  assert.equal(extensionPopup({ ...centred, mod: 'herdr-zed-demo', extensionId: 'demo' }, null, rect).kind, 'dialog',
-    'a center placement ignores the work area');
+  assert.equal(extensionPopup({ ...centred, mod: 'herdr-zed-demo', extensionId: 'demo' }, null).kind, 'dialog');
 });
 
 test('a keyboard-opened picker centres at the top of the work area; without a work area it uses the pointer', () => {
@@ -84,9 +78,12 @@ const runtime = async (manifest, platform, layout = null) => {
     parseExtensionRegistry, parseExtensionManifest, extensionMetadata, extensionPopup, extensionServiceLayout, gitActionPopup,
     resolveProviders, launcherAvailable, platformSupported, workspaceRect, extensionSurfaceLayout, extensionSurfaceNodeId,
     STATUS_ACTION_LIMIT, ToolbarButton() {}, TOOLBAR_GLYPH: 16, glyph() {}, DropdownMenu() {}, h_flex() {},
+    ...await evaluateNative('../components/workspace-overlay.js', { shared: key => memory[key], settings: () => ({ zoom: 1 }) },
+      'workspaceOverlay, usableWorkspaceRect, WORKSPACE_RECT_KEY'),
   };
+  // extensions.js reads the publisher's own names from the same host; evaluate it once the host is complete.
   return { memory, opened, runs, ...await evaluateNative('../mods/herdr-zed/extensions.js', host,
-    'refreshExtensions, openExtension, extensionCatalog, extensionActive, extensionActions, extensionSurfaceVisible, setExtensionSurfaceVisible, visibleSurfaceCount, WORK_WIDTH_KEY, WINDOW_HEIGHT_KEY, recordSize, workspaceRectNow') };
+    'refreshExtensions, openExtension, extensionCatalog, extensionActive, extensionActions, extensionSurfaceVisible, setExtensionSurfaceVisible, visibleSurfaceCount, WORK_WIDTH_KEY, WINDOW_HEIGHT_KEY, recordSize, workspaceRectNow, publishWorkspaceRect') };
 };
 
 const platformManifest = JSON.parse(text({ platforms: ['macos'], settings: { view: 'settings', title: 'Demo' },
@@ -118,15 +115,18 @@ test('the same package is fully active on its platform', async () => {
   assert.equal(r.runs.length, 1, 'the sidebar surface mounts above the history row');
 });
 
-test('opening a workspace action uses the measured work area and falls back to the centered dialog while unmeasured', async () => {
+test('opening a workspace action uses the published work area and falls back to the centered dialog while unmeasured', async () => {
   const manifest = JSON.stringify({ ...JSON.parse(text()), actions: [action({ placement: 'workspace' })] });
   const layout = { id: 'root', children: [{ id: 'sidebar', type: 'column', size: { px: 280 }, children: [] }] };
   const r = await runtime(manifest, 'linux', layout);
   await r.refreshExtensions();
   r.openExtension('demo.open', null);
   assert.equal(r.opened[0].kind, 'dialog', 'no measured size yet: centered dialog');
+  assert.equal(r.memory['herdr-zed.workspace-rect'], undefined, 'nothing is published while unmeasured');
   r.recordSize(r.WORK_WIDTH_KEY, 1000); r.recordSize(r.WINDOW_HEIGHT_KEY, 700);
   assert.equal(r.memory[r.WORK_WIDTH_KEY], 1000);
+  assert.deepEqual([r.memory['herdr-zed.workspace-rect'].x, r.memory['herdr-zed.workspace-rect'].y, r.memory['herdr-zed.workspace-rect'].width, r.memory['herdr-zed.workspace-rect'].height],
+    [280, 32, 1000, 636], 'the shell publishes the work area it measured');
   r.openExtension('demo.open', null);
   assert.equal(r.opened[1].kind, 'popup');
   assert.deepEqual([r.opened[1].at, r.opened[1].width, r.opened[1].height], [{ x: 280, y: 32 }, 1000, 636]);

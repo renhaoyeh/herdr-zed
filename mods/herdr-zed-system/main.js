@@ -3,13 +3,14 @@ import { props, theme, openOverlay, run, nextCommand } from 'herdr';
 import { SystemMonitorCore } from './monitor.js';
 import { hardwarePreferences } from './components/system-monitor-model.js';
 import { SystemMonitor, systemClientPrefix, systemSnapshotPrefix, systemCommand, systemMessage } from './components/system-monitor.js';
+import { workspaceOverlay } from './components/workspace-overlay.js';
 export default class SystemMod extends View {
   init(_props, cx) {
     const target = props() || {};
     this.view = target.view || 'details'; this.clients = new Map();
     this.monitor = new SystemMonitorCore({ details: this.view === 'details', page: target.page, overlay: target.overlay,
       active: () => this.clients.size > 0,
-      openDetails: page => openOverlay({ mod: 'herdr-zed-system', kind: 'dialog', frame: 'none', width: 0.9, height: 0.86, props: { view: 'details', page } }),
+      openDetails: page => openOverlay(workspaceOverlay({ mod: 'herdr-zed-system', props: { view: 'details', page } })),
     });
     if (this.view === 'service') {
       this.monitor.init(cx);

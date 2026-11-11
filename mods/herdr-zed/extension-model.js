@@ -213,17 +213,15 @@ export function launcherAvailable(launcher, packages = [], root = null) {
   return (entry.services || []).every(service => mountedView(root, launcher.mod, service.view));
 }
 
-// `rect` (from workspaceRect) turns a `workspace` placement into a popup over the work area. Without it, the declared
-// centered dialog is used (the fallback when the work area size is not known yet).
-/** @param {any} action @param {any} project @param {{ x: number, y: number, width: number, height: number } | null} [rect] */
-export function extensionPopup(action, project, rect = null) {
+// The declared popup of an action, centered. A `workspace` placement is opened by the shell through workspaceOverlay
+// (components/workspace-overlay.js), which falls back to this same declaration's size while the work area is unknown.
+/** @param {any} action @param {any} project */
+export function extensionPopup(action, project) {
   // Capture the originating project. Later workspace switches don't retarget an open dialog.
   const context = project ? { id: project.id, folder: project.folder, name: project.name, machine: project.machine || null } : null;
   const scope = JSON.stringify([context?.machine || '', context?.folder || '']);
   const props = { view: action.popup.view, ...(context ? { context } : {}),
     stateKey: `herdr-zed.extension.${action.extensionId}.${scope}` };
-  if (action.popup.placement === 'workspace' && rect)
-    return { mod: action.mod, kind: 'popup', frame: 'none', at: { x: rect.x, y: rect.y }, width: rect.width, height: rect.height, props };
   return { mod: action.mod, kind: 'dialog', frame: 'none', modal: action.popup.modal,
     width: action.popup.width, height: action.popup.height, props };
 }

@@ -75,12 +75,13 @@ test('shared launcher options omit provider names in any case and retain account
   }
   const account = { key: 'codex', name: 'CODEX', run: ['codex'] };
   assert.deepEqual(launcherOption(account), { key: 'codex', label: 'Default account', icon: 'icons/codex.svg', iconTint: false });
-  // With known addresses, a Default account is named by its address, or No account (marked unknown); named accounts keep their names.
+  // A Default account is named like the New thread picker: "Program · address" when its address is known, else the program.
   const state = { 'herdr-zed.usage.snapshot': { contexts: { null: { usage: [{ key: 'codex', email: 'me@example.com' }] } } },
     'herdr-zed.account-identities': { claude: { email: null } } };
   const address = accountAddresses(key => state[key]);
-  assert.equal(launcherOption(account, address).label, 'me@example.com');
-  assert.deepEqual(launcherOption({ key: 'claude', name: 'Claude' }, address), { key: 'claude', label: 'No account', unknown: true, icon: 'icons/claude.svg', iconTint: false });
+  assert.equal(launcherOption(account, address).label, 'Codex CLI · me@example.com');
+  assert.deepEqual(launcherOption({ key: 'claude', name: 'Claude' }, address), { key: 'claude', label: 'Claude Code', icon: 'icons/claude.svg', iconTint: false });
+  assert.doesNotMatch(launcherOption({ key: 'claude', name: 'Claude' }, address).label, /No account/);
   assert.equal(launcherOption({ key: 'devkits-codex-work', name: 'Codex · Work' }, address).label, 'Work');
   assert.equal(account.name, 'CODEX');
   assert.deepEqual(launcherOption({ key: 'devkits-claude-work', name: 'CLAUDE CODE · WORK', icon: 'icons/custom.svg', tint: true }),

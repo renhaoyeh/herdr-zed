@@ -2,7 +2,7 @@ import { availableAgents, loadAccountIdentities } from './discovery.js';
 import { div } from 'gpui-kit';
 import { v_flex, h_flex } from 'gpui-base';
 import { shared, setShared, props, spaces, openOverlay, closeOverlay, home, readTextFile, keys, window, exec, appHome } from 'herdr';
-import { launcherChoices, launcherLabel, launcherOption, accountAddresses, permissionModes, sessionKind, isAccountLauncher, claudeModels, claudeEfforts, codexHome, codexModels, mergeModels, orderedOptions, moveOption, effortLabel, sessionChoices, settingsKey, configuredAgents, autoRank, autoMultipliers, autoMultiplier, planMultiplier, planLabel, quotaResetLabel } from './components/session-model.js';
+import { launcherChoices, launcherLabel, launcherOption, accountAddresses, programName, permissionModes, sessionKind, isAccountLauncher, claudeModels, claudeEfforts, codexHome, codexModels, mergeModels, orderedOptions, moveOption, effortLabel, sessionChoices, settingsKey, configuredAgents, autoRank, autoMultipliers, autoMultiplier, planMultiplier, planLabel, quotaResetLabel } from './components/session-model.js';
 import { DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from './components/dropdown-menu.js';
 import { Button } from './components/button.js';
 import { Checkbox } from './components/checkbox.js';
@@ -16,7 +16,6 @@ import { accountStorageDirectory, storageGroups, storageSize } from './account-s
 const launcherSections = ['Terminal', 'Agents', 'Your accounts', 'Agent profiles'];
 // The manifest's settings.pages ids, one shell page each (ARCHITECTURE §2.1).
 const settingsPageIds = ['accounts', 'agents', 'profiles', 'global-rules', 'capabilities', 'ecc'];
-const programName = agent => sessionKind(agent) === 'claude' ? 'Claude Code' : 'Codex CLI';
 import { openSharedMcp } from './components/agents.js';
 
 // The New thread menu and the Agents settings pages. Mixed into the Agents view, which provides

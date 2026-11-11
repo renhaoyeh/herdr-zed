@@ -338,8 +338,8 @@ test('Tasks names and applies profile defaults, narrows efforts to the effective
   const render = () => panel.launchRow({ gid: 'task' }, agents, (_agent, _task, options) => { started = options; }, {});
   render();
   assert.deepEqual(panel.session(agents).efforts, ['low', 'high']);
-  // Tasks names Default accounts with the same rule as Settings: No account until an address is known.
-  assert.equal(picks.get('task-session-agent').options[0].label, 'No account');
+  // Tasks names Default accounts like the New thread picker: the program until an address is known.
+  assert.equal(picks.get('task-session-agent').options[0].label, 'Codex CLI');
   assert.equal(picks.get('task-session-agent').options[0].icon, 'icons/codex.svg');
   assert.equal(picks.get('task-session-agent').options[0].iconTint, false);
   assert.equal(picks.get('task-session-model').options[0].label, 'Default (A)');

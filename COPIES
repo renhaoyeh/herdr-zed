@@ -37,3 +37,4 @@ tree.js: herdr-zed
 usage.js: herdr-zed-agents
 agent-process-windows.js: herdr-zed herdr-zed-tasks
 agent-session-windows.js: herdr-zed herdr-zed-tasks
+workspace-overlay.js: herdr-zed herdr-zed-calendar herdr-zed-system

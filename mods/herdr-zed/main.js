@@ -14,7 +14,7 @@ import { startPanel } from './start-panel.js';
 import { threadArchive, historyEligible } from './thread-archive.js';
 import { startThreadResume } from './thread-resume.js';
 import { SettingsNav, SettingsPage, SettingsHeader, openSettings, settingsPageKey } from './settings.js';
-import { ExtensionSlot, ExtensionSurfaceSlot, refreshExtensions, openExtension, extensionCatalog, openGitAction, activeLauncher, workspaceRectNow, recordSize, WORK_WIDTH_KEY, WINDOW_HEIGHT_KEY, visibleSurfaceCount, syncExtensionLayout } from './extensions.js';
+import { ExtensionSlot, ExtensionSurfaceSlot, refreshExtensions, openExtension, extensionCatalog, openGitAction, activeLauncher, workspaceRectNow, publishWorkspaceRect, recordSize, WORK_WIDTH_KEY, WINDOW_HEIGHT_KEY, visibleSurfaceCount, syncExtensionLayout } from './extensions.js';
 import { pollLaunchIntake } from './launch-intake.js';
 import { readNewTerminalCommand } from './components/extension-contract.js';
 import { workspaceTopAnchor } from './extension-model.js';
@@ -652,6 +652,7 @@ export default class HerdrZed extends View {
 
   render(cx) {
     this.renderModel = null;
+    publishWorkspaceRect();
     try { return this.renderView(cx); }
     finally { this.renderModel = null; }
   }

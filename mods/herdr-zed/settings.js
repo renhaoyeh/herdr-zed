@@ -102,13 +102,18 @@ export class SettingsNav {
   render(t) {
     const { page, context, overlay } = props();
     const done = () => closeSettingsDialog(overlay);
-    const entry = (key, label, indent = false) => Button(`settings-nav-${key.replace(/\W/g, '-')}`, t, { variant: 'ghost' })
-      .w_full().h(32).px(indent ? 24 : 10).justify_start()
-      .bg(page === key ? t.selected : t.popover).text_color(page === key ? t.foreground : t.muted)
-      .hover(el => el.bg(page === key ? t.selected : t.hover))
-      .accessibility_label(label)
-      .on_click(() => openSettings(key, context))
-      .child(div().min_w(0).truncate().child(label));
+    // Only the open page is selected. Each row's element id carries the overlay it is drawn in: the nav is reopened on every
+    // page switch, so a row's hover state must not carry over from the dialog before.
+    const entry = (key, label, indent = false) => {
+      const selected = page === key;
+      return Button(`settings-nav-${overlay ? `${overlay}-` : ''}${key.replace(/\W/g, '-')}`, t, { variant: 'ghost' })
+        .w_full().h(32).px(indent ? 24 : 10).justify_start()
+        .bg(selected ? t.selected : t.popover).text_color(selected ? t.foreground : t.muted)
+        .hover(el => el.bg(selected ? t.selected : t.hover))
+        .accessibility_label(label)
+        .on_click(() => openSettings(key, context))
+        .child(div().min_w(0).truncate().child(label));
+    };
     const extensions = extensionSettingsPages();
     // design.md, Separators: a 1px divider between Workspace, Extensions and Herdr settings.
     const divider = () => div().h(1).flex_none().my(6).bg(t.border);
