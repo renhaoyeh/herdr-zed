@@ -14,7 +14,7 @@ Devkits layout or its mods.
 
 | Layer | Mods (working names) | Owns | May depend on |
 | --- | --- | --- | --- |
-| **Shell** | `herdr-zed` | Projects/workspace, threads and sidebar history, Files, Git (changes, history, graph, repository commit author), central previews and editor tabs, project layout memory, panes, focus, Settings dialog (General, Git, Extensions pages and the extension pages they host), extension registry/catalog, launch-event intake | Herdr native API and shared components only |
+| **Shell** | `herdr-zed` | Projects/workspace, threads and sidebar history, Files, Git (changes, history, graph, repository commit author), central previews and editor tabs, project layout memory, panes, focus, Settings preferences, standalone launcher and Extensions management dialogs, extension registry/catalog, launch-event intake | Herdr native API and shared components only |
 | **Agent Runtime** | `herdr-zed-agents` (Agents + Usage merged) | Accounts and sign-in, Profiles, Auto selection, Rules/Guide, Shared MCP, launch preparation, quota readers, usage details/statistics, Claude status-line recorder | Shell contracts |
 | **Work** | `herdr-zed-tasks`, `herdr-zed-calendar` | Tasks: records, policies, drafts, progress/evidence, board, execution preparation, Tasks MCP. Calendar: events and views, independent mod, reads only the Tasks read model | Shell contracts; Agent Runtime public client (Tasks only); Calendar → Tasks read model |
 | **Integrations** | `herdr-zed-asana`, `herdr-zed-mantisbt`, `herdr-zed-github` | Asana/MantisBT: source browsers, connections, REST/API layers, read-only historical task reader; deliver selections to an importer. GitHub: gh CLI account discovery, per-repository account choice, remembered account authors, credential configuration for the shell's Git commands | Shell contracts; the `importer` contract (never Tasks code) |
@@ -75,13 +75,21 @@ the tests change in the same commit. Unknown keys inside `provides`, surfaces an
   failed or disabled; disabling a required extension shows which dependents become unavailable. Calendar
   declares `requires: ["tasks"]`; Asana and MantisBT do **not** require Tasks (import is optional, §2.2.3).
 - `settings` (optional, `{ view, title, pages? }`, these keys only): the package's page in the shell's Settings dialog. The
-  shell opens `view` embedded beside the Settings nav, with `{ view, embedded: true, page, context }` (the current project,
-  or null; `page` is the sub-page ID, or null for the entry itself); `title` is its nav label. `pages` (optional, 1–12
+  shell opens `view` embedded in its configuration dialog, with `{ view, embedded: true, page, context }` (the current project,
+  or null; `page` is the sub-page ID, or null for an extension without sub-pages); `title` is its configuration title. `pages` (optional, 1–12
   entries, each exactly `{ id, title }`, ids `[a-z][a-z0-9-]*` and unique within the package, titles non-blank) are
-  sub-items listed indented under the entry, in declaration order. Unknown keys in `settings` or a page are rejected. The page is listed only
+  tabs inside the extension's configuration page, in declaration order; the first is selected when opening the extension.
+  Unknown keys in `settings` or a page are rejected. Its Configure entry in the Extensions overview is available only
   while the package is enabled, error-free and available. Settings opens from the header gear, from the Extensions
   page, or from the provider's own panel with the shell command `herdr-zed.settings:<extension id>` or
   `herdr-zed.settings:<extension id>:<page id>`. The provider never gets a reply and never renders the nav or the frame.
+- The launcher provider's configuration (Agents) is a standalone workflow dialog, reached directly from the main header; it is
+  excluded from the optional Extensions manager and has no enable switch. This follows `provides.launcher`, not a mod name.
+  The Extensions overview and tool configuration are also independent dialogs without the main preferences nav. The shell
+  replaces the current management dialog on navigation, keeping one modal open at a time.
+- Agents, Extensions and Settings have independent main-header buttons. The Settings nav contains preferences only.
+  Repository commit identity opens from Changes into the shell's contextual author editor, using the selected repository
+  and machine captured at open time; it is not a general preference.
 - `platforms` (optional, non-empty, unique subset of `macos`, `windows`, `linux`; absent means every platform): compared
   with `window().platform`. A package for another platform contributes nothing (no actions, surfaces, services,
   settings or provides), is never active, and the Extensions page shows "Not available on this platform" with no

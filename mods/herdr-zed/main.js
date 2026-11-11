@@ -14,6 +14,7 @@ import { startPanel } from './start-panel.js';
 import { threadArchive, historyEligible } from './thread-archive.js';
 import { startThreadResume } from './thread-resume.js';
 import { SettingsNav, SettingsPage, SettingsHeader, openSettings, settingsPageKey } from './settings.js';
+import { GitAuthorDialog } from './git-author-settings.js';
 import { ExtensionSlot, ExtensionSurfaceSlot, refreshExtensions, openExtension, extensionCatalog, openGitAction, activeLauncher, publishWorkspaceRect, recordSize, WORK_WIDTH_KEY, SIDEBAR_HEIGHT_KEY, closeWorkspacePanel, visibleSurfaceCount, syncExtensionLayout } from './extensions.js';
 import { pollLaunchIntake } from './launch-intake.js';
 import { readNewTerminalCommand } from './components/extension-contract.js';
@@ -76,6 +77,7 @@ export default class HerdrZed extends View {
     if (view === 'settings-nav') { this.settingsNav = new SettingsNav(); return; }
     if (view === 'settings-header') { this.settingsHeader = new SettingsHeader(); return; }
     if (view === 'settings-page') { this.settingsPage = new SettingsPage(); this.settingsPage.init(cx); return; }
+    if (view === 'commit-author') { this.authorDialog = new GitAuthorDialog(); this.authorDialog.init(cx); return; }
     if (view === 'status-tools') { clearGitToast(); setShared('herdr-zed.git-output-request', null); return; }
     if (view === 'pane') { this.threadMenu = new DropdownMenuState(cx); return; }
     if (view === 'file-menu') { this.fileMenu = new FileMenu(); this.fileMenu.init(cx); return; }
@@ -379,6 +381,7 @@ export default class HerdrZed extends View {
 
   async close() {
     this.settingsPage?.close();
+    this.authorDialog?.close();
     if (this.editor) this.editor.close(); else this.files?.close();
     this.diff?.close();
   }
@@ -386,6 +389,8 @@ export default class HerdrZed extends View {
   header(t) {
     const space = this.projects().find(s => s.active);
     const win = window();
+    const catalog = extensionCatalog();
+    const workflow = catalog.resolved?.settings?.find(entry => entry.mod === catalog.resolved?.launcher?.mod);
     const root = layout(), sidebar = root?.children?.find(node => node.id === 'sidebar');
     const inset = win?.platform === 'macos' && !win.fullscreen && sidebar?.hidden
       ? (root.traffic_lights[0] + 64) / settings().zoom : 12;
@@ -409,6 +414,14 @@ export default class HerdrZed extends View {
       .child(h_flex().flex_1().min_w(0).h_full().items_center().justify_center()
         )
       .child(h_flex().flex_1().min_w(0).h_full().items_center().justify_end()
+        .when(Boolean(workflow), el => el.child(ToolbarButton('header-agents', t, { icon: true }).h_full()
+          .tooltip(workflow.title).accessibility_label(workflow.title)
+          .on_click(() => openSettings(settingsPageKey(workflow.id), this.projects().find(project => project.active)))
+          .child(glyph('agent', TOOLBAR_GLYPH))))
+        .child(ToolbarButton('header-extensions', t, { icon: true }).h_full()
+          .tooltip('Extensions').accessibility_label('Extensions')
+          .on_click(() => openSettings('extensions', this.projects().find(project => project.active)))
+          .child(glyph('extensions', TOOLBAR_GLYPH)))
         .child(ToolbarButton('settings', t, { icon: true }).h_full()
           .tooltip('Settings').accessibility_label('Settings')
           .on_click(() => openSettings('general', this.projects().find(project => project.active))).child(glyph('gear', TOOLBAR_GLYPH)))
@@ -657,6 +670,7 @@ export default class HerdrZed extends View {
     if (props()?.view === 'settings-nav') return this.settingsNav.render(t);
     if (props()?.view === 'settings-header') return this.settingsHeader.render(t);
     if (props()?.view === 'settings-page') return this.settingsPage.render(t);
+    if (props()?.view === 'commit-author') return this.authorDialog.render(t);
     if (props()?.view === 'launcher') return this.launcher.render(t);
     if (props()?.view === 'file-menu') return this.fileMenu.render();
     if (props()?.view === 'editor') {

@@ -7,17 +7,17 @@ import { Switch } from './components/switch.js';
 import { ToggleGroup, ToggleGroupItem } from './components/toggle-group.js';
 import { DialogTitle, DialogDescription } from './components/dialog.js';
 import { AUTO_RESUME_KEY } from './thread-identity.js';
-import { extensionCatalog, closeWorkspacePanel } from './extensions.js';
+import { extensionCatalog, closeWorkspacePanel, extensionEnabled, setExtensionEnabled } from './extensions.js';
 import { BuildRulesSettings } from './diff-ignore-settings.js';
-import { GitAuthorSettings } from './git-author-settings.js';
 import { ExtensionsManager } from './extensions-manager.js';
 
-// The one Settings dialog (ARCHITECTURE §2.1): a nav column and a page in one layout. Switching pages reopens it.
+// Shell-owned management dialogs (ARCHITECTURE §2.1). Preferences, the launcher workflow and Extensions have distinct
+// layouts; opening a destination replaces the current management dialog instead of stacking another one.
 export const SETTINGS_OVERLAY = 'herdr-zed.settings.overlay';
 const SHELL_PAGES = [
-  { key: 'general', title: 'General', description: 'Herdr-zed behavior. Changes apply immediately.' },
-  { key: 'git', title: 'Git', description: 'Changes filters, and the commit author of the repository in view.' },
-  { key: 'extensions', title: 'Manage extensions', description: 'Manage installed workspace extensions. Changes apply immediately.' },
+  { key: 'general', title: 'General', description: 'Preferences for threads, files and Changes. Changes save automatically.' },
+  { key: 'git', title: 'Git', description: 'Display rules for Changes across all projects. Commit identity is configured in Changes.' },
+  { key: 'extensions', title: 'Extensions', description: 'Choose what appears in your workspace. Open tools from the main window.' },
 ];
 
 // Extension pages are keyed `extension:<id>`, so an extension ID can never shadow a shell page. A sub-page (ARCHITECTURE
@@ -32,8 +32,7 @@ export const settingsPageKey = id => {
   return page === undefined ? extensionPageKey(extension) : extensionPageKey(extension, page);
 };
 
-// Eligible extension pages only: the catalog's resolved list holds enabled, error-free, available packages that declare
-// `settings`. Each entry is followed by its sub-pages (`indent`), in declaration order.
+// Eligible configuration pages from declared settings. `indent` identifies a sub-page; the UI draws these as contextual tabs.
 export const extensionSettingsPages = () => (extensionCatalog().resolved?.settings || []).flatMap(entry => [
   { key: extensionPageKey(entry.id), title: entry.title, mod: entry.mod, view: entry.view, page: null, indent: false },
   ...(entry.pages || []).map(page => ({ key: extensionPageKey(entry.id, page.id), title: page.title, mod: entry.mod,
@@ -47,23 +46,28 @@ export function settingsPage(key) {
   return extensionSettingsPages().find(page => page.key === key) || null;
 }
 
+// A launcher is the workspace's agent workflow, not an optional tool in the Extensions manager.
+// The declared capability determines this; the shell does not name a provider.
+export const launcherSettingsPage = page => Boolean(page?.mod && extensionCatalog().resolved?.launcher?.mod === page.mod);
+
 // The project a Settings page is about, captured when the dialog opens (as extension popups capture theirs).
 export const settingsContext = project => project
   ? { id: project.id, folder: project.folder, name: project.name, machine: project.machine || null } : null;
 
-// Layout of the dialog: the nav block (shell props only) beside the page column. The column is a title bar with the
-// one close control, then the page. Shell pages are the shell's own views; extension pages are the provider's settings
-// view, embedded so it draws no frame, title or close button of its own.
+// Preferences include their main nav; workflow and extension configuration have dedicated dialogs. All use one shell-owned
+// border and header, with providers embedded without another frame, title or close button.
 export function settingsOverlay(key, context) {
   const page = settingsPage(key);
   const content = page.shell
     ? { mod: 'herdr-zed', props: { view: 'settings-page', page: key, context } }
     : { mod: page.mod, props: { view: page.view, embedded: true, page: page.page, context } };
+  const subpages = page.shell ? [] : extensionSettingsPages().filter(item => item.mod === page.mod && item.indent);
+  const preferences = page.shell && key !== 'extensions';
   return { kind: 'dialog', modal: true, frame: 'none', width: 1040, height: 0.86,
-    layout: { type: 'row', children: [
-      { type: 'block', size: { px: 220 }, content: { mod: 'herdr-zed', props: { view: 'settings-nav', page: key, context } } },
-      { type: 'column', background: 'popover', children: [
-        { type: 'block', size: { px: 32 }, content: { mod: 'herdr-zed', props: { view: 'settings-header', page: key } } },
+    layout: { type: 'row', resizable: false, background: 'border', padding: 1, children: [
+      ...(preferences ? [{ type: 'block', size: { px: 220 }, content: { mod: 'herdr-zed', props: { view: 'settings-nav', page: key, context } } }] : []),
+      { type: 'column', resizable: false, background: 'popover', children: [
+        { type: 'block', size: { px: page.shell ? 64 : subpages.length ? 144 : 96 }, content: { mod: 'herdr-zed', props: { view: 'settings-header', page: key, context } } },
         { type: 'block', content },
       ] },
     ] } };
@@ -81,6 +85,10 @@ export function openSettings(key, project = null) {
     notify({ title: 'Settings unavailable', body: 'That extension is not installed, enabled or available.', level: 'warning' });
     return null;
   }
+  const page = settingsPage(key);
+  if (!page.shell && !page.indent) {
+    key = extensionSettingsPages().find(item => item.mod === page.mod && item.indent)?.key || key;
+  }
   closeWorkspacePanel();
   const previous = shared(SETTINGS_OVERLAY);
   setShared(SETTINGS_OVERLAY, null);
@@ -96,51 +104,65 @@ function closeSettingsDialog(overlay) {
   closeQuietly(id);
 }
 
-const heading = (t, label) => div().px(10).pt(14).pb(4).text_size(11).text_color(t.muted).child(label);
-
-// Left column: Workspace pages, eligible extension pages, then Herdr settings. Esc and the header X close the dialog.
+// Preferences stay here; launcher configuration and extension management open their own dialogs.
 export class SettingsNav {
   render(t) {
     const { page, context, overlay } = props();
     const done = () => closeSettingsDialog(overlay);
     // Only the open page is selected. Each row's element id carries the overlay it is drawn in: the nav is reopened on every
     // page switch, so a row's hover state must not carry over from the dialog before.
-    const entry = (key, label, indent = false) => {
+    const entry = (key, label) => {
       const selected = page === key;
       return Button(`settings-nav-${overlay ? `${overlay}-` : ''}${key.replace(/\W/g, '-')}`, t, { variant: 'ghost' })
-        .w_full().h(32).px(indent ? 24 : 10).justify_start()
-        .bg(selected ? t.selected : t.popover).text_color(selected ? t.foreground : t.muted)
+        .w_full().h(36).px(12).justify_start()
+        .bg(selected ? t.selected : t.chrome).text_color(selected ? t.foreground : t.muted)
         .hover(el => el.bg(selected ? t.selected : t.hover))
         .accessibility_label(label)
-        .on_click(() => openSettings(key, context))
+        .on_click(() => { if (page !== key) openSettings(key, context); })
         .child(div().min_w(0).truncate().child(label));
     };
-    const extensions = extensionSettingsPages();
-    // design.md, Separators: a 1px divider between Workspace, Extensions and Herdr settings.
     const divider = () => div().h(1).flex_none().my(6).bg(t.border);
-    return v_flex().size_full().min_h(0).p(12).gap(2).bg(t.popover).border(1).border_color(t.border)
+    return v_flex().size_full().min_h(0).p(16).gap(4).bg(t.chrome).border_r(1).border_color(t.border)
       .on_key_down((event, cx) => { if (event.key === 'escape') { cx.stop_propagation(); done(); } })
-      .child(DialogTitle().flex_none().px(10).pt(4).pb(8).child('Settings'))
-      .child(heading(t, 'Workspace'))
-      .children(SHELL_PAGES.map(item => entry(item.key, item.title)))
-      .when(extensions.length > 0, el => el.child(divider()).child(heading(t, 'Extensions'))
-        .children(extensions.map(item => entry(item.key, item.title, item.indent))))
+      .child(DialogTitle().flex_none().px(12).pt(4).pb(20).child('Settings'))
+      .children(SHELL_PAGES.filter(item => item.key !== 'extensions').map(item => entry(item.key, item.title)))
       .child(div().flex_1())
       .child(divider())
-      .child(Button('settings-herdr', t, { variant: 'ghost' }).w_full().h(32).px(10).justify_start().text_color(t.muted)
-        .on_click(() => { run('app.settings'); done(); }).child('Herdr settings…'));
+      .child(Button('settings-herdr', t, { variant: 'ghost' }).w_full().h(36).px(12).justify_start().text_color(t.muted)
+        .on_click(() => { run('app.settings'); done(); }).child('App settings…'))
+      .child(div().px(12).text_size(11).text_color(t.muted).child('Appearance, keyboard & terminals'));
   }
 }
 
 // The title bar above every Settings page, shell or extension: the page's title and the one close control.
 export class SettingsHeader {
   render(t) {
-    const { page, overlay } = props();
-    return h_flex().size_full().min_w(0).px(24).gap(12).items_center().bg(t.popover).text_color(t.foreground)
-      .border_t(1).border_r(1).border_b(1).border_color(t.border)
-      .child(div().flex_1().min_w(0).truncate().font_family('Georgia').text_size(16).child(settingsPage(page)?.title || 'Settings'))
-      .child(ToolbarButton('settings-close', t, { icon: true }).accessibility_label('Close settings')
-        .on_click(() => closeSettingsDialog(overlay)).child(glyph('close', 14)));
+    const { page, overlay, context } = props();
+    const current = settingsPage(page), extension = current && !current.shell;
+    const standalone = launcherSettingsPage(current);
+    const root = extension ? extensionSettingsPages().find(item => item.mod === current.mod && !item.indent) : null;
+    const entry = extension ? extensionCatalog().packages?.find(item => item.mod === current.mod) : null;
+    const subpages = extension ? extensionSettingsPages().filter(item => item.mod === current.mod && item.indent) : [];
+    return v_flex().size_full().min_w(0).px(24).pt(extension ? 12 : 16).gap(8).bg(t.popover).text_color(t.foreground)
+      .border_b(1).border_color(t.border)
+      .child(h_flex().h(32).flex_none().gap(12).items_center()
+        .when(extension && !standalone, el => el.child(ToolbarButton('settings-back', t, { icon: true }).tooltip('Back to extensions')
+          .accessibility_label('Back to extensions').on_click(() => openSettings('extensions', context)).child(glyph('chevron-left', 16))))
+        .child(div().flex_1().min_w(0).truncate().font_family('Georgia').text_size(22).child(root?.title || current?.title || 'Settings'))
+        .child(ToolbarButton('settings-close', t, { icon: true }).tooltip('Close settings').accessibility_label('Close settings')
+          .on_click(() => closeSettingsDialog(overlay)).child(glyph('close', 16))))
+      .when(Boolean(entry), el => el.child(h_flex().h(28).flex_none().gap(20).items_center()
+        .when(!standalone, row => row.child(h_flex().gap(8).items_center().child(Switch(`settings-enable-${entry.mod}`, extensionEnabled(entry.mod), t)
+          .accessibility_label(`${entry.title} enabled`).on_change((checked, cx) => {
+            setExtensionEnabled(entry.mod, checked);
+            if (!checked) openSettings('extensions', context);
+            cx.notify();
+          })).child(div().text_size(12).child('Enabled'))))
+        .child(new ExtensionsManager().controls(entry, t))))
+      .when(subpages.length > 0, el => el.child(h_flex().h(36).flex_none().gap(4).items_center()
+        .children(subpages.map(item => Button(`settings-subpage-${item.key}`, t, { variant: 'ghost' }).h(30).px(10)
+          .bg(page === item.key ? t.selected : t.popover).text_color(page === item.key ? t.foreground : t.muted)
+          .accessibility_label(item.title).on_click(() => { if (page !== item.key) openSettings(item.key, context); }).child(item.title)))));
   }
 }
 
@@ -163,12 +185,14 @@ export class SettingsPage {
     this.page = page;
     if (page === 'git') {
       this.rules = new BuildRulesSettings(); this.rules.init(cx);
-      if (context?.folder) { this.author = new GitAuthorSettings({ folder: context.folder, machine: context.machine || null }); this.author.init(cx); }
     }
-    if (page === 'extensions') { this.extensions = new ExtensionsManager(); this.extensions.init(cx); }
+    if (page === 'extensions') {
+      this.extensions = new ExtensionsManager({ openSettings: id => openSettings(extensionPageKey(id), context) });
+      this.extensions.init(cx);
+    }
   }
 
-  close() { this.rules?.close(); this.author?.close(); }
+  close() { this.rules?.close(); }
 
   general(t) {
     const split = shared('herdr-zed.diff-layout') === 'split';
@@ -193,11 +217,8 @@ export class SettingsPage {
 
   git(t) {
     return v_flex().flex_1().min_h(0).gap(24)
-      .child(section(t, 'Filter rules', 'Hide matching untracked files in Changes; tracked changes always stay visible. Custom applies last, so !exceptions override templates.',
-        this.rules.render(t)).flex_1())
-      .child(section(t, 'Commit author', 'Set the name and email for future commits in this repository. Existing commits stay unchanged.',
-        this.author ? this.author.render(t)
-          : div().text_size(12).text_color(t.muted).child('Open a project to set the commit author of its repository.')));
+      .child(section(t, 'Display filters · All projects', 'Hide matching untracked files in Changes. These rules affect the display; they do not change your .gitignore. Save to apply.',
+        this.rules.render(t)).flex_1());
   }
 
   render(t) {
@@ -205,7 +226,6 @@ export class SettingsPage {
     if (!page) return div().size_full().bg(t.popover);
     const body = this.page === 'general' ? this.general(t) : this.page === 'git' ? this.git(t) : this.extensions.render(t);
     return v_flex().size_full().min_w(0).min_h(0).p(24).gap(20).bg(t.popover).text_color(t.foreground)
-      .border_r(1).border_b(1).border_color(t.border)
       .child(DialogDescription(t).flex_none().child(page.description))
       .child(body);
   }

@@ -570,6 +570,7 @@ test('split button menu exposes Git operations, counts and keyboard navigation w
   };
   const { DiffViewer, showGitToast } = await load({ div: element, svg: element, v_flex: element, h_flex: element,
     openSettings: (key, project) => actions.push(['settings', key, project]),
+    openGitAuthor: project => actions.push(['author', project]),
     Button: id => element().id(id), ToolbarButton: id => element().id(id), Popup: { new: id => element().id(id) },
     Empty: element, EmptyDescription: element, theme: () => ({}), settings: () => ({}),
     shared: key => key === 'herdr-zed.git-accounts' ? accountSettings : memory[key],
@@ -662,7 +663,7 @@ test('split button menu exposes Git operations, counts and keyboard navigation w
   view.pushFooter({});
   // The shell's menu keeps Commit author; GitHub account comes from the git.actions catalog (see git-actions tests).
   nodes.get('diff-git-actions-commit-author').click({}, cx);
-  assert.deepEqual(actions.at(-1), ['settings', 'git', view.context]);
+  assert.deepEqual(actions.at(-1), ['author', view.context]);
   assert.equal(accountSettings, undefined, 'Opening the commit author does not change any account');
 });
 

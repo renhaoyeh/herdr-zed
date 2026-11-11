@@ -3,9 +3,30 @@ import { div } from 'gpui-kit';
 import { InputState, h_flex, v_flex } from 'gpui-base';
 import { Button } from './components/button.js';
 import { readGitAuthor, saveGitAuthor } from './git-author.js';
+import { openOverlay, closeOverlay, props } from 'herdr';
+import { DialogContent, DialogHeader, DialogDescription } from './components/dialog.js';
 
-// The repository's commit author, embedded in the Settings dialog's Git page (settings.js). Provider accounts
-// (GitHub) live in their own extension dialogs. `target` is { folder, machine } of the repository.
+// Changes opens this editor for its selected repository. The captured context never follows later project switches.
+export function openGitAuthor(project) {
+  if (!project?.folder || project.allRepositories) return null;
+  return openOverlay({ mod: 'herdr-zed', kind: 'dialog', frame: 'none', modal: true, width: 760, height: 400,
+    props: { view: 'commit-author', context: { folder: project.folder, machine: project.machine || null, name: project.name || project.folder } } });
+}
+
+export class GitAuthorDialog {
+  init(cx) { this.target = props(); this.form = new GitAuthorSettings(this.target.context); this.form.init(cx); }
+  close() { this.form.close(); }
+  render(t) {
+    return DialogContent('commit-author', t)
+      .child(DialogHeader(t, 'Commit author', { id: 'commit-author-close', label: 'Close commit author',
+        onClose: () => closeOverlay(this.target.overlay) }))
+      .child(DialogDescription(t).child('Name and email for future commits in this repository. Save to apply.'))
+      .child(div().text_size(12).text_color(t.muted).truncate().child(this.target.context.folder))
+      .child(this.form.render(t));
+  }
+}
+
+// Repository-local identity form. Provider accounts (GitHub) have their own configuration.
 export class GitAuthorSettings {
   constructor(target) { this.target = target; }
 

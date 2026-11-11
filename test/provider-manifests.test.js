@@ -22,11 +22,11 @@ test('working panels open over the work area; Simulator uses its dock entry only
   assert.deepEqual(parseExtensionManifest('herdr-zed-system', await load('system')), []);
 });
 
-test('Agents Settings declares its six pages in the order the Settings nav lists them, each with a title', async () => {
+test('Agents Settings declares its six contextual tabs in order with distinct titles', async () => {
   const { settings } = extensionMetadata('herdr-zed-agents', await load('agents'));
   assert.equal(settings.view, 'manage-launchers');
   assert.deepEqual(settings.pages, [
-    { id: 'accounts', title: 'Accounts' }, { id: 'agents', title: 'Agents' }, { id: 'profiles', title: 'Profiles' },
+    { id: 'accounts', title: 'Accounts' }, { id: 'agents', title: 'Launch menu' }, { id: 'profiles', title: 'Profiles' },
     { id: 'global-rules', title: 'Global Rules' }, { id: 'capabilities', title: 'Capabilities' }, { id: 'ecc', title: 'ECC' },
   ]);
 });

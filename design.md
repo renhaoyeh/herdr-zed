@@ -5,13 +5,21 @@ titles). Where they conflict, this file wins.
 
 ## Settings
 
-- There is one Settings dialog, opened from the header gear (and `herdr-zed.settings`). Layout: 220px nav on
-  the left, the page on the right under a 32px title bar with an X, 1040×0.86, modal. No Done buttons anywhere.
-- Nav sections: **Workspace** (General, Git, Manage extensions) and **Extensions** (one page per enabled extension
-  that declares `settings`). "Herdr settings…" at the bottom opens Herdr's native settings.
-- Extensions never open their own settings dialogs. They declare `settings: { view, title }` and deep-link
-  with `run('herdr-zed.settings:<extension id>')`. A page may declare sub-pages (`pages`), listed indented under
-  its entry and deep-linked with `herdr-zed.settings:<extension id>:<page id>`. An embedded settings view draws no frame, close button
+- The main window header has independent Agents, Extensions and Settings buttons. Settings opens from its gear
+  (and `herdr-zed.settings`), with a fixed 220px nav and General/Git preferences. It has no Agents/Extensions links.
+  "App settings…" opens Herdr's appearance, keyboard and terminal settings. One management dialog is open
+  at a time: navigating replaces it, rather than stacking another modal.
+- Management dialogs are 1040×0.86 and modal, with one shell-owned 1px outer border, a 64px title bar and an X. No Done buttons.
+- Extensions manages optional tools: enable switches, display location switches and Configure links. The launcher workflow
+  is excluded: Agents has its own dialog with account/launch/rules tabs and display preferences, without an enable switch.
+  The shell identifies launcher workflows by their declared capability, without provider-specific branches.
+- Tools themselves open from the main window's status bar, sidebar or dock. An extension's configuration has a back button
+  to the Extensions manager, enable/display controls and contextual tabs. Its header is 96px, or 144px with tabs. The first
+  declared sub-page is selected on entry. Git preferences contain all-project display filters; Commit author opens from
+  the Changes Git menu as a repository-scoped 760×400 form, with its own Save and close control.
+- Providers never create the management dialogs themselves. They declare `settings: { view, title }` and deep-link
+  with `run('herdr-zed.settings:<extension id>')`. A page may declare sub-pages (`pages`), listed as tabs inside
+  its detail page and deep-linked with `herdr-zed.settings:<extension id>:<page id>`. An embedded settings view draws no frame, close button
   or Done footer.
 - No settings entries in thread menus or the status bar.
 
@@ -37,7 +45,7 @@ titles). Where they conflict, this file wins.
 
 - 1px `border`-colored dividers separate distinct groups: in the sidebar between the thread list, optional
   extension surfaces and the bottom history row (always the last row); in the Settings nav between
-  Workspace, Extensions and "Herdr settings…".
+  preferences and the "App settings…" link.
 - No dividers inside a group; spacing alone separates items of the same kind.
 - Workspace panels start after the sidebar divider, inside the work column, and leave the layout's divider visible.
 

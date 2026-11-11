@@ -7,7 +7,7 @@
     "title": "Agents",
     "pages": [
       { "id": "accounts", "title": "Accounts" },
-      { "id": "agents", "title": "Agents" },
+      { "id": "agents", "title": "Launch menu" },
       { "id": "profiles", "title": "Profiles" },
       { "id": "global-rules", "title": "Global Rules" },
       { "id": "capabilities", "title": "Capabilities" },

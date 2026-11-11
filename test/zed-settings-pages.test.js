@@ -75,26 +75,26 @@ test('a sub-page is keyed <extension>:<page> and deep-linkable, and the nav list
   assert.deepEqual(s.extensionSettingsPages().map(page => [page.key, page.indent, page.page]), [
     ['extension:agents', false, null], ['extension:agents:accounts', true, 'accounts'], ['extension:agents:profiles', true, 'profiles']]);
   const overlay = s.settingsOverlay('extension:agents:profiles', null);
-  assert.deepEqual(overlay.layout.children[1].children[1].content, { mod: 'herdr-zed-agents',
+  assert.deepEqual(overlay.layout.children[0].children[1].content, { mod: 'herdr-zed-agents',
     props: { view: 'manage', embedded: true, page: 'profiles', context: null } });
 });
 
-test('the nav indents sub-items and draws 1px dividers between Workspace, Extensions and Herdr settings', async () => {
+test('extension destinations and sub-pages stay out of the preferences nav', async () => {
   const settings = [{ mod: 'herdr-zed-agents', id: 'agents', view: 'manage', title: 'Agents', pages }];
   const s = await settingsHost(settings, { page: 'extension:agents:profiles' });
   const nav = new s.SettingsNav().render(theme);
-  assert.equal(byId(nav, 'settings-nav-extension-agents').__attrs.px, 10, 'the entry sits at the Workspace indent');
-  assert.equal(byId(nav, 'settings-nav-extension-agents-profiles').__attrs.px, 24, 'a sub-item is indented');
-  assert.equal(byId(nav, 'settings-nav-extension-agents-profiles').__attrs.bg, 'SELECTED', 'the current page is selected');
+  assert.equal(byId(nav, 'settings-nav-extension-agents'), null);
+  assert.equal(byId(nav, 'settings-nav-extension-agents-profiles'), null);
+  assert.equal(byId(nav, 'settings-nav-extensions'), null);
   const dividers = all(nav).filter(node => node.__attrs.h === 1 && node.__attrs.bg === theme.border);
-  assert.equal(dividers.length, 2, 'Workspace | Extensions and Extensions | Herdr settings');
-  assert.ok(strings(nav).includes('Herdr settings…'));
+  assert.equal(dividers.length, 1, 'preferences are separated from app settings');
+  assert.ok(strings(nav).includes('App settings…'));
 });
 
 test('without Settings pages the nav keeps Workspace and Herdr settings, divided once', async () => {
   const s = await settingsHost([]);
   const nav = new s.SettingsNav().render(theme);
-  assert.equal(all(nav).filter(node => node.__attrs.h === 1 && node.__attrs.bg === theme.border).length, 1, 'only Workspace | Herdr settings');
+  assert.equal(all(nav).filter(node => node.__attrs.h === 1 && node.__attrs.bg === theme.border).length, 1);
   assert.equal(all(nav).filter(node => node.__id?.startsWith('settings-nav-extension-')).length, 0);
 });
 
@@ -155,14 +155,36 @@ test('a switch change goes through the shell, and an unsupported package has no 
   assert.deepEqual(m.changes, [['enabled', 'herdr-zed-system', false], ['surface', 'widgets', false]]);
 });
 
+test('the extension overview opens configuration only for an available settings contribution', async () => {
+  const packages = [{ mod: 'herdr-zed-demo', id: 'demo', title: 'Demo', surfaces: [] },
+    { mod: 'herdr-zed-plain', id: 'plain', title: 'Plain', surfaces: [] }];
+  const catalog = catalogWith(packages, { settings: [{ mod: 'herdr-zed-demo', id: 'demo' }] });
+  const m = await managerHost(catalog), opened = [];
+  const page = new m.ExtensionsManager({ openSettings: id => opened.push(id) }).render(theme);
+  byId(page, 'extension-settings-demo').__handlers.on_click();
+  assert.deepEqual(opened, ['demo']);
+  assert.equal(byId(page, 'extension-settings-plain'), null);
+});
+
+test('launcher workflows are managed separately from the optional extensions list', async () => {
+  const packages = [{ mod: 'herdr-zed-workflow', id: 'workflow', title: 'Workflows', provides: { launcher: {} }, surfaces: [] },
+    { mod: 'herdr-zed-calendar', id: 'calendar', title: 'Calendar', surfaces: [] }];
+  const m = await managerHost(catalogWith(packages));
+  const page = new m.ExtensionsManager().render(theme);
+  assert.equal(byId(page, 'extension-toggle-herdr-zed-workflow'), null);
+  assert.ok(byId(page, 'extension-toggle-herdr-zed-calendar'));
+  assert.ok(strings(page).some(text => text.startsWith('1 installed')));
+  assert.ok(!strings(page).includes('Workflows'));
+});
+
 test('only the open page is selected in the nav, whichever sub-page or extension is open', async () => {
   const settings = [{ mod: 'herdr-zed-agents', id: 'agents', view: 'manage', title: 'Agents', pages }, { mod: 'herdr-zed-github', id: 'github', view: 'settings', title: 'GitHub' }];
-  for (const page of ['git', 'extension:agents', 'extension:agents:accounts', 'extension:github']) {
+  for (const page of ['general', 'git']) {
     const s = await settingsHost(settings, { page });
     const nav = new s.SettingsNav().render(theme);
     const selected = all(nav).filter(node => node.__attrs.bg === 'SELECTED' && node.__id?.startsWith('settings-nav-'));
     assert.equal(selected.length, 1, `one selected row for ${page}`);
-    assert.equal(selected[0].__attrs.accessibility_label, { git: 'Git', 'extension:agents': 'Agents', 'extension:agents:accounts': 'Accounts', 'extension:github': 'GitHub' }[page]);
+    assert.equal(selected[0].__attrs.accessibility_label, page === 'git' ? 'Git' : 'General');
     for (const node of all(nav).filter(node => node.__id?.startsWith('settings-nav-') && node !== selected[0]))
       assert.notEqual(node.__attrs.bg, 'SELECTED', node.__id);
   }

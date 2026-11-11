@@ -4,6 +4,7 @@ import { watchFolder, settings, theme, shared, setShared, notify } from 'herdr';
 import { execShell } from './shell.js';
 import { readBuildRules, withBuildRulesFile } from './diff-ignore.js';
 import { openSettings } from './settings.js';
+import { openGitAuthor } from './git-author-settings.js';
 import { utf8ByteLength } from './utf8.js';
 import { Button, ToolbarButton } from './components/button.js';
 import { DropdownMenu, DropdownMenuState } from './components/dropdown-menu.js';
@@ -875,10 +876,10 @@ export default class DiffViewer {
       { key: 'push-tags', label: 'Push Tags', description: 'All local tags', disabled: Boolean(this.pushUnavailable('push-tags')) },
       { key: 'force-push', label: 'Force Push (with lease)', disabled: pushUnavailable },
       ...providerActions,
-      { key: 'commit-author', label: 'Commit author…', separator: providerActions.length === 0, disabled: Boolean(this.pushing) },
+      { key: 'commit-author', label: 'Commit author…', separator: providerActions.length === 0, disabled: Boolean(this.pushing || this.allRepositories) },
     ];
     const choose = (key, cx) => {
-      if (key === 'commit-author') openSettings('git', this.context);
+      if (key === 'commit-author') openGitAuthor(this.context);
       else if (key.startsWith('ext:')) openGitAction(key.slice('ext:'.length), this.context);
       else if (key === 'back' || key === 'fetch-from' || key === 'push-to') {
         this.gitMenu.page = key === 'back' ? null : key === 'fetch-from' ? 'fetch' : 'push';

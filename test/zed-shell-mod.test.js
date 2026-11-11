@@ -96,10 +96,11 @@ test('native sidebar, pane menu, dock controls and empty editor render without e
     NativeLauncher: class {}, createNativeThread() {},
     GitAuthorSettings: class { init() {} render() { return ui(); } close() {} },
     ExtensionSurfaceSlot: () => null,
-    openSettings() {}, ExtensionSlot: () => null,
+    openSettings: (...args) => commands.push(['open-settings', ...args]), settingsPageKey: id => `extension:${id}`, ExtensionSlot: () => null,
     TOOLBAR_GLYPH: 16, ROW_GLYPH: 14, workspaceRectNow: () => null, publishWorkspaceRect() {}, recordSize() {}, WORK_WIDTH_KEY: 'herdr-zed.work-width',
     SIDEBAR_HEIGHT_KEY: 'herdr-zed.sidebar-height', closeWorkspacePanel() {}, visibleSurfaceCount: () => 0, syncExtensionLayout() {},
-    extensionCatalog: () => ({ ready: true, actions: [], packages: [], errors: [], resolved: { decorators: [] } }), openGitAction() {},
+    extensionCatalog: () => ({ ready: true, actions: [], packages: [], errors: [], resolved: { decorators: [],
+      launcher: { mod: 'herdr-zed-workflow' }, settings: [{ mod: 'herdr-zed-workflow', id: 'workflow', title: 'Workflow' }] } }), openGitAction() {},
   };
   for (const name of ['Button', 'ToolbarButton', 'Sidebar', 'SidebarContent', 'SidebarGroup', 'SidebarGroupLabel', 'SidebarMenuButton', 'SidebarTreeMenuButton', 'SidebarFooter',
     'DropdownMenu', 'DropdownMenuTrigger', 'DropdownMenuContent', 'DropdownMenuItem', 'DropdownMenuLabel', 'DropdownMenuSeparator',
@@ -123,6 +124,10 @@ test('native sidebar, pane menu, dock controls and empty editor render without e
   for (status of ['working', 'done', 'idle']) assert.doesNotThrow(() => view.render(cx));
   target = { view: 'pane', pane: 'p' }; view.init(null, cx); const pane = view.render(cx);
   target = { view: 'header' }; const header = view.render(cx);
+  elements(header).find(element => element.attributes.id === 'header-agents').click();
+  elements(header).find(element => element.attributes.id === 'header-extensions').click();
+  assert.deepEqual(commands.slice(-2).map(([name, page]) => [name, page]),
+    [['open-settings', 'extension:workflow'], ['open-settings', 'extensions']], 'main window buttons open the separate dialogs directly');
   target = { view: 'status' }; const left = view.render(cx);
   assert.ok(elements(left).some(element => element.attributes.id === 'open-conversation'), 'a real thread offers its toggle');
   const savedTabs = nativeSpaces[0].tabs;

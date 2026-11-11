@@ -6,8 +6,22 @@ import { join } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { gitShellCommand } from '../components/session-shell.js';
+import { evaluateNative } from './source-harness.js';
 
 const run = promisify(execFile);
+test('Changes opens an author editor bound to the selected repository, excluding aggregate views and private project fields', async () => {
+  const opened = [];
+  const { openGitAuthor } = await evaluateNative('../mods/herdr-zed/git-author-settings.js',
+    { openOverlay: spec => { opened.push(spec); return 'author'; } }, 'openGitAuthor');
+  const project = { folder: '/repo/selected', machine: 'remote', name: 'Selected', token: 'private' };
+  assert.equal(openGitAuthor(project), 'author');
+  assert.deepEqual(opened[0].props, { view: 'commit-author', context: { folder: '/repo/selected', machine: 'remote', name: 'Selected' } });
+  project.folder = '/other';
+  assert.equal(opened[0].props.context.folder, '/repo/selected');
+  assert.equal(openGitAuthor({ ...project, allRepositories: true }), null);
+  assert.equal(openGitAuthor(null), null);
+  assert.equal(opened.length, 1);
+});
 test('author dialog preserves failed drafts for retry and saves to its original repository', async () => {
   const target = { folder: '/repo', machine: 'remote', overlay: 'author-dialog' };
   const source = await readFile(new URL('../mods/herdr-zed/git-author-settings.js', import.meta.url), 'utf8');
