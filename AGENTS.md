@@ -10,6 +10,8 @@ The Devkits design and development rules still apply until they are brought into
 the devkits repository's `design.md` (Sera UI defaults, interaction rules) and `herdr/DEVELOPMENT.md`
 (native API references, smallest complete change, `theme()` tokens, native async/animation, checks).
 Where they mention the Devkits layout or `mods/devkits`, the rules below take precedence.
+This repository's [design.md](design.md) (Settings, status bar, dialog types, terms) overrides the devkits
+`design.md` where they differ; read it before UI changes.
 
 ## Source repository
 
