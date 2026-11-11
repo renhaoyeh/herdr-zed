@@ -1,6 +1,6 @@
 # herdr-zed Architecture
 
-Status: **phase 2 done** (shell moved with history, renamed, contract validators and type checking). Phases 3–4 pending.
+Status: **phase 3 done** (all providers ported with history and wired to the contracts). Phase 4 (installer, vendor/) pending; see Known gaps.
 Mod names below (`herdr-zed`, `herdr-zed-*`) are working names pending the naming decision in
 [Open questions](#open-questions).
 
@@ -296,8 +296,8 @@ No code reads both the old and new key; whichever is chosen is the only path.
    other. Also decide where conversation history, Git accounts/authors and Tasks/Calendar data live.
 2. **Name.** "Zed" is Zed Industries' product name and may cause confusion. The repo/mod/key prefix
    (`herdr-zed`) should be fixed before step 2, because it appears in mod names, shared keys and data paths.
-3. **Launcher settings entry.** In the thread title bar's ⋯ menu, or as the extension icon on the right
-   side of the status bar?
+3. **Launcher settings entry.** Implemented provisionally in the thread title bar ⋯ menu
+   (`<launcher title> settings…`). Confirm, or move it to the status bar.
 4. **Task-originated launches.** Adopted proposal (phase 3): Tasks calls `AgentClient.launch(…, { origin })`;
    the launcher adds optional `origin: { extension, ref }` to the launch request and the shell echoes it in
    `herdr-zed.threads`. Revisit if you prefer matching by tab appearance.
@@ -305,3 +305,18 @@ No code reads both the old and new key; whichever is chosen is the only path.
    fields), please confirm or correct.
 6. **Work layer wording.** The brief's Work line was partly garbled; this document assumes Tasks owns
    tasks and prompts, and Calendar is an independent mod that requires Tasks and reads only its read model.
+
+## Known gaps (after phase 3)
+
+- Git credentials are applied to network operations only (fetch, pull, push, push tags); local reads
+  (status, history, graph, files) run without the binding. §3.5 says every Git command; decide which is intended.
+- The Agents picker's Terminal row opens a tab itself and writes shell keys (`herdr-zed.conversation-visible`,
+  `herdr-zed.selected-project`), which breaks the layer rule. Move it to the shell.
+- A launcher whose service view is not mounted still counts as available (§3.6 says fall back to native).
+- `herdr-zed.launch.requests` take-and-clear can race with a provider append.
+- Tasks "Restore conversation" has no path yet (inline error only). Pending-profile/resume code in Tasks has
+  no writers and can be removed.
+- Asana/MantisBT tests still evaluate Tasks modules; `import-target.js` is duplicated in both integrations.
+- Pre-existing: `mcp-probe` stdio missing-command case fails on Windows (same in devkits); the hardware
+  symlink CLI test can time out under full-suite load.
+- `ecc-install` is skipped until vendor/ and the installer arrive (phase 4).
