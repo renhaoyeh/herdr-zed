@@ -28,6 +28,19 @@ const ui = (id = null) => {
 const elements = root => root && typeof root === 'object' && root.nodes ? [root, ...root.nodes.flatMap(elements)] : [];
 const text = root => root && typeof root === 'object' && root.nodes ? root.nodes.map(text).join(' ') : String(root ?? '');
 
+test('shell keeps original geometry and routes every view, including nested pane headers, to itself', async () => {
+  const shell = JSON.parse(await readFile(layoutSource, 'utf8'));
+  for (const id of ['sidebar', 'header', 'editor', 'status']) {
+    const after = objects(shell).find(node => node.id === id);
+    assert.ok(after, `${id} exists in the shell layout`); assert.ok(after.size, `${id} has native size`);
+  }
+  assert.deepEqual([...new Set(objects(shell).map(node => node.content?.mod).filter(Boolean))], ['herdr-zed']);
+  for (const node of objects(shell).filter(node => node.type === 'block')) assert.ok(node.content, `${node.id} needs native block content`);
+  assert.equal(objects(shell).some(node => ['tasks', 'simulator', 'agents-service', 'system-service', 'tasks-service', 'usage-service'].includes(node.id)), false);
+  const main = await readFile(new URL('../mods/herdr-zed/main.js', import.meta.url), 'utf8');
+  assert.doesNotMatch(main, /AgentClient|TaskHost|UsageClient|SystemMonitor|openAgentSettings|openCalendar|taskMode/);
+});
+
 test('native thread creation preserves the program command and remote target without provider state', async () => {
   const calls = [], memory = {}, current = [{ id: 'remote/s', machine: 'remote', tabs: [] }];
   const host = { spaces: () => current, shared: key => memory[key], setShared: (key, value) => { memory[key] = value; },
