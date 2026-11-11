@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 test('window toast centers across the viewport at any zoom and routes actions without taking focus', async () => {
-  const source = await readFile(new URL('../mods/devkits/git-result-toast.js', import.meta.url), 'utf8');
+  const source = await readFile(new URL('../mods/herdr-zed/git-result-toast.js', import.meta.url), 'utf8');
   const store = {}, nodes = new Map();
   let zoom = 1;
   const element = () => {
@@ -38,15 +38,15 @@ test('window toast centers across the viewport at any zoom and routes actions wi
     assert.equal(nodes.has('git-view-log'), false);
   }
   clearGitToast({ folder: '/other', machine: 'remote' });
-  assert.ok(store['devkits.git-result-toast'], 'Closing another project cannot clear this result');
+  assert.ok(store['herdr-zed.git-result-toast'], 'Closing another project cannot clear this result');
   nodes.clear(); GitResultToast({}, { folder: '/other', machine: 'remote' });
   assert.equal(nodes.has('git-result-toast-layer'), false, 'Results only show in their originating project');
   GitResultToast({}, project);
   nodes.get('git-toast-close').on_click();
-  assert.equal(store['devkits.git-result-toast'], null);
+  assert.equal(store['herdr-zed.git-result-toast'], null);
   showGitToast(project, 'Fetch failed', true); GitResultToast({}, project);
   nodes.get('git-view-log').on_click();
-  assert.equal(store['devkits.git-output-request'], JSON.stringify(['remote', '/repo']));
-  assert.equal(store['devkits.right-panel'], 'diff');
-  assert.equal(store['devkits.git-result-toast'], null);
+  assert.equal(store['herdr-zed.git-output-request'], JSON.stringify(['remote', '/repo']));
+  assert.equal(store['herdr-zed.right-panel'], 'diff');
+  assert.equal(store['herdr-zed.git-result-toast'], null);
 });

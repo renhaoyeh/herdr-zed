@@ -6,7 +6,7 @@ import { Button } from './components/button.js';
 import { SidebarContent, SidebarGroup, SidebarMenuButton } from './components/sidebar.js';
 import { glyph } from './components/icon.js';
 
-const HISTORY_KEY = 'devkits.zed-thread-history';
+const HISTORY_KEY = 'herdr-zed.thread-history';
 const history = () => shared(HISTORY_KEY) || [];
 const archiving = new Set();
 const restoring = new Map();

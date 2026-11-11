@@ -12,7 +12,7 @@
   },
   "ui_font": "Geist",
   "font": "Geist Mono",
-  "preview": "mods/devkits-zed/assets/preview.svg",
+  "preview": "mods/herdr-zed/assets/preview.svg",
   "background": "canvas",
   "terminal_padding": [
     12,
@@ -43,7 +43,7 @@
           },
           "window_drag": true,
           "content": {
-            "mod": "devkits-zed",
+            "mod": "herdr-zed",
             "props": {
               "view": "brand"
             }
@@ -53,7 +53,7 @@
           "id": "agents",
           "type": "block",
           "content": {
-            "mod": "devkits-zed"
+            "mod": "herdr-zed"
           }
         }
       ]
@@ -71,7 +71,7 @@
           },
           "window_drag": true,
           "content": {
-            "mod": "devkits-zed",
+            "mod": "herdr-zed",
             "props": {
               "view": "header"
             }
@@ -99,7 +99,7 @@
                   "id": "project-empty",
                   "type": "block",
                   "content": {
-                    "mod": "devkits-zed",
+                    "mod": "herdr-zed",
                     "props": {
                       "view": "project-empty"
                     }
@@ -117,7 +117,7 @@
                       "lone": true,
                       "header": {
                         "content": {
-                          "mod": "devkits-zed",
+                          "mod": "herdr-zed",
                           "props": {
                             "view": "pane"
                           }
@@ -145,7 +145,7 @@
                   "id": "workspace-editor",
                   "type": "block",
                   "content": {
-                    "mod": "devkits-zed",
+                    "mod": "herdr-zed",
                     "props": {
                       "view": "editor"
                     }
@@ -177,7 +177,7 @@
               "id": "status-content",
               "type": "block",
               "content": {
-                "mod": "devkits-zed",
+                "mod": "herdr-zed",
                 "props": {
                   "view": "status"
                 }

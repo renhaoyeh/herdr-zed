@@ -13,7 +13,7 @@ function graphLog(folder, on, snapshot, args) {
   // Too many refs to pass as arguments: read the same ref set inside the shell instead.
   return execShell(['-c', 'cd "$1" || exit 2; shift; '
     + '{ git rev-parse --verify -q HEAD; git for-each-ref --format="%(objectname)" refs/heads refs/remotes refs/tags; } '
-    + '| git -c log.showSignature=false --no-pager log --stdin "$@" --', 'devkits-graph', folder, ...args], { on });
+    + '| git -c log.showSignature=false --no-pager log --stdin "$@" --', 'herdr-zed-graph', folder, ...args], { on });
 }
 const graphSha = value => /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(value || '');
 
@@ -40,7 +40,7 @@ export async function readGraphSnapshot(folder, on) {
     + 'head=$(git rev-parse --verify -q HEAD); branch=$(git symbolic-ref --short -q HEAD); '
     + 'printf "%s\\0%s\\0" "$head" "$branch"; '
     + 'git for-each-ref --format="%(objectname)%00%(*objectname)%00%(objecttype)%00%(*objecttype)%00%(refname)%00" refs/heads refs/remotes refs/tags',
-    'devkits-graph', folder], { on });
+    'herdr-zed-graph', folder], { on });
   if (result.code !== 0) throw new Error(result.stderr.trim() || 'Cannot read Git refs.');
   const [head, branch, ...fields] = result.stdout.split('\0');
   const refs = {}, tips = new Set(graphSha(head) ? [head] : []);

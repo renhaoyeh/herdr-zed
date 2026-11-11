@@ -35,7 +35,7 @@ export function Select(id, state, value, options, label, onChange, t, { width = 
   const items = options.filter(option => !query || option.label.toLowerCase().includes(query));
   const hasIcons = options.some(option => Boolean(option.icon));
   const optionIcon = option => {
-    const path = option.icon.includes('/') ? option.icon : `mods/devkits/assets/icons/${option.icon}.svg`;
+    const path = option.icon.includes('/') ? option.icon : `mods/herdr-zed/assets/icons/${option.icon}.svg`;
     return (option.iconTint === false ? image(path) : svg(path).text_color(option.iconColor || option.color)).size(14).flex_none();
   };
   const close = cx => { state.open = false; state.trigger.focus(); cx.notify(); };
@@ -66,7 +66,7 @@ export function Select(id, state, value, options, label, onChange, t, { width = 
     })
     .when(Boolean(selected.icon), el => el.child(optionIcon(selected)))
     .child(div().when(!naturalWidth, el => el.flex_1()).min_w(0).truncate().text_color(triggerColor).child(selected.label))
-    .when(!linear, el => el.child(svg('mods/devkits/assets/icons/chevron-down.svg').size(12).flex_none().text_color(boxed ? t.muted : selected.color)));
+    .when(!linear, el => el.child(svg('mods/herdr-zed/assets/icons/chevron-down.svg').size(12).flex_none().text_color(boxed ? t.muted : selected.color)));
   const list = DropdownMenuContent(`${id}-options`, undefined, t).w(fullWidth ? state.width || width : Math.max(linear ? 208 : 168, width)).mt(fullWidth ? 0 : 4).rounded(linear ? 12 : radius ? radius + 2 : 0)
     .when(linear, el => el.p(0).font_family(t.fontFamily).font_normal().shadow_md())
     .when(!linear && radius > 0, el => el.font_family('Arial').shadow_lg())
@@ -95,11 +95,11 @@ export function Select(id, state, value, options, label, onChange, t, { width = 
       .on_hover((inside, cx) => { if (inside) { state.index = index; cx.notify(); } })
       .on_click((_event, cx) => choose(option, cx))
       .when(!hasIcons, el => el.child(div().size(14).flex_none().when(selected.key === option.key, el => el
-        .child(svg('mods/devkits/assets/icons/check.svg').size(14)))))
+        .child(svg('mods/herdr-zed/assets/icons/check.svg').size(14)))))
       .when(Boolean(option.icon), el => el.child(optionIcon(option)))
       .child(div().flex_1().min_w(0).truncate().child(option.label))
       .when(hasIcons, el => el.child(div().size(14).flex_none().when(selected.key === option.key, el => el
-        .child(svg('mods/devkits/assets/icons/check.svg').size(14))))))));
+        .child(svg('mods/herdr-zed/assets/icons/check.svg').size(14))))))));
   const control = NativeSelect.new(`${id}-select`).open(state.open).accessibility_label(`${label}: ${selected.label}`)
     .when(fullWidth, el => el.w_full().min_w(0))
     .when(linear, el => el.flex_none().w_auto().self_start())

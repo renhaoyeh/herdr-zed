@@ -13,10 +13,10 @@ async function load(host = {}) {
     assert.ok(!JSON.stringify(value).includes('\\u0000'), 'persisted keys contain NUL');
     memory[key] = JSON.parse(JSON.stringify(value));
   }, ...host };
-  const source = await readFile(new URL('../mods/devkits/files.js', import.meta.url), 'utf8');
-  const sidePanel = await readFile(new URL('../mods/devkits/components/side-panel.js', import.meta.url), 'utf8');
-  const shell = await readFile(new URL('../mods/devkits/shell.js', import.meta.url), 'utf8');
-  const command = await readFile(new URL('../mods/devkits/components/session-shell.js', import.meta.url), 'utf8');
+  const source = await readFile(new URL('../mods/herdr-zed/files.js', import.meta.url), 'utf8');
+  const sidePanel = await readFile(new URL('../components/side-panel.js', import.meta.url), 'utf8');
+  const shell = await readFile(new URL('../mods/herdr-zed/shell.js', import.meta.url), 'utf8');
+  const command = await readFile(new URL('../components/session-shell.js', import.meta.url), 'utf8');
   return new Function(...Object.keys(host), (command + '\n' + shell + '\n' + sidePanel + '\n' + source).replace(/^import .*;\r?\n/gm, '')
     .replace('export default class', 'class').replace(/^export /gm, '') + '\nreturn { FileViewer, FileMenu, fullPath, revealPath, directory, parseStatus, gitStatus };')(...Object.values(host));
 }
@@ -44,7 +44,7 @@ async function scenario(readTextFile = async path => path) {
 }
 
 test('folder listing preserves Unicode and shell metacharacters, skips .git and sorts folders first', async t => {
-  const root = await mkdtemp(join(tmpdir(), 'devkits-files-'));
+  const root = await mkdtemp(join(tmpdir(), 'herdr-zed-files-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const folder = join(root, "專案 ' $(touch INJECTED) [test]");
   await mkdir(folder);
@@ -173,7 +173,7 @@ test('binary, absent and unreadable files show an error; long previews are bound
 
 test('directory failures and entry caps are visible without retaining stale refresh results', async () => {
   const replies = [];
-  const { FileViewer } = await load({ exec: (_cmd, args) => args[2] === 'devkits-status' ? Promise.resolve({ code: 0, stdout: '' }) : new Promise(resolve => replies.push(resolve)) });
+  const { FileViewer } = await load({ exec: (_cmd, args) => args[2] === 'herdr-zed-status' ? Promise.resolve({ code: 0, stdout: '' }) : new Promise(resolve => replies.push(resolve)) });
   const tasks = [], cx = { timer: timers(), notify() {}, focus_handle: () => ({}), spawn(fn) { tasks.push(fn(cx)); } };
   const view = new FileViewer(); view.init(cx);
   view.refresh(project, cx); view.refresh(project, cx);
@@ -238,7 +238,7 @@ test('late Markdown reads cannot overwrite another file or reopen a closed previ
 test('native watch coalesces events, ignores .git, and stops on project switch or close', async () => {
   const waits = [], tasks = [], loads = [];
   const { FileViewer } = await load({ watchFolder: path => new Promise((resolve, reject) => waits.push({ path, resolve, reject })),
-    exec: async (_cmd, args) => { if (args[2] === 'devkits-status') return { code: 0, stdout: '' }; loads.push(args.at(-1)); return { code: 0, stdout: 'f\0a.ts\0' }; } });
+    exec: async (_cmd, args) => { if (args[2] === 'herdr-zed-status') return { code: 0, stdout: '' }; loads.push(args.at(-1)); return { code: 0, stdout: 'f\0a.ts\0' }; } });
   const cx = { timer: timers(), notify() {}, focus_handle: () => ({}), spawn(fn) {
     const task = { promise: fn(cx), cancel() { this.cancelled = true; } }; tasks.push(task); return task;
   } };
@@ -282,7 +282,7 @@ test('remote projects poll automatically and watch failures fall back to polling
 
 test('changes during an in-flight listing schedule a second read rather than leaving a stale tree', async () => {
   const replies = [], tasks = [];
-  const { FileViewer } = await load({ exec: (_cmd, args) => args[2] === 'devkits-status' ? Promise.resolve({ code: 0, stdout: '' }) : new Promise(resolve => replies.push(resolve)) });
+  const { FileViewer } = await load({ exec: (_cmd, args) => args[2] === 'herdr-zed-status' ? Promise.resolve({ code: 0, stdout: '' }) : new Promise(resolve => replies.push(resolve)) });
   const cx = { timer: timers(), notify() {}, focus_handle: () => ({}), spawn(fn) { tasks.push(fn(cx)); } };
   const view = new FileViewer(); view.init(cx); view.refresh(project, cx);
   view.reload(cx); view.reload(cx);
@@ -401,7 +401,7 @@ test('Reveal passes paths as arguments to the platform file manager and reports 
 });
 
 test('dragging the line beside a preview resizes the list within bounds and saves the width when released or left', async () => {
-  const source = await readFile(new URL('../mods/devkits/components/side-panel.js', import.meta.url), 'utf8');
+  const source = await readFile(new URL('../components/side-panel.js', import.meta.url), 'utf8');
   const nodes = new Map(), owners = new WeakMap();
   const element = () => {
     const data = { calls: {}, children: [] };

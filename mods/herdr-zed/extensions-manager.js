@@ -6,7 +6,7 @@ import { DialogContent, DialogTitle, DialogDescription, DialogFooter } from './c
 import { extensionCatalog, refreshExtensions, extensionEnabled, setExtensionEnabled,
   extensionSurfaceVisible, setExtensionSurfaceVisible } from './extensions.js';
 
-export const openExtensions = () => openOverlay({ mod: 'devkits-zed', kind: 'dialog', frame: 'none',
+export const openExtensions = () => openOverlay({ mod: 'herdr-zed', kind: 'dialog', frame: 'none',
   modal: true, width: 640, height: 480, props: { view: 'extensions' } });
 
 export class ExtensionsManager {

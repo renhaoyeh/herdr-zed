@@ -4,13 +4,13 @@ import { readFile } from 'node:fs/promises';
 
 async function editorSource() {
   const sources = await Promise.all(['git-result-toast.js', 'workspace-editor.js']
-    .map(name => readFile(new URL(`../mods/devkits/${name}`, import.meta.url), 'utf8')));
+    .map(name => readFile(new URL(`../mods/herdr-zed/${name}`, import.meta.url), 'utf8')));
   return sources.join('\n').replace(/^export (?!default)/gm, '');
 }
 
 test('dock switches preserve the document; choosing a file or diff changes the content independently', async () => {
   const source = await editorSource();
-  const store = { 'devkits.editor-kind': 'files', 'devkits.right-panel': 'files' }, renders = [], bindings = [];
+  const store = { 'herdr-zed.editor-kind': 'files', 'herdr-zed.right-panel': 'files' }, renders = [], bindings = [];
   const element = () => new Proxy({}, { get: (_target, key) => key === 'when'
     ? (condition, callback) => condition ? callback(element()) : element() : () => element() });
   class Files {
@@ -30,13 +30,13 @@ test('dock switches preserve the document; choosing a file or diff changes the c
   const editor = new Editor(); editor.init({ focus_handle: () => ({ focus() { focused = true; } }), bind_keys: keys => bindings.push(...keys) });
   const project = { id: 'one' };
   editor.render(project, {}); assert.deepEqual(layouts, ['file-tree']);
-  store['devkits.right-panel'] = 'diff'; editor.render(project, {});
-  assert.equal(layouts.at(-1), 'git-panel'); assert.equal(store['devkits.editor-kind'], 'files');
-  store['devkits.right-panel'] = null; editor.render(project, {});
-  assert.equal(layouts.length, 2); assert.equal(store['devkits.editor-kind'], 'files');
-  editor.diff.onOpen(); assert.equal(store['devkits.editor-kind'], 'diff');
-  editor.files.onOpen(); assert.equal(store['devkits.editor-kind'], 'files');
-  assert.ok(bindings.every(binding => binding.context === 'DevkitsFiles'));
+  store['herdr-zed.right-panel'] = 'diff'; editor.render(project, {});
+  assert.equal(layouts.at(-1), 'git-panel'); assert.equal(store['herdr-zed.editor-kind'], 'files');
+  store['herdr-zed.right-panel'] = null; editor.render(project, {});
+  assert.equal(layouts.length, 2); assert.equal(store['herdr-zed.editor-kind'], 'files');
+  editor.diff.onOpen(); assert.equal(store['herdr-zed.editor-kind'], 'diff');
+  editor.files.onOpen(); assert.equal(store['herdr-zed.editor-kind'], 'files');
+  assert.ok(bindings.every(binding => binding.context === 'HerdrZedFiles'));
   editor.focus(); assert.equal(focused, true);
   editor.close(); assert.equal(editor.files.closed && editor.diff.closed, true);
 });
@@ -89,7 +89,7 @@ async function editorHarness(store = {}) {
 const editorCommit = letter => ({ sha: letter.repeat(40), shortSha: letter.repeat(7), subject: `Commit ${letter}`, at: 1700000000 });
 
 test('switching repositories replaces Git tabs while preserving file tabs', async () => {
-  const { editor, cx } = await editorHarness({ 'devkits.right-panel': 'diff' });
+  const { editor, cx } = await editorHarness({ 'herdr-zed.right-panel': 'diff' });
   editor.render({ id: 'parent', folder: '/parent' }, cx);
   editor.files.show('readme.md', cx);
   editor.diff.openGraph(cx); editor.diff.openCommit(editorCommit('a'), cx);
@@ -102,33 +102,33 @@ test('switching repositories replaces Git tabs while preserving file tabs', asyn
 });
 
 test('Git output requests return from a file to the previous Git tab and reject another project', async () => {
-  const { editor, cx, store, drain } = await editorHarness({ 'devkits.right-panel': 'diff' });
+  const { editor, cx, store, drain } = await editorHarness({ 'herdr-zed.right-panel': 'diff' });
   const project = { id: 'one', folder: '/repo' };
   editor.render(project, cx);
   editor.diff.openGraph(cx); editor.render(project, cx); await drain();
   editor.diff.pushResult = { failed: true, message: 'authentication failed' };
   editor.files.show('one.js', cx); editor.render(project, cx);
-  store['devkits.git-output-request'] = JSON.stringify(['', '/repo']);
+  store['herdr-zed.git-output-request'] = JSON.stringify(['', '/repo']);
   editor.render(project, cx);
   assert.equal(editor.session.active, 'graph');
   assert.equal(editor.diff.output.message, 'authentication failed');
   assert.equal(editor.diff.graphMode, true, 'Closing the log can restore the graph');
-  assert.equal(store['devkits.git-output-request'], null);
+  assert.equal(store['herdr-zed.git-output-request'], null);
   editor.files.activate('one.js', cx);
-  store['devkits.git-output-request'] = JSON.stringify(['', '/another']);
+  store['herdr-zed.git-output-request'] = JSON.stringify(['', '/another']);
   editor.render(project, cx);
   assert.equal(editor.session.active, 'file:one.js');
 });
 
 test('files, Git Graph and multiple commit views share a persistent tab strip and opening a commit preserves the graph', async () => {
-  const { editor, cx, store } = await editorHarness({ 'devkits.right-panel': 'diff' });
+  const { editor, cx, store } = await editorHarness({ 'herdr-zed.right-panel': 'diff' });
   const project = { id: 'one', folder: '/repo' }, commit = editorCommit('a'), next = editorCommit('b');
   editor.render(project, cx); editor.files.show('one.js', cx); editor.diff.openGraph(cx);
   const graph = editor.diff.graph;
   editor.diff.openCommit(commit, cx); editor.render(project, cx);
   assert.deepEqual(editor.session.order, ['file:one.js', 'graph', `commit:${commit.sha}`]);
   assert.deepEqual(editor.files.options.extra.map(tab => tab.label), ['Git Graph', 'Commit aaaaaaa']);
-  assert.equal(editor.files.options.fileActive, false); assert.equal(store['devkits.right-panel'], 'diff');
+  assert.equal(editor.files.options.fileActive, false); assert.equal(store['herdr-zed.right-panel'], 'diff');
   editor.activate('graph', cx); assert.equal(editor.diff.graph, graph); assert.equal(editor.diff.graphMode, true);
   editor.activate(`commit:${commit.sha}`, cx); assert.equal(editor.diff.history.preview.commit.sha, commit.sha);
   editor.diff.openCommit(next, cx); editor.diff.openCommit(commit, cx);
@@ -139,7 +139,7 @@ test('files, Git Graph and multiple commit views share a persistent tab strip an
   const { editor: restored, cx: otherCx, drain } = await editorHarness(store);
   restored.render(project, otherCx); await drain();
   assert.equal(restored.session.active, 'graph'); assert.equal(restored.diff.graphMode, true);
-  assert.equal(restored.session.git.length, 3); assert.equal(store['devkits.right-panel'], 'diff');
+  assert.equal(restored.session.git.length, 3); assert.equal(store['herdr-zed.right-panel'], 'diff');
 });
 
 test('preview replacement retains its mixed-tab position and closing a commit activates the most recent remaining item', async () => {

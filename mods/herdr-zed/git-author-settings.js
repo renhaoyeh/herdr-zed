@@ -8,7 +8,7 @@ import { DialogContent, DialogTitle, DialogDescription, DialogFooter } from './c
 import { readGitAuthor, saveGitAuthor } from './git-author.js';
 import { gitAccount, setGitAccount, readAccountAuthor, rememberGitAuthor, readGitAccounts } from './git-auth.js';
 
-export const openGitAuthor = project => openOverlay({ mod: 'devkits-zed', kind: 'dialog', frame: 'none',
+export const openGitAuthor = project => openOverlay({ mod: 'herdr-zed', kind: 'dialog', frame: 'none',
   modal: true, width: 480, height: 600, props: { view: 'git-author-settings', folder: project.folder, machine: project.machine, accountPicker: true } });
 
 export class GitAuthorSettings {

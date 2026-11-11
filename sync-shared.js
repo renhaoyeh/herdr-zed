@@ -3,7 +3,7 @@ import { mkdir, readdir, readFile, rename, writeFile, copyFile } from 'node:fs/p
 import { basename, dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-// Keeps the mods' copies of shared components equal to their one source in mods/devkits/components/.
+// Keeps the mods' copies of shared components equal to their one source in components/.
 //
 // A mod can only import files inside its own folder (Herdr refuses symlinks and ../ paths that resolve
 // outside it), so a component several mods use is copied into each. COPIES names the mods that carry
@@ -48,7 +48,7 @@ async function write(path, text) {
 // Returns { made, bad }: the copies written and the problems that stopped a sync or failed a check.
 export async function syncShared({ root = HERE, check = false, from = null } = {}) {
   const mods = join(root, 'mods'), last = join(root, '.sync-shared');
-  const source = name => join(mods, 'devkits', 'components', name);
+  const source = name => join(root, 'components', name);
   const table = await copies(root);
   const rel = path => relative(process.cwd(), path);
   const bad = [], made = [];
@@ -84,7 +84,7 @@ export async function syncShared({ root = HERE, check = false, from = null } = {
     // A copy made by hand in a mod COPIES doesn't list (same name, same first line).
     const head = text.split('\n', 1)[0];
     for (const mod of (await readdir(mods)).sort()) {
-      if (mod === 'devkits' || targets.includes(mod)) continue;
+      if (targets.includes(mod)) continue;
       const path = join(mods, mod, 'components', name);
       if ((await read(path))?.split('\n', 1)[0] === head) bad.push(`${rel(path)} looks like a copy of ${rel(source(name))}: add ${mod} to COPIES`);
     }

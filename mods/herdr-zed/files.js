@@ -8,7 +8,7 @@ import { Empty, EmptyTitle, EmptyDescription } from './components/empty.js';
 import { SidePanelLayout, SidePanelState } from './components/side-panel.js';
 import { DropdownMenu, DropdownMenuState, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from './components/dropdown-menu.js';
 
-const icon = name => svg(`mods/devkits/assets/icons/${name}.svg`).size(14).flex_none();
+const icon = name => svg(`mods/herdr-zed/assets/icons/${name}.svg`).size(14).flex_none();
 const LANG = { ts: 'js', tsx: 'js', jsx: 'js', mjs: 'js', cjs: 'js', mts: 'js', cts: 'js', jsonc: 'json', toml: 'yaml', vue: 'html', svelte: 'html' };
 const PER_FOLDER = 500, TOTAL = 5000;
 // Open tabs are remembered per project folder across reloads and restarts.
@@ -20,7 +20,7 @@ const openDocument = (path, on) => ({ path, ...(on !== undefined ? { on } : {}),
 export async function directory(path, on) {
   // Paths are positional arguments; filenames never become shell code.
   const script = 'test -r "$1" && test -x "$1" && test -d "$1" || exit 1; n=0; for p in "$1"/* "$1"/.[!.]* "$1"/..?*; do name=${p##*/}; [ "$name" = .git ] && continue; if [ -d "$p" ]; then kind=d; elif [ -f "$p" ]; then kind=f; else continue; fi; printf "%s\\0%s\\0" "$kind" "$name"; n=$((n+1)); [ "$n" -gt 500 ] && break; done; exit 0';
-  const result = await execShell(['-c', script, 'devkits-files', path], { on });
+  const result = await execShell(['-c', script, 'herdr-zed-files', path], { on });
   if (result.code !== 0) throw new Error(result.stderr || 'Cannot read this folder.');
   const fields = result.stdout.split('\0'), entries = [];
   for (let i = 0; i + 1 < fields.length; i += 2) entries.push({ name: fields[i + 1], dir: fields[i] === 'd' });
@@ -59,7 +59,7 @@ export function parseStatus(stdout) {
 }
 
 export async function gitStatus(folder, on) {
-  const result = await execShell(['-c', STATUS_SCRIPT, 'devkits-status', folder], { on });
+  const result = await execShell(['-c', STATUS_SCRIPT, 'herdr-zed-status', folder], { on });
   return parseStatus(result.code === 0 ? result.stdout : '');
 }
 
@@ -136,14 +136,14 @@ export default class FileViewer {
     this.limited = new Set();
     this.tabs = []; this.file = null; this.preview = null; this.activationHistory = []; this.tabSwitch = null;
     this.optionsMenu = new DropdownMenuState(cx);
-    this.sidePanel = new SidePanelState(() => shared('devkits.side-panel-width') || 280, width => setShared('devkits.side-panel-width', width));
+    this.sidePanel = new SidePanelState(() => shared('herdr-zed.side-panel-width') || 280, width => setShared('herdr-zed.side-panel-width', width));
   }
 
   get doc() { return this.tabs.find(doc => doc.path === this.file) || null; }
   get code() { return this.doc?.code || null; }
   get markdown() { return this.doc ? this.doc.markdown : null; }
   get fileError() { return this.doc?.error || null; }
-  get wrapTabs() { return shared('devkits.files-wrap-tabs') === true; }
+  get wrapTabs() { return shared('herdr-zed.files-wrap-tabs') === true; }
 
   close() {
     this.watcher?.cancel(); this.poll?.cancel(); this.queued?.cancel();
@@ -156,14 +156,14 @@ export default class FileViewer {
   /** Saves this project's tabs, writing only when they changed. */
   remember() {
     if (!this.context?.folder) return;
-    const key = projectKey(this.context), all = shared('devkits.files-tabs') || {};
+    const key = projectKey(this.context), all = shared('herdr-zed.files-tabs') || {};
     const session = this.tabs.length ? { paths: this.tabs.map(doc => doc.path), file: this.file, preview: this.preview, history: this.activationHistory } : undefined;
     const sources = this.tabs.filter(doc => doc.on !== undefined).map(doc => [doc.path, doc.on]);
     if (session && sources.length) session.sources = Object.fromEntries(sources);
     if (JSON.stringify(all[key]) === JSON.stringify(session)) return;
     const next = { ...all };
     session ? next[key] = session : delete next[key];
-    setShared('devkits.files-tabs', next);
+    setShared('herdr-zed.files-tabs', next);
   }
 
   refresh(project, cx) {
@@ -173,7 +173,7 @@ export default class FileViewer {
     this.cursor = null; this.limited = new Set();
     if (!project?.folder) return;
     this.observe(cx); this.loadFolder('', cx); this.loadStatus(cx);
-    const session = shared('devkits.files-tabs')?.[projectKey(project)];
+    const session = shared('herdr-zed.files-tabs')?.[projectKey(project)];
     if (session?.paths?.length) {
       this.tabs = session.paths.map(path => openDocument(path, Object.hasOwn(session.sources || {}, path) ? session.sources[path] : undefined)); this.preview = session.preview;
       this.activationHistory = (session.history || []).filter(path => session.paths.includes(path));
@@ -339,7 +339,7 @@ export default class FileViewer {
   }
 
   toggleWrapTabs(cx) {
-    setShared('devkits.files-wrap-tabs', !this.wrapTabs);
+    setShared('herdr-zed.files-wrap-tabs', !this.wrapTabs);
     cx.notify();
   }
 
@@ -408,7 +408,7 @@ export default class FileViewer {
 
   openMenu(path, at, cx) {
     this.handle.focus(); this.cursor = path;
-    openOverlay({ mod: 'devkits-zed', kind: 'popup', frame: 'none', width: 224, at,
+    openOverlay({ mod: 'herdr-zed', kind: 'popup', frame: 'none', width: 224, at,
       props: { view: 'file-menu', folder: this.context.folder, machine: this.context.machine, path } });
     cx.notify();
   }

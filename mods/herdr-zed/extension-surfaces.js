@@ -61,7 +61,7 @@ export function extensionSurfaceLayout(root, packages, disabled = [], previous =
   const unwrap = node => {
     if (node.id === 'status-content' && node.type === 'row') {
       const children = node.children || [];
-      if (children.length === 1 && children[0].id === 'zed-extension-status-content' && children[0].content?.mod === 'devkits-zed') {
+      if (children.length === 1 && children[0].id === 'zed-extension-status-content' && children[0].content?.mod === 'herdr-zed') {
         changed = true;
         return { ...children[0], id: 'status-content', size: node.size };
       }

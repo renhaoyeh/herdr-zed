@@ -2,7 +2,7 @@ import { div } from 'gpui-kit';
 import { h_flex, v_flex } from 'gpui-base';
 
 export function Sidebar(t) {
-  return v_flex().id('devkits-sidebar').size_full().min_h(0).bg(t.chrome).text_color(t.foreground);
+  return v_flex().id('herdr-zed-sidebar').size_full().min_h(0).bg(t.chrome).text_color(t.foreground);
 }
 
 export function SidebarContent() {

@@ -11,12 +11,12 @@ export async function evaluateNative(path, host, names) {
 // Consumer-side binding/state callbacks, supplied explicitly rather than read by a provider.
 export function sourceOptions(host, key, target = {}) {
   const identity = folder => JSON.stringify(['', host.folderKey(folder)]);
-  const save = (folder, binding) => host.setShared(`devkits.${key}-projects`, {
-    ...(host.shared(`devkits.${key}-projects`) || {}), [identity(folder)]: binding,
+  const save = (folder, binding) => host.setShared(`herdr-zed.${key}-projects`, {
+    ...(host.shared(`herdr-zed.${key}-projects`) || {}), [identity(folder)]: binding,
   });
   return { importLabel: 'Import into Tasks',
-    state: { get: suffix => host.shared(`devkits.${key}-${suffix}`), set: (suffix, value) => host.setShared(`devkits.${key}-${suffix}`, value) },
-    getBinding: folder => host.shared(`devkits.${key}-projects`)?.[identity(folder)] || null,
+    state: { get: suffix => host.shared(`herdr-zed.${key}-${suffix}`), set: (suffix, value) => host.setShared(`herdr-zed.${key}-${suffix}`, value) },
+    getBinding: folder => host.shared(`herdr-zed.${key}-projects`)?.[identity(folder)] || null,
     setBinding: save,
     onSelect: project => save(target.folder, { gid: project.gid, name: project.name, workspace: project.workspaceGid,
       ...(key === 'mantisbt' ? { server: project.server } : {}) }),

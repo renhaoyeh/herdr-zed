@@ -10,8 +10,8 @@ export function createNativeThread(agent, target, api = { spaces, shared, setSha
     throw new Error('This program has no launch command.');
   if (argv && !machine) argv = terminalArgv(argv, api.window()?.platform);
   const key = JSON.stringify([machine || '', (target.folder || '').replace(/\\/g, '/').replace(/\/+$/, '') || target.space]);
-  api.setShared('devkits.conversation-visible', { ...(api.shared('devkits.conversation-visible') || {}), [key]: true });
-  api.setShared('devkits.selected-project', null);
+  api.setShared('herdr-zed.conversation-visible', { ...(api.shared('herdr-zed.conversation-visible') || {}), [key]: true });
+  api.setShared('herdr-zed.selected-project', null);
   api.run('layout.select', { stack: 'workspace-view', child: 'main' });
   if (target.space) api.run('tab.new', { space: target.space, folder: target.folder, ...(argv ? { name: agent.name, argv } : {}) });
   else api.run('space.new', { name: target.projectName, folder: target.folder, machine: machine || '', ...(argv ? { tab: agent.name, argv } : {}) });

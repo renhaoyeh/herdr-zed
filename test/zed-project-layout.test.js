@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-const source = await readFile(new URL('../mods/devkits-zed/project-layout.js', import.meta.url), 'utf8');
+const source = await readFile(new URL('../mods/herdr-zed/project-layout.js', import.meta.url), 'utf8');
 const project = { id: 'project', folder: '/project' };
 
 test('thread maximize hides declared extension docks and restores each prior visibility', () => {
@@ -12,8 +12,8 @@ test('thread maximize hides declared extension docks and restores each prior vis
     { id: 'other-dock', hidden: true, size: { px: 320 } },
     { id: 'sidebar', hidden: false },
   ] };
-  const memory = { 'devkits-zed.extensions.catalog': { packages: [
-    { mod: 'devkits-simulator', surfaces: [{ id: 'simulator', location: 'dock.right' }] },
+  const memory = { 'herdr-zed.extensions.catalog': { packages: [
+    { mod: 'herdr-zed-simulator', surfaces: [{ id: 'simulator', location: 'dock.right' }] },
     { mod: 'other-provider', surfaces: [{ id: 'other-dock', location: 'dock.right' },
       { id: 'status-metric', location: 'status.right' }] },
     { mod: 'broken', error: 'unavailable', surfaces: [{ id: 'broken-dock', location: 'dock.right' }] },
@@ -30,7 +30,7 @@ test('thread maximize hides declared extension docks and restores each prior vis
 
   api.maximizeConversation(project, true);
   assert.equal(api.conversationMaximized(project), true);
-  assert.deepEqual(memory['devkits.conversation-maximized'].hidden,
+  assert.deepEqual(memory['herdr-zed.conversation-maximized'].hidden,
     { editor: false, simulator: false, 'other-dock': true });
   assert.equal(node('editor').hidden, true);
   assert.equal(node('simulator').hidden, true);

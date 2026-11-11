@@ -5,11 +5,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { gitShellCommand } from '../mods/devkits/components/session-shell.js';
+import { gitShellCommand } from '../components/session-shell.js';
 
 const run = promisify(execFile);
 test('account modal loads an account draft without applying it and Default restores repository author', async () => {
-  const source = await readFile(new URL('../mods/devkits/git-author-settings.js', import.meta.url), 'utf8');
+  const source = await readFile(new URL('../mods/herdr-zed/git-author-settings.js', import.meta.url), 'utf8');
   const { GitAuthorSettings } = new Function('readAccountAuthor', 'readGitAuthor',
     source.replace(/^import .*;\r?\n/gm, '').replace(/^export /gm, '') + '\nreturn { GitAuthorSettings };')(
     async () => ({ name: 'Alice', email: '' }), async () => ({ name: 'Repo', email: 'repo@example.test' }));
@@ -28,7 +28,7 @@ test('account modal loads an account draft without applying it and Default resto
 });
 
 test('selecting accounts always waits for Save, asks for missing email and commits choices only after successful writes', async () => {
-  const source = await readFile(new URL('../mods/devkits/git-author-settings.js', import.meta.url), 'utf8');
+  const source = await readFile(new URL('../mods/herdr-zed/git-author-settings.js', import.meta.url), 'utf8');
   const account = { host: 'github.com', login: 'alice' };
   for (const email of ['alice@example.test', '', null]) {
     const target = { folder: '/repo', machine: 'remote', overlay: 'dialog', account };
@@ -63,7 +63,7 @@ test('selecting accounts always waits for Save, asks for missing email and commi
 
 test('author dialog preserves failed drafts for retry and saves to its original repository', async () => {
   const target = { folder: '/repo', machine: 'remote', overlay: 'author-dialog' };
-  const source = await readFile(new URL('../mods/devkits/git-author-settings.js', import.meta.url), 'utf8');
+  const source = await readFile(new URL('../mods/herdr-zed/git-author-settings.js', import.meta.url), 'utf8');
   const pending = [], writes = [], closed = [];
   let fail = true;
   const { GitAuthorSettings } = new Function('props', 'InputState', 'readGitAuthor', 'saveGitAuthor', 'closeOverlay', 'gitAccount',
@@ -95,7 +95,7 @@ test('commit author inherits defaults, saves only repository config and applies 
   const repo = join(folder, 'repo');
   await git('init', '-q', repo);
   await git('-C', repo, '-c', 'commit.gpgsign=false', 'commit', '--allow-empty', '-qm', 'before');
-  const source = await readFile(new URL('../mods/devkits/git-author.js', import.meta.url), 'utf8');
+  const source = await readFile(new URL('../mods/herdr-zed/git-author.js', import.meta.url), 'utf8');
   const { readGitAuthor, saveGitAuthor } = new Function('execShell', source.replace(/^import .*;\r?\n/gm, '').replace(/^export /gm, '')
     + '\nreturn { readGitAuthor, saveGitAuthor };')(async (args, options) => {
     assert.equal(options.on, 'fixture-machine');

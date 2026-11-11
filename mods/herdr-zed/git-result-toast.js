@@ -3,7 +3,7 @@ import { h_flex, Popup } from 'gpui-base';
 import { shared, setShared, settings } from 'herdr';
 import { Button } from './components/button.js';
 
-const GIT_TOAST = 'devkits.git-result-toast';
+const GIT_TOAST = 'herdr-zed.git-result-toast';
 export const gitToastProject = context => JSON.stringify([context?.machine || '', context?.workspaceFolder || context?.folder || context?.id || '']);
 
 export function clearGitToast(context) {
@@ -23,17 +23,17 @@ export function GitResultToast(t, project) {
   const card = h_flex().id('git-result-toast').max_w(480).min_w(0)
     .px(12).py(8).gap(8).items_center().bg(t.chrome).border(1).border_color(t.border)
     .text_color(t.foreground).accessibility_label(result.title)
-    .child(svg(`mods/devkits/assets/icons/${result.failed ? 'circle-alert' : 'circle-check'}.svg`).size(12).flex_none()
+    .child(svg(`mods/herdr-zed/assets/icons/${result.failed ? 'circle-alert' : 'circle-check'}.svg`).size(12).flex_none()
       .text_color(result.failed ? t.destructive || t.foreground : t.muted))
     .child(div().min_w(0).truncate().text_size(12).child(result.title))
     .when(result.failed, el => el.child(Button('git-view-log', t, { variant: 'secondary' }).h(26).px(8)
       .child('View Log').on_click(() => {
-        setShared('devkits.git-output-request', result.project);
-        setShared('devkits.right-panel', 'diff');
+        setShared('herdr-zed.git-output-request', result.project);
+        setShared('herdr-zed.right-panel', 'diff');
         clearGitToast();
       })))
     .child(Button('git-toast-close', t, { variant: 'ghost', size: 'icon-sm' })
-      .accessibility_label('Dismiss Git notification').child(svg('mods/devkits/assets/icons/close.svg').size(12))
+      .accessibility_label('Dismiss Git notification').child(svg('mods/herdr-zed/assets/icons/close.svg').size(12))
       .on_click(() => clearGitToast()));
   return Popup.new('git-result-toast-layer', div().size(0)).relative().absolute().right(0).top(0)
     .anchor('bottom_right')

@@ -11,15 +11,15 @@ async function load(host = {}) {
   host = { readBuildRules: async () => null, withBuildRulesFile: (rules, _on, read) => read(rules?.path || ''), openBuildRules() {}, SelectState: class { constructor() { this.open = false; } }, shared: key => memory[key], setShared: (key, value) => { memory[key] = value; }, TextEncoder: undefined, TextDecoder: undefined,
     v_virtual_list: (_id, count, _sizes, _key, render) => { render({ start: 0, end: count }); return host.div(); },
     Scrollbar: { vertical: () => host.div() }, ...host };
-  const source = await readFile(new URL('../mods/devkits/diff.js', import.meta.url), 'utf8');
-  const sidePanel = await readFile(new URL('../mods/devkits/components/side-panel.js', import.meta.url), 'utf8');
-  const menu = await readFile(new URL('../mods/devkits/components/dropdown-menu.js', import.meta.url), 'utf8');
-  const history = await readFile(new URL('../mods/devkits/git-history.js', import.meta.url), 'utf8');
-  const auth = await readFile(new URL('../mods/devkits/git-auth.js', import.meta.url), 'utf8');
-  const shell = await readFile(new URL('../mods/devkits/shell.js', import.meta.url), 'utf8');
-  const command = await readFile(new URL('../mods/devkits/components/session-shell.js', import.meta.url), 'utf8');
-  const utf8 = await readFile(new URL('../mods/devkits/utf8.js', import.meta.url), 'utf8');
-  const toast = await readFile(new URL('../mods/devkits/git-result-toast.js', import.meta.url), 'utf8');
+  const source = await readFile(new URL('../mods/herdr-zed/diff.js', import.meta.url), 'utf8');
+  const sidePanel = await readFile(new URL('../components/side-panel.js', import.meta.url), 'utf8');
+  const menu = await readFile(new URL('../components/dropdown-menu.js', import.meta.url), 'utf8');
+  const history = await readFile(new URL('../mods/herdr-zed/git-history.js', import.meta.url), 'utf8');
+  const auth = await readFile(new URL('../mods/herdr-zed/git-auth.js', import.meta.url), 'utf8');
+  const shell = await readFile(new URL('../mods/herdr-zed/shell.js', import.meta.url), 'utf8');
+  const command = await readFile(new URL('../components/session-shell.js', import.meta.url), 'utf8');
+  const utf8 = await readFile(new URL('../mods/herdr-zed/utf8.js', import.meta.url), 'utf8');
+  const toast = await readFile(new URL('../mods/herdr-zed/git-result-toast.js', import.meta.url), 'utf8');
   return new Function(...Object.keys(host), (utf8 + '\n' + command + '\n' + shell + '\n' + menu + '\n' + history + '\n' + auth + '\n' + sidePanel + '\n' + toast + '\n' + source).replace(/^import .*;\r?\n/gm, '')
     .replace('export default class', 'class').replace(/^export /gm, '') + '\nreturn { DiffViewer, ALL_REPOSITORIES, readAllDiff, readRepositories, DropdownMenu, DropdownMenuState, showGitToast, clearGitToast, utf8ByteLength, parseDiff, parseDiffBatches, parseDiffAsync, parseDiffIndex, readDiff, readPushState, pushBranch, gitRemoteAction, affectsDiff, pairLines, changedRanges, changeSections, changeTree, wrapLine, isBuildOutput };')(...Object.values(host));
 }
@@ -59,7 +59,7 @@ test('child repository selection scopes reads, remembers the choice and discards
     shared: key => memory[key], setShared: (key, value) => { memory[key] = value; },
     VirtualListScrollHandle: { new: () => ({}) },
     exec: async (_command, args, options) => {
-      assert.ok(args.includes('devkits-repositories'));
+      assert.ok(args.includes('herdr-zed-repositories'));
       assert.equal(options.on, 'remote');
       return new Promise(resolve => pending.push(resolve));
     },
@@ -103,12 +103,12 @@ test('All reads every index first, keeps identical paths distinct and preserves 
     VirtualListScrollHandle: { new: () => ({ scroll_to_item() {} }) },
     exec: async (_cmd, args, options) => {
       assert.equal(options.on, 'remote');
-      if (args.includes('devkits-diff-index')) {
+      if (args.includes('herdr-zed-diff-index')) {
         const folder = args[3]; calls.push(`index:${folder}`);
         if (failed && folder.endsWith('/beta')) return { code: 1, stdout: '', stderr: 'Unavailable' };
         return { code: 0, stdout: indexFor('src/same.js').replace('/repo', folder) };
       }
-      assert.ok(args.includes('devkits-diff-file'));
+      assert.ok(args.includes('herdr-zed-diff-file'));
       calls.push(`patch:${args[3]}:${args[6]}`);
       return { code: 0, stdout: `diff --git a/src/same.js b/src/same.js\n--- a/src/same.js\n+++ b/src/same.js\n@@ -1 +1 @@\n-old\n+${args[3]}\n` };
     },
@@ -138,7 +138,7 @@ test('All reads every index first, keeps identical paths distinct and preserves 
 test('All shares the source-line budget and prioritizes a selected file without changing repository order', async () => {
   const calls = [];
   const { readAllDiff } = await load({ exec: async (_cmd, args) => {
-    if (args.includes('devkits-diff-index')) return { code: 0, stdout: indexFor('same').replace('/repo', args[3]) };
+    if (args.includes('herdr-zed-diff-index')) return { code: 0, stdout: indexFor('same').replace('/repo', args[3]) };
     calls.push(args[3]);
     const count = Math.min(6000, Number(args[8]) - 64);
     return { code: 0, stdout: `diff --git a/same b/same\n--- a/same\n+++ b/same\n@@ -0,0 +1,${count} @@\n` + '+new\n'.repeat(count) };
@@ -232,8 +232,8 @@ test('hidden output skips patch reads and saved filter rules that reveal files l
     shared: key => memory[key], setShared: (key, value) => { memory[key] = value; }, readBuildRules: async () => rules,
     VirtualListScrollHandle: { new: () => ({ scroll_to_item() {} }) },
     exec: async (_cmd, args) => {
-      if (args.includes('devkits-diff-index')) return { code: 0, stdout: indexFor('src/main.cpp') + 'x64/Debug/main.obj\0Cargo.lock\0\0' + (rules.text ? 'x64/Debug/main.obj\0Cargo.lock\0' : '') };
-      if (!args.includes('devkits-diff-file')) return { code: 0, stdout: '' };
+      if (args.includes('herdr-zed-diff-index')) return { code: 0, stdout: indexFor('src/main.cpp') + 'x64/Debug/main.obj\0Cargo.lock\0\0' + (rules.text ? 'x64/Debug/main.obj\0Cargo.lock\0' : '') };
+      if (!args.includes('herdr-zed-diff-file')) return { code: 0, stdout: '' };
       const path = args[6]; patches.push(path);
       return { code: 0, stdout: `diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n@@ -0,0 +1 @@\n+new\n` };
     },
@@ -264,7 +264,7 @@ test('Git evaluates downloaded templates and user exceptions without hiding trac
     await mkdir(join(folder, path, '..'), { recursive: true });
     await writeFile(join(folder, path), 'contents');
   }
-  const templates = await Promise.all(['VisualStudio', 'Qt'].map(name => readFile(new URL(`../mods/devkits/assets/gitignore/${name}.gitignore`, import.meta.url), 'utf8')));
+  const templates = await Promise.all(['VisualStudio', 'Qt'].map(name => readFile(new URL(`../mods/herdr-zed/assets/gitignore/${name}.gitignore`, import.meta.url), 'utf8')));
   const rulesPath = join(folder, '..', `rules-${Date.now()}.gitignore`);
   t.after(() => rm(rulesPath, { force: true }));
   await writeFile(rulesPath, templates.join('\n') + '\n*.custom\n!keep.obj\n');
@@ -386,7 +386,7 @@ test('Git menu runs only known commands and passes remote names as literal argum
     await gitRemoteAction('/folder $(x)', 'box', action);
     assert.deepEqual(calls.at(-1).slice(1), [[
       '-c', 'cd "$1" || exit 2; shift; GIT_TERMINAL_PROMPT=0 GCM_INTERACTIVE=never git "$@"',
-      'devkits-git', '/folder $(x)', ...args,
+      'herdr-zed-git', '/folder $(x)', ...args,
     ], { on: 'box' }]);
   }
   await gitRemoteAction('/project', null, 'fetch', 'remote$(x)');
@@ -567,8 +567,8 @@ test('split button menu exposes Git operations, counts and keyboard navigation w
     openGitAuthor: (project, account) => actions.push(['author', project, account]),
     Button: id => element().id(id), Popup: { new: id => element().id(id) },
     Empty: element, EmptyDescription: element, theme: () => ({}), settings: () => ({}),
-    shared: key => key === 'devkits.git-accounts' ? accountSettings : memory[key],
-    setShared: (key, value) => { if (key === 'devkits.git-accounts') accountSettings = value; else memory[key] = value; },
+    shared: key => key === 'herdr-zed.git-accounts' ? accountSettings : memory[key],
+    setShared: (key, value) => { if (key === 'herdr-zed.git-accounts') accountSettings = value; else memory[key] = value; },
     exec: async () => ({ code: 0, stdout: JSON.stringify([{ host: 'github.com', login: 'alice', state: 'success' },
       { host: 'github.com', login: 'bob', state: 'error' }]) }),
     VirtualListScrollHandle: { new: () => ({}) }, Editor: { new: element },
@@ -645,7 +645,7 @@ test('split button menu exposes Git operations, counts and keyboard navigation w
   assert.ok(!painted.includes('Push failed'), 'Git results are rendered outside the diff content');
   assert.ok(!painted.includes(view.pushResult.message), 'Raw Git output stays out of the notification');
   view.openLog(cx);
-  assert.equal(memory['devkits.git-result-toast'], null);
+  assert.equal(memory['herdr-zed.git-result-toast'], null);
   assert.equal(editors[0].readonly, true);
   assert.equal(editors[0].value, view.pushResult.message);
   view.render(view.context, cx);
@@ -669,7 +669,7 @@ test('push prevents duplicate actions, retains errors for retry and isolates pro
     shared: key => memory[key], setShared: (key, value) => { memory[key] = value; },
     notify: notice => notices.push(notice),
     exec: (cmd, args, options) => {
-      if (args.includes('devkits-push-state')) return Promise.resolve({ code: 0, stderr: '',
+      if (args.includes('herdr-zed-push-state')) return Promise.resolve({ code: 0, stderr: '',
         stdout: `main\n${'a'.repeat(40)}\n0\t0\nrefs/remotes/origin/main\norigin\norigin\n` });
       if (args.includes('--no-patch')) return Promise.resolve({ code: 0, stderr: '', stdout: '' });
       calls.push({ cmd, args, options }); return new Promise(resolve => { complete = resolve; });
@@ -692,7 +692,7 @@ test('push prevents duplicate actions, retains errors for retry and isolates pro
   assert.equal(view.pushing, null);
   assert.equal(view.pushState.ahead, 0, 'Counts are refreshed before the button is re-enabled');
   assert.deepEqual(view.pushResult, { message: 'authentication failed', failed: true });
-  assert.equal(memory['devkits.git-result-toast'].title, 'Push failed');
+  assert.equal(memory['herdr-zed.git-result-toast'].title, 'Push failed');
   assert.equal(view.resultTitle, 'Push failed');
   assert.equal(notices.length, 0, 'The local toast does not duplicate a native notification');
   assert.equal(reloads, 1);
@@ -863,7 +863,7 @@ test('large diffs render within the native item_sizes limit in both layouts, wit
   const view = new DiffViewer(); view.init(); view.context = { id: 'project', folder: '/project' };
   view.panel = element; view.width = 216; view.charWidth = 8;
   for (const layout of ['unified', 'split']) for (const wrap of [true, false]) {
-    memory['devkits.diff-layout'] = layout; memory['devkits.diff-wrap'] = wrap;
+    memory['herdr-zed.diff-layout'] = layout; memory['herdr-zed.diff-wrap'] = wrap;
     // Include the file header in the boundary; wrapped lines add more visual rows.
     for (const count of [9999, 10000, 10001]) {
       view.files = [{ path: 'large', hunks: [{ lines: Array(count - 1).fill({ type: 'ctx', text: 'x'.repeat(60) }) }] }];
@@ -982,7 +982,7 @@ test('Wrap preference preserves full lines, highlights and horizontal extent in 
   assert.equal(view.wrap, true);
   assert.ok(view.rows().rows.length > 3);
   view.toggleWrap(cx);
-  assert.equal(memory['devkits.diff-wrap'], false);
+  assert.equal(memory['herdr-zed.diff-wrap'], false);
   const unified = view.rows();
   assert.deepEqual(unified.rows.filter(row => row.kind === 'line').map(row => row.line.text), [old, next]);
   assert.ok(unified.contentWidth >= (7 + 120 + 4) * 8 + unified.gutter + 24, 'Wide glyphs must be reachable by horizontal scrolling');
@@ -1011,7 +1011,7 @@ test('changed files group as Tracked then Untracked, matching the multibuffer, a
   const { DiffViewer, parseDiff, changeSections, changeTree } = await load({ shared: () => undefined, setShared() {},
     VirtualListScrollHandle: { new: () => ({ scroll_to_item: (...args) => scrolled.push(args) }) } });
   const header = path => [`diff --git a/${path} b/${path}`, `--- a/${path}`, `+++ b/${path}`];
-  const files = parseDiff([...header('src/b.js'), 'devkits-untracked-files', ...header('a.md'), ...header('src/lib/c.js')].join('\n'));
+  const files = parseDiff([...header('src/b.js'), 'herdr-zed-untracked-files', ...header('a.md'), ...header('src/lib/c.js')].join('\n'));
   assert.deepEqual(files.map(file => [file.path, file.untracked]), [['src/b.js', false], ['a.md', true], ['src/lib/c.js', true]]);
   assert.deepEqual(changeSections(files).map(section => [section.label, section.files.map(file => file.path)]),
     [['Tracked', ['src/b.js']], ['Untracked', ['a.md', 'src/lib/c.js']]]);
@@ -1061,7 +1061,7 @@ test('List and Tree menu choices persist and preserve selection, collapsed folde
   const view = new DiffViewer(); view.init(cx); view.loaded = true;
   view.context = { id: 'project', folder: '/project' };
   const patch = name => `diff --git a/${name} b/${name}\n--- a/${name}\n+++ b/${name}\n`;
-  view.files = parseDiff(patch('src/deep/a.js') + patch('Cargo.lock') + 'devkits-untracked-files\n' + patch('new/b.js'));
+  view.files = parseDiff(patch('src/deep/a.js') + patch('Cargo.lock') + 'herdr-zed-untracked-files\n' + patch('new/b.js'));
   view.selected = 'src/deep/a.js'; view.folders.add('Tracked:src/deep');
   const cache = view.rows();
   assert.equal(view.fileView, 'tree');
@@ -1077,7 +1077,7 @@ test('List and Tree menu choices persist and preserve selection, collapsed folde
   assert.equal(view.fileViewMenu.open, true);
   nodes.get('diff-file-view-list').click({}, cx);
   assert.equal(view.fileViewMenu.open, false);
-  assert.equal(memory['devkits.diff-file-view'], 'list');
+  assert.equal(memory['herdr-zed.diff-file-view'], 'list');
   assert.equal(view.selected, 'src/deep/a.js');
   assert.equal(view.rows(), cache);
   assert.deepEqual(scrolled, []);
@@ -1107,7 +1107,7 @@ test('reloads keep the shown diff and skip repainting until git diff output chan
   let text = ['diff --git a/a b/a', '--- a/a', '+++ b/a', '@@ -1 +1 @@', '-x', '+y'].join(String.fromCharCode(10));
   const { DiffViewer } = await load({ shared: () => undefined, setShared() {},
     VirtualListScrollHandle: { new: () => ({ scroll_to_item() {} }) },
-    exec: async (_cmd, args) => ({ code: 0, stdout: args.includes('devkits-diff-index') ? indexFor('a') : args.includes('devkits-diff-file') ? text : '', stderr: '' }) });
+    exec: async (_cmd, args) => ({ code: 0, stdout: args.includes('herdr-zed-diff-index') ? indexFor('a') : args.includes('herdr-zed-diff-file') ? text : '', stderr: '' }) });
   const tasks = [];
   let notified = 0;
   const cx = { notify() { notified++; }, spawn(fn) { tasks.push(fn(cx)); } };
@@ -1168,7 +1168,7 @@ test('loaded diff text preserves row rendering in unified and split views', asyn
   const { DiffViewer } = await load({ div: element, svg: element, h_flex: element, v_flex: element,
     GitStatusColor: { added: '#27a657', deleted: '#e06c76' },
     shared: key => memory[key], setShared: (key, value) => { memory[key] = value; },
-    VirtualListScrollHandle: { new: () => ({}) }, exec: async (_cmd, args) => ({ code: 0, stdout: args.includes('devkits-diff-index') ? indexFor('a.js') : args.includes('devkits-diff-file') ? text : '' }) });
+    VirtualListScrollHandle: { new: () => ({}) }, exec: async (_cmd, args) => ({ code: 0, stdout: args.includes('herdr-zed-diff-index') ? indexFor('a.js') : args.includes('herdr-zed-diff-file') ? text : '' }) });
   const tasks = [], cx = { notify() {}, sleep: async () => {}, spawn(fn) { tasks.push(fn(cx)); } };
   const view = new DiffViewer(); view.init(); view.observe = () => {};
   view.refresh({ id: 'project', folder: '/project' }, cx);
@@ -1334,7 +1334,7 @@ test('ordered file loads publish small batches, skip hidden lockfiles and stop i
   const index = 'a'.repeat(40) + '\0/repo\0' + paths.map(path => `:100644 100644 abc def M\0${path}\0`).join('')
     + paths.map(path => `1\t1\t${path}\0`).join('') + '\0';
   const { readDiff } = await load({ exec: async (_cmd, args) => {
-    if (args.includes('devkits-diff-index')) return { code: 0, stdout: index };
+    if (args.includes('herdr-zed-diff-index')) return { code: 0, stdout: index };
     const path = args[6]; calls.push(path);
     return { code: 0, stdout: `diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n@@ -1 +1 @@\n-old\n+new\n` };
   } });
@@ -1352,7 +1352,7 @@ test('ordered file loads publish small batches, skip hidden lockfiles and stop i
 });
 
 test('Git caps short-line and huge-line responses before transfer and can prioritize a later file', async t => {
-  const folder = await mkdtemp(join(tmpdir(), 'devkits-large-diff-'));
+  const folder = await mkdtemp(join(tmpdir(), 'herdr-zed-large-diff-'));
   t.after(() => rm(folder, { recursive: true, force: true }));
   await run('git', ['init', '-q', folder]);
   await writeFile(join(folder, 'a-short'), 'x\n'.repeat(200000));
@@ -1360,7 +1360,7 @@ test('Git caps short-line and huge-line responses before transfer and can priori
   const responses = [];
   const { readDiff } = await load({ exec: async (cmd, args) => {
     const result = await run(cmd, args, { maxBuffer: 5 * 1024 * 1024 });
-    if (args.includes('devkits-diff-file')) responses.push({ path: args[6], bytes: Buffer.byteLength(result.stdout), lines: result.stdout.split('\n').length });
+    if (args.includes('herdr-zed-diff-file')) responses.push({ path: args[6], bytes: Buffer.byteLength(result.stdout), lines: result.stdout.split('\n').length });
     return { code: 0, ...result };
   } });
   const path = folder.replaceAll('\\', '/');
@@ -1385,7 +1385,7 @@ test('failed refreshes retain the last successful diff and closing releases its 
   let failed = false;
   const { DiffViewer } = await load({ VirtualListScrollHandle: { new: () => ({}) }, exec: async (_cmd, args) => {
     if (failed) throw new Error('Read failed');
-    return { code: 0, stdout: args.includes('devkits-diff-index') ? indexFor('a') : args.includes('devkits-diff-file')
+    return { code: 0, stdout: args.includes('herdr-zed-diff-index') ? indexFor('a') : args.includes('herdr-zed-diff-file')
       ? 'diff --git a/a b/a\n--- a/a\n+++ b/a\n@@ -1 +1 @@\n-old\n+new\n' : '' };
   } });
   const tasks = [], cx = { notify() {}, sleep: async () => {}, spawn(fn) { tasks.push(fn(cx)); } };
@@ -1473,8 +1473,8 @@ test('UTF-8 budgets and Git quoted paths work without browser encoding globals',
 test('the Changes index appears before a blocked first patch or branch-state read finishes', async () => {
   let finishPatch, finishState, notices = 0;
   const { DiffViewer } = await load({ VirtualListScrollHandle: { new: () => ({}) }, exec: async (_cmd, args) => {
-    if (args.includes('devkits-diff-index')) return { code: 0, stdout: indexFor('a') };
-    if (args.includes('devkits-diff-file')) return new Promise(resolve => { finishPatch = resolve; });
+    if (args.includes('herdr-zed-diff-index')) return { code: 0, stdout: indexFor('a') };
+    if (args.includes('herdr-zed-diff-file')) return new Promise(resolve => { finishPatch = resolve; });
     return new Promise(resolve => { finishState = resolve; });
   } });
   const tasks = [], cx = { notify() { notices++; }, sleep: async () => {}, spawn(fn) { tasks.push(fn(cx)); } };

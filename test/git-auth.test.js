@@ -5,11 +5,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { execFile } from 'node:child_process';
-import { gitShellCommand } from '../mods/devkits/components/session-shell.js';
+import { gitShellCommand } from '../components/session-shell.js';
 
 const run = promisify(execFile);
 async function load(host = {}) {
-  const source = await readFile(new URL('../mods/devkits/git-auth.js', import.meta.url), 'utf8');
+  const source = await readFile(new URL('../mods/herdr-zed/git-auth.js', import.meta.url), 'utf8');
   return new Function(...Object.keys(host), source.replace(/^import .*;\r?\n/gm, '').replace(/^export /gm, '')
     + '\nreturn { gitAccount, setGitAccount, readGitAccounts, gitAuthArgs, readAccountAuthor, rememberGitAuthor };')(...Object.values(host));
 }
@@ -74,7 +74,7 @@ test('account choices are scoped by machine and folder and Default removes the c
 });
 
 test('Git uses the selected account through a host-scoped helper without global switches or writes', async t => {
-  const folder = await mkdtemp(join(tmpdir(), 'devkits-gh-helper-'));
+  const folder = await mkdtemp(join(tmpdir(), 'herdr-zed-gh-helper-'));
   t.after(() => rm(folder, { recursive: true, force: true }));
   // This fixture contains no real credential and fails if inherited tokens override the selection.
   await writeFile(join(folder, 'gh'), '#!/bin/sh\n'

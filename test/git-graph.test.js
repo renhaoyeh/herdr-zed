@@ -9,7 +9,7 @@ import { promisify } from 'node:util';
 const graphRun = promisify(execFile);
 const sha = letter => letter.repeat(40);
 async function data(host = {}) {
-  const sources = await Promise.all(['components/session-shell.js', 'shell.js', 'git-graph-data.js'].map(name => readFile(new URL(`../mods/devkits/${name}`, import.meta.url), 'utf8')));
+  const sources = await Promise.all(['components/session-shell.js', 'shell.js', 'git-graph-data.js'].map(name => readFile(new URL(`../mods/herdr-zed/${name}`, import.meta.url), 'utf8')));
   return new Function(...Object.keys(host), sources.join('\n').replace(/^import .*;\r?\n/gm, '').replace(/^export /gm, '')
     + '\nreturn { readGraphSnapshot, readGraphPage, parseGraphCommits, graphRows, searchGraph, graphDate };')(...Object.values(host));
 }
@@ -25,7 +25,7 @@ const graphClock = () => {
   return { cx, timers, async drain() { while (tasks.length) await Promise.all(tasks.splice(0)); } };
 };
 async function graph(host = {}) {
-  const source = await readFile(new URL('../mods/devkits/git-graph.js', import.meta.url), 'utf8');
+  const source = await readFile(new URL('../mods/herdr-zed/git-graph.js', import.meta.url), 'utf8');
   class Details { reset() { this.preview = null; } select(commit) { this.commit = commit; } }
   class State {}
   const base = { shared: () => undefined, setShared() {}, graphDate: () => '1 day ago', CommitHistory: Details, DropdownMenuState: State, SidePanelState: State,

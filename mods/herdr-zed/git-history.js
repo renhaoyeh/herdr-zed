@@ -29,7 +29,7 @@ export async function readCommitHistory(folder, on, revision = null, skip = 0) {
     + 'revision=$(git rev-parse --verify -q "${2:-HEAD}") || exit 0; '
     + 'printf "%s\\0" "$revision"; '
     + 'git -c log.showSignature=false --no-pager log --no-color -z --format="%H%x00%h%x00%an%x00%at%x00%B" '
-    + '--max-count=51 --skip="$3" "$revision" --', 'devkits-history', folder, revision || '', String(skip)], { on });
+    + '--max-count=51 --skip="$3" "$revision" --', 'herdr-zed-history', folder, revision || '', String(skip)], { on });
   if (result.code !== 0) throw new Error(result.stderr.trim() || 'Cannot read commit history.');
   const page = parseCommitHistory(result.stdout);
   return { revision: page.revision, entries: page.entries.slice(0, PAGE), hasMore: page.entries.length > PAGE };
@@ -52,7 +52,7 @@ export async function readCommitPatch(folder, on, sha, options = {}) {
     + 'git cat-file -e "$2^{commit}" || exit; '
     + 'git -c core.quotepath=false -c log.showSignature=false --no-pager show --format= '
     + '--no-color --no-ext-diff --no-textconv --find-renames --diff-merges=first-parent --root -U3 "$2" -- '
-    + '| head -c "$3"', 'devkits-commit-diff', folder, sha, String(LIMIT + 1)], { on });
+    + '| head -c "$3"', 'herdr-zed-commit-diff', folder, sha, String(LIMIT + 1)], { on });
   if (result.code !== 0 || !result.stdout && result.stderr?.trim()) throw new Error(result.stderr.trim() || 'Cannot read commit changes.');
   return { text: result.stdout.slice(0, LIMIT), truncated: await utf8ByteLength(result.stdout, options.yield) > LIMIT };
 }

@@ -7,14 +7,14 @@ import { syncShared } from '../sync-shared.js';
 
 // A throwaway herdr folder outside any Git checkout: one source, one listed copy.
 async function fixture(t) {
-  const root = await mkdtemp(join(tmpdir(), 'devkits-sync-'));
+  const root = await mkdtemp(join(tmpdir(), 'herdr-zed-sync-'));
   t.after(() => rm(root, { recursive: true, force: true }));
-  await mkdir(join(root, 'mods', 'devkits', 'components'), { recursive: true });
-  await mkdir(join(root, 'mods', 'panel'));
+  await mkdir(join(root, 'components'), { recursive: true });
+  await mkdir(join(root, 'mods', 'panel'), { recursive: true });
   await writeFile(join(root, 'COPIES'), '# comment\nbutton.js: panel\n');
-  await writeFile(join(root, 'mods', 'devkits', 'components', 'button.js'), '// Shared button\nv1\n');
+  await writeFile(join(root, 'components', 'button.js'), '// Shared button\nv1\n');
   const copy = join(root, 'mods', 'panel', 'components', 'button.js');
-  return { root, copy, source: join(root, 'mods', 'devkits', 'components', 'button.js') };
+  return { root, copy, source: join(root, 'components', 'button.js') };
 }
 
 test('sync writes missing copies, follows source edits, and check changes nothing', async t => {

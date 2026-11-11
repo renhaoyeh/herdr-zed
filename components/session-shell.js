@@ -1,15 +1,15 @@
-// Shared: edit mods/devkits/components/session-shell.js, then npm run sync:shared.
-export const gitShellCommand = args => ['git', '-c', 'alias.devkits-shell=!sh', 'devkits-shell', ...args];
+// Shared: edit components/session-shell.js, then npm run sync:shared.
+export const gitShellCommand = args => ['git', '-c', 'alias.herdr-zed-shell=!sh', 'herdr-zed-shell', ...args];
 
 export function commandArgv(argv, platform) {
   if (platform !== 'windows' || !argv?.length ||
       !(argv[0] === 'env' || /(?:^|[/\\])(?:codex|claude)(?:\.exe|\.cmd)?$/i.test(argv[0]))) return argv;
-  return gitShellCommand(['-c', 'exec "$@"', 'devkits-command', ...argv]);
+  return gitShellCommand(['-c', 'exec "$@"', 'herdr-zed-command', ...argv]);
 }
 
 export function terminalArgv(argv, platform) {
   const command = commandArgv(argv, platform);
-  if (platform !== 'windows' || command?.[2] !== 'alias.devkits-shell=!sh') return command;
+  if (platform !== 'windows' || command?.[2] !== 'alias.herdr-zed-shell=!sh') return command;
   // PowerShell 5.1 strips embedded double quotes; let Git's shell decode them instead.
   const escapes = { '\\': '\\\\', "'": "\\'", '"': '\\x22', '\r': '\\r', '\n': '\\n' };
   const script = command.map(arg => `$'${arg.replace(/[\\'"\r\n]/g, char => escapes[char])}'`).join(' ');
@@ -65,11 +65,11 @@ export function unwrapTerminalArgv(argv = []) {
       const command = argv.findIndex(arg => /^-command$/i.test(arg));
       const script = command >= 0 && command === argv.length - 2 && argv[command + 1];
       const words = typeof script === 'string' && script.startsWith('& ') && launcherWords(script.slice(2));
-      if (!words || words[0] !== 'git' || words[2] !== 'alias.devkits-shell=!sh') break;
+      if (!words || words[0] !== 'git' || words[2] !== 'alias.herdr-zed-shell=!sh') break;
       argv = words;
-    } else if (argv[0] === 'git' && argv[1] === '-c' && argv[2] === 'alias.devkits-shell=!sh'
-        && argv[3] === 'devkits-shell' && argv[4] === '-c') {
-      if (argv[5] === 'exec "$@"' && argv[6] === 'devkits-command') argv = argv.slice(7);
+    } else if (argv[0] === 'git' && argv[1] === '-c' && argv[2] === 'alias.herdr-zed-shell=!sh'
+        && argv[3] === 'herdr-zed-shell' && argv[4] === '-c') {
+      if (argv[5] === 'exec "$@"' && argv[6] === 'herdr-zed-command') argv = argv.slice(7);
       else {
         const words = argv.length === 6 && argv[5]?.startsWith('exec ') && launcherWords(argv[5].slice(5), true);
         if (!words?.length) break;

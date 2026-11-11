@@ -26,8 +26,8 @@ export default class WorkspaceEditor {
       this.diffItemKey = null; this.restoreQueued = null;
     };
     cx.bind_keys([
-      { keystroke: 'ctrl-tab', action: 'devkits-next-file', context: 'DevkitsFiles' },
-      { keystroke: 'ctrl-shift-tab', action: 'devkits-prev-file', context: 'DevkitsFiles' },
+      { keystroke: 'ctrl-tab', action: 'herdr-zed-next-file', context: 'HerdrZedFiles' },
+      { keystroke: 'ctrl-shift-tab', action: 'herdr-zed-prev-file', context: 'HerdrZedFiles' },
     ]);
   }
 
@@ -53,11 +53,11 @@ export default class WorkspaceEditor {
     if (!this.projectKey) return;
     const { git, order, history, active } = this.session;
     const saved = { git: git.map(({ kind, commit }) => ({ kind, ...(commit ? { commit } : {}) })), order, history, active };
-    const all = shared('devkits.editor-tabs') || {};
+    const all = shared('herdr-zed.editor-tabs') || {};
     if (JSON.stringify(all[this.projectKey]) === JSON.stringify(order.length ? saved : undefined)) return;
     const next = { ...all };
     if (order.length) next[this.projectKey] = saved; else delete next[this.projectKey];
-    setShared('devkits.editor-tabs', next);
+    setShared('herdr-zed.editor-tabs', next);
   }
 
   switchProject(project) {
@@ -69,7 +69,7 @@ export default class WorkspaceEditor {
     this.projectKey = key; this.diffItemKey = null; this.restoreQueued = null; this.tabSwitch = null;
     const cached = this.sessions.get(key);
     if (cached) { this.session = cached; return; }
-    const saved = shared('devkits.editor-tabs')?.[key];
+    const saved = shared('herdr-zed.editor-tabs')?.[key];
     this.session = emptyEditorSession();
     if (!saved) return;
     const seen = new Set();
@@ -106,7 +106,7 @@ export default class WorkspaceEditor {
       if (index >= 0) this.session.order[index] = `file:${info.path}`;
     }
     this.syncTabs(); this.record(this.files.file ? `file:${this.files.file}` : null);
-    setShared('devkits.editor-kind', 'files');
+    setShared('herdr-zed.editor-kind', 'files');
   }
 
   gitOpened(item) {
@@ -117,7 +117,7 @@ export default class WorkspaceEditor {
     if (!existing) this.session.git.push({ ...item });
     else if (item.commit) existing.commit = item.commit;
     this.syncTabs(); this.record(key); this.diffItemKey = key;
-    setShared('devkits.editor-kind', 'diff');
+    setShared('herdr-zed.editor-kind', 'diff');
   }
 
   activate(key, cx, cycling = false) {
@@ -153,7 +153,7 @@ export default class WorkspaceEditor {
     if (active) {
       const next = this.session.history.at(-1) || this.session.order[Math.max(0, index - 1)];
       if (next) this.activate(next, cx);
-      else { this.session.active = null; setShared('devkits.editor-kind', 'files'); }
+      else { this.session.active = null; setShared('herdr-zed.editor-kind', 'files'); }
     }
     this.remember(); cx.notify();
   }
@@ -170,12 +170,12 @@ export default class WorkspaceEditor {
 
   render(project, cx, { empty } = {}) {
     this.switchProject(project);
-    const dock = shared('devkits.right-panel');
+    const dock = shared('herdr-zed.right-panel');
     const files = this.files.render(project, cx, true, false);
     this.syncTabs();
-    const outputRequest = shared('devkits.git-output-request');
+    const outputRequest = shared('herdr-zed.git-output-request');
     if (outputRequest) {
-      setShared('devkits.git-output-request', null);
+      setShared('herdr-zed.git-output-request', null);
       if (outputRequest === gitToastProject(project) && outputRequest === gitToastProject(this.diff.context) && this.diff.pushResult) {
         this.gitOpened(this.session.git.find(item => editorItemKey(item) === this.diffItemKey) || { kind: 'changes' }, cx);
         this.diff.openLog(cx);
@@ -209,10 +209,10 @@ export default class WorkspaceEditor {
         : !this.files.doc && empty ? empty() : files.content));
     const body = dock ? SidePanelLayout('workspace-editor-split', this.files.sidePanel, content,
       dock === 'diff' ? diff.panel : files.panel) : content;
-    return div().id('workspace-editor').track_focus(this.handle).key_context('DevkitsFiles').size_full().min_h(0).bg(theme().background)
+    return div().id('workspace-editor').track_focus(this.handle).key_context('HerdrZedFiles').size_full().min_h(0).bg(theme().background)
       .on_modifiers_changed(event => { if (!event.modifiers.control) this.tabSwitch = null; })
-      .on_action('devkits-next-file', (_event, cx) => { cx.stop_propagation(); this.cycleTab(1, cx); })
-      .on_action('devkits-prev-file', (_event, cx) => { cx.stop_propagation(); this.cycleTab(-1, cx); })
+      .on_action('herdr-zed-next-file', (_event, cx) => { cx.stop_propagation(); this.cycleTab(1, cx); })
+      .on_action('herdr-zed-prev-file', (_event, cx) => { cx.stop_propagation(); this.cycleTab(-1, cx); })
       .child(body);
   }
 }

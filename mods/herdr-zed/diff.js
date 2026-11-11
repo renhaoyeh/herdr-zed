@@ -17,7 +17,7 @@ import { showGitToast, clearGitToast } from './git-result-toast.js';
 import { openGitAuthor } from './git-author-settings.js';
 import { gitAccount, gitAuthArgs } from './git-auth.js';
 
-const icon = name => svg(`mods/devkits/assets/icons/${name}.svg`).size(12).flex_none();
+const icon = name => svg(`mods/herdr-zed/assets/icons/${name}.svg`).size(12).flex_none();
 // Native virtual lists accept at most 10,000 per-item sizes, including chrome rows.
 const MAX_BYTES = 4000000, MAX_ROWS = 10000, MAX_LINE = 2000;
 const LINE = 20, HEADER = 32, GAP = 8, SEPARATOR = 12;
@@ -66,7 +66,7 @@ export function wrapLine(line, columns) {
 // Changed lines get a light wash of Zed's version-control colors and changed words a stronger one.
 // Working tree (including untracked files) against HEAD, or the empty tree before the first commit.
 // A marker line separates tracked changes from untracked files, as Zed's Git panel groups them.
-const UNTRACKED = 'devkits-untracked-files';
+const UNTRACKED = 'herdr-zed-untracked-files';
 const INDEX_SCRIPT = 'cd "$1" || exit 2; git rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo "Not a Git repository." >&2; exit 3; }; '
   + 'cd "$(git rev-parse --show-toplevel)" || exit 2; '
   + 'base=$(git rev-parse --verify -q HEAD) || base=$(git hash-object -t tree /dev/null); '
@@ -224,7 +224,7 @@ function* parseDiffIndexBatches(text) {
 
 export async function readDiffIndex(folder, on, options = {}) {
   const result = await withBuildRulesFile(options.buildRules, on,
-    path => execShell(['-c', INDEX_SCRIPT, 'devkits-diff-index', folder, path], { on }));
+    path => execShell(['-c', INDEX_SCRIPT, 'herdr-zed-diff-index', folder, path], { on }));
   if (result.code !== 0 || /(^|\n)(fatal|error):/.test(result.stderr || '')) throw new Error(result.stderr.trim() || 'Cannot read changes.');
   const parser = parseDiffIndexBatches(result.stdout);
   let next;
@@ -263,7 +263,7 @@ export async function readDiff(folder, on, options = {}) {
     // Bound both short-line/object explosions and long lines before they cross
     // the native/JS boundary. One extra byte/line detects a truncated response.
     const remaining = MAX_BYTES - budget.bytes, remainingLines = MAX_ROWS - budget.lines;
-    const result = await execShell(['-c', PATCH_SCRIPT, 'devkits-diff-file', root, base,
+    const result = await execShell(['-c', PATCH_SCRIPT, 'herdr-zed-diff-file', root, base,
       file.untracked ? 'untracked' : 'tracked', file.path, file.oldPath || file.path,
       String(remainingLines + 64), String(remaining + 1)], { on });
     if (!await pause()) return null;
@@ -319,7 +319,7 @@ export async function readPushState(folder, on) {
     + 'counts=$(git rev-list --left-right --count "HEAD...@{upstream}" 2>/dev/null); '
     + 'upstream=; if [ -n "$branch" ]; then upstream=$(git for-each-ref --format="%(upstream)" "refs/heads/$branch"); fi; '
     + 'push_remote=$(git config --get "branch.$branch.pushRemote" || git config --get remote.pushDefault || git config --get "branch.$branch.remote"); '
-    + 'printf "%s\n%s\n%s\n%s\n%s\n" "$branch" "$commit" "$counts" "$upstream" "$push_remote"; git remote', 'devkits-push-state', folder], { on });
+    + 'printf "%s\n%s\n%s\n%s\n%s\n" "$branch" "$commit" "$counts" "$upstream" "$push_remote"; git remote', 'herdr-zed-push-state', folder], { on });
   if (result.code !== 0) throw new Error(result.stderr.trim() || 'Cannot read Git branch.');
   const [branch, commit, counts, upstream, configuredRemote, ...remoteLines] = result.stdout.split(/\r?\n/);
   const remotes = remoteLines.filter(Boolean);
@@ -356,7 +356,7 @@ export async function gitRemoteAction(folder, on, action, remote, account = null
     + (publish ? 'branch=$(git symbolic-ref --quiet --short HEAD) || exit 3; set -- "$@" "HEAD:refs/heads/$branch"; ' : '')
     + 'GIT_TERMINAL_PROMPT=0 GCM_INTERACTIVE=never git "$@"';
   const result = await execShell(['-c', script,
-    'devkits-git', folder, ...gitAuthArgs(account), ...args], { on });
+    'herdr-zed-git', folder, ...gitAuthArgs(account), ...args], { on });
   if (result.code !== 0) throw new Error(result.stderr.trim() || result.stdout.trim() || `${operation.label} failed.`);
 }
 
@@ -456,7 +456,7 @@ export async function readRepositories(folder, on) {
     + 'for p in ./* ./.[!.]* ./..?*; do '
     + '[ -d "$p" ] && { [ -d "$p/.git" ] || [ -f "$p/.git" ]; } || continue; '
     + '[ "$(git -C "$p" rev-parse --is-inside-work-tree 2>/dev/null)" = true ] || continue; '
-    + 'printf "%s\\0" "${p#./}"; done', 'devkits-repositories', folder], { on });
+    + 'printf "%s\\0" "${p#./}"; done', 'herdr-zed-repositories', folder], { on });
   if (result.code !== 0) throw new Error(result.stderr || 'Could not read repositories.');
   return result.stdout.split('\0').filter(Boolean).sort((a, b) => a.localeCompare(b));
 }
@@ -523,7 +523,7 @@ export async function readAllDiff(project, repositories, options = {}) {
 
 export default class DiffViewer {
   init(cx) {
-    this.sidePanel = new SidePanelState(() => shared('devkits.side-panel-width') || 280, width => setShared('devkits.side-panel-width', width));
+    this.sidePanel = new SidePanelState(() => shared('herdr-zed.side-panel-width') || 280, width => setShared('herdr-zed.side-panel-width', width));
     this.files = [];
     this.collapsed = new Set();
     this.folders = new Set();
@@ -537,7 +537,7 @@ export default class DiffViewer {
     this.fileViewMenu = new DropdownMenuState(cx);
     this.repositoryMenu = new SelectState(cx);
     this.repositories = [];
-    this.rulesRevision = shared('devkits.diff-build-rules-revision') || 0;
+    this.rulesRevision = shared('herdr-zed.diff-build-rules-revision') || 0;
     this.panelTab = 'changes';
     this.history = new CommitHistory(cx, (text, cx, cancelled) => {
       this.rowCache = null; this.collapsed.clear(); this.selected = null;
@@ -613,7 +613,7 @@ export default class DiffViewer {
             const repositories = await readRepositories(project.folder, project.machine);
             if (this.context !== context) return;
             this.repositories = repositories;
-            const saved = shared('devkits.git-repository')?.[repositoryProjectKey(project)];
+            const saved = shared('herdr-zed.git-repository')?.[repositoryProjectKey(project)];
             const name = saved === ALL_REPOSITORIES && repositories.some(name => name !== '.')
               ? saved : repositories.includes(saved) ? saved : repositories[0];
             context.allRepositories = name === ALL_REPOSITORIES;
@@ -640,7 +640,7 @@ export default class DiffViewer {
     if (!this.project || !(name === ALL_REPOSITORIES && this.repositories.some(name => name !== '.') || this.repositories.includes(name))) return;
     if (name === ALL_REPOSITORIES ? this.allRepositories : !this.allRepositories && repositoryFolder(this.project, name) === this.context?.folder) return;
     const project = this.project, repositories = this.repositories;
-    setShared('devkits.git-repository', { ...(shared('devkits.git-repository') || {}), [repositoryProjectKey(project)]: name });
+    setShared('herdr-zed.git-repository', { ...(shared('herdr-zed.git-repository') || {}), [repositoryProjectKey(project)]: name });
     this.refresh(project, cx, { repositories, name });
     this.onRepositoryChange?.(cx);
     this.showChanges(cx);
@@ -970,10 +970,10 @@ export default class DiffViewer {
         .when(expanded, el => el.max_h(240).overflow_y_scrollbar())
         .child(expanded ? message : message.split('\n')[0]));
   }
-  get fileView() { return shared('devkits.diff-file-view') === 'list' ? 'list' : 'tree'; }
+  get fileView() { return shared('herdr-zed.diff-file-view') === 'list' ? 'list' : 'tree'; }
 
   setFileView(view, cx) {
-    setShared('devkits.diff-file-view', view);
+    setShared('herdr-zed.diff-file-view', view);
     cx.notify();
   }
 
@@ -1158,17 +1158,17 @@ export default class DiffViewer {
           .accessibility_label('Open Git Graph').child(icon('git-graph').size(14)).on_click((_event, cx) => this.openGraph(cx)))));
   }
 
-  get split() { return shared('devkits.diff-layout') === 'split'; }
-  get wrap() { return shared('devkits.diff-wrap') !== false; }
+  get split() { return shared('herdr-zed.diff-layout') === 'split'; }
+  get wrap() { return shared('herdr-zed.diff-wrap') !== false; }
 
   toggleWrap(cx) {
-    setShared('devkits.diff-wrap', !this.wrap);
+    setShared('herdr-zed.diff-wrap', !this.wrap);
     this.rowCache = null;
     cx.notify();
   }
 
   setLayout(layout, cx) {
-    setShared('devkits.diff-layout', layout);
+    setShared('herdr-zed.diff-layout', layout);
     this.rowCache = null;
     cx.notify();
   }
@@ -1336,7 +1336,7 @@ export default class DiffViewer {
   }
 
   render(project, cx, parts = false) {
-    const revision = shared('devkits.diff-build-rules-revision') || 0;
+    const revision = shared('herdr-zed.diff-build-rules-revision') || 0;
     if (revision !== this.rulesRevision) {
       this.rulesRevision = revision;
       cx.spawn(async cx => { await cx.sleep(0); if (this.context && !this.discovering) this.reload(cx); });

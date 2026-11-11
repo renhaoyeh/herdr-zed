@@ -5,7 +5,7 @@ import { glyph } from './components/icon.js';
 import { parseExtensionRegistry, parseExtensionManifest, extensionPopup, extensionMetadata, extensionServiceLayout } from './extension-model.js';
 import { extensionSurfaceLayout, extensionSurfaceNodeId } from './extension-surfaces.js';
 
-const DISABLED = 'devkits-zed.extensions.disabled';
+const DISABLED = 'herdr-zed.extensions.disabled';
 export const extensionEnabled = mod => !(shared(DISABLED) || []).includes(mod);
 export function setExtensionEnabled(mod, enabled) {
   const disabled = new Set(shared(DISABLED) || []);
@@ -29,7 +29,7 @@ function applyExtensionLayout(root, packages, disabled, previous) {
   }
 }
 
-const CATALOG = 'devkits-zed.extensions.catalog', REQUEST = 'devkits-zed.extensions.request';
+const CATALOG = 'herdr-zed.extensions.catalog', REQUEST = 'herdr-zed.extensions.request';
 export const extensionCatalog = () => shared(CATALOG) || { ready: false, loading: false, actions: [], packages: [], errors: [] };
 const layoutNode = (node, id) => node?.id === id ? node : (node?.children || []).map(child => layoutNode(child, id)).find(Boolean) || null;
 export const extensionSurfaceVisible = surface => {
@@ -49,7 +49,7 @@ export async function refreshExtensions() {
   setShared(CATALOG, { ...extensionCatalog(), ready: false, loading: true });
   const actions = [], packages = [], errors = [], ids = new Set(), surfaceIds = new Set();
   try {
-    const mods = parseExtensionRegistry(await readTextFile(`${appHome()}/data/devkits-zed/extensions.json`));
+    const mods = parseExtensionRegistry(await readTextFile(`${appHome()}/data/herdr-zed/extensions.json`));
     for (const mod of mods) {
       try {
         const text = await readTextFile(`${appHome()}/mods/${mod}/extension.json`);

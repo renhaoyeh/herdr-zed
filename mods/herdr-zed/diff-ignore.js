@@ -15,7 +15,7 @@ npm-shrinkwrap.json
 bun.lockb
 `;
 
-const templatePath = file => `${appHome()}/mods/devkits-zed/assets/gitignore/${file}`;
+const templatePath = file => `${appHome()}/mods/herdr-zed/assets/gitignore/${file}`;
 /** Git reads this generated file; the filters file is the editable source. */
 export const buildRulesPath = () => `${appHome()}/data/devkits/diff-build-output.gitignore`;
 export const buildFiltersPath = () => `${appHome()}/data/devkits/diff-build-filters.json`;
@@ -79,22 +79,22 @@ export async function readBuildRules() {
 export async function withBuildRulesFile(rules, on, read) {
   if (!rules) return read('');
   if (!on) return read(rules.path);
-  const created = await execShell(['-c', 'mktemp "${TMPDIR:-/tmp}/devkits-diff-ignore.XXXXXX"'], { on });
+  const created = await execShell(['-c', 'mktemp "${TMPDIR:-/tmp}/herdr-zed-diff-ignore.XXXXXX"'], { on });
   const path = created.stdout.trim();
-  if (created.code !== 0 || !/(?:^|\/)devkits-diff-ignore\.[A-Za-z0-9]+$/.test(path)) throw new Error('Cannot prepare remote build filters.');
+  if (created.code !== 0 || !/(?:^|\/)herdr-zed-diff-ignore\.[A-Za-z0-9]+$/.test(path)) throw new Error('Cannot prepare remote build filters.');
   try {
     // Bound each command line, including on Windows; filenames never enter shell code.
     for (let offset = 0; offset < rules.text.length;) {
       let end = Math.min(offset + 4096, rules.text.length);
       if (end < rules.text.length && /[\ud800-\udbff]/.test(rules.text[end - 1])) end--;
-      const result = await execShell(['-c', 'printf "%s" "$2" >> "$1"', 'devkits-diff-ignore', path,
+      const result = await execShell(['-c', 'printf "%s" "$2" >> "$1"', 'herdr-zed-diff-ignore', path,
         rules.text.slice(offset, end)], { on });
       if (result.code !== 0) throw new Error(result.stderr || 'Cannot copy build filters.');
       offset = end;
     }
     return await read(path);
   } finally {
-    const removed = await execShell(['-c', 'rm -f -- "$1"', 'devkits-diff-ignore', path], { on });
+    const removed = await execShell(['-c', 'rm -f -- "$1"', 'herdr-zed-diff-ignore', path], { on });
     if (removed.code !== 0) throw new Error(removed.stderr || 'Cannot remove temporary build filters.');
   }
 }

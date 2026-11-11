@@ -26,7 +26,7 @@ Where they mention the Devkits layout or `mods/devkits`, the rules below take pr
   copies. Add a `COPIES` line when a mod starts using a component. Icons live in `assets/icons/`.
 - Changing the manifest schema or a message format changes the parser, every manifest and the contract
   tests in the same commit. Manifests stay `version: 1`.
-- Shared-state keys use the `herdr-zed.` prefix (final prefix depends on the naming decision).
+- Shared-state keys use the `herdr-zed.` prefix. `data/devkits/` paths stay shared with Devkits.
 
 ## Validation
 

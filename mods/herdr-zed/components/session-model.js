@@ -1,4 +1,4 @@
-// Shared: edit mods/devkits/components/session-model.js, then npm run sync:shared.
+// Shared: edit components/session-model.js, then npm run sync:shared.
 import { unwrapTerminalArgv } from './session-shell.js';
 
 export function quotaElapsedPercent(window, now = Date.now()) {
@@ -130,8 +130,8 @@ export const noAccountLabel = 'No account';
 
 // Known signed-in addresses, read from shared state: Usage's readings, then addresses read for accounts Usage hides.
 export function accountAddresses(read) {
-  const usage = read('devkits.usage.snapshot')?.contexts?.[JSON.stringify(null)]?.usage || [];
-  const saved = read('devkits.account-identities') || {};
+  const usage = read('herdr-zed.usage.snapshot')?.contexts?.[JSON.stringify(null)]?.usage || [];
+  const saved = read('herdr-zed.account-identities') || {};
   return key => usage.find(item => item.key === key)?.email || saved[key]?.email || null;
 }
 

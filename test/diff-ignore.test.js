@@ -6,16 +6,16 @@ import { promisify } from 'node:util';
 
 const run = promisify(execFile);
 async function load(host = {}) {
-  const source = await readFile(new URL('../mods/devkits/diff-ignore.js', import.meta.url), 'utf8');
+  const source = await readFile(new URL('../mods/herdr-zed/diff-ignore.js', import.meta.url), 'utf8');
   return new Function(...Object.keys(host), source.replace(/^import .*;\r?\n/gm, '').replace(/^export /gm, '')
     + '\nreturn { readBuildRules, readBuildFilters, withBuildRulesFile };')(...Object.values(host));
 }
 
-const assets = new URL('../mods/devkits/assets/gitignore/', import.meta.url);
+const assets = new URL('../mods/herdr-zed/assets/gitignore/', import.meta.url);
 async function bundled(files) {
   const sources = await readFile(new URL('sources.json', assets), 'utf8');
-  files.set('/home/mods/devkits/assets/gitignore/sources.json', sources);
-  for (const { file } of JSON.parse(sources).files) files.set(`/home/mods/devkits/assets/gitignore/${file}`, await readFile(new URL(file, assets), 'utf8'));
+  files.set('/home/mods/herdr-zed/assets/gitignore/sources.json', sources);
+  for (const { file } of JSON.parse(sources).files) files.set(`/home/mods/herdr-zed/assets/gitignore/${file}`, await readFile(new URL(file, assets), 'utf8'));
   return files;
 }
 const host = files => ({ appHome: () => '/home', readTextFile: async path => files.get(path) ?? null,
@@ -39,7 +39,7 @@ test('checked templates compose in bundled order with custom rules last, regener
   assert.deepEqual(seeded.templates, ['VisualStudio.gitignore', 'Qt.gitignore', 'C++.gitignore', 'CMake.gitignore', 'Node.gitignore', 'Python.gitignore']);
   assert.match(seeded.custom, /^# Lock files\n(?:.*\n)*\*-lock\.json\n/, 'Lockfiles start as editable Custom rules');
   assert.ok(first.text.endsWith(seeded.custom));
-  for (const name of ['VisualStudio.gitignore', 'Qt.gitignore']) assert.ok(first.text.includes(files.get(`/home/mods/devkits/assets/gitignore/${name}`)));
+  for (const name of ['VisualStudio.gitignore', 'Qt.gitignore']) assert.ok(first.text.includes(files.get(`/home/mods/herdr-zed/assets/gitignore/${name}`)));
   assert.equal(files.get(RULES), first.text);
   files.set(FILTERS, JSON.stringify({ templates: ['Node.gitignore', 'CMake.gitignore', 'Missing.gitignore'], custom: '!keep.log\n' }));
   const next = await readBuildRules();
@@ -59,7 +59,7 @@ test('another window winning the initial filters creation is preserved', async (
 
 test('remote rules preserve literal Unicode and shell punctuation and remove temporary files after success or failure', async () => {
   const execShell = async args => {
-    try { return { code: 0, ...await run('git', ['-c', 'alias.devkits-shell=!sh', 'devkits-shell', ...args]) }; }
+    try { return { code: 0, ...await run('git', ['-c', 'alias.herdr-zed-shell=!sh', 'herdr-zed-shell', ...args]) }; }
     catch (error) { if (typeof error.code !== 'number') throw error; return { code: error.code, stdout: error.stdout, stderr: error.stderr }; }
   };
   const { withBuildRulesFile } = await load({ execShell });
@@ -80,7 +80,7 @@ test('remote rules preserve literal Unicode and shell punctuation and remove tem
 });
 
 test('rules editor saves checked templates and custom rules with revision checks, publishing only successful saves', async () => {
-  const source = await readFile(new URL('../mods/devkits/diff-ignore-settings.js', import.meta.url), 'utf8');
+  const source = await readFile(new URL('../mods/herdr-zed/diff-ignore-settings.js', import.meta.url), 'utf8');
   const tasks = [], closed = [], memory = {}, writes = []; let conflict = true;
   const editor = ({ value = '' }) => ({ set_value(text) { value = text; }, value: () => value, release() {} });
   const host = {
@@ -103,5 +103,5 @@ test('rules editor saves checked templates and custom rules with revision checks
   assert.match(view.error, /Changed on disk/); assert.deepEqual(closed, []); assert.deepEqual(memory, {});
   assert.deepEqual(writes[0], ['/filters.json', { templates: ['A.gitignore', 'B.gitignore'], custom: 'mine\n!keep' }, 'original']);
   conflict = false; view.save(cx); await Promise.all(tasks.splice(0));
-  assert.deepEqual(closed, ['dialog']); assert.equal(memory['devkits.diff-build-rules-revision'], 1);
+  assert.deepEqual(closed, ['dialog']); assert.equal(memory['herdr-zed.diff-build-rules-revision'], 1);
 });

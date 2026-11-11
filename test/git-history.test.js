@@ -9,10 +9,10 @@ import { execFile } from 'node:child_process';
 const run = promisify(execFile);
 async function load(host = {}) {
   host = { TextEncoder: undefined, TextDecoder: undefined, ...host };
-  const source = await readFile(new URL('../mods/devkits/git-history.js', import.meta.url), 'utf8');
-  const shell = await readFile(new URL('../mods/devkits/shell.js', import.meta.url), 'utf8');
-  const command = await readFile(new URL('../mods/devkits/components/session-shell.js', import.meta.url), 'utf8');
-  const utf8 = await readFile(new URL('../mods/devkits/utf8.js', import.meta.url), 'utf8');
+  const source = await readFile(new URL('../mods/herdr-zed/git-history.js', import.meta.url), 'utf8');
+  const shell = await readFile(new URL('../mods/herdr-zed/shell.js', import.meta.url), 'utf8');
+  const command = await readFile(new URL('../components/session-shell.js', import.meta.url), 'utf8');
+  const utf8 = await readFile(new URL('../mods/herdr-zed/utf8.js', import.meta.url), 'utf8');
   return new Function(...Object.keys(host), (utf8 + '\n' + command + '\n' + shell + '\n' + source).replace(/^import .*;\r?\n/gm, '').replace(/^export /gm, '')
     + '\nreturn { CommitHistory, parseCommitHistory, readCommitHistory, readCommitPatch, readCommitSummary, commitAge };')(...Object.values(host));
 }
@@ -23,7 +23,7 @@ const clock = () => {
 };
 
 test('large commit patches are capped in the child process and missing commits still report errors', async t => {
-  const folder = await mkdtemp(join(tmpdir(), 'devkits-large-commit-'));
+  const folder = await mkdtemp(join(tmpdir(), 'herdr-zed-large-commit-'));
   t.after(() => rm(folder, { recursive: true, force: true }));
   await run('git', ['init', '-q', folder]);
   await writeFile(join(folder, 'large'), 'x'.repeat(5000000));

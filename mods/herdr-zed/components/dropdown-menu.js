@@ -1,4 +1,4 @@
-// Shared: the source is mods/devkits/components/dropdown-menu.js; herdr/sync-shared.js copies it into each mod in herdr/COPIES.
+// Shared: the source is components/dropdown-menu.js; sync-shared.js copies it into each mod listed in COPIES.
 // Edit this source, never a mod's copy, then run npm run sync:shared.
 import { div, svg } from 'gpui-kit';
 import { h_flex, v_flex, Popup } from 'gpui-base';
@@ -97,7 +97,7 @@ export function DropdownMenu(id, state, trigger, items, onSelect, t, { side = 'b
         .when(item.disabled, el => el.opacity(0.4).cursor_default())
         .when(!item.disabled && state.index === index, el => el.bg(linear ? t.menuHover : t.selected).aria_active_descendant()
           .when(linear && !item.destructive, el => el.text_color(t.foreground)))
-        .when(Boolean(item.icon), el => el.child(svg(`mods/devkits/assets/icons/${item.icon}.svg`).size(14).flex_none()
+        .when(Boolean(item.icon), el => el.child(svg(`mods/herdr-zed/assets/icons/${item.icon}.svg`).size(14).flex_none()
           .text_color(item.destructive ? t.destructive || t.ansi1 : t.muted)))
         .on_hover((inside, cx) => { if (inside && !item.disabled) { state.index = index; cx.notify(); } })
         .on_click((_event, cx) => choose(item, cx))
@@ -106,7 +106,7 @@ export function DropdownMenu(id, state, trigger, items, onSelect, t, { side = 'b
           .child(div().min_w(0).truncate().child(item.label))
           .when(Boolean(item.description), el => el.child(div().min_w(0).truncate().text_size(11).text_color(t.muted).child(item.description))))
         .when(item.checked !== undefined, el => el.child(div().w(14).flex_none()
-          .when(item.checked, el => el.child(svg('mods/devkits/assets/icons/check.svg').size(14))))),
+          .when(item.checked, el => el.child(svg('mods/herdr-zed/assets/icons/check.svg').size(14))))),
     ]));
   const open = cx => {
     state.open = true; state.index = enabled[0] ?? 0; state.focus?.focus(); cx.notify();

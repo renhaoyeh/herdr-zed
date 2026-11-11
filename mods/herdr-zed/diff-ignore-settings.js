@@ -6,7 +6,7 @@ import { Button } from './components/button.js';
 import { Checkbox } from './components/checkbox.js';
 import { DialogContent, DialogTitle, DialogDescription, DialogFooter } from './components/dialog.js';
 
-export const openBuildRules = () => openOverlay({ mod: 'devkits-zed', kind: 'dialog', frame: 'none',
+export const openBuildRules = () => openOverlay({ mod: 'herdr-zed', kind: 'dialog', frame: 'none',
   modal: true, width: 860, height: 0.8, props: { view: 'diff-ignore-settings' } });
 
 const CUSTOM = 'custom';
@@ -46,7 +46,7 @@ export class BuildRulesSettings {
     cx.spawn(async cx => {
       try {
         await writeTextFile(this.path, text, this.original);
-        setShared('devkits.diff-build-rules-revision', (shared('devkits.diff-build-rules-revision') || 0) + 1);
+        setShared('herdr-zed.diff-build-rules-revision', (shared('herdr-zed.diff-build-rules-revision') || 0) + 1);
         closeOverlay(props().overlay);
       } catch (error) { this.error = error.message; }
       finally { this.saving = false; cx.notify(); }

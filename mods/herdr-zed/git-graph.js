@@ -10,7 +10,7 @@ import { CommitHistory } from './git-history.js';
 import { readGraphPage, searchGraph, graphRows, graphDate } from './git-graph-data.js';
 
 const GRAPH_ROW = 28, GRAPH_LANE = 14;
-const graphIcon = name => svg(`mods/devkits/assets/icons/${name}.svg`).size(14).flex_none();
+const graphIcon = name => svg(`mods/herdr-zed/assets/icons/${name}.svg`).size(14).flex_none();
 const graphColumns = ['Refs', 'Graph', 'Description', 'Date', 'Author', 'Commit'];
 const graphFractions = [0.18, 0.14, 0.35, 0.13, 0.11, 0.09];
 const graphMinimums = [90, 60, 180, 90, 90, 75];
@@ -23,8 +23,8 @@ export class GitGraph {
     this.fileScroll = VirtualListScrollHandle.new();
     this.details = new CommitHistory(cx, parsePreview);
     this.columnMenu = new DropdownMenuState(cx);
-    this.side = new SidePanelState(() => shared('devkits.graph-details-width') || 300,
-      width => setShared('devkits.graph-details-width', width));
+    this.side = new SidePanelState(() => shared('herdr-zed.graph-details-width') || 300,
+      width => setShared('herdr-zed.graph-details-width', width));
     this.input = InputState.new({ placeholder: 'Search commits…' });
     this.input.on('change', (_event, cx) => this.queueSearch(cx));
     this.reset(null);
@@ -152,11 +152,11 @@ export class GitGraph {
   }
 
   get hidden() {
-    const saved = shared('devkits.graph-hidden-columns');
+    const saved = shared('herdr-zed.graph-hidden-columns');
     return Array.isArray(saved) ? [...new Set(saved.filter(i => Number.isInteger(i) && i >= 0 && i < 6))].slice(0, 5) : [];
   }
   get fractions() {
-    const saved = shared('devkits.graph-column-widths');
+    const saved = shared('herdr-zed.graph-column-widths');
     return Array.isArray(saved) && saved.length === 6 && saved.every(n => Number.isFinite(n) && n > 0) ? saved : graphFractions;
   }
 
@@ -180,7 +180,7 @@ export class GitGraph {
     if (!this.drag) return;
     if (this.drag.fractions) {
       const sum = this.drag.fractions.reduce((a, b) => a + b, 0);
-      setShared('devkits.graph-column-widths', this.drag.fractions.map(n => n / sum));
+      setShared('herdr-zed.graph-column-widths', this.drag.fractions.map(n => n / sum));
     }
     this.drag = null; cx.notify();
   }
@@ -262,7 +262,7 @@ export class GitGraph {
             return [div().relative().h_full().w(widths[i]).flex_none().px(8).flex().items_center().text_size(11).text_color(t.muted)
               .child(label).when(next >= 0, el => el.child(div().id(`graph-resize-${i}`).absolute().right(-3).top(0).bottom(0).w(6).cursor_col_resize()
                 .on_mouse_down('left', (event, cx) => { cx.stop_propagation(); this.drag = { x: event.position.x, index: i, next, widths }; })
-                .on_click((event, cx) => { if (event.click_count >= 2) { setShared('devkits.graph-column-widths', null); this.drag = null; cx.notify(); } })))];
+                .on_click((event, cx) => { if (event.click_count >= 2) { setShared('herdr-zed.graph-column-widths', null); this.drag = null; cx.notify(); } })))];
           })))
           .child(count ? v_virtual_list('git-graph-rows', count, GRAPH_ROW, index => this.entries[index]?.sha || 'graph-more',
             (range, cx) => Array.from({ length: range.end - range.start }, (_, offset) => {
@@ -289,7 +289,7 @@ export class GitGraph {
   detailPanel(t) {
     const commit = this.selected, preview = this.details.preview?.commit.sha === commit.sha ? this.details.preview : null;
     const files = preview?.files || [];
-    const tree = shared('devkits.graph-file-tree') !== false;
+    const tree = shared('herdr-zed.graph-file-tree') !== false;
     const rows = tree && this.fileRows ? this.fileRows(files, this.collapsedFolders)
       : files.map(file => ({ kind: 'file', name: file.path, path: file.path, depth: 0, file }));
     const total = name => files.reduce((n, file) => n + file[name], 0);
@@ -326,7 +326,7 @@ export class GitGraph {
         .child(div().flex_1().child(`${files.length} Changed ${files.length === 1 ? 'File' : 'Files'}`))
         .child(Button('graph-file-tree-toggle', t, { variant: 'ghost', size: 'icon-sm' }).accessibility_label(tree ? 'Show flat view' : 'Show tree view')
           .when(tree, el => el.bg(t.selected)).child(graphIcon('list-tree'))
-          .on_click((_event, cx) => { setShared('devkits.graph-file-tree', !tree); this.fileScroll.scroll_to_item(0, 'top'); cx.notify(); }))
+          .on_click((_event, cx) => { setShared('herdr-zed.graph-file-tree', !tree); this.fileScroll.scroll_to_item(0, 'top'); cx.notify(); }))
         .child(div().text_color(GitStatusColor.added).child(`+${total('added')}`))
         .child(div().text_color(GitStatusColor.deleted).child(`−${total('removed')}`)))
       .when(Boolean(this.details.previewError), el => el.child(v_flex().flex_none().p(8).gap(6).text_color(t.muted)
@@ -359,7 +359,7 @@ export class GitGraph {
     const menu = this.menu;
     const hidden = this.hidden;
     const actions = menu.columns ? graphColumns.map((label, index) => ({ label, checked: !hidden.includes(index),
-      disabled: hidden.length === 5 && !hidden.includes(index), run: () => setShared('devkits.graph-hidden-columns',
+      disabled: hidden.length === 5 && !hidden.includes(index), run: () => setShared('herdr-zed.graph-hidden-columns',
         hidden.includes(index) ? hidden.filter(i => i !== index) : [...hidden, index]) })) : [
       { label: 'View Changes', run: cx => { this.selected = menu.commit; this.openSelected(cx); } },
       { label: 'Copy Commit SHA', run: cx => cx.write_to_clipboard(menu.commit.sha) },
@@ -399,7 +399,7 @@ export class GitGraph {
         .child(DropdownMenu('graph-columns', this.columnMenu,
           Button('graph-column-trigger', t, { variant: 'ghost', size: 'icon' }).size(32).accessibility_label('Git Graph columns').child(graphIcon('ellipsis')),
           graphColumns.map((label, index) => ({ key: index, label, checked: !hidden.includes(index), disabled: hidden.length === 5 && !hidden.includes(index) })),
-          (index, cx) => { setShared('devkits.graph-hidden-columns', hidden.includes(index) ? hidden.filter(i => i !== index) : [...hidden, index]); cx.notify(); },
+          (index, cx) => { setShared('herdr-zed.graph-hidden-columns', hidden.includes(index) ? hidden.filter(i => i !== index) : [...hidden, index]); cx.notify(); },
           t, { fullHeight: true }))
         .child(Button('graph-close', t, { variant: 'ghost', size: 'icon' }).size(32).accessibility_label('Close Git Graph')
           .child(graphIcon('close')).on_click((_event, cx) => this.onClose?.(cx)))))

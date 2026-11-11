@@ -4,8 +4,8 @@ const validAccount = account => account && typeof account.host === 'string' && t
   && /^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/i.test(account.host)
   && /^[a-z0-9][a-z0-9_.-]*$/i.test(account.login);
 const projectKey = project => JSON.stringify([project?.machine || '', project?.folder || '']);
-const key = 'devkits.git-accounts';
-const authorKey = 'devkits.git-account-authors';
+const key = 'herdr-zed.git-accounts';
+const authorKey = 'herdr-zed.git-account-authors';
 const accountAuthorKey = (account, on) => JSON.stringify([on || '', account.host.toLowerCase(), account.login.toLowerCase()]);
 
 export function rememberGitAuthor(account, on, author) {

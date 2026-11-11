@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { evaluateNative } from './source-harness.js';
-import * as model from '../mods/devkits-zed/components/session-model.js';
+import * as model from '../mods/herdr-zed/components/session-model.js';
 
 const ui = () => {
   const element = { nodes: [] }; let proxy;
@@ -25,7 +25,7 @@ async function load(options = {}) {
     readTextFile: options.readTextFile || (async () => JSON.stringify({ sessionId: '11111111-1111-4111-8111-111111111111' })),
     home: () => '/home/user', terminals: () => live, window: () => ({ platform: options.platform || 'macos' }),
     agents: () => options.agents || [], spaces: () => options.spaces || [], Button: ui, SidebarContent: ui, SidebarGroup: ui, SidebarMenuButton: ui, glyph: ui };
-  return { ...(await evaluateNative('../mods/devkits-zed/thread-archive.js', host,
+  return { ...(await evaluateNative('../mods/herdr-zed/thread-archive.js', host,
     'threadArchive, historyEligible, historyRestoreCandidate')), host, memory, commands };
 }
 const command = ['env', 'CLAUDE_CONFIG_DIR=/accounts/work', 'claude', '--model', 'sonnet'];
@@ -54,14 +54,14 @@ test('history restore matching requires a local matching account, project and li
 
 test('archive preserves the exact safe launch command and keeps Zed history independent', async () => {
   const live = [terminal()], { threadArchive, memory, commands } = await load({ live });
-  memory['devkits.archived-threads'] = [{ id: 'task-owned' }];
+  memory['herdr-zed.archived-threads'] = [{ id: 'task-owned' }];
   const owner = Object.assign({ projects: () => [project] }, threadArchive);
   await owner.archiveThread(thread());
-  const entry = memory['devkits.zed-thread-history'][0];
+  const entry = memory['herdr-zed.thread-history'][0];
   assert.deepEqual(entry.argv, model.resumeArgv(command, '11111111-1111-4111-8111-111111111111'));
   assert.deepEqual(entry.accountEnv, ['CLAUDE_CONFIG_DIR=/accounts/work']);
   assert.match(entry.id, /accounts\/work/);
-  assert.deepEqual(memory['devkits.archived-threads'], [{ id: 'task-owned' }]);
+  assert.deepEqual(memory['herdr-zed.archived-threads'], [{ id: 'task-owned' }]);
   assert.ok(commands.some(([name]) => name === 'tab.close'));
 });
 
@@ -75,7 +75,7 @@ test('a replaced terminal during identity lookup leaves its tab and history unto
   live[0] = { ...terminal(), created_ms: 124 };
   release({ code: 0, stdout: '' });
   await archiving;
-  assert.equal(memory['devkits.zed-thread-history'], undefined);
+  assert.equal(memory['herdr-zed.thread-history'], undefined);
   assert.equal(commands.some(([name]) => name === 'tab.close'), false);
 });
 
@@ -105,7 +105,7 @@ test('archive uses the single native root and leaves child-only tabs ineligible'
   assert.equal((await load()).historyEligible(both, live), true);
   await owner.archiveThread(both);
   assert.deepEqual(reads, ['/accounts/work/sessions/44.json']);
-  assert.deepEqual(memory['devkits.zed-thread-history'][0].argv, model.resumeArgv(command, '11111111-1111-4111-8111-111111111111'));
+  assert.deepEqual(memory['herdr-zed.thread-history'][0].argv, model.resumeArgv(command, '11111111-1111-4111-8111-111111111111'));
   assert.ok(commands.some(([name]) => name === 'tab.close'));
 
   const childOnly = thread([{ address: 't2', app: 'claude-code', status: 'idle', program: {} }]);
@@ -124,7 +124,7 @@ test('archive retains Codex flags when re-archiving and refuses an initial posit
   const owner = Object.assign({ projects: () => [project] }, threadArchive);
   const codexThread = thread([{ address: 't1', app: 'codex', status: 'idle', program: {} }]);
   await owner.archiveThread(codexThread);
-  assert.deepEqual(memory['devkits.zed-thread-history'][0].argv,
+  assert.deepEqual(memory['herdr-zed.thread-history'][0].argv,
     ['env', 'CODEX_HOME=/accounts/codex', 'codex', 'resume', '--no-daemon', '--profile', 'work', id]);
   assert.ok(commands.some(([name]) => name === 'tab.close'));
 
@@ -132,19 +132,19 @@ test('archive retains Codex flags when re-archiving and refuses an initial posit
   commands.length = 0;
   await owner.archiveThread(thread());
   assert.equal(commands.some(([name]) => name === 'tab.close'), false);
-  assert.ok(memory['devkits.zed-thread-history'].every(entry => !entry.argv.includes('Please fix the login bug')));
+  assert.ok(memory['herdr-zed.thread-history'].every(entry => !entry.argv.includes('Please fix the login bug')));
 });
 
 test('restore suppresses duplicate starts, observes startup grace and removes history only for a new verified session', async () => {
   const now = Date.now; let clock = 100000, tick, reads = 0;
   Date.now = () => clock;
   try {
-    const memory = { 'devkits.zed-thread-history': [archiveEntry()] }, commands = [], live = [];
+    const memory = { 'herdr-zed.thread-history': [archiveEntry()] }, commands = [], live = [];
     const native = { ...project, tabs: [{ id: 'restored-tab', active: true }] };
     const currentAgent = { address: 'new-terminal', app: 'claude-code', space: project.id, tab: 'restored-tab', status: 'idle' };
     const { threadArchive, host } = await load({ memory, commands, live, spaces: [native], agents: [currentAgent],
       readTextFile: async () => { reads++; return JSON.stringify({ sessionId: archiveEntry().sessionId }); } });
-    const owner = Object.assign({ projects: () => [project] }, threadArchive), entry = memory['devkits.zed-thread-history'][0];
+    const owner = Object.assign({ projects: () => [project] }, threadArchive), entry = memory['herdr-zed.thread-history'][0];
     owner.restoreThread(entry); owner.restoreThread(entry);
     assert.equal(commands.filter(([name]) => name === 'tab.new').length, 1);
     const jobs = [];
@@ -156,7 +156,7 @@ test('restore suppresses duplicate starts, observes startup grace and removes hi
     live.push({ ...terminal(), address: currentAgent.address, created_ms: clock, argv: entry.argv });
     clock += 1000; tick(cx); await Promise.all(jobs.splice(0));
     assert.equal(reads, 1);
-    assert.deepEqual(memory['devkits.zed-thread-history'], [], 'remove only after matching new process identity is confirmed');
+    assert.deepEqual(memory['herdr-zed.thread-history'], [], 'remove only after matching new process identity is confirmed');
   } finally { Date.now = now; }
 });
 
@@ -164,7 +164,7 @@ test('failed identity verification preserves history, times out to Retry, then a
   const now = Date.now; let clock = 200000, tick;
   Date.now = () => clock;
   try {
-    const entry = archiveEntry(), memory = { 'devkits.zed-thread-history': [entry] }, commands = [], live = [];
+    const entry = archiveEntry(), memory = { 'herdr-zed.thread-history': [entry] }, commands = [], live = [];
     const native = { ...project, tabs: [{ id: 'restored-tab', active: true }] };
     const currentAgent = { address: 'new-terminal', app: 'claude-code', space: project.id, tab: 'restored-tab', status: 'idle' };
     const notices = [], { threadArchive } = await load({ memory, commands, live, notices, spaces: [native], agents: [currentAgent],
@@ -176,7 +176,7 @@ test('failed identity verification preserves history, times out to Retry, then a
     owner.startHistoryRestoreTimer(cx);
     live.push({ ...terminal(), address: currentAgent.address, created_ms: clock, argv: entry.argv });
     clock += 2000; tick(cx); await Promise.all(jobs.splice(0));
-    assert.deepEqual(memory['devkits.zed-thread-history'], [entry]);
+    assert.deepEqual(memory['herdr-zed.thread-history'], [entry]);
     assert.ok(notices.some(notice => /Could not verify/.test(notice.title)));
     assert.match(uiText(owner.historyRow(entry, {})), /Retry/);
     owner.restoreThread(entry);

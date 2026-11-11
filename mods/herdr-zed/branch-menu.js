@@ -19,7 +19,7 @@ export function parseBranches(text) {
 }
 
 export async function readBranches(folder, on) {
-  const result = await execShell(['-c', SCRIPT, 'devkits-branches', folder], { on });
+  const result = await execShell(['-c', SCRIPT, 'herdr-zed-branches', folder], { on });
   if (result.code !== 0) throw new Error(result.stderr.trim() || 'Cannot read branches.');
   return parseBranches(result.stdout);
 }

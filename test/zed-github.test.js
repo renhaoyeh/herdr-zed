@@ -6,7 +6,7 @@ import { execFile } from 'node:child_process';
 import { evaluateNative } from './source-harness.js';
 
 const run = promisify(execFile);
-const path = file => new URL(`../mods/devkits-zed/${file}`, import.meta.url);
+const path = file => new URL(`../mods/herdr-zed/${file}`, import.meta.url);
 const input = () => ({ text: '', on() {}, value() { return this.text; }, set_value(value) { this.text = value; }, release() {} });
 
 async function settingsFor(target, host) {
@@ -107,7 +107,7 @@ test('Zed git-auth helper routes remote Git through the selected account without
   const { gitRemoteAction } = await evaluateNative(path('diff.js'), { gitAuthArgs: auth.gitAuthArgs,
     execShell: async (...args) => { gitCalls.push(args); return { code: 0, stdout: '', stderr: '' }; } }, 'gitRemoteAction');
   await gitRemoteAction('/repo', 'box', 'push', undefined, auth.gitAccount({ folder: '/repo', machine: 'box' }));
-  assert.deepEqual(gitCalls[0][0].slice(0, 3), ['-c', 'cd "$1" || exit 2; shift; GIT_TERMINAL_PROMPT=0 GCM_INTERACTIVE=never git "$@"', 'devkits-git']);
+  assert.deepEqual(gitCalls[0][0].slice(0, 3), ['-c', 'cd "$1" || exit 2; shift; GIT_TERMINAL_PROMPT=0 GCM_INTERACTIVE=never git "$@"', 'herdr-zed-git']);
   assert.ok(gitCalls[0][0].includes('credential.https://github.com.username=alice'));
   assert.equal(gitCalls[0][1].on, 'box');
 });

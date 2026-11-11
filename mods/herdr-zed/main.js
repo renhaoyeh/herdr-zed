@@ -27,28 +27,28 @@ import { glyph } from './components/icon.js';
 
 // Like Zed's dock buttons: close only the side panel, preserving the central document.
 const toggleEditor = (_editor, name) => {
-  const maximized = Boolean(shared('devkits.conversation-maximized'));
+  const maximized = Boolean(shared('herdr-zed.conversation-maximized'));
   maximizeConversation(null, false);
-  setShared('devkits.right-panel', !maximized && shared('devkits.right-panel') === name ? null : name);
+  setShared('herdr-zed.right-panel', !maximized && shared('herdr-zed.right-panel') === name ? null : name);
 };
 const conversationKey = project => JSON.stringify([project.machine || '', folderKey(project.folder) || project.id]);
 const hasConversation = (project, all, modelPanes) => {
   const tab = project?.tabs?.find(tab => tab.active);
   if (!tab || project.pending) return false;
-  if (tab.id !== shared('devkits.default-terminals')?.[project.id] && tab.name !== '__devkits_default_terminal__') return true;
+  if (tab.id !== shared('herdr-zed.default-terminals')?.[project.id] && tab.name !== '__herdr_zed_default_terminal__') return true;
   return (all || agents()).some(agent => agent.space === project.id && agent.tab === tab.id)
     || (modelPanes || panes()).filter(pane => pane.tab === tab.id).length > 1;
 };
 const conversationVisible = (project, all, modelPanes) => Boolean(hasConversation(project, all, modelPanes)
-  && shared('devkits.conversation-visible')?.[conversationKey(project)]);
+  && shared('herdr-zed.conversation-visible')?.[conversationKey(project)]);
 
-export default class Devkits extends View {
+export default class HerdrZed extends View {
   init(_props, cx) {
     const view = props()?.view;
     if (view === 'extensions') { this.extensionsManager = new ExtensionsManager(); this.extensionsManager.init(cx); return; }
     if (view === 'launcher') { this.launcher = new NativeLauncher(); this.launcher.init(cx); return; }
     if (view === 'diff-ignore-settings') { this.buildRulesSettings = new BuildRulesSettings(); this.buildRulesSettings.init(cx); return; }
-    if (view === 'status') { clearGitToast(); setShared('devkits.git-output-request', null); }
+    if (view === 'status') { clearGitToast(); setShared('herdr-zed.git-output-request', null); }
     if (view === 'pane') { this.threadMenu = new DropdownMenuState(cx); return; }
     if (view === 'file-menu') { this.fileMenu = new FileMenu(); this.fileMenu.init(cx); return; }
     if (view === 'branch-menu') { this.branchMenu = new BranchMenu(); this.branchMenu.init(cx); return; }
@@ -73,8 +73,8 @@ export default class Devkits extends View {
           const command = await nextCommand();
           if (command === 'close-file') this.closeFileTab(cx);
           if (command === 'open-file') {
-            const request = shared('devkits.open-file-request'), project = this.projects().find(project => project.active);
-            setShared('devkits.open-file-request', null);
+            const request = shared('herdr-zed.open-file-request'), project = this.projects().find(project => project.active);
+            setShared('herdr-zed.open-file-request', null);
             if (project && request) { this.editor.openFile(project, request.path, cx, { on: request.on }); this.editor.focus(); }
           }
           if (command === 'focus' || command === 'focus-editor') this.editor.focus();
@@ -97,13 +97,13 @@ export default class Devkits extends View {
       try {
         const folder = await pickFolder({ prompt: 'Open project' });
         if (!folder) return;
-        const saved = shared('devkits.projects') || [];
-        if (!saved.some(path => folderKey(path) === folderKey(folder))) setShared('devkits.projects', [...saved, folder]);
+        const saved = shared('herdr-zed.projects') || [];
+        if (!saved.some(path => folderKey(path) === folderKey(folder))) setShared('herdr-zed.projects', [...saved, folder]);
         const project = this.projects().find(p => !p.machine && folderKey(p.folder) === folderKey(folder));
         if (project.pending) {
-          setShared('devkits.selected-project', null);
+          setShared('herdr-zed.selected-project', null);
           run('layout.select', { stack: 'workspace-view', child: 'main' });
-          run('space.new', { name: project.name, folder, machine: '', tab: '__devkits_default_terminal__' });
+          run('space.new', { name: project.name, folder, machine: '', tab: '__herdr_zed_default_terminal__' });
         } else this.selectProject(project);
         cx.notify();
       } catch (error) { notify({ title: 'Could not open project', body: error.message, level: 'error' }); }
@@ -112,7 +112,7 @@ export default class Devkits extends View {
   }
 
   projects() {
-    return this.renderModel?.projects || projectCatalog(spaces(), shared('devkits.projects') || [], shared('devkits.project-roots') || {}, shared('devkits.selected-project'), shared('devkits.project-order') || []);
+    return this.renderModel?.projects || projectCatalog(spaces(), shared('herdr-zed.projects') || [], shared('herdr-zed.project-roots') || {}, shared('herdr-zed.selected-project'), shared('herdr-zed.project-order') || []);
   }
 
   moveProject(id, direction) {
@@ -121,19 +121,19 @@ export default class Devkits extends View {
     const to = from + direction;
     if (from >= 0 && to >= 0 && to < projects.length) {
       projects.splice(to, 0, projects.splice(from, 1)[0]);
-      setShared('devkits.project-order', projects.map(project => JSON.stringify([project.machine || '', folderKey(project.folder) || project.id])));
+      setShared('herdr-zed.project-order', projects.map(project => JSON.stringify([project.machine || '', folderKey(project.folder) || project.id])));
     }
   }
 
   selectProject(project) {
-    setShared('devkits.selected-project', project.id);
+    setShared('herdr-zed.selected-project', project.id);
     if (!project.pending) run('space.select', { id: project.id });
     run('layout.select', { stack: 'workspace-view', child: project.pending ? 'project-empty' : 'main' });
   }
 
   closeProject(project) {
     if (project.pending) { this.finishCloseProject(project); return; }
-    openOverlay({ mod: 'devkits-zed', kind: 'dialog', frame: 'none', width: 440, height: 220,
+    openOverlay({ mod: 'herdr-zed', kind: 'dialog', frame: 'none', width: 440, height: 220,
       props: { view: 'close-project', project } });
   }
 
@@ -213,8 +213,8 @@ export default class Devkits extends View {
   }
 
   finishCloseProject(project) {
-    if (!project.machine) setShared('devkits.projects', (shared('devkits.projects') || []).filter(folder => folderKey(folder) !== folderKey(project.folder)));
-    if (shared('devkits.selected-project') === project.id) setShared('devkits.selected-project', null);
+    if (!project.machine) setShared('herdr-zed.projects', (shared('herdr-zed.projects') || []).filter(folder => folderKey(folder) !== folderKey(project.folder)));
+    if (shared('herdr-zed.selected-project') === project.id) setShared('herdr-zed.selected-project', null);
     if (!project.pending) run('space.close', { id: project.id, confirmed: true });
   }
 
@@ -241,7 +241,7 @@ export default class Devkits extends View {
   newThread(cx, id, at) {
     const project = this.projects().find(project => id ? project.id === id : project.active);
     if (!project) { this.openProject(cx); return; }
-    openOverlay({ mod: 'devkits-zed', kind: 'popup', frame: 'none', width: 280, at,
+    openOverlay({ mod: 'herdr-zed', kind: 'popup', frame: 'none', width: 280, at,
       props: { view: 'launcher', space: project.pending ? null : project.id, folder: project.folder,
         projectName: project.name, machine: project.machine || null } });
   }
@@ -249,18 +249,18 @@ export default class Devkits extends View {
   showConversation(visible = true, project = this.projects().find(project => project.active)) {
     if (!project) return;
     if (!visible) maximizeConversation(null, false);
-    setShared('devkits.conversation-visible', { ...(shared('devkits.conversation-visible') || {}), [conversationKey(project)]: visible });
+    setShared('herdr-zed.conversation-visible', { ...(shared('herdr-zed.conversation-visible') || {}), [conversationKey(project)]: visible });
     run(visible && hasConversation(project) ? 'layout.show' : 'layout.hide', { id: 'workspace-view' });
     if (visible) {
       const pane = panes().find(pane => pane.tab === project.tabs?.find(tab => tab.active)?.id);
       if (pane) run('pane.focus', { pane: pane.pane });
-    } else run('devkits-zed.focus-editor');
+    } else run('herdr-zed.focus-editor');
   }
 
   closeFileTab(cx) {
     const editor = layoutNode(layout(), 'editor');
     if (editor && !editor.hidden && this.editor) { this.editor.closeActiveTab(cx); return; }
-    if (editor && !editor.hidden && (shared('devkits.editor-kind') || editor.active || 'files') === 'files' && this.files?.file)
+    if (editor && !editor.hidden && (shared('herdr-zed.editor-kind') || editor.active || 'files') === 'files' && this.files?.file)
       this.files.closeTab(this.files.file, cx);
   }
 
@@ -268,8 +268,8 @@ export default class Devkits extends View {
     maximizeConversation(null, false);
     run('layout.show', { id: 'editor' });
     run('layout.select', { stack: 'editor', child: 'workspace-editor' });
-    setShared('devkits.open-file-request', { path, on });
-    run('devkits-zed.open-file');
+    setShared('herdr-zed.open-file-request', { path, on });
+    run('herdr-zed.open-file');
   }
 
   repeatThread(cx, id) { this.newThread(cx, id); }
@@ -321,14 +321,14 @@ export default class Devkits extends View {
       .child(h_flex().flex_1().min_w(0).h_full().items_center().overflow_hidden()
         .child(DropdownMenuTrigger(h_flex().id('project-switcher').min_w(0).h_full().pl(10).pr(6).gap(6).items_center().rounded(0)
           .text_color(t.foreground).font_medium().hover(el => el.bg(t.hover)).cursor_pointer(), 280,
-          (_cx, at) => openOverlay({ mod: 'devkits-zed', kind: 'popup', frame: 'none', width: 280, at,
+          (_cx, at) => openOverlay({ mod: 'herdr-zed', kind: 'popup', frame: 'none', width: 280, at,
             props: { view: 'project-picker' } }), 'start', { x: 8, y: 9 }) // Clear of the header's 1px bottom border
           .child(div().min_w(0).max_w(220).truncate().child(space?.name || 'Open project'))
           .child(glyph('chevron-down', 12).text_color(t.muted)))
         // Like Zed, the branch opens a list of the project's branches; it only shows them for now.
         .when(Boolean(space?.branch), el => el.child(DropdownMenuTrigger(h_flex().id('branch-switcher').min_w(0).h_full().px(8).gap(4).items_center().rounded(0)
           .text_size(12).text_color(t.muted).hover(el => el.bg(t.hover)).cursor_pointer().accessibility_label(`Branches of ${space.name}`), 320,
-          (_cx, at) => openOverlay({ mod: 'devkits-zed', kind: 'popup', frame: 'none', width: 320, at,
+          (_cx, at) => openOverlay({ mod: 'herdr-zed', kind: 'popup', frame: 'none', width: 320, at,
             props: { view: 'branch-menu', folder: space.folder, machine: space.machine || null, branch: space.branch } }), 'start', { x: 8, y: 9 })
           .child(glyph('branch', 12)).child(div().min_w(0).max_w(200).truncate().child(space.branch)))))
       .child(h_flex().flex_1().min_w(0).h_full().items_center().justify_center()
@@ -358,7 +358,7 @@ export default class Devkits extends View {
     const primary = members.find(pane => pane.terminal === thread?.agents[0]?.address) || members[0];
     const secondary = members.length > 1 && primary?.pane !== p.pane;
     const program = secondary ? p.program : threadProgram(thread, terminals(), p.program);
-    const title = secondary ? p.title || 'Terminal' : thread?.tab.name === '__devkits_default_terminal__' && !thread.agent ? 'Terminal' : thread?.title || p.title || 'Terminal';
+    const title = secondary ? p.title || 'Terminal' : thread?.tab.name === '__herdr_zed_default_terminal__' && !thread.agent ? 'Terminal' : thread?.title || p.title || 'Terminal';
     const project = this.projects().find(project => project.id === thread?.space);
     const maximized = conversationMaximized(project);
     this.threadMenu ??= new DropdownMenuState();
@@ -399,8 +399,8 @@ export default class Devkits extends View {
   statusBar(t) {
     const space = this.projects().find(project => project.active), editor = layoutNode(layout(), 'editor');
     const conversation = layoutNode(layout(), 'workspace-view');
-    const showing = name => Boolean(editor) && shared('devkits.right-panel') === name;
-    return h_flex().id('devkits-status').relative().size_full().pr(4).gap(8).items_center().bg(t.background)
+    const showing = name => Boolean(editor) && shared('herdr-zed.right-panel') === name;
+    return h_flex().id('herdr-zed-status').relative().size_full().pr(4).gap(8).items_center().bg(t.background)
       .text_size(11).text_color(t.muted)
       .when(Boolean(space && conversation), el => el.child(ToolbarButton('open-conversation', t,
         { icon: true, disabled: !hasConversation(space), selected: conversationVisible(space) })
@@ -581,18 +581,18 @@ export default class Devkits extends View {
     if (props()?.view === 'project-menu') return this.projectMenu(t);
     if (props()?.view === 'project-picker') return this.projectPicker(t);
     const all = agents(), native = spaces(), modelPanes = panes();
-    const roots = shared('devkits.project-roots') || {};
+    const roots = shared('herdr-zed.project-roots') || {};
     const missing = native.filter(s => roots[s.id] === undefined && s.folder);
-    if (missing.length) setShared('devkits.project-roots', { ...roots, ...Object.fromEntries(missing.map(s => [s.id, s.folder])) });
+    if (missing.length) setShared('herdr-zed.project-roots', { ...roots, ...Object.fromEntries(missing.map(s => [s.id, s.folder])) });
     const active = native.find(s => s.active);
     const selection = `${active?.id || ''}:${active?.tabs.find(tab => tab.active)?.id || ''}`;
-    if (shared('devkits.native-selection') !== selection) {
-      const previous = shared('devkits.native-selection');
+    if (shared('herdr-zed.native-selection') !== selection) {
+      const previous = shared('herdr-zed.native-selection');
       if (typeof previous === 'string') {
-            setShared('devkits.selected-project', null);
+            setShared('herdr-zed.selected-project', null);
         run('layout.select', { stack: 'workspace-view', child: 'main' });
       }
-      setShared('devkits.native-selection', selection);
+      setShared('herdr-zed.native-selection', selection);
     }
     const workspaces = this.projects();
     const chosen = workspaces.find(p => p.active);
@@ -606,14 +606,14 @@ export default class Devkits extends View {
     const showConversation = conversationVisible(chosen, all, modelPanes);
     if (conversation && Boolean(conversation.hidden) === showConversation)
       run(showConversation ? 'layout.show' : 'layout.hide', { id: 'workspace-view' });
-    const defaults = { ...(shared('devkits.default-terminals') || {}) };
+    const defaults = { ...(shared('herdr-zed.default-terminals') || {}) };
     let defaultsChanged = false;
     for (const space of native) {
       if (defaults[space.id]) continue;
-      const tab = space.tabs.find(tab => tab.name === '__devkits_default_terminal__');
+      const tab = space.tabs.find(tab => tab.name === '__herdr_zed_default_terminal__');
       if (tab) { defaults[space.id] = tab.id; defaultsChanged = true; }
     }
-    if (defaultsChanged) setShared('devkits.default-terminals', defaults);
+    if (defaultsChanged) setShared('herdr-zed.default-terminals', defaults);
     // A split created in the otherwise hidden default shell is user-visible work too.
     const sidebarDefaults = Object.fromEntries(Object.entries(defaults)
       .filter(([, tab]) => modelPanes.filter(pane => pane.tab === tab).length < 2));
@@ -650,7 +650,7 @@ export default class Devkits extends View {
               .child(glyph('plus')).opacity(this.hoveredProject === space.id ? 1 : 0))
             .child(DropdownMenuTrigger(Button(`project-menu-${space.id}`, t, { variant: 'row', size: 'icon' }).h_full().w(32)
               .accessibility_label(`More actions for ${space.name}`), 200,
-              (_cx, at) => openOverlay({ mod: 'devkits-zed', kind: 'popup', frame: 'none', width: 200, at,
+              (_cx, at) => openOverlay({ mod: 'herdr-zed', kind: 'popup', frame: 'none', width: 200, at,
                 props: { view: 'project-menu', project: space } }), 'end', SIDEBAR_MENU)
               .child(glyph('ellipsis')).opacity(this.hoveredProject === space.id ? 1 : 0)))
           .when(!this.folded.has(space.id), el => el
@@ -665,5 +665,5 @@ export default class Devkits extends View {
   }
 }
 
-Object.assign(Devkits.prototype, startPanel);
-Object.assign(Devkits.prototype, threadArchive);
+Object.assign(HerdrZed.prototype, startPanel);
+Object.assign(HerdrZed.prototype, threadArchive);

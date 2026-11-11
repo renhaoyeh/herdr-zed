@@ -22,7 +22,7 @@ export const startPanel = {
   welcomeView(t, cx) {
     return div().id('welcome').size_full().bg(t.background).text_color(t.foreground).flex().items_center().justify_center().p(24)
       .child(v_flex().w_full().max_w(420).gap(24)
-        .child(Empty(t).gap(8).child(EmptyTitle().child('Devkits Zed'))
+        .child(Empty(t).gap(8).child(EmptyTitle().child('herdr-zed'))
           .child(EmptyDescription(t).child('Open a folder to start a thread.')))
         .child(Button('welcome-open-folder', t).w_full().h(36).gap(8)
           .on_click((_event, cx) => this.openProject(cx)).child(glyph('folder-open')).child('Open folder…')));
