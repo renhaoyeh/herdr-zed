@@ -1,0 +1,13 @@
+{
+  "name": "devkits",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "install:herdr": "node herdr/install.js",
+    "reinstall:herdr": "node herdr/install.js --reinstall",
+    "sync:shared": "node herdr/sync-shared.js",
+    "test": "node --test \"herdr/test/*.test.js\""
+  },
+  "engines": { "node": ">=22.13" }
+}
