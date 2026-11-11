@@ -1,30 +1,38 @@
-import { agents, spaces, terminals, shared, setShared, notify, props } from 'herdr';
+import { agents, spaces, terminals, shared, setShared, notify, props, run, hc } from 'herdr';
 import { projectCatalog, projectGroups, folderKey, launcherChoices, launcherLabel, isAccountLauncher, configuredAgents, resolveThreadProfiles } from './components/session-model.js';
 import { boardKey, taskActions, canStartTask } from './agent-board-model.js';
 import { projectBoardTasks, rememberBoardTask, setTaskArchived, threadBoardTask, threadBoardStatus, sessionThreadTitle, boardRecords, createLocalTask } from './agent-board-state.js';
 import { observeTaskInput } from './agent-task-evidence.js';
 import { taskPrompt } from './task-prompt.js';
-import { TaskSources } from './task-sources.js';
+import { TaskSources, resolveTaskImport } from './task-sources.js';
 import { openTaskComposer } from './task-composer.js';
 import { AgentClient } from './components/agents.js';
-import { publishTaskNavigation } from './components/tasks.js';
 const startingThreads = new Set();
-
+const clip = (text, length = 40) => text.length > length ? `${text.slice(0, length - 1)}…` : text;
+const toneFor = (thread, task) => task.attention ? 'warning' : thread.status === 'fail' ? 'error' : thread.status === 'doing' ? 'accent' : 'muted';
 
 export class TaskRuntime {
   agentClient = new AgentClient();
 
-  constructor() { this.taskSources = new TaskSources((project, snapshot) => openTaskComposer(project, null, 'todo', snapshot)); }
-  projects() { return projectCatalog(spaces(), shared('devkits.projects') || [], shared('devkits.project-roots') || {}, shared('devkits.selected-project'), shared('devkits.project-order') || []); }
-  availableAgents(available, machine) { return machine ? available : configuredAgents(available, shared('devkits.agent-configs') || []); }
-  navigate(event) { publishTaskNavigation(event); }
-  closeBoard() { this.navigate({ type: 'close' }); }
+  constructor() { this.taskSources = new TaskSources((context, snapshot) => this.importDraft(context, snapshot)); }
+  // Replaced by the board's host view: closes the popup or dialog this runtime is shown in.
+  close() {}
+  projects() { return projectCatalog(spaces(), shared('herdr-zed.projects') || [], shared('herdr-zed.project-roots') || {}, shared('herdr-zed.selected-project'), shared('herdr-zed.project-order') || []); }
+  availableAgents(available, machine) { return machine ? available : configuredAgents(available, shared('herdr-zed.agent-configs') || []); }
+  resolveImport(request) { return resolveTaskImport(request, this.projects()); }
+  // A snapshot from an integration is revalidated here, then opens the composer draft. Only its Create button makes a Todo.
+  importDraft(context, snapshot) {
+    const resolved = this.resolveImport({ source: snapshot?.source, context, snapshot });
+    if (resolved.error) { notify({ title: 'Could not import task', body: resolved.error, level: 'error' }); return null; }
+    return openTaskComposer(resolved.project, null, 'todo', resolved.snapshot);
+  }
   createTask(project, args) { return createLocalTask(project, args.name, args.notes || '', { priority: args.priority || 'none', ...(args.parentId ? { parentId: args.parentId } : {}) }, agents()); }
-  selectProject(project) { this.navigate({ type: 'project', project }); }
-  showConversation(_shown, project) { this.navigate({ type: 'thread', project, tab: project.tabs?.find(tab => tab.active)?.id }); }
-  openThread(target, name, argv, profile, task) { this.navigate({ type: 'launch', target, name, argv, profile, task }); }
-  archiveThread(thread) { this.navigate({ type: 'archive-thread', thread }); }
-  restoreThread(entry) { this.navigate({ type: 'restore-thread', entry }); }
+  // Native focus: the conversation's space and tab are selected in Herdr itself.
+  focusThread(tab) {
+    const space = spaces().find(item => item.tabs.some(item => item.id === tab));
+    if (space) run('space.select', { id: space.id });
+    run('tab.select', { id: tab });
+  }
   reportTask(project, args) {
     if (!['doing', 'waiting', 'done', 'fail'].includes(args.status)) throw new Error('Invalid progress state.');
     if (typeof args.message !== 'string' || !args.message.trim() || args.message.length > 4000)
@@ -38,7 +46,7 @@ export class TaskRuntime {
       const current = boardRecords(project)[task.gid];
       if (!current.execution || ['done', 'fail', 'stopped'].includes(current.execution.status) && args.status === 'doing') {
         if (args.status !== 'doing') throw new Error('Report doing to begin a task attempt before reporting an outcome.');
-        const profile = shared('devkits.thread-profiles')?.[sender.tab] || current.agentKey || null;
+        const profile = shared('herdr-zed.thread-profiles')?.[sender.tab] || current.agentKey || null;
         const launcher = this.taskAssignees(project).find(agent => agent.key === profile);
         rememberBoardTask(project, current, { status: 'doing', manual: false, hasInput: true,
           execution: { id: `run:${Date.now()}:${Math.random().toString(36).slice(2)}`, status: 'doing',
@@ -77,27 +85,45 @@ export class TaskRuntime {
       const threads = {};
       for (const thread of projectGroups([project], all, {}, sessionThreadTitle).flatMap(group => group.threads)) {
         const task = threadBoardTask(project, thread), current = tasks.find(item => item.gid === task.gid);
-        threads[thread.tab.id] = { link: shared('devkits.thread-tasks')?.[thread.tab.id] || null, name: sessionThreadTitle(thread.tab, thread.agent, project), status: threadBoardStatus(project, thread),
+        threads[thread.tab.id] = { link: shared('herdr-zed.thread-tasks')?.[thread.tab.id] || null, name: sessionThreadTitle(thread.tab, thread.agent, project), status: threadBoardStatus(project, thread),
           task: { ...task, attention: current?.attention || null, interrupted: Boolean(current?.interrupted), policy: taskActions(current || { ...task, agents: thread.agents }) } };
       }
       projects[boardKey(project)] = { project: { id: project.id, folder: project.folder, name: project.name, machine: project.machine || null, pending: Boolean(project.pending) },
         tasks: tasks.map(task => { const { agents, tabs, ...data } = task; return { ...data, tabs: tabs.map(tab => ({ id: tab.id })), policy: taskActions(task) }; }),
         records: boardRecords(project), threads };
     }
-    return { projects, deleted: shared('devkits.deleted-tasks') || {} };
+    return { projects, deleted: shared('herdr-zed.deleted-tasks') || {} };
+  }
+  // Conversations launched by Tasks carry origin { extension: 'tasks', ref: <task gid> } in the shell's thread read model.
+  bindLaunchedThreads() {
+    const threads = shared('herdr-zed.threads') || {};
+    const links = { ...(shared('herdr-zed.thread-tasks') || {}) }, profiles = { ...(shared('herdr-zed.thread-profiles') || {}) };
+    let changed = false;
+    for (const [tabId, thread] of Object.entries(threads)) {
+      const origin = thread?.origin;
+      if (origin?.extension !== 'tasks' || typeof origin.ref !== 'string' || links[tabId]) continue;
+      const project = this.projects().find(item => item.tabs?.some(tab => tab.id === tabId));
+      const record = project && boardRecords(project)[origin.ref];
+      if (!record) continue;
+      links[tabId] = { gid: record.gid, name: record.name, folder: project.folder, source: record.source || 'local' };
+      if (thread.profile) profiles[tabId] = thread.profile;
+      changed = true;
+    }
+    if (changed) { setShared('herdr-zed.thread-tasks', links); setShared('herdr-zed.thread-profiles', profiles); }
   }
   resolveSessions() {
-    if (shared('devkits.pending-profiles')?.length) {
-      const resolved = resolveThreadProfiles(spaces(), shared('devkits.pending-profiles'), shared('devkits.thread-profiles') || {},
-        Date.now(), shared('devkits.thread-tasks') || {});
-      if (resolved.pending.length !== shared('devkits.pending-profiles').length) {
-        setShared('devkits.thread-profiles', resolved.profiles);
-        setShared('devkits.thread-tasks', resolved.tasks);
-        setShared('devkits.pending-profiles', resolved.pending);
-        if (resolved.restored?.length) setShared('devkits.pending-resumes', [...(shared('devkits.pending-resumes') || []), ...resolved.restored]);
+    this.bindLaunchedThreads();
+    if (shared('herdr-zed.pending-profiles')?.length) {
+      const resolved = resolveThreadProfiles(spaces(), shared('herdr-zed.pending-profiles'), shared('herdr-zed.thread-profiles') || {},
+        Date.now(), shared('herdr-zed.thread-tasks') || {});
+      if (resolved.pending.length !== shared('herdr-zed.pending-profiles').length) {
+        setShared('herdr-zed.thread-profiles', resolved.profiles);
+        setShared('herdr-zed.thread-tasks', resolved.tasks);
+        setShared('herdr-zed.pending-profiles', resolved.pending);
+        if (resolved.restored?.length) setShared('herdr-zed.pending-resumes', [...(shared('herdr-zed.pending-resumes') || []), ...resolved.restored]);
       }
     }
-    const confirming = shared('devkits.pending-resumes') || [];
+    const confirming = shared('herdr-zed.pending-resumes') || [];
     if (confirming.length) {
       const currentSpaces = spaces(), currentAgents = agents(), remaining = [];
       for (const resumed of confirming) {
@@ -108,47 +134,37 @@ export class TaskRuntime {
             const project = { folder: resumed.folder }, current = boardRecords(project)[resumed.task.gid];
             if (current) setTaskArchived(project, current, false);
           }
-          setShared('devkits.archived-threads', (shared('devkits.archived-threads') || []).filter(entry => entry.id !== resumed.id));
+          setShared('herdr-zed.archived-threads', (shared('herdr-zed.archived-threads') || []).filter(entry => entry.id !== resumed.id));
         } else if (exists && Date.now() - resumed.at < 60000) remaining.push(resumed);
       }
-      if (remaining.length !== confirming.length) setShared('devkits.pending-resumes', remaining);
+      if (remaining.length !== confirming.length) setShared('herdr-zed.pending-resumes', remaining);
     }
+  }
+  // Decorations are published only when the linked-thread projection changes.
+  publishDecorations(snapshot) {
+    const threads = {};
+    for (const project of Object.values(snapshot.projects))
+      for (const [tabId, thread] of Object.entries(project.threads)) {
+        if (!thread.link) continue;
+        const name = thread.task?.name || thread.name || '';
+        threads[tabId] = { ...(name ? { subtitle: clip(name) } : {}), tone: toneFor(thread, thread.task || {}) };
+      }
+    const signature = JSON.stringify(threads);
+    if (signature === this.decorationSignature) return;
+    this.decorationSignature = signature;
+    setShared('herdr-zed.decorations.tasks', { updatedAt: Date.now(), threads });
   }
   refresh(cx) {
     this.resolveSessions();
     observeTaskInput(agents(), terminals(), cx);
     const snapshot = this.snapshot(), next = JSON.stringify(snapshot);
-    if (next !== this.snapshotSignature) { this.snapshotSignature = next; setShared('devkits.tasks.snapshot', snapshot); }
+    if (next !== this.snapshotSignature) { this.snapshotSignature = next; setShared('herdr-zed.tasks.snapshot', snapshot); }
+    this.publishDecorations(snapshot);
   }
   init(cx) {
     this.agentClient.init(cx);
     this.taskSources.init(cx); this.refresh(cx);
     cx.timer.every(1500, cx => this.refresh(cx));
-    cx.timer.every(200, cx => this.poll(cx));
-  }
-  poll(cx) {
-    const requests = shared('devkits.tasks.requests') || [];
-    if (!requests.length) return;
-    setShared('devkits.tasks.requests', []);
-    for (const request of requests) {
-      const project = this.projects().find(project => boardKey(project) === boardKey(request.project || {}));
-      if (request.action === 'open') {
-        const task = project && request.gid && projectBoardTasks(project, agents()).find(task => task.gid === request.gid);
-        const ok = Boolean(project && (!request.gid || task));
-        if (request.reply) setShared('devkits.tasks.results', { ...(shared('devkits.tasks.results') || {}), [request.id]: { ok } });
-        if (ok) this.navigate({ type: 'task', project, gid: task?.gid || null });
-      } else if (project && request.action === 'source') {
-        this.taskSources.open(project, request.source);
-      } else if (project && request.action === 'archive') {
-        const task = projectBoardTasks(project, agents()).find(task => task.gid === request.gid);
-        if (request.archived ? taskActions(task).canArchive : taskActions(task).canRestore) setTaskArchived(project, task, request.archived, request.archiveId);
-      } else if (project && request.action === 'start') {
-        if (!canStartTask(projectBoardTasks(project, agents()).find(task => task.gid === request.gid))) continue;
-        cx.spawn(async cx => { try { await this.startThread(request.agent, { ...request.target, task: projectBoardTasks(project, agents()).find(task => task.gid === request.gid) }, request.options || {}); }
-          catch (error) { notify({ title: 'Could not start session', body: error.message, level: 'error' }); } cx.notify(); });
-      }
-    }
-    this.refresh(cx);
   }
 
   async startThread(agent, target = props(), options = {}) {
@@ -160,50 +176,52 @@ export class TaskRuntime {
     finally { startingThreads.delete(key); }
   }
 
+  // Tasks validates policy and records the run, then Agents prepares and opens the tab. Failures are thrown to the board.
   async launchThread(agent, target, options) {
     const task = target.task;
-    if (task) {
-      const project = this.projects().find(item => item.id === target.space || (!item.machine && folderKey(item.folder) === folderKey(target.folder))) || { folder: target.folder, tabs: [] };
-      const current = projectBoardTasks(project, agents()).find(item => item.gid === task.gid);
-      if (current && !taskActions(current).canStart) {
-        notify({ title: 'Task is not ready to start', body: 'Move this task to Todo before starting a new session.' });
-        return;
-      }
-    }
-    let argv, session;
-    try { ({ argv, session } = await this.agentClient.prepare(agent, target, options)); }
-    catch (error) { notify({ title: 'Could not start session', body: error.message, level: 'error' }); return; }
-    // A local task may be deleted while its launch rules are being read.
-    if (task?.source === 'local') {
-      const project = this.projects().find(item => item.id === target.space || (!item.machine && folderKey(item.folder) === folderKey(target.folder)));
-      if (!project || !canStartTask(projectBoardTasks(project, agents()).find(item => item.gid === task.gid))) return;
-    }
-    const reporting = task && !target.machine && !spaces().find(space => space.id === target.space)?.machine
+    if (!task || !agent) throw new Error('Choose an agent for this task.');
+    const project = this.projects().find(item => item.id === target.space || (!item.machine && folderKey(item.folder) === folderKey(target.folder))) || { folder: target.folder, tabs: [] };
+    const current = projectBoardTasks(project, agents()).find(item => item.gid === task.gid);
+    if (!current) throw new Error('This task is no longer available.');
+    if (!taskActions(current).canStart) throw new Error('Move this task to Todo before starting a new session.');
+    const reporting = !target.machine && !spaces().find(space => space.id === target.space)?.machine
       ? { run: `run:${Date.now()}:${Math.random().toString(36).slice(2)}` } : null;
-    if (task) argv = [...argv, taskPrompt(task, reporting)];
-    // Closing the launcher destroys its async context; finish reading rules first.
-    if (target.overlay) this.navigate({ type: 'close-overlay', overlay: target.overlay });
-    if (task) {
-      const previous = boardRecords({ folder: target.folder })[task.gid] || {};
-      rememberBoardTask({ folder: target.folder }, task, { status: 'todo', manual: false, seenWorking: false, agentKey: agent.key, agentName: agent.name,
-        ...(reporting ? { execution: { id: reporting.run, status: 'starting', profile: agent.key, profileName: agent.name,
-          model: session.model || null, effort: session.effort || null, startedAt: Date.now(), summary: 'Starting session' },
-          runs: [...(previous.runs || []), ...(previous.execution ? [previous.execution] : [])].slice(-30) } : {}) });
+    const prompt = taskPrompt(task, reporting);
+    const before = boardRecords(project)[task.gid] || {};
+    rememberBoardTask(project, task, { status: 'todo', manual: false, seenWorking: false, agentKey: agent.key, agentName: agent.name,
+      ...(reporting ? { execution: { id: reporting.run, status: 'starting', profile: agent.key, profileName: agent.name,
+        model: options.model ?? null, effort: options.effort ?? null, startedAt: Date.now(), summary: 'Starting session' },
+        runs: [...(before.runs || []), ...(before.execution ? [before.execution] : [])].slice(-30) } : {}) });
+    let launched;
+    try {
+      launched = await this.agentClient.launch(agent, target, { ...options, prompt, origin: { extension: 'tasks', ref: task.gid } });
+    } catch (error) {
+      // The run never started: restore the task as it was before this attempt.
+      rememberBoardTask(project, task, { status: before.status || 'todo', manual: before.manual ?? false,
+        agentKey: before.agentKey ?? null, agentName: before.agentName ?? null,
+        execution: before.execution ?? null, runs: before.runs ?? [] });
+      throw error;
     }
-    this.closeBoard();
-    this.openThread(target, task?.name || agent?.name, argv, agent?.key, task ? { gid: task.gid, name: task.name, folder: target.folder, ...(task.source ? { source: task.source } : {}) } : null);
-    if (agent?.key) {
-      const project = spaces().find(space => space.id === target.space);
-      const key = JSON.stringify([project?.machine || '', folderKey(target.folder) || target.space]);
-      setShared('devkits.last-thread-agent', agent.key);
-      setShared('devkits.last-thread-agents', { ...(shared('devkits.last-thread-agents') || {}), [key]: agent.key });
+    // Agents resolves with what prepare decided (model, effort, profile); record it on the run.
+    const live = boardRecords(project)[task.gid];
+    if (reporting && live?.execution?.id === reporting.run) {
+      const meta = launched && typeof launched === 'object' ? launched : {};
+      rememberBoardTask(project, task, { execution: { ...live.execution, model: meta.model ?? live.execution.model ?? null,
+        effort: meta.effort ?? live.execution.effort ?? null, profile: meta.profile ?? live.execution.profile } });
+    }
+    this.close();
+    if (agent.key) {
+      const space = spaces().find(item => item.id === target.space);
+      const key = JSON.stringify([space?.machine || '', folderKey(target.folder) || target.space]);
+      setShared('herdr-zed.last-thread-agent', agent.key);
+      setShared('herdr-zed.last-thread-agents', { ...(shared('herdr-zed.last-thread-agents') || {}), [key]: agent.key });
     }
   }
 
   taskAssignees(project) {
-    const available = this.availableAgents(shared('devkits.agent-cache')?.[JSON.stringify(project?.machine || null)] || [], project?.machine);
-    const hidden = shared('devkits.hidden-launchers') || [];
-    return launcherChoices(available, shared('devkits.launcher-order') || [])
+    const available = this.availableAgents(shared('herdr-zed.agent-cache')?.[JSON.stringify(project?.machine || null)] || [], project?.machine);
+    const hidden = shared('herdr-zed.hidden-launchers') || [];
+    return launcherChoices(available, shared('herdr-zed.launcher-order') || [])
       .filter(choice => choice.agent && choice.agent.installed !== false && !hidden.includes(choice.key))
       .map(choice => ({ ...choice.agent, name: isAccountLauncher(choice.agent) ? launcherLabel(choice.name) : choice.name }));
   }
@@ -222,34 +240,26 @@ export class TaskRuntime {
         const current = projectBoardTasks(project, agents()).find(item => item.gid === task.gid);
         if (current?.archived) setTaskArchived(project, current, false);
       },
-      resume: task => {
-        const current = projectBoardTasks(project, agents()).find(item => item.gid === task.gid);
-        if (!current || current.archived || current.tabs.length) return;
-        let entry = (shared('devkits.archived-threads') || []).find(entry => entry.id === current.archiveId);
-        if (!entry && current.conversation) {
-          entry = { ...current.conversation, title: current.name, folder: project.folder, projectName: project.name,
-            task: { gid: current.gid, name: current.name, folder: project.folder, source: current.source }, at: Date.now() };
-          setShared('devkits.archived-threads', [entry, ...(shared('devkits.archived-threads') || []).filter(item => item.id !== entry.id)]);
-        }
-        if (entry) this.restoreThread(entry);
-      },
+      // Restoring a saved conversation needs a resume contract that Tasks does not have yet (see report).
+      resume: task => this.agentBoard.setTaskError(task.gid, 'Restore conversation is not available from Tasks yet. Use the thread history.'),
       stop: task => {
         const current = projectBoardTasks(project, agents()).find(item => item.gid === task.gid);
         if (!current) return;
         if (current.execution && !['done', 'fail', 'stopped'].includes(current.execution.status))
           rememberBoardTask(project, current, { execution: { ...current.execution, status: 'stopped', summary: 'Stopped by user', finishedAt: Date.now() } });
-        for (const thread of projectGroups([project], agents(), {}, sessionThreadTitle).flatMap(group => group.threads)
-          .filter(thread => current.tabs.some(tab => tab.id === thread.tab.id))) this.navigate({ type: 'stop-thread', thread });
+        const live = agents().filter(agent => current.tabs.some(tab => tab.id === agent.tab) && ['working', 'blocked'].includes(agent.status));
+        for (const agent of live) hc(['interrupt', agent.address]).then(result => {
+          if (result.code) throw new Error(result.stderr?.trim() || 'Could not stop generation.');
+        }).catch(error => notify({ title: 'Could not stop generation', body: error.message, level: 'error' }));
       },
-      close: () => this.closeBoard(),
-      thread: id => {
-        this.navigate({ type: 'thread', project, tab: id });
-      },
+      close: () => this.close(),
+      thread: id => { this.focusThread(id); this.close(); },
       start: (agent, task, options, eventCx) => eventCx.spawn(async cx => {
         const currentProject = this.projects().find(item => item.id === project.id) || project;
         if (!canStartTask(projectBoardTasks(currentProject, agents()).find(item => item.gid === task.gid))) return;
+        this.agentBoard.clearTaskError(task.gid);
         try { await this.startThread(agent, { space: project.pending ? null : project.id, folder: project.folder, projectName: project.name, task }, options); }
-        catch (error) { notify({ title: 'Could not start session', body: error.message, level: 'error' }); }
+        catch (error) { this.agentBoard.setTaskError(task.gid, error.message); }
         cx.notify();
       }),
     }, cx);

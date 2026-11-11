@@ -10,7 +10,7 @@ import { Button } from './components/button.js';
 import { glyph } from './components/icon.js';
 
 export function openTaskComposer(project, task = null, status = 'todo', importTask = null, parent = null) {
-  return openOverlay({ mod: 'devkits-tasks', kind: 'dialog', modal: true, frame: 'none', width: 760, height: 400,
+  return openOverlay({ mod: 'herdr-zed-tasks', kind: 'dialog', modal: true, frame: 'none', width: 760, height: 400,
     props: { view: 'task-composer', project, task, status, importTask, parent } });
 }
 
@@ -22,7 +22,7 @@ export default class TaskComposer {
     const sourceKey = source?.source === 'mantisbt' ? 'mantisbt' : 'asana';
     this.draftKey = boardKey(this.project) + (source ? `:${sourceKey}:${sourceKey === 'mantisbt' ? `${source.server}:` : ''}${source.gid}`
       : this.parent ? `:subtask:${this.parent.gid}` : '');
-    const draft = this.task || shared('devkits.task-drafts')?.[this.draftKey] || (source ? {
+    const draft = this.task || shared('herdr-zed.task-drafts')?.[this.draftKey] || (source ? {
       name: source.name, notes: source.notes || '',
       [sourceKey]: { gid: source.gid, name: source.name, url: source.url, parent: source.parent, comments: source.comments || [],
         ...(source.fields ? { fields: source.fields } : {}), ...(source.customFields ? { customFields: source.customFields } : {}),
@@ -41,8 +41,8 @@ export default class TaskComposer {
   }
   saveDraft() {
     if (this.saved || this.task) return;
-    const drafts = shared('devkits.task-drafts') || {};
-    setShared('devkits.task-drafts', { ...drafts, [this.draftKey]: {
+    const drafts = shared('herdr-zed.task-drafts') || {};
+    setShared('herdr-zed.task-drafts', { ...drafts, [this.draftKey]: {
       name: this.title.value(), notes: this.description.value(), status: this.status, agentKey: this.agent, priority: this.priority,
       ...(this.asana ? { asana: this.asana } : {}), ...(this.mantisbt ? { mantisbt: this.mantisbt } : {}) } });
   }
@@ -74,8 +74,8 @@ export default class TaskComposer {
     }
     if (!task) return;
     this.saved = true;
-    setShared('devkits.task-drafts', { ...(shared('devkits.task-drafts') || {}), [this.draftKey]: null });
-    setShared('devkits.board-focus', task.gid);
+    setShared('herdr-zed.task-drafts', { ...(shared('herdr-zed.task-drafts') || {}), [this.draftKey]: null });
+    setShared('herdr-zed.board-focus', task.gid);
     closeOverlay(this.options.overlay);
   }
   render(agents) {

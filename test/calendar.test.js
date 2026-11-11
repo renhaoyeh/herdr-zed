@@ -3,11 +3,11 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { dayKey, nextDay, localDate, monthDays, weekDays, timelineEvents, timelineMinute, rangeDraft, eventsOnDay, eventTime, eventFromDraft, eventDraft, saveEvent, deleteEvent } from '../mods/devkits-calendar/calendar-model.js';
-import { calendarContent, taskTokenId, taskTokenRef, mentionTrigger, calendarEntries, taskLinkState } from '../mods/devkits-calendar/calendar-tasks.js';
+import { dayKey, nextDay, localDate, monthDays, weekDays, timelineEvents, timelineMinute, rangeDraft, eventsOnDay, eventTime, eventFromDraft, eventDraft, saveEvent, deleteEvent } from '../mods/herdr-zed-calendar/calendar-model.js';
+import { calendarContent, taskTokenId, taskTokenRef, mentionTrigger, calendarEntries, taskLinkState } from '../mods/herdr-zed-calendar/calendar-tasks.js';
 
-import { taskIndex } from '../mods/devkits/components/tasks-model.js';
-import { boardTasks } from '../mods/devkits-tasks/agent-board-model.js';
+import { taskIndex } from '../components/tasks-model.js';
+import { boardTasks } from '../mods/herdr-zed-tasks/agent-board-model.js';
 
 const draft = { title: 'Plan the next task', notes: 'Details', startDate: '2026-11-08', endDate: '2026-11-08', startTime: '09:00', endTime: '10:00', allDay: false };
 
@@ -84,7 +84,7 @@ test('cross-midnight events appear on each overlapping day and timed events sort
 });
 
 test('date-time validation rejects nonexistent DST times and keeps all-day dates across DST', async () => {
-  const model = new URL('../mods/devkits-calendar/calendar-model.js', import.meta.url).href;
+  const model = new URL('../mods/herdr-zed-calendar/calendar-model.js', import.meta.url).href;
   const script = `import assert from 'node:assert/strict'; import {eventFromDraft,eventsOnDay,localDate} from ${JSON.stringify(model)};
     const draft = {title:'DST',startDate:'2026-03-08',endDate:'2026-03-08',startTime:'02:30',endTime:'04:00'};
     assert.throws(() => eventFromDraft(draft,'one','r'), /unavailable/);
@@ -105,7 +105,7 @@ test('saving and deleting merge current records and reject a stale editor withou
 });
 
 async function ui(memory = {}, target = {}, options = {}) {
-  const source = await readFile(new URL('../mods/devkits-calendar/calendar.js', import.meta.url), 'utf8');
+  const source = await readFile(new URL('../mods/herdr-zed-calendar/calendar.js', import.meta.url), 'utf8');
   const nodes = new Map(), texts = [], writes = [], overlays = [], controls = [], bindings = [], elements = new WeakMap(); let rendering = false, closed = false;
   const element = () => {
     const data = {};
@@ -183,15 +183,15 @@ test('the local calendar creates, edits, persists across views, cancels and dele
   h.view.edit(h.view.records()[first.id], h.cx); h.view.inputs.title.set_value('Discard this'); h.view.cancel(h.cx);
   assert.equal(h.view.records()[first.id].title, 'Changed');
   h.view.edit(h.view.records()[first.id], h.cx); h.render(); h.nodes.get('calendar-delete').click(null, h.cx);
-  assert.deepEqual(h.view.records(), {}); assert.ok(h.writes.every(key => key === 'devkits.calendar-events'));
+  assert.deepEqual(h.view.records(), {}); assert.ok(h.writes.every(key => key === 'herdr-zed.calendar-events'));
 });
 
 test('invalid forms and stale edits stay open; Escape dismisses the editor before the calendar', async () => {
   const h = await ui();
   const form = await ui({}, { calendarCreate: true }); form.view.inputs.title.set_value(''); form.view.save(form.cx);
   assert.match(form.view.error, /title/); assert.deepEqual(form.view.records(), {}); assert.equal(form.closed(), false);
-  const event = eventFromDraft(draft, 'one', 'r1'); h.memory['devkits.calendar-events'] = { one: event };
-  h.view.edit(event, h.cx); h.memory['devkits.calendar-events'].one = { ...event, title: 'Newer edit', revision: 'r2' };
+  const event = eventFromDraft(draft, 'one', 'r1'); h.memory['herdr-zed.calendar-events'] = { one: event };
+  h.view.edit(event, h.cx); h.memory['herdr-zed.calendar-events'].one = { ...event, title: 'Newer edit', revision: 'r2' };
   h.view.save(h.cx); assert.match(h.view.error, /changed/); assert.equal(h.view.records().one.title, 'Newer edit');
   h.view.remove(h.cx); assert.match(h.view.error, /changed/); assert.ok(h.view.records().one);
   h.render(); h.nodes.get('local-calendar').key({ key: 'escape' }, h.cx); assert.equal(h.view.composing, false); assert.equal(h.closed(), false);
@@ -214,7 +214,7 @@ test('selecting a spillover date keeps the displayed month and its grid fixed', 
 test('Day, Week and Month preserve selection, navigate their own periods and remember the chosen view', async () => {
   const h = await ui(); h.view.choose(localDate('2026-12-31'), h.cx, true); h.render();
   const event = eventFromDraft({ ...draft, startDate: '2026-12-31', endDate: '2026-12-31' }, 'sample', 'r');
-  h.memory['devkits.calendar-events'] = { sample: event };
+  h.memory['herdr-zed.calendar-events'] = { sample: event };
   h.nodes.get('calendar-view-day').click(null, h.cx); h.render();
   assert.equal(h.view.selected, '2026-12-31'); assert.ok(h.nodes.has('calendar-day-view'));
   assert.ok(h.nodes.has('calendar-timed-2026-12-31-sample'));
@@ -265,7 +265,7 @@ const pointer = (hour, x = 80, zoom = 1) => {
 };
 
 test('dragging a scrolled weekly timeline previews the range and opens a prefilled create dialog without saving', async () => {
-  const h = await ui({ 'devkits.calendar-view': 'week' }); h.view.choose(localDate('2026-11-08'), h.cx, true); h.render();
+  const h = await ui({ 'herdr-zed.calendar-view': 'week' }); h.view.choose(localDate('2026-11-08'), h.cx, true); h.render();
   h.nodes.get('calendar-timeline-column-2026-11-03').down.left(pointer(9, 80, 1.5), h.cx);
   h.nodes.get('calendar-timeline-column-2026-11-04').move(pointer(10, 280, 1.5), h.cx);
   h.render(); assert.ok(h.nodes.has('calendar-selection-2026-11-03')); assert.ok(h.nodes.has('calendar-selection-2026-11-04'));
@@ -298,7 +298,7 @@ test('reverse month dragging creates an inclusive all-day range while a normal c
 });
 
 test('Escape, leaving the grid and an outside release cancel selection without opening a dialog', async () => {
-  const h = await ui({ 'devkits.calendar-view': 'day' }); h.view.choose(localDate('2026-11-08'), h.cx, true); h.render();
+  const h = await ui({ 'herdr-zed.calendar-view': 'day' }); h.view.choose(localDate('2026-11-08'), h.cx, true); h.render();
   const column = h.nodes.get('calendar-timeline-column-2026-11-08');
   column.down.left(pointer(10), h.cx); column.move(pointer(9), h.cx);
   h.nodes.get('local-calendar').key({ key: 'escape' }, h.cx); assert.equal(h.view.drag, null); assert.equal(h.closed(), false);
@@ -309,7 +309,7 @@ test('Escape, leaving the grid and an outside release cancel selection without o
 });
 
 test('new-event dialogs preserve the underlying inline editor and only dismiss their own layer', async () => {
-  const event = eventFromDraft(draft, 'one', 'r'); const h = await ui({ 'devkits.calendar-events': { one: event } });
+  const event = eventFromDraft(draft, 'one', 'r'); const h = await ui({ 'herdr-zed.calendar-events': { one: event } });
   h.view.edit(event, h.cx); h.view.inputs.title.set_value('Unsaved inline edit'); h.render();
   h.nodes.get('calendar-new').click(null, h.cx); assert.equal(h.view.editing, 'one'); assert.equal(h.overlays.length, 1);
   const form = await ui(h.memory, h.overlays[0].props); form.render();
@@ -320,7 +320,7 @@ test('new-event dialogs preserve the underlying inline editor and only dismiss t
 
 test('a pending preview survives validation failures and clears on every dialog dismissal path', async () => {
   for (const action of ['cancel', 'escape', 'backdrop', 'save']) {
-    const h = await ui({ 'devkits.calendar-view': 'day' }); h.view.choose(localDate('2026-11-08'), h.cx, true); h.render();
+    const h = await ui({ 'herdr-zed.calendar-view': 'day' }); h.view.choose(localDate('2026-11-08'), h.cx, true); h.render();
     const column = h.nodes.get('calendar-timeline-column-2026-11-08');
     column.down.left(pointer(9), h.cx); column.move(pointer(10), h.cx); column.up.left(pointer(10), h.cx);
     h.nodes.clear(); h.render(); assert.ok(h.nodes.has('calendar-selection-2026-11-08'));
@@ -331,24 +331,24 @@ test('a pending preview survives validation failures and clears on every dialog 
     if (action === 'backdrop') form.view.close(); // Main forwards the native overlay-close lifecycle.
     if (action === 'save') { form.view.inputs.title.set_value('Saved event'); form.view.save(form.cx); }
     assert.equal(h.view.selectedRange(), null, action);
-    assert.deepEqual(h.memory['devkits.calendar-previews'], {});
+    assert.deepEqual(h.memory['herdr-zed.calendar-previews'], {});
     h.nodes.clear(); h.render(); assert.equal(h.nodes.has('calendar-selection-2026-11-08'), false);
     assert.equal(Object.keys(h.view.records()).length, action === 'save' ? 1 : 0);
   }
 });
 
 test('pending range markers are isolated across calendar windows and never persist event data', async () => {
-  const memory = { 'devkits.calendar-view': 'day' }, a = await ui(memory), b = await ui(memory);
+  const memory = { 'herdr-zed.calendar-view': 'day' }, a = await ui(memory), b = await ui(memory);
   const date = localDate('2026-11-08');
   for (const h of [a, b]) {
     h.view.choose(date, h.cx, true); h.view.startRange(date, pointer(9), h.cx, true);
     h.view.moveRange(date, pointer(10), h.cx, true); h.view.finishRange(h.cx);
   }
-  const markers = memory['devkits.calendar-previews'];
+  const markers = memory['herdr-zed.calendar-previews'];
   assert.equal(Object.keys(markers).length, 2); assert.ok(Object.values(markers).every(value => value === true));
   const form = await ui(memory, a.overlays[0].props); form.view.close();
   assert.equal(a.view.selectedRange(), null); assert.ok(b.view.selectedRange());
-  b.view.close(); assert.equal(b.view.selectedRange(), null); assert.deepEqual(memory['devkits.calendar-previews'], {});
+  b.view.close(); assert.equal(b.view.selectedRange(), null); assert.deepEqual(memory['herdr-zed.calendar-previews'], {});
   assert.deepEqual(a.view.records(), {});
 });
 
@@ -394,7 +394,7 @@ test('blank titles disable Create with a visible hint; keyboard submission valid
 
 test('new events and dragged ranges require an entered title while existing names and supplied drafts are preserved', async () => {
   for (const dragged of [false, true]) {
-    const h = await ui({ 'devkits.calendar-view': 'day' });
+    const h = await ui({ 'herdr-zed.calendar-view': 'day' });
     h.view.choose(localDate('2026-11-08'), h.cx, true); h.render();
     if (dragged) {
       const column = h.nodes.get('calendar-timeline-column-2026-11-08');
@@ -490,13 +490,13 @@ test('task picker Enter and Escape affect only the picker; empty results and dis
   const h = await ui({}, { calendarCreate: true }, { tasks: () => tasks });
   const cx = { ...h.cx, stop_propagation: () => { stopped++; } };
   const typeAt = () => { h.view.inputs.title.set_value(''); h.view.inputs.title.events.change(null, cx); h.view.inputs.title.set_value('@'); h.view.inputs.title.events.change(null, cx); h.render(); };
-  typeAt(); h.nodes.get('calendar-create-dialog').actions['devkits-calendar-mention-down'](null, cx); h.render();
-  h.nodes.get('calendar-create-dialog').actions['devkits-calendar-mention-confirm'](null, cx);
+  typeAt(); h.nodes.get('calendar-create-dialog').actions['herdr-zed-calendar-mention-down'](null, cx); h.render();
+  h.nodes.get('calendar-create-dialog').actions['herdr-zed-calendar-mention-confirm'](null, cx);
   assert.equal(h.view.inputs.title.value(), '@Review'); assert.equal(h.closed(), false); assert.equal(h.writes.length, 0);
   h.view.mentionSearch.events.submit(null, cx); assert.equal(h.view.inputs.title.tokens().length, 1, 'a native submit following the key event cannot insert twice');
-  typeAt(); h.nodes.get('calendar-create-dialog').actions['devkits-calendar-mention-dismiss'](null, cx);
+  typeAt(); h.nodes.get('calendar-create-dialog').actions['herdr-zed-calendar-mention-dismiss'](null, cx);
   assert.equal(h.view.mention, null); assert.equal(h.view.composing, true); assert.equal(h.view.inputs.title.value(), '@');
-  typeAt(); h.view.mentionSearch.set_value('missing'); h.render(); h.nodes.get('calendar-create-dialog').actions['devkits-calendar-mention-confirm'](null, cx);
+  typeAt(); h.view.mentionSearch.set_value('missing'); h.render(); h.nodes.get('calendar-create-dialog').actions['herdr-zed-calendar-mention-confirm'](null, cx);
   assert.ok(h.texts.includes('No tasks found')); assert.equal(h.view.inputs.title.value(), '@'); assert.equal(h.writes.length, 0);
   h.view.mentionSearch.set_value(''); h.render(); const staleClick = h.nodes.get('calendar-task-option-0').click;
   tasks = []; staleClick(null, cx); assert.equal(h.view.inputs.title.tokens().length, 1, 'only the temporary @ anchor remains'); assert.equal(h.closed(), false);
@@ -539,7 +539,7 @@ test('the picker is anchored to the native @ glyph in both fields and dismissal 
     assert.deepEqual(h.elements.get(popup.children[0]).children, ['@'], 'the trigger is the inline glyph, not the entire field');
     assert.ok(h.nodes.has('calendar-task-picker'));
     input.events.change(null, h.cx); assert.ok(h.view.mention, 'a token-only native change preserves the open picker');
-    h.nodes.get('calendar-create-dialog').actions['devkits-calendar-mention-dismiss'](null, h.cx);
+    h.nodes.get('calendar-create-dialog').actions['herdr-zed-calendar-mention-dismiss'](null, h.cx);
     assert.equal(input.value(), prefix + '@Review'); assert.deepEqual(input.tokens(), [existing]);
     assert.deepEqual(input.selection, { start: prefix.length + 7, end: prefix.length + 7 });
     assert.equal(h.closed(), false); assert.equal(h.writes.length, 0);
@@ -567,8 +567,8 @@ test('scoped native input actions move one row at a time, wrap, filter, confirm 
   const h = await ui({}, { calendarCreate: true }, { tasks: () => tasks });
   h.view.notes.set_value('@'); h.view.notes.events.change(null, h.cx); h.render();
   assert.deepEqual(h.bindings.map(binding => binding.keystroke), ['up', 'down', 'enter', 'escape']);
-  assert.ok(h.bindings.every(binding => binding.context === 'DevkitsCalendarMention > Input'));
-  assert.equal(h.nodes.get('calendar-create-dialog').keyContext, 'DevkitsCalendarMention');
+  assert.ok(h.bindings.every(binding => binding.context === 'HerdrZedCalendarMention > Input'));
+  assert.equal(h.nodes.get('calendar-create-dialog').keyContext, 'HerdrZedCalendarMention');
   assert.equal(h.nodes.get('calendar-task-picker').key, undefined, 'raw key handlers must not also move the highlight');
   const press = key => {
     const action = h.bindings.find(binding => binding.keystroke === key).action;

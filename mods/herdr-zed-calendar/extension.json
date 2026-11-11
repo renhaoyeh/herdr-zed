@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "id": "calendar",
+  "title": "Calendar",
+  "requires": ["tasks"],
+  "actions": [
+    {
+      "id": "open",
+      "title": "Calendar",
+      "icon": "calendar",
+      "location": "status.right",
+      "popup": {
+        "view": "calendar",
+        "width": 0.9,
+        "height": 0.86,
+        "modal": false
+      }
+    }
+  ]
+}

@@ -2,7 +2,7 @@ import { shared, setShared, hc, exec, readTextFile, home, appHome, window } from
 import { agentCommand, commandKind, codexSessionId, resumeArgv } from './components/session-model.js';
 
 const inputProbes = new Map();
-const INPUT_EVIDENCE = 'devkits.task-input-evidence';
+const INPUT_EVIDENCE = 'herdr-zed.task-input-evidence';
 export const tracksTaskInput = agent => !String(agent.address || '').includes('/') && ['codex', 'claude-code', 'claude'].includes(agent.app);
 
 // A core turn also counts agent initialization. Check for an actual user-message
@@ -19,7 +19,7 @@ async function locateTaskFile(agent, services) {
     const prefix = kind === 'codex' ? 'CODEX_HOME=' : 'CLAUDE_CONFIG_DIR=';
     const directory = command.find(arg => arg.startsWith(prefix))?.slice(prefix.length) || `${services.home()}/.${kind}`;
     const resumedId = kind === 'codex' && command.includes('resume') ? command.findLast(arg => /^[a-f0-9-]{36}$/i.test(arg)) : null;
-    const result = await services.exec('node', [`${services.appHome()}/mods/devkits-tasks/components/agent-session-windows.js`, String(pid), kind, directory, ...(resumedId ? [resumedId] : [])]);
+    const result = await services.exec('node', [`${services.appHome()}/mods/herdr-zed-tasks/components/agent-session-windows.js`, String(pid), kind, directory, ...(resumedId ? [resumedId] : [])]);
     const file = result.code ? null : JSON.parse(result.stdout).file;
     return file ? { file, command } : null;
   }
@@ -43,7 +43,7 @@ export async function probeTaskState(agent, previous = {}, services = { hc, exec
   const located = previous.file && previous.command ? previous : await locateTaskFile(agent, services);
   const { file, command } = located || {};
   if (!file) return { hasInput: null, needsInput: false };
-  const result = await services.exec('node', [`${services.appHome()}/mods/devkits-tasks/agent-task-events.cjs`, file,
+  const result = await services.exec('node', [`${services.appHome()}/mods/herdr-zed-tasks/agent-task-events.cjs`, file,
     agent.app === 'codex' ? 'codex' : 'claude', JSON.stringify(previous.file === file ? previous.cursor || {} : {})]);
   if (result.code) return { hasInput: previous.hasInput ?? null, needsInput: Boolean(previous.needsInput), file, command, cursor: previous.cursor };
   return { ...JSON.parse(result.stdout), file, command };
@@ -104,6 +104,6 @@ export function taskConversation(evidence, tab) {
   const id = kind === 'codex' ? codexSessionId(file) : file.match(/(?:^|\/)([0-9a-f-]{36})\.jsonl$/i)?.[1];
   if (!kind || !id) return null;
   return { id: `${kind}:${id}`, argv: evidence.command.includes(id) && (evidence.command.includes('resume') || evidence.command.includes('--resume'))
-    ? evidence.command : resumeArgv(evidence.command, id, Boolean(shared('devkits.thread-tasks')?.[tab])),
-    profile: shared('devkits.thread-profiles')?.[tab] || null };
+    ? evidence.command : resumeArgv(evidence.command, id, Boolean(shared('herdr-zed.thread-tasks')?.[tab])),
+    profile: shared('herdr-zed.thread-profiles')?.[tab] || null };
 }

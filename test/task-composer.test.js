@@ -1,11 +1,11 @@
 import { test } from 'node:test';
-import { launcherOption } from '../mods/devkits/components/session-model.js';
+import { launcherOption } from '../components/session-model.js';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { boardKey, liveVersion, taskActions } from '../mods/devkits-tasks/agent-board-model.js';
+import { boardKey, liveVersion, taskActions } from '../mods/herdr-zed-tasks/agent-board-model.js';
 
 async function composer(options = {}) {
-  const source = await readFile(new URL('../mods/devkits-tasks/task-composer.js', import.meta.url), 'utf8');
+  const source = await readFile(new URL('../mods/herdr-zed-tasks/task-composer.js', import.meta.url), 'utf8');
   const memory = {}, closed = [], tasks = [], currentTasks = [];
   const state = { new: () => ({ value: () => '', set_value(value) { this.value = () => value; }, set_auto_grow() {}, on() {}, focus() {} }) };
   const host = { InputState: state, TextareaState: state, SelectState: class {}, launcherOption, boardKey, liveVersion, taskActions, liveAgents: () => [], projectBoardTasks: () => currentTasks,
@@ -26,14 +26,14 @@ test('creating a task saves the real properties and never starts an agent', asyn
   assert.equal(tasks[0].name, 'Fix login'); assert.equal(tasks[0].notes, 'Validate the form');
   assert.equal(tasks[0].agentKey, 'codex'); assert.equal(tasks[0].status, 'todo');
   assert.equal(tasks[0].priority, 'high');
-  assert.equal(memory['devkits.board-focus'], 'local:1');
+  assert.equal(memory['herdr-zed.board-focus'], 'local:1');
   assert.deepEqual(closed, ['composer']);
 });
 test('dismissed drafts survive reopening per project, and blank task titles cannot submit', async () => {
   const { view, memory, closed, tasks, Composer } = await composer();
   view.title.set_value('   '); view.submit([]); assert.equal(tasks.length, 0);
   view.title.set_value('Unfinished draft'); view.description.set_value('Keep these notes'); view.dismiss();
-  assert.equal(memory['devkits.task-drafts'][boardKey(view.project)].name, 'Unfinished draft');
+  assert.equal(memory['herdr-zed.task-drafts'][boardKey(view.project)].name, 'Unfinished draft');
   const reopened = new Composer(); reopened.init(view.options, { focus_handle: () => ({}) });
   assert.equal(reopened.title.value(), 'Unfinished draft'); assert.equal(reopened.description.value(), 'Keep these notes');
   assert.deepEqual(closed, ['composer']);
@@ -80,15 +80,15 @@ test('Asana import opens an editable local draft, preserves source context, and 
   assert.equal(tasks[0].status, 'todo'); assert.equal(tasks[0].agentKey, 'rick');
   assert.deepEqual(tasks[0].asana, { gid: source.gid, name: source.name, url: source.url, parent: source.parent, comments: source.comments });
   assert.equal(source.notes, 'Original description');
-  assert.equal(memory['devkits.board-focus'], 'local:1');
+  assert.equal(memory['herdr-zed.board-focus'], 'local:1');
 });
 
 test('canceled Asana import drafts preserve extra instructions separately from manual and other source drafts', async () => {
   const { view, tasks, memory, Composer } = await composer({ importTask: { gid: 'a1', name: 'First', notes: 'Original' } });
   const key = boardKey(view.project);
-  memory['devkits.task-drafts'] = { [key]: { name: 'Manual draft', notes: 'Manual notes' } };
+  memory['herdr-zed.task-drafts'] = { [key]: { name: 'Manual draft', notes: 'Manual notes' } };
   view.description.set_value('Original\nExtra instructions'); view.dismiss();
-  assert.deepEqual(tasks, []); assert.equal(memory['devkits.task-drafts'][key].name, 'Manual draft');
+  assert.deepEqual(tasks, []); assert.equal(memory['herdr-zed.task-drafts'][key].name, 'Manual draft');
   const reopened = new Composer(); reopened.init(view.options, { focus_handle: () => ({}) });
   assert.equal(reopened.description.value(), 'Original\nExtra instructions');
   const second = new Composer(); second.init({ ...view.options, importTask: { gid: 'a2', name: 'Second', notes: 'Other source' } }, { focus_handle: () => ({}) });
@@ -96,7 +96,7 @@ test('canceled Asana import drafts preserve extra instructions separately from m
   const manual = new Composer(); manual.init({ ...view.options, importTask: null }, { focus_handle: () => ({}) });
   assert.equal(manual.title.value(), 'Manual draft');
   reopened.submit([]);
-  assert.equal(memory['devkits.task-drafts'][key].name, 'Manual draft');
+  assert.equal(memory['herdr-zed.task-drafts'][key].name, 'Manual draft');
 });
 
 test('MantisBT imports preserve source context offline and isolate drafts from Asana and other servers', async () => {
@@ -119,9 +119,9 @@ test('subtask composers isolate drafts by parent and create independent Todos wi
   const parent = { gid: 'local:parent', source: 'local', name: 'Parent', status: 'doing' };
   const h = await composer({ parent }); h.currentTasks.push(parent);
   const key = boardKey(h.view.project);
-  h.memory['devkits.task-drafts'] = { [key]: { name: 'Manual draft' } };
+  h.memory['herdr-zed.task-drafts'] = { [key]: { name: 'Manual draft' } };
   h.view.title.set_value('Child'); h.view.description.set_value('Child instructions'); h.view.agent = 'codex'; h.view.dismiss();
-  assert.equal(h.memory['devkits.task-drafts'][key].name, 'Manual draft');
+  assert.equal(h.memory['herdr-zed.task-drafts'][key].name, 'Manual draft');
   const reopened = new h.Composer(); reopened.init(h.view.options, { focus_handle: () => ({}) });
   assert.equal(reopened.title.value(), 'Child'); assert.equal(reopened.description.value(), 'Child instructions');
   const other = new h.Composer(); other.init({ ...h.view.options, parent: { ...parent, gid: 'local:other' } }, { focus_handle: () => ({}) });
@@ -129,7 +129,7 @@ test('subtask composers isolate drafts by parent and create independent Todos wi
   reopened.submit([{ key: 'codex', name: 'Codex' }]);
   assert.equal(h.tasks.length, 1); assert.equal(h.tasks[0].parentId, parent.gid);
   assert.equal(h.tasks[0].agentKey, 'codex'); assert.equal(h.tasks[0].status, 'todo');
-  assert.equal(h.memory['devkits.task-drafts'][key].name, 'Manual draft');
+  assert.equal(h.memory['herdr-zed.task-drafts'][key].name, 'Manual draft');
 });
 
 test('a subtask composer cannot submit after its parent is archived or deleted', async () => {

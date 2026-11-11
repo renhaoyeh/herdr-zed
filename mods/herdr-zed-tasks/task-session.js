@@ -20,7 +20,7 @@ export class TaskSession {
 
   // Remembers the last agent, model and effort; a model or effort the chosen agent lacks falls back to Default.
   session(agents) {
-    const saved = shared('devkits.asana-session') || {};
+    const saved = shared('herdr-zed.asana-session') || {};
     const agent = agents.find(agent => agent.key === saved.agent) || agents[0] || null;
     const models = this.modelsFor(agent);
     const model = models.find(item => item.key === saved.model) ? saved.model : null;
@@ -31,14 +31,14 @@ export class TaskSession {
 
   // Only the models and efforts Manage leaves checked are offered.
   profileFor(agent) {
-    const stored = shared('devkits.profile-sessions')?.[settingsKey(agent)] || {};
-    const hidden = shared('devkits.session-options')?.[sessionKind(agent)] || {};
+    const stored = shared('herdr-zed.profile-sessions')?.[settingsKey(agent)] || {};
+    const hidden = shared('herdr-zed.session-options')?.[sessionKind(agent)] || {};
     return { model: hidden.models?.includes(stored.model) ? null : stored.model,
       effort: hidden.efforts?.includes(stored.effort) ? null : stored.effort };
   }
 
   modelsFor(agent) {
-    const options = shared('devkits.session-options')?.[sessionKind(agent)];
+    const options = shared('herdr-zed.session-options')?.[sessionKind(agent)];
     return shownOptions(orderedOptions(this.allModels(agent), options?.order), options?.models);
   }
 
@@ -54,7 +54,7 @@ export class TaskSession {
   }
 
   effortsFor(agent, model) {
-    const hidden = shared('devkits.session-options')?.[sessionKind(agent)]?.efforts;
+    const hidden = shared('herdr-zed.session-options')?.[sessionKind(agent)]?.efforts;
     if (isClaudeLauncher(agent)) return shownOptions(claudeEfforts, hidden);
     if (!isCodexLauncher(agent)) return [];
     const models = model ? this.allModels(agent) : this.modelsFor(agent);
@@ -64,7 +64,7 @@ export class TaskSession {
 
   launchRow(task, agents, start, t) {
     const current = this.session(agents);
-    const remember = change => setShared('devkits.asana-session', { ...(shared('devkits.asana-session') || {}), ...change });
+    const remember = change => setShared('herdr-zed.asana-session', { ...(shared('herdr-zed.asana-session') || {}), ...change });
     const option = (key, label) => ({ key, label, color: key === 'default' ? t.muted : t.foreground });
     // Default is the agent profile's own model and effort from Manage, named when it has one.
     const profile = this.profileFor(current.agent);

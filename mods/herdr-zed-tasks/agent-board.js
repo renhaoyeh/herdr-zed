@@ -42,18 +42,18 @@ export default class AgentBoard {
     });
     this.detail = new SourceTaskReader(); this.detail.init(cx);
     this.session = new TaskSession(); this.session.init(cx);
-    this.detailPanel = new SidePanelState(() => shared('devkits.task-detail-width') ?? 500,
-      width => setShared('devkits.task-detail-width', width),
+    this.detailPanel = new SidePanelState(() => shared('herdr-zed.task-detail-width') ?? 500,
+      width => setShared('herdr-zed.task-detail-width', width),
       { minWidth: 360, maxWidth: 880, defaultWidth: 500, minContentWidth: 320, label: 'Resize task details' });
     this.outputs = new Map();
     this.cardMenu = new DropdownMenuState(cx);
     cx.timer.every(5000, cx => {
-      if (shared('devkits.tasks-open') && this.project?.id === shared('devkits.board-project') && this.currentTask?.gid === this.selected)
+      if (shared('herdr-zed.tasks-open') && this.project?.id === shared('herdr-zed.board-project') && this.currentTask?.gid === this.selected)
         this.loadOutput(this.currentTask, this.project, cx);
     });
   }
   assignment(task, launchers, t, size = 14) {
-    const key = task.agentKey || task.tabs.map(tab => shared('devkits.thread-profiles')?.[tab.id]).find(Boolean);
+    const key = task.agentKey || task.tabs.map(tab => shared('herdr-zed.thread-profiles')?.[tab.id]).find(Boolean);
     const selected = launchers.find(agent => agent.key === key);
     const agent = selected || task.agents[0]?.program;
     const name = launcherLabel(selected?.name || task.agentName || agent?.name || 'Unassigned');
@@ -61,6 +61,9 @@ export default class AgentBoard {
       .child(agent?.icon ? AgentIcon(agent, t).size(size).flex_none() : glyph('agent', size).text_color(t.muted))
       .child(div().flex_1().min_w(0).truncate().child(name));
   }
+  // Inline error for one task (launch refused, restore unavailable). Shown in its detail until the next attempt.
+  setTaskError(gid, message) { this.taskError = { gid, message }; }
+  clearTaskError(gid) { if (this.taskError?.gid === gid) this.taskError = null; }
   compose(project, task = null, status = 'todo') {
     openTaskComposer(project, task, status);
   }
@@ -112,7 +115,7 @@ export default class AgentBoard {
     const task = this.latestTask(project, gid);
     if (!taskActions(task).canSchedule) return;
     const today = new Date(), date = task.dueDate || `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
-    openOverlay({ mod: 'devkits-calendar', kind: 'dialog', frame: 'none', modal: false, width: 560, height: 560,
+    openOverlay({ mod: 'herdr-zed-calendar', kind: 'dialog', frame: 'none', modal: false, width: 560, height: 560,
       props: { view: 'calendar', calendarCreate: true, draft: { title: task.name, startDate: date, endDate: date,
         taskLink: { id: taskTokenId(project, task.gid), label: task.name } } } });
   }
@@ -173,7 +176,7 @@ export default class AgentBoard {
     this.detail.selected = null; this.detail.detail = null; this.detail.detailError = null;
     this.detail.detailRequest = null;
     this.detail.folder = project.folder;
-    if (task.agentKey) setShared('devkits.asana-session', { ...(shared('devkits.asana-session') || {}), agent: task.agentKey });
+    if (task.agentKey) setShared('herdr-zed.asana-session', { ...(shared('herdr-zed.asana-session') || {}), agent: task.agentKey });
     this.loadOutput(task, project, cx);
     if (task.source === 'local' || task.source === 'thread') { cx.notify(); return; }
     this.detail.show(task, cx); cx.notify();
@@ -185,12 +188,12 @@ export default class AgentBoard {
       this.drag = null; this.dropStatus = null; this.search.set_value('');
     }
     const t = boardTheme(), tasks = projectBoardTasks(project, agents);
-    if (shared('devkits.board-attention') === project.id) {
-      setShared('devkits.board-attention', null); this.attentionOnly = true; this.archived = false;
+    if (shared('herdr-zed.board-attention') === project.id) {
+      setShared('herdr-zed.board-attention', null); this.attentionOnly = true; this.archived = false;
     }
-    const focus = shared('devkits.board-focus');
+    const focus = shared('herdr-zed.board-focus');
     if (focus) {
-      setShared('devkits.board-focus', null);
+      setShared('herdr-zed.board-focus', null);
       const task = tasks.find(task => task.gid === focus);
       if (task) { this.archived = Boolean(task.archived); this.show(task, project, cx); }
     }
@@ -404,6 +407,7 @@ export default class AgentBoard {
           .child(TextView.markdown(`board-description-${task.gid}`, detail.notes).selectable(true).scrollable(false).w_full().text_size(13))))
         .child(this.subtasks(task, tasks, project, t))
         .when(Boolean(this.relatedError), el => el.child(div().id('board-related-error').text_size(12).text_color(t.destructive).child(this.relatedError)))
+        .when(this.taskError?.gid === task.gid, el => el.child(div().id('board-task-error').text_size(12).text_color(t.destructive).child(this.taskError.message)))
         .when(task.tabs.length > 0, el => el.children(task.tabs.map(tab => button(`board-thread-${tab.id}`, t, { variant: 'secondary' }).h(28)
           .on_click(() => actions.thread(tab.id)).child(task.attention ? 'Respond to agent' : 'Open conversation').child(glyph('external-link', 12)))))
         .when(task.tabs.length > 0, el => el.child(button('board-copy-reporting', t).h(28).self_start()
@@ -441,7 +445,7 @@ export default class AgentBoard {
         .when(Boolean(launchRow), el => el.child(launchRow))
         .child(h_flex().gap(12).items_center()
           .when(Boolean((task.archiveId || task.conversation) && !task.archived && !task.tabs.length), el => el.child(button('board-resume-session', t).h(28)
-            .on_click(() => actions.resume?.(task)).child(glyph('rotate-ccw', 13)).child('Restore conversation')))
+            .on_click((_e, cx) => { actions.resume?.(task); cx.notify(); }).child(glyph('rotate-ccw', 13)).child('Restore conversation')))
           .when(policy.canArchive || policy.canRestore, el => el.child(button('board-archive-task', t).h(28).justify_start()
             .on_click((_e, cx) => task.archived ? actions.restore(task) : actions.archive(task, cx))
             .child(glyph(task.archived ? 'rotate-ccw' : 'archive', 13)).child(task.archived ? 'Restore task' : 'Archive task')))

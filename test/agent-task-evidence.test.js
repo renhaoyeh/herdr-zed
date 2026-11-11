@@ -1,11 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { agentCommand, commandKind, codexSessionId, resumeArgv } from '../mods/devkits/components/session-model.js';
-import { taskStatus, reconcileBoardRecords } from '../mods/devkits-tasks/agent-board-model.js';
+import { agentCommand, commandKind, codexSessionId, resumeArgv } from '../components/session-model.js';
+import { taskStatus, reconcileBoardRecords } from '../mods/herdr-zed-tasks/agent-board-model.js';
 
 async function evidenceHost(options = {}) {
-  const source = await readFile(new URL('../mods/devkits-tasks/agent-task-evidence.js', import.meta.url), 'utf8');
+  const source = await readFile(new URL('../mods/herdr-zed-tasks/agent-task-evidence.js', import.meta.url), 'utf8');
   const store = {}, requests = [], tasks = [];
   let hasMessage = false, fileExists = true, pid = 42;
   const services = {
@@ -88,7 +88,7 @@ test('empty idle threads remain without input, then real input is detected and c
   h.observeTaskInput([agent], terminals, h.cx); await h.settle();
   assert.equal(h.withTaskInputEvidence([agent], terminals)[0].hasInput, false);
   h.observeTaskInput([], terminals, h.cx);
-  assert.deepEqual(h.store['devkits.task-input-evidence'], {});
+  assert.deepEqual(h.store['herdr-zed.task-input-evidence'], {});
 });
 
 test('startup discovery retries an unresolved idle session and preserves known completed work', async () => {
@@ -107,7 +107,7 @@ test('startup discovery retries an unresolved idle session and preserves known c
   h.observeTaskInput([agent], terminals, h.cx); await h.settle();
   assert.equal(h.requests.length, count, 'Missing discovery is throttled');
   h.setFileExists(true); h.setHasMessage(true);
-  h.store['devkits.task-input-evidence'].t1.at -= 5001;
+  h.store['herdr-zed.task-input-evidence'].t1.at -= 5001;
   h.observeTaskInput([agent], terminals, h.cx); await h.settle();
   assert.equal(h.withTaskInputEvidence([agent], terminals)[0].hasInput, true, 'Recovery does not require an agent status change');
 });
@@ -116,8 +116,8 @@ test('startup discovery retries an unresolved idle session and preserves known c
 test('closed Tasks retain an exact conversation and original account without needing Archive', async () => {
   const h = await evidenceHost();
   const id = '12345678-1234-1234-1234-123456789abc';
-  h.store['devkits.thread-tasks'] = { tab: { gid: 'task' } };
-  h.store['devkits.thread-profiles'] = { tab: 'work-account' };
+  h.store['herdr-zed.thread-tasks'] = { tab: { gid: 'task' } };
+  h.store['herdr-zed.thread-profiles'] = { tab: 'work-account' };
   const command = ['env', 'CODEX_HOME=C:/Work account', 'codex', '--no-daemon', 'task prompt'];
   const conversation = h.taskConversation({ file: `C:/Work account/sessions/rollout-2026-${id}.jsonl`, command, hasInput: true }, 'tab');
   assert.deepEqual(conversation, { id: `codex:${id}`, profile: 'work-account',

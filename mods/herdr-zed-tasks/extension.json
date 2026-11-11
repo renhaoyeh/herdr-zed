@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "id": "tasks",
+  "title": "Tasks",
+  "services": [
+    { "view": "service" }
+  ],
+  "actions": [
+    {
+      "id": "open",
+      "title": "Tasks",
+      "icon": "list-todo",
+      "location": "status.right",
+      "popup": {
+        "view": "board",
+        "width": 0.9,
+        "height": 0.86,
+        "modal": false
+      }
+    }
+  ],
+  "provides": {
+    "importer": {
+      "accepts": ["task-snapshot"],
+      "view": "import-draft"
+    },
+    "threadDecorator": {
+      "fields": ["subtitle", "tone"]
+    }
+  }
+}

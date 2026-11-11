@@ -2,10 +2,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { PassThrough } from 'node:stream';
 import { createRequire } from 'node:module';
-import { tasksMcpCall } from '../mods/devkits-tasks/mcp-api.js';
-import { sessionArgv, tasksMcpServer } from '../mods/devkits/components/session-model.js';
+import { tasksMcpCall } from '../mods/herdr-zed-tasks/mcp-api.js';
+import { sessionArgv, tasksMcpServer } from '../components/session-model.js';
 import { evaluateNative } from './source-harness.js';
-const { start } = createRequire(import.meta.url)('../mods/devkits-tasks/mcp-server.cjs');
+const { start } = createRequire(import.meta.url)('../mods/herdr-zed-tasks/mcp-server.cjs');
 
 test('MCP uses exact project identity and validates creation fields before calling the owner', () => {
   const calls = [], runtime = { snapshot: () => ({ projects: { local: { project: { folder: '/repo' }, tasks: [] }, remote: { project: { folder: '/repo', machine: 'remote' }, tasks: [] } } }),
@@ -81,7 +81,7 @@ test('MCP discovers reporting and binds ordinary reports to the server terminal 
 test('bridge rejects expired and unsafe commands and deduplicates deliveries', async () => {
   const id = '12345678-1234-1234-1234-123456789abc', commands = ['mcp:../../escape', `mcp:${id}`, `mcp:${id}`, `mcp:${id}`];
   const writes = [], calls = [], stop = new Error('stop'); let reads = 0;
-  const { TasksMcpBridge } = await evaluateNative('../mods/devkits-tasks/mcp-bridge.js', {
+  const { TasksMcpBridge } = await evaluateNative('../mods/herdr-zed-tasks/mcp-bridge.js', {
     nextCommand: async () => { if (!commands.length) throw stop; return commands.shift(); }, appHome: () => '/herdr',
     readTextFile: async () => JSON.stringify({ id, until: ++reads === 1 ? Date.now() - 100 : Date.now() + 5000, name: 'create_task', args: {} }),
     writeTextFile: async (path, text) => writes.push({ path, result: JSON.parse(text) }),

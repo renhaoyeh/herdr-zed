@@ -1,10 +1,28 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import * as sessions from '../mods/devkits/components/session-model.js';
-import * as identity from '../mods/devkits/components/tasks-model.js';
-import * as policy from '../mods/devkits-tasks/agent-board-model.js';
+import * as sessions from '../components/session-model.js';
+import * as identity from '../components/tasks-model.js';
+import * as policy from '../mods/herdr-zed-tasks/agent-board-model.js';
 import { evaluateNative } from './source-harness.js';
-import { tasksMcpCall } from '../mods/devkits-tasks/mcp-api.js';
+import { tasksMcpCall } from '../mods/herdr-zed-tasks/mcp-api.js';
+import { readFile } from 'node:fs/promises';
+import { parseExtensionManifest, extensionMetadata } from '../mods/herdr-zed/extension-model.js';
+
+test('the Tasks and Calendar manifests parse with the shell model: importer, decorator, popup board and Calendar requirement', async () => {
+  const read = mod => readFile(new URL(`../mods/${mod}/extension.json`, import.meta.url), 'utf8');
+  const tasks = await read('herdr-zed-tasks'), calendar = await read('herdr-zed-calendar');
+  const tasksActions = parseExtensionManifest('herdr-zed-tasks', tasks);
+  assert.deepEqual(tasksActions.map(action => [action.id, action.location, action.popup.view, action.popup.modal]),
+    [['tasks.open', 'status.right', 'board', false]]);
+  const tasksMeta = extensionMetadata('herdr-zed-tasks', tasks);
+  assert.deepEqual(tasksMeta.provides, { importer: { accepts: ['task-snapshot'], view: 'import-draft' }, threadDecorator: { fields: ['subtitle', 'tone'] } });
+  assert.deepEqual(tasksMeta.services, [{ view: 'service' }]); assert.deepEqual(tasksMeta.requires, []);
+  const calendarActions = parseExtensionManifest('herdr-zed-calendar', calendar);
+  assert.deepEqual(calendarActions.map(action => [action.id, action.location, action.popup.view]), [['calendar.open', 'status.right', 'calendar']]);
+  assert.deepEqual(extensionMetadata('herdr-zed-calendar', calendar).requires, ['tasks']);
+  // Calendar reads the Tasks read model only; it never declares a provider contract of its own.
+  assert.deepEqual(extensionMetadata('herdr-zed-calendar', calendar).provides, {});
+});
 
 const clone = value => value == null ? value : JSON.parse(JSON.stringify(value));
 const input = { new: () => { let value = ''; return { value: () => value, set_value(next) { value = next; }, on() {}, focus() {}, set_auto_grow() {} }; } };
@@ -20,7 +38,7 @@ test('an existing conversation adopts reporting with its own terminal and retain
   const project = h.state.projects[0];
   project.tabs = [{ id: 'chat', name: 'Existing chat' }];
   h.state.agents = [{ address: 't-chat', tab: 'chat', space: project.id, status: 'idle', program: { name: 'Codex' } }];
-  h.memory['devkits.thread-profiles'] = { chat: 'codex' };
+  h.memory['herdr-zed.thread-profiles'] = { chat: 'codex' };
   h.runtime.init(clock.cx);
   const report = (status, message) => h.runtime.reportTask(null, { terminal: 't-chat', status, message });
   assert.throws(() => report('done', 'No attempt'), /Report doing/);
@@ -55,7 +73,7 @@ test('reported work stays Doing across native idle/done, separates attention and
   report('doing', 'Investigating login'); h.runtime.refresh(clock.cx);
   assert.equal(h.client.listTasks()[0].status, 'doing');
   const project = h.state.projects[0]; project.tabs = [{ id: 'work', name: task.name }];
-  h.memory['devkits.thread-tasks'] = { work: { gid: task.gid, folder: '/project', name: task.name, source: 'local' } };
+  h.memory['herdr-zed.thread-tasks'] = { work: { gid: task.gid, folder: '/project', name: task.name, source: 'local' } };
   h.state.agents = [{ address: 't1', tab: 'work', app: 'pi', status: 'done', turn: 5 }];
   h.runtime.refresh(clock.cx);
   assert.equal(h.client.listTasks()[0].status, 'doing', 'Finishing a CLI turn never completes reported work');
@@ -80,44 +98,44 @@ test('reported work stays Doing across native idle/done, separates attention and
 test('Board restore never launches a session; due dates and deletion preserve unrelated events and conversations', async () => {
   const key = '["","/project"]', task = { gid: 'local:dates', source: 'local', name: 'Plan', status: 'done', archived: true, archiveId: 'saved' };
   const h = await modules({ [key]: { [task.gid]: task } }), project = h.state.projects[0];
-  h.memory['devkits.archived-threads'] = [{ id: 'saved', folder: project.folder, task, boardTask: task, argv: ['claude', '--resume', 'conversation'] }];
-  h.memory['devkits.calendar-events'] = { meeting: { title: 'Meeting', taskLink: { id: 'kept' } } };
+  h.memory['herdr-zed.archived-threads'] = [{ id: 'saved', folder: project.folder, task, boardTask: task, argv: ['claude', '--resume', 'conversation'] }];
+  h.memory['herdr-zed.calendar-events'] = { meeting: { title: 'Meeting', taskLink: { id: 'kept' } } };
   h.runtime.agentBoard = { render: (_p, _a, _l, actions) => actions };
   h.runtime.boardPanel(project, context().cx).restore(task);
   assert.equal(h.owner.boardRecords(project)[task.gid].archived, false);
-  assert.equal(h.memory['devkits.tasks.navigation'], undefined);
-  assert.equal(h.memory['devkits.archived-threads'].length, 1);
+  assert.deepEqual(h.launches, []);
+  assert.equal(h.memory['herdr-zed.archived-threads'].length, 1);
   const current = h.owner.projectBoardTasks(project)[0];
   h.owner.setTaskDueDate(project, current, '2028-02-29');
   assert.throws(() => h.owner.setTaskDueDate(project, current, '2026-02-29'), /valid date/);
   assert.equal(h.owner.boardRecords(project)[task.gid].dueDate, '2028-02-29');
   assert.equal(h.owner.deleteLocalTask(project, task.gid), true);
-  assert.deepEqual(h.memory['devkits.calendar-events'], { meeting: { title: 'Meeting', taskLink: { id: 'kept' } } });
-  assert.equal(h.memory['devkits.archived-threads'][0].boardTask, null);
-  assert.equal(h.memory['devkits.archived-threads'][0].argv[2], 'conversation');
+  assert.deepEqual(h.memory['herdr-zed.calendar-events'], { meeting: { title: 'Meeting', taskLink: { id: 'kept' } } });
+  assert.equal(h.memory['herdr-zed.archived-threads'][0].boardTask, null);
+  assert.equal(h.memory['herdr-zed.archived-threads'][0].argv[2], 'conversation');
   assert.equal(h.owner.projectBoardTasks(project).length, 0);
-  assert.equal(h.memory['devkits.deleted-tasks'][key][task.gid].name, 'Plan');
+  assert.equal(h.memory['herdr-zed.deleted-tasks'][key][task.gid].name, 'Plan');
 });
 
 test('explicit resume keeps the archive on launch failure and removes it only after a matching native tab appears', async () => {
   const key = '["","/project"]', task = { gid: 'local:resume', source: 'local', name: 'Saved', archived: true, status: 'fail', archiveId: 'archive' };
   const h = await modules({ [key]: { [task.gid]: task } });
   const entry = { id: 'archive', folder: '/project', task, boardTask: task };
-  h.memory['devkits.archived-threads'] = [entry];
-  h.memory['devkits.pending-profiles'] = [{ key: 'old-profile', folder: '/project', before: [], at: Date.now(), restoreArchiveId: entry.id,
+  h.memory['herdr-zed.archived-threads'] = [entry];
+  h.memory['herdr-zed.pending-profiles'] = [{ key: 'old-profile', folder: '/project', before: [], at: Date.now(), restoreArchiveId: entry.id,
     task: { gid: task.gid, name: task.name, folder: '/project', source: 'local' } }];
   h.runtime.resolveSessions();
-  assert.deepEqual(h.memory['devkits.archived-threads'], [entry]);
+  assert.deepEqual(h.memory['herdr-zed.archived-threads'], [entry]);
   assert.equal(h.owner.boardRecords(h.state.projects[0])[task.gid].archived, true);
   h.state.projects[0].tabs = [{ id: 'resumed', name: 'Saved' }];
   h.runtime.resolveSessions();
-  assert.deepEqual(h.memory['devkits.archived-threads'], [entry], 'Creating a tab alone does not prove the CLI started');
-  h.memory['devkits.pending-resumes'][0].at -= 2001;
+  assert.deepEqual(h.memory['herdr-zed.archived-threads'], [entry], 'Creating a tab alone does not prove the CLI started');
+  h.memory['herdr-zed.pending-resumes'][0].at -= 2001;
   h.state.agents = [{ address: 'resumed-agent', tab: 'resumed', app: 'pi', status: 'idle' }];
   h.runtime.resolveSessions(); h.runtime.refresh(context().cx);
-  assert.deepEqual(h.memory['devkits.archived-threads'], []);
-  assert.equal(h.memory['devkits.thread-profiles'].resumed, 'old-profile');
-  assert.equal(h.memory['devkits.thread-tasks'].resumed.gid, task.gid);
+  assert.deepEqual(h.memory['herdr-zed.archived-threads'], []);
+  assert.equal(h.memory['herdr-zed.thread-profiles'].resumed, 'old-profile');
+  assert.equal(h.memory['herdr-zed.thread-tasks'].resumed.gid, task.gid);
   assert.equal(h.client.listTasks()[0].status, 'fail'); assert.equal(h.client.listTasks()[0].archived, false);
   assert.deepEqual(h.native, []);
 });
@@ -129,32 +147,50 @@ test('a new local execution receives MCP tool discovery and a unique run while r
   await h.runtime.startThread({ key: 'codex', name: 'Implementer', run: ['codex'], installed: true },
     { space: 'p', folder: '/project', task }, { model: 'chosen-model', effort: 'high' });
   const saved = h.owner.boardRecords(h.state.projects[0])[task.gid];
-  const launch = h.memory['devkits.tasks.navigation'].find(event => event.type === 'launch');
-  assert.match(launch.argv.at(-1), /herdr_tasks MCP report_task/);
-  assert.ok(!launch.argv.at(-1).includes('tasks-cli.cjs'));
-  assert.ok(launch.argv.at(-1).includes(saved.execution.id));
-  assert.equal(saved.execution.profileName, 'Implementer'); assert.equal(saved.execution.model, 'chosen-model');
+  assert.equal(h.launches.length, 1);
+  const { agent, options, target } = h.launches[0];
+  assert.equal(agent.key, 'codex'); assert.equal(target.task.gid, task.gid);
+  // Agents forwards the prompt and run ID to prepare; Tasks owns the origin link on the launch request.
+  assert.match(options.prompt, /herdr_tasks MCP report_task/);
+  assert.ok(options.prompt.includes(saved.execution.id));
+  assert.deepEqual(options.origin, { extension: 'tasks', ref: task.gid });
+  assert.equal(options.model, 'chosen-model'); assert.equal(options.effort, 'high');
+  // The record keeps what prepare decided, not what was requested.
+  assert.equal(saved.execution.profileName, 'Implementer');
+  assert.equal(saved.execution.model, 'prepared-model'); assert.equal(saved.execution.effort, 'low');
+  assert.equal(saved.execution.profile, 'prepared-profile');
   assert.equal(saved.runs[0].summary, 'Missing test fixture'); assert.deepEqual(h.native, []);
+});
+
+test('a refused launch restores the task and rethrows so the board can show the error inline', async () => {
+  const task = { gid: 'local:refused', name: 'Refuse me', source: 'local', status: 'todo' };
+  const h = await modules({ '["","/project"]': { [task.gid]: task } });
+  h.owner.launchError = new Error('Agents service is unavailable in this layout.');
+  await assert.rejects(h.runtime.startThread({ key: 'codex', name: 'Codex', run: ['codex'] },
+    { space: 'p', folder: '/project', task }, {}), /Agents service is unavailable/);
+  const saved = h.owner.boardRecords(h.state.projects[0])[task.gid];
+  assert.equal(saved.execution, null); assert.equal(saved.status, 'todo'); assert.equal(saved.agentKey, null);
+  assert.equal(h.launches.length, 1); assert.deepEqual(h.native, []);
 });
 
 test('a resumed tab that exits before its agent starts never consumes the archive', async () => {
   const task = { gid: 'local:failed-start', source: 'local', name: 'Saved', archived: true, status: 'fail' };
   const h = await modules({ '["","/project"]': { [task.gid]: task } });
   const archive = { id: 'saved', folder: '/project', boardTask: task };
-  h.memory['devkits.archived-threads'] = [archive];
-  h.memory['devkits.pending-resumes'] = [{ id: 'saved', folder: '/project', task, tab: 'exited', at: Date.now() - 3000 }];
+  h.memory['herdr-zed.archived-threads'] = [archive];
+  h.memory['herdr-zed.pending-resumes'] = [{ id: 'saved', folder: '/project', task, tab: 'exited', at: Date.now() - 3000 }];
   h.runtime.resolveSessions();
-  assert.deepEqual(h.memory['devkits.pending-resumes'], []);
-  assert.deepEqual(h.memory['devkits.archived-threads'], [archive]);
+  assert.deepEqual(h.memory['herdr-zed.pending-resumes'], []);
+  assert.deepEqual(h.memory['herdr-zed.archived-threads'], [archive]);
   assert.equal(h.owner.boardRecords(h.state.projects[0])[task.gid].archived, true);
 });
 
 test('task rendering reads one native snapshot and releases it after each frame or error', async () => {
   const project = { folder: '/project' }, thread = { tab: { id: 'thread' } };
   let reads = 0, status = 'doing';
-  const client = await evaluateNative('../mods/devkits/components/tasks.js', { ...identity, ...sessions,
+  const client = await evaluateNative('../components/tasks.js', { ...identity, ...sessions,
     shared(key) {
-      assert.equal(key, 'devkits.tasks.snapshot'); reads++;
+      assert.equal(key, 'herdr-zed.tasks.snapshot'); reads++;
       return { projects: { [identity.taskProjectKey(project)]: {
         tasks: [{ gid: 'task' }], threads: { thread: { status, task: { archived: false } } },
       } } };
@@ -180,7 +216,7 @@ test('task rendering reads one native snapshot and releases it after each frame 
 
 test('a frame refreshes task groups even when a native interruption left an empty snapshot behind', async () => {
   const project = { folder: '/project' }, thread = { tab: { id: 'thread' } };
-  const client = await evaluateNative('../mods/devkits/components/tasks.js', { ...identity, ...sessions,
+  const client = await evaluateNative('../components/tasks.js', { ...identity, ...sessions,
     shared: () => ({ projects: { [identity.taskProjectKey(project)]: { threads: { thread: { status: 'done' } } } } }),
   }, 'withTaskSnapshot, threadBoardStatus, interrupt: () => { renderSnapshot = { projects: {} }; }');
   // Simulate the state left when native execution is terminated before JS cleanup.
@@ -198,15 +234,15 @@ test('MCP creates persisted Todos and children through the authoritative Tasks o
   assert.equal(h.client.listTasks().find(task => task.gid === parent.gid).priority, 'high');
   assert.equal(h.client.listTasks().find(task => task.gid === child.gid).parentId, parent.gid);
   assert.equal(parent.name, '規劃'); assert.equal(parent.status, 'todo');
-  assert.equal(h.memory['devkits.agent-board'][project][parent.gid].notes, '說明');
+  assert.equal(h.memory['herdr-zed.agent-board'][project][parent.gid].notes, '說明');
   assert.throws(() => tasksMcpCall(h.runtime, 'create_task', { project, name: 'Invalid child', parentId: 'missing' }), /parent task/);
   h.owner.setTaskArchived(h.state.projects[0], parent, true);
   assert.throws(() => tasksMcpCall(h.runtime, 'create_task', { project, name: 'Invalid child', parentId: parent.gid }), /parent task/);
-  assert.equal(h.memory['devkits.tasks.navigation'], undefined);
+  assert.equal(h.memory['herdr-zed.tasks.navigation'], undefined);
   assert.deepEqual(h.native, []);
 });
 async function modules(records = {}, projects = [{ id: 'p', folder: '/project', name: 'Project', active: true, tabs: [] }]) {
-  const memory = { 'devkits.agent-board': clone(records), 'devkits.agent-cache': { null: [] } }, writes = [], overlays = [], native = [], closed = [];
+  const memory = { 'herdr-zed.agent-board': clone(records), 'herdr-zed.agent-cache': { null: [] } }, writes = [], overlays = [], native = [], closed = [];
   const state = { projects, agents: [] };
   const base = { ...sessions, ...identity,
     sessionDevkits: async () => '',
@@ -219,30 +255,32 @@ async function modules(records = {}, projects = [{ id: 'p', folder: '/project', 
     exec: async (...args) => { native.push(args); return { code: 0, stdout: '{}' }; },
     notify: message => assert.fail(message.body), openOverlay: spec => overlays.push(spec), closeOverlay: id => closed.push(id),
   };
-  const client = await evaluateNative('../mods/devkits/components/tasks.js', base,
-    'tasksSnapshot, listTasks, projectBoardTasks, boardRecords, taskLinkForTab, threadBoardStatus, threadBoardTask, threadTaskArchived, threadVisibleInSidebar, taskActions, sessionThreadTitle, taskRequest, requestTaskOpen, requestTaskStart, taskRequestResult, cancelTaskRequest, publishTaskNavigation, TaskHost, openTaskComposer');
+  const client = await evaluateNative('../components/tasks.js', base,
+    'tasksSnapshot, listTasks, projectBoardTasks, boardRecords, taskLinkForTab, threadBoardStatus, threadBoardTask, threadTaskArchived, threadVisibleInSidebar, taskActions, sessionThreadTitle, openTaskBoard');
   const owner = { ...base, ...policy, ...client };
   // Policy and mutations are loaded only into the Tasks context, never into the consumer context.
   Object.assign(owner, policy);
-  Object.assign(owner, await evaluateNative('../mods/devkits-tasks/agent-task-evidence.js', owner, 'observeTaskInput, withTaskInputEvidence'));
-  Object.assign(owner, await evaluateNative('../mods/devkits-tasks/agent-board-state.js', owner,
+  Object.assign(owner, await evaluateNative('../mods/herdr-zed-tasks/agent-task-evidence.js', owner, 'observeTaskInput, withTaskInputEvidence'));
+  Object.assign(owner, await evaluateNative('../mods/herdr-zed-tasks/agent-board-state.js', owner,
     'projectBoardTasks, boardRecords, taskLinkForTab, threadBoardStatus, threadBoardTask, sessionThreadTitle, rememberBoardTask, setTaskArchived, setTaskDueDate, deleteLocalTask, createLocalTask'));
-  Object.assign(owner, await evaluateNative('../mods/devkits/components/source-channel.js', owner,
+  Object.assign(owner, await evaluateNative('../components/source-channel.js', owner,
     'createSourceChannel, sourceChannels, consumeSourceEvents, closeSourceChannel'));
-  Object.assign(owner, await evaluateNative('../mods/devkits-tasks/task-sources.js', owner, 'TaskSources'));
-  Object.assign(owner, await evaluateNative('../mods/devkits-tasks/task-prompt.js', owner, 'taskPrompt'));
+  Object.assign(owner, await evaluateNative('../mods/herdr-zed-tasks/task-sources.js', owner, 'TaskSources, resolveTaskImport, findProject'));
+  Object.assign(owner, await evaluateNative('../mods/herdr-zed-tasks/task-prompt.js', owner, 'taskPrompt'));
+  // Stand-in for the Agents public client: records each launch and resolves with the prepare metadata it chose.
+  const launches = [];
   owner.AgentClient = class {
     init() {} close() {} discover() { return Promise.resolve([]); }
-    async prepare(agent, target, options) {
-      const { prepareSession } = await evaluateNative('../mods/devkits-agents/session-preparation.js', {
-        ...owner, sessionRules: async () => { const text = await owner.readTextFile('/herdr/data/devkits/AGENTS.md'); return text?.trim() ? { file: '/herdr/data/devkits/AGENTS.md', text } : null; },
-      }, 'prepareSession');
-      return prepareSession(agent, target, options);
+    launch(agent, target, options) {
+      launches.push({ agent, target, options });
+      if (owner.launchError) return Promise.reject(owner.launchError);
+      return Promise.resolve(owner.launchResult);
     }
   };
-  const { TaskRuntime } = await evaluateNative('../mods/devkits-tasks/runtime.js', owner, 'TaskRuntime');
+  owner.launchResult = { model: 'prepared-model', effort: 'low', profile: 'prepared-profile' };
+  const { TaskRuntime } = await evaluateNative('../mods/herdr-zed-tasks/runtime.js', owner, 'TaskRuntime');
   const runtime = new TaskRuntime();
-  return { base, owner, client, runtime, state, memory, writes, overlays, closed, native };
+  return { base, owner, client, runtime, state, memory, writes, overlays, closed, native, launches };
 }
 
 test('Tasks service publishes one authoritative Sidebar/Calendar projection while its board is closed', async () => {
@@ -269,72 +307,116 @@ test('Tasks service publishes one authoritative Sidebar/Calendar projection whil
   assert.deepEqual(h.native, []);
 });
 
-test('Calendar uses the public Tasks index, waits for validation and leaves panel routing to the host', async () => {
+test('Calendar reads the public Tasks index and opens the Tasks board popup for the selected task', async () => {
   const projects = [{ id: 'a', name: 'A', folder: '/a', tabs: [] }, { id: 'b', name: 'B', folder: '/b', tabs: [] }];
   const h = await modules({ '["","/a"]': { same: { gid: 'same', name: 'Same name', source: 'local', status: 'todo' } },
     '["","/b"]': { same: { gid: 'same', name: 'Same name', source: 'local', status: 'done', archived: true } } }, projects);
   const clock = context(); h.runtime.init(clock.cx);
   class Calendar { constructor(options) { this.options = options; } init() {} close() {} }
-  const { CalendarMod } = await evaluateNative('../mods/devkits-calendar/main.js', { ...h.base, ...h.client, View: class {}, LocalCalendar: Calendar }, 'CalendarMod');
-  const calendar = new CalendarMod(), calendarClock = context(); calendar.init(null, calendarClock.cx);
+  const { CalendarMod } = await evaluateNative('../mods/herdr-zed-calendar/main.js', { ...h.base, ...h.client, View: class {}, LocalCalendar: Calendar }, 'CalendarMod');
+  const calendar = new CalendarMod(); calendar.init(null, context().cx);
   const tasks = calendar.calendar.options.tasks(); assert.equal(tasks.length, 2); assert.notEqual(tasks[0].id, tasks[1].id);
   const selected = tasks.find(task => task.project.id === 'b');
-  assert.equal(calendar.calendar.options.openTask(selected.id), null); assert.deepEqual(h.closed, []);
-  h.runtime.poll(clock.cx);
-  const events = [], host = new h.client.TaskHost(event => events.push(event)); host.init(context().cx);
-  assert.equal(events.length, 1); assert.equal(events[0].project.id, 'b'); assert.equal(events[0].gid, 'same');
-  calendarClock.timers[0].tick(calendarClock.cx); assert.deepEqual(h.closed, ['calendar']);
-  assert.deepEqual(h.native, []); assert.equal(h.memory['devkits.tasks.requests'].length, 0);
-  assert.deepEqual(h.memory['devkits.tasks.results'], {});
+  assert.equal(calendar.calendar.options.openTask(selected.id), true, 'Calendar closes itself only when the board has opened');
+  assert.deepEqual(h.overlays.at(-1), { mod: 'herdr-zed-tasks', kind: 'dialog', frame: 'none', modal: false, width: 0.9, height: 0.86,
+    props: { view: 'board', context: selected.project, focus: 'same' } });
+  assert.equal(calendar.calendar.options.openTask('missing'), false);
+  assert.deepEqual(h.closed, []); assert.deepEqual(h.native, []);
 });
 
-test('Calendar retains its dialog and reports a task deleted after reading the public index', async () => {
+test('Calendar refuses a task that left the Tasks read model and opens nothing', async () => {
   const h = await modules({ '["","/project"]': { one: { gid: 'one', name: 'Task', source: 'local', status: 'todo' } } });
   const clock = context(); h.runtime.init(clock.cx);
   class Calendar { constructor(options) { this.options = options; } init() {} close() {} }
-  const { CalendarMod } = await evaluateNative('../mods/devkits-calendar/main.js', { ...h.base, ...h.client, View: class {}, LocalCalendar: Calendar }, 'CalendarMod');
-  const calendar = new CalendarMod(), calendarClock = context(); calendar.init(null, calendarClock.cx);
-  const task = h.client.listTasks()[0]; assert.equal(calendar.calendar.options.openTask(task.id), null);
+  const { CalendarMod } = await evaluateNative('../mods/herdr-zed-calendar/main.js', { ...h.base, ...h.client, View: class {}, LocalCalendar: Calendar }, 'CalendarMod');
+  const calendar = new CalendarMod(); calendar.init(null, context().cx);
+  const task = h.client.listTasks()[0], opened = h.overlays.length;
+  assert.equal(calendar.calendar.options.openTask(task.id), true);
   assert.equal(h.owner.deleteLocalTask(h.state.projects[0], 'one', []), true);
-  h.runtime.poll(clock.cx); calendarClock.timers[0].tick(calendarClock.cx);
-  assert.match(calendar.calendar.error, /no longer available/); assert.deepEqual(h.closed, []);
-  assert.equal(h.memory['devkits.tasks.navigation'], undefined);
+  h.runtime.refresh(clock.cx);
+  assert.equal(calendar.calendar.options.openTask(task.id), false);
+  assert.equal(h.overlays.length, opened + 1, 'Only the first, valid request opened the board');
 });
 
-test('a canceled Calendar navigation drops its queued request and cannot open Tasks later', async () => {
+test('a task that is deleted or unknown never reaches the Agents launch', async () => {
   const h = await modules({ '["","/project"]': { one: { gid: 'one', name: 'Task', source: 'local', status: 'todo' } } });
   const clock = context(); h.runtime.init(clock.cx);
-  const id = h.client.requestTaskOpen(h.state.projects[0], 'one', { reply: true });
-  h.client.cancelTaskRequest(id); h.runtime.poll(clock.cx);
-  assert.equal(h.memory['devkits.tasks.navigation'], undefined); assert.equal(h.client.taskRequestResult(id), null);
+  const target = { space: 'p', folder: '/project' };
+  assert.equal(h.owner.deleteLocalTask(h.state.projects[0], 'one', []), true);
+  await assert.rejects(h.runtime.startThread({ key: 'codex', name: 'Codex', run: ['codex'] }, { ...target, task: { gid: 'one' } }), /no longer available/);
+  await assert.rejects(h.runtime.startThread({ key: 'codex', run: ['codex'] }, { ...target, task: { gid: 'missing' } }), /no longer available/);
+  assert.deepEqual(h.launches, []); assert.deepEqual(h.native, []);
 });
 
-test('task execution validates in Tasks and a deletion during asynchronous rule loading prevents launching', async () => {
-  const h = await modules({ '["","/project"]': { one: { gid: 'one', name: 'Task', source: 'local', status: 'todo' } } });
-  let finish, started; const reading = new Promise(resolve => { started = resolve; });
-  h.owner.readTextFile = () => new Promise(resolve => { finish = resolve; started(); });
-  // A fresh provider context binds the delayed native file reader.
-  const { TaskRuntime } = await evaluateNative('../mods/devkits-tasks/runtime.js', h.owner, 'TaskRuntime');
-  const service = new TaskRuntime(), clock = context(); service.init(clock.cx);
-  h.client.requestTaskStart({ key: 'codex', name: 'Codex', run: ['codex'] }, { folder: '/project', space: 'p', task: { gid: 'one' } });
-  service.poll(clock.cx); await reading; assert.equal(typeof finish, 'function');
-  assert.equal(h.owner.deleteLocalTask(h.state.projects[0], 'one', []), true);
-  finish('Use project rules'); await clock.settle();
-  assert.equal(h.memory['devkits.tasks.navigation'], undefined); assert.deepEqual(h.native, []);
-  h.client.requestTaskStart({ key: 'codex', run: ['codex'] }, { folder: '/project', task: { gid: 'one' } }); service.poll(clock.cx);
-  assert.equal(h.memory['devkits.tasks.navigation'], undefined, 'A missing task never becomes a generic agent launch');
+test('a launched conversation binds to its task through the shell read model origin and records its profile', async () => {
+  const task = { gid: 'local:bound', name: 'Bound task', source: 'local', status: 'todo' };
+  const h = await modules({ '["","/project"]': { [task.gid]: task } });
+  h.state.projects[0].tabs = [{ id: 'new-tab', name: 'Codex' }];
+  h.memory['herdr-zed.threads'] = { 'new-tab': { profile: 'codex', source: 'tasks', origin: { extension: 'tasks', ref: task.gid } },
+    other: { profile: 'claude', source: 'herdr', origin: undefined } };
+  const clock = context(); h.runtime.init(clock.cx);
+  assert.deepEqual(h.memory['herdr-zed.thread-tasks']['new-tab'], { gid: task.gid, name: task.name, folder: '/project', source: 'local' });
+  assert.equal(h.memory['herdr-zed.thread-profiles']['new-tab'], 'codex');
+  assert.equal(h.memory['herdr-zed.thread-tasks'].other, undefined, 'Threads without a Tasks origin are never linked');
+});
+
+test('the Tasks decoration names each linked thread once, and republishes only when its projection changes', async () => {
+  const long = 'A very long task title that certainly exceeds the forty character decoration limit';
+  const task = { gid: 'local:deco', name: long, source: 'local', status: 'todo' };
+  const h = await modules({ '["","/project"]': { [task.gid]: task } });
+  h.state.projects[0].tabs = [{ id: 'linked', name: 'Run' }, { id: 'free', name: 'Scratch' }];
+  h.state.agents = [{ address: 't1', space: 'p', tab: 'linked', app: 'pi', status: 'working', seq: 1 }];
+  h.memory['herdr-zed.thread-tasks'] = { linked: { gid: task.gid, name: long, folder: '/project', source: 'local' } };
+  const clock = context(); h.runtime.init(clock.cx);
+  const decorations = h.memory['herdr-zed.decorations.tasks'];
+  assert.deepEqual(Object.keys(decorations.threads), ['linked'], 'Only tabs linked to tasks are decorated');
+  const entry = decorations.threads.linked;
+  assert.ok(entry.subtitle.length <= 40); assert.match(entry.subtitle, /^A very long task title/);
+  assert.ok(['muted', 'accent', 'warning', 'error'].includes(entry.tone));
+  const writes = h.writes.filter(key => key === 'herdr-zed.decorations.tasks').length;
+  h.runtime.refresh(clock.cx);
+  assert.equal(h.writes.filter(key => key === 'herdr-zed.decorations.tasks').length, writes, 'An unchanged projection is not republished');
+  h.memory['herdr-zed.thread-tasks'] = { linked: { gid: task.gid, name: 'Renamed task', folder: '/project', source: 'local' } };
+  h.runtime.refresh(clock.cx);
+  assert.equal(h.writes.filter(key => key === 'herdr-zed.decorations.tasks').length, writes + 1, 'A changed projection is published once');
+  assert.equal(h.memory['herdr-zed.decorations.tasks'].threads.linked.subtitle, 'Renamed task');
+  assert.equal(h.memory['herdr-zed.decorations.tasks'].threads.free, undefined);
 });
 
 test('closing the independent Tasks composer preserves its project-scoped unsaved draft', async () => {
   const h = await modules(), clock = context();
   Object.assign(h.owner, { InputState: input, TextareaState: input, SelectState: class {}, liveAgents: () => [] });
-  const { TaskComposer } = await evaluateNative('../mods/devkits-tasks/task-composer.js', h.owner, 'TaskComposer');
+  const { TaskComposer } = await evaluateNative('../mods/herdr-zed-tasks/task-composer.js', h.owner, 'TaskComposer');
   const target = { view: 'task-composer', project: h.state.projects[0], overlay: 'draft' };
-  const { TasksMod } = await evaluateNative('../mods/devkits-tasks/main.js', { ...h.base, View: class {}, TaskRuntime: class { agentClient = { init() {}, close() {} }; taskAssignees() { return []; } },
+  const { TasksMod } = await evaluateNative('../mods/herdr-zed-tasks/main.js', { ...h.base, View: class {}, TaskRuntime: class { agentClient = { init() {}, close() {} }; taskAssignees() { return []; } },
     TaskComposer, props: () => target }, 'TasksMod');
   const view = new TasksMod(); view.init(null, clock.cx); view.composer.title.set_value('Unfinished'); view.close();
-  assert.equal(h.memory['devkits.task-drafts']['["","/project"]'].name, 'Unfinished');
-  assert.equal(h.memory['devkits.agent-board']['["","/project"]'], undefined);
+  assert.equal(h.memory['herdr-zed.task-drafts']['["","/project"]'].name, 'Unfinished');
+  assert.equal(h.memory['herdr-zed.agent-board']['["","/project"]'], undefined);
+});
+
+test('an integration import reopens as a revalidated Tasks draft; a stale or foreign snapshot never reaches the composer', async () => {
+  const h = await modules(), clock = context();
+  class Composer { init(options) { this.options = options; } render() { return 'composer'; } }
+  const snapshot = { source: 'asana', gid: '42', name: 'Imported', notes: 'Body' };
+  const load = async target => {
+    const { TasksMod } = await evaluateNative('../mods/herdr-zed-tasks/main.js', { ...h.base, View: class {}, TaskRuntime: function TaskRuntime() { return h.runtime; },
+      TaskComposer: Composer, TasksMcpBridge: class {}, AgentBoard: class {}, DeleteTask: class {}, props: () => target }, 'TasksMod');
+    const view = new TasksMod(); view.init(null, clock.cx); return view;
+  };
+  const valid = await load({ view: 'import-draft', kind: 'task-snapshot', source: 'asana', context: { machine: null, folder: '/project', name: 'Project' }, snapshot, overlay: 'import' });
+  assert.equal(valid.composer.options.project.id, 'p'); assert.deepEqual(valid.composer.options.importTask, snapshot);
+  assert.equal(valid.composer.options.task, null); assert.equal(valid.composer.options.overlay, 'import');
+  assert.equal(h.memory['herdr-zed.task-drafts'], undefined, 'Opening the draft creates nothing until confirmation');
+  const stale = await load({ view: 'import-draft', kind: 'task-snapshot', source: 'asana', context: { folder: '/project' }, snapshot: { ...snapshot, source: 'mantisbt' }, overlay: 'import' });
+  assert.equal(stale.composer, undefined); assert.match(stale.importError, /no longer valid/);
+  const foreign = await load({ view: 'import-draft', kind: 'task-snapshot', source: 'asana', context: { folder: '/elsewhere' }, snapshot, overlay: 'import' });
+  assert.equal(foreign.composer, undefined); assert.match(foreign.importError, /no longer open/);
+  const unknown = await load({ view: 'import-draft', kind: 'task-snapshot', source: 'jira', context: { folder: '/project' }, snapshot, overlay: 'import' });
+  assert.match(unknown.importError, /Unknown import source/);
+  const wrongKind = await load({ view: 'import-draft', kind: 'other', source: 'asana', context: { folder: '/project' }, snapshot, overlay: 'import' });
+  assert.match(wrongKind.importError, /Unsupported import kind/);
+  assert.deepEqual(h.native, []);
 });
 
 test('Tasks resolves native session handoffs before projecting their task and thread relationship', async () => {
@@ -342,32 +424,26 @@ test('Tasks resolves native session handoffs before projecting their task and th
   h.state.projects[0].tabs = [{ id: 'tab', name: 'Task' }];
   h.state.agents = [{ address: 't1', tab: 'tab', space: 'p', app: 'pi', status: 'working' }];
   const task = { gid: 'one', name: 'Task', folder: '/project', source: 'local' };
-  h.memory['devkits.pending-profiles'] = [{ key: 'codex', space: 'p', folder: '/project', before: [], at: Date.now(), task }];
+  h.memory['herdr-zed.pending-profiles'] = [{ key: 'codex', space: 'p', folder: '/project', before: [], at: Date.now(), task }];
   h.runtime.init(context().cx);
-  assert.deepEqual(h.memory['devkits.pending-profiles'], []);
-  assert.equal(h.memory['devkits.thread-profiles'].tab, 'codex');
+  assert.deepEqual(h.memory['herdr-zed.pending-profiles'], []);
+  assert.equal(h.memory['herdr-zed.thread-profiles'].tab, 'codex');
   assert.deepEqual(h.client.taskLinkForTab('tab', h.state.projects[0]), task);
   const tasks = h.client.projectBoardTasks(h.state.projects[0]);
   assert.equal(tasks.length, 1); assert.equal(tasks[0].gid, 'one'); assert.equal(tasks[0].status, 'todo');
 });
 
 
-test('Tasks restores a directly closed conversation with its exact task link and keeps failures retryable', async () => {
+test('Restore conversation is not started by Tasks: the board shows an inline error and no run or archive changes', async () => {
   const key = '["","/project"]', task = { gid: 'thread:closed', source: 'thread', name: 'Closed work', status: 'done',
     conversation: { id: 'codex:exact-session', profile: 'work', argv: ['env', 'CODEX_HOME=/work', 'codex', 'resume', '--no-daemon', 'exact-session'] } };
   const h = await modules({ [key]: { [task.gid]: task } }), project = h.state.projects[0];
-  h.runtime.agentBoard = { render: (_p, _a, _l, actions) => actions };
+  const shown = {};
+  h.runtime.agentBoard = { render: (_p, _a, _l, actions) => actions, setTaskError: (gid, message) => { shown.gid = gid; shown.message = message; } };
   const actions = h.runtime.boardPanel(project, context().cx);
   actions.resume(task);
-  const entry = h.memory['devkits.archived-threads'][0];
-  assert.deepEqual(entry.argv, task.conversation.argv);
-  assert.equal(entry.task.gid, task.gid);
-  assert.equal(entry.profile, 'work');
+  assert.deepEqual(shown, { gid: task.gid, message: 'Restore conversation is not available from Tasks yet. Use the thread history.' });
+  assert.equal(h.memory['herdr-zed.archived-threads'], undefined);
   assert.equal(h.owner.boardRecords(project)[task.gid].status, 'done');
-  actions.resume(task);
-  assert.equal(h.memory['devkits.archived-threads'].length, 1);
-  project.tabs = [{ id: 'open', name: task.name }];
-  h.memory['devkits.thread-tasks'] = { open: entry.task };
-  h.runtime.boardPanel(project, context().cx).resume(task);
-  assert.equal(h.memory['devkits.archived-threads'].length, 1);
+  assert.deepEqual(h.launches, []); assert.deepEqual(h.native, []);
 });

@@ -1,11 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import * as board from '../mods/devkits-tasks/agent-board-model.js';
-import { folderKey, threadTitle, configuredAgents } from '../mods/devkits/components/session-model.js';
+import * as board from '../mods/herdr-zed-tasks/agent-board-model.js';
+import { folderKey, threadTitle, configuredAgents } from '../components/session-model.js';
 
 async function state(memory = {}) {
-  const source = await readFile(new URL('../mods/devkits-tasks/agent-board-state.js', import.meta.url), 'utf8');
+  const source = await readFile(new URL('../mods/herdr-zed-tasks/agent-board-state.js', import.meta.url), 'utf8');
   const host = { ...board, folderKey, threadTitle, configuredAgents, terminals: () => [], withTaskInputEvidence: agents => agents,
     shared: key => memory[key], setShared: (key, value) => { memory[key] = structuredClone(value); } };
   const methods = new Function(...Object.keys(host), source.replace(/^import .*;\r?\n/gm, '').replace(/^export /gm, '')
@@ -55,19 +55,19 @@ test('deleting a parent detaches direct subtasks and archived links while preser
   const s = await state(), parent = s.createLocalTask(project, 'Parent');
   const child = s.createLocalTask(project, 'Child', 'Keep instructions', { parentId: parent.gid, status: 'done', manual: true });
   const grandchild = s.createLocalTask(project, 'Grandchild', '', { parentId: child.gid });
-  s.memory['devkits.thread-tasks'] = { childTab: { ...child, folder: project.folder }, otherTab: { ...child, folder: '/other' } };
-  s.memory['devkits.archived-threads'] = [{ id: 'archive', folder: project.folder, task: { ...child }, boardTask: { ...child } },
+  s.memory['herdr-zed.thread-tasks'] = { childTab: { ...child, folder: project.folder }, otherTab: { ...child, folder: '/other' } };
+  s.memory['herdr-zed.archived-threads'] = [{ id: 'archive', folder: project.folder, task: { ...child }, boardTask: { ...child } },
     { id: 'other', folder: '/other', task: { ...child } }];
   assert.equal(s.deleteLocalTask(project, parent.gid), true);
   const tasks = s.projectBoardTasks(project), retained = tasks.find(task => task.gid === child.gid);
   assert.equal(retained.parentId, null); assert.equal(retained.parentTask, undefined);
   assert.equal(retained.status, 'done'); assert.equal(retained.notes, 'Keep instructions');
   assert.equal(tasks.find(task => task.gid === grandchild.gid).parentId, child.gid);
-  assert.equal(s.memory['devkits.thread-tasks'].childTab.parentId, null);
-  assert.equal(s.memory['devkits.thread-tasks'].otherTab.parentId, parent.gid);
-  assert.equal(s.memory['devkits.archived-threads'][0].task.parentId, null);
-  assert.equal(s.memory['devkits.archived-threads'][0].boardTask.parentId, null);
-  assert.equal(s.memory['devkits.archived-threads'][1].task.parentId, parent.gid);
+  assert.equal(s.memory['herdr-zed.thread-tasks'].childTab.parentId, null);
+  assert.equal(s.memory['herdr-zed.thread-tasks'].otherTab.parentId, parent.gid);
+  assert.equal(s.memory['herdr-zed.archived-threads'][0].task.parentId, null);
+  assert.equal(s.memory['herdr-zed.archived-threads'][0].boardTask.parentId, null);
+  assert.equal(s.memory['herdr-zed.archived-threads'][1].task.parentId, parent.gid);
   assert.equal(tasks.some(task => task.gid === parent.gid), false);
 });
 

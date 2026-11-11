@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { taskStatus, liveVersion, boardTasks, boardKey, agentsWithTurns, reconcileBoardRecords } from '../mods/devkits-tasks/agent-board-model.js';
+import { taskStatus, liveVersion, boardTasks, boardKey, agentsWithTurns, reconcileBoardRecords } from '../mods/herdr-zed-tasks/agent-board-model.js';
 
 const live = (status, seq = 1) => [{ address: 't1', status, seq, tab: 'tab1' }];
 test('native terminal activity and turn counts never invent task progress', () => {
@@ -58,9 +58,9 @@ test('unlinked agent threads appear on the board while plain terminals do not', 
 
 test('local task creation needs no Asana connection and survives storage roundtrips', async () => {
   const { readFile } = await import('node:fs/promises');
-  const { threadTaskId } = await import('../mods/devkits-tasks/agent-board-model.js');
+  const { threadTaskId } = await import('../mods/herdr-zed-tasks/agent-board-model.js');
   const memory = {};
-  const source = await readFile(new URL('../mods/devkits-tasks/agent-board-state.js', import.meta.url), 'utf8');
+  const source = await readFile(new URL('../mods/herdr-zed-tasks/agent-board-state.js', import.meta.url), 'utf8');
   const state = new Function('shared', 'setShared', 'savedTasks', 'boardKey', 'boardTasks', 'taskStatus', 'threadTaskId', 'terminals', 'agentsWithTurns', 'reconcileBoardRecords', 'withTaskInputEvidence',
     source.replace(/^import .*;\r?\n/gm, '').replace(/^export /gm, '') + '\nreturn { createLocalTask, projectBoardTasks, threadBoardStatus, setTaskArchived };')(
       key => memory[key], (key, value) => { memory[key] = JSON.parse(JSON.stringify(value)); }, () => [], boardKey, boardTasks, taskStatus, threadTaskId, () => [], agentsWithTurns, reconcileBoardRecords, agents => agents);
@@ -118,7 +118,7 @@ test('core turn history is activity metadata, never completion evidence', () => 
 });
 
 test('only unstarted active Todo tasks can expose execution controls', async () => {
-  const { canStartTask } = await import('../mods/devkits-tasks/agent-board-model.js');
+  const { canStartTask } = await import('../mods/herdr-zed-tasks/agent-board-model.js');
   assert.equal(canStartTask({ status: 'todo', tabs: [] }), true);
   for (const status of ['doing', 'waiting', 'done', 'fail']) assert.equal(canStartTask({ status, tabs: [] }), false);
   assert.equal(canStartTask({ status: 'todo', tabs: [{ id: 'existing' }] }), false);
@@ -163,7 +163,7 @@ test('closing an empty thread removes its Todo card across reloads without hidin
 });
 
 test('all task action permissions agree with progress, archive visibility and live busy state', async () => {
-  const { taskActions } = await import('../mods/devkits-tasks/agent-board-model.js');
+  const { taskActions } = await import('../mods/herdr-zed-tasks/agent-board-model.js');
   assert.deepEqual(taskActions({ status: 'todo', agents: [], tabs: [] }),
     { canStart: true, canEdit: true, canSetStatus: true, canArchive: true, canRestore: false, canDelete: false, canSchedule: true });
   assert.deepEqual(taskActions({ status: 'doing', agents: [], tabs: [] }),

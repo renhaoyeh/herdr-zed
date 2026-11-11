@@ -8,8 +8,8 @@ import { glyph } from './components/icon.js';
 import { mentionTrigger, calendarEntries, taskLinkState } from './calendar-tasks.js';
 import { dayKey, nextDay, localDate, monthDays, weekDays, timelineEvents, timelineMinute, rangeDraft, eventsOnDay, eventTime, eventFromDraft, eventDraft, saveEvent, deleteEvent } from './calendar-model.js';
 
-const storageKey = 'devkits.calendar-events';
-const previewKey = 'devkits.calendar-previews';
+const storageKey = 'herdr-zed.calendar-events';
+const previewKey = 'herdr-zed.calendar-previews';
 // Only lifecycle markers cross views; the unsaved range stays in its parent.
 const clearPreview = id => {
   const previews = shared(previewKey) || {};
@@ -26,7 +26,7 @@ export default class LocalCalendar {
 
   init(cx) {
     const now = new Date(); this.month = new Date(now.getFullYear(), now.getMonth(), 1); this.selected = dayKey(now);
-    const savedView = shared('devkits.calendar-view'); this.view = ['day', 'week', 'month'].includes(savedView) ? savedView : 'month';
+    const savedView = shared('herdr-zed.calendar-view'); this.view = ['day', 'week', 'month'].includes(savedView) ? savedView : 'month';
     this.handle = cx.focus_handle(); this.handle.focus(); this.inputs = {};
     for (const [key, placeholder] of Object.entries({ title: 'Event title', startDate: 'YYYY-MM-DD', endDate: 'YYYY-MM-DD', startTime: '09:00', endTime: '10:00' })) {
       const input = InputState.new({ placeholder });
@@ -47,10 +47,10 @@ export default class LocalCalendar {
     // Input consumes arrow/Enter/Escape actions before raw key handlers run.
     // Match its context only inside this picker, overriding its editing bindings.
     cx.bind_keys([
-      { keystroke: 'up', action: 'devkits-calendar-mention-up', context: 'DevkitsCalendarMention > Input' },
-      { keystroke: 'down', action: 'devkits-calendar-mention-down', context: 'DevkitsCalendarMention > Input' },
-      { keystroke: 'enter', action: 'devkits-calendar-mention-confirm', context: 'DevkitsCalendarMention > Input' },
-      { keystroke: 'escape', action: 'devkits-calendar-mention-dismiss', context: 'DevkitsCalendarMention > Input' },
+      { keystroke: 'up', action: 'herdr-zed-calendar-mention-up', context: 'HerdrZedCalendarMention > Input' },
+      { keystroke: 'down', action: 'herdr-zed-calendar-mention-down', context: 'HerdrZedCalendarMention > Input' },
+      { keystroke: 'enter', action: 'herdr-zed-calendar-mention-confirm', context: 'HerdrZedCalendarMention > Input' },
+      { keystroke: 'escape', action: 'herdr-zed-calendar-mention-dismiss', context: 'HerdrZedCalendarMention > Input' },
     ]);
     this.mentionHandle = cx.focus_handle(); this.previousText = {};
     this.creating = Boolean(props()?.calendarCreate);
@@ -88,7 +88,7 @@ export default class LocalCalendar {
 
   setView(view, cx) {
     if (!['day', 'week', 'month'].includes(view) || this.view === view) return;
-    this.cancelRange(cx); this.view = view; setShared('devkits.calendar-view', view);
+    this.cancelRange(cx); this.view = view; setShared('herdr-zed.calendar-view', view);
     this.choose(localDate(this.selected), cx, true);
   }
 
@@ -111,7 +111,7 @@ export default class LocalCalendar {
     if (!event && !this.creating) {
       this.cancelRange(cx);
       try {
-        openOverlay({ mod: 'devkits-calendar', kind: 'dialog', frame: 'none', modal: false, width: 560, height: 480,
+        openOverlay({ mod: 'herdr-zed-calendar', kind: 'dialog', frame: 'none', modal: false, width: 560, height: 480,
           props: { view: 'calendar', calendarCreate: true, calendarPreview: previewId,
             draft: { startDate: this.selected, endDate: this.selected, ...initial } } });
       } catch (error) { clearPreview(previewId); throw error; }
@@ -481,11 +481,11 @@ export default class LocalCalendar {
 
   mentionKeyboard(root) {
     // Register at the owning view, outside the inline token's layout callback.
-    return root.when(Boolean(this.mention), el => el.key_context('DevkitsCalendarMention')
-      .on_action('devkits-calendar-mention-up', (_event, cx) => { cx.stop_propagation(); this.moveMention(-1, cx); })
-      .on_action('devkits-calendar-mention-down', (_event, cx) => { cx.stop_propagation(); this.moveMention(1, cx); })
-      .on_action('devkits-calendar-mention-confirm', (_event, cx) => { cx.stop_propagation(); this.confirmMention(cx); })
-      .on_action('devkits-calendar-mention-dismiss', (_event, cx) => { cx.stop_propagation(); this.dismissMention(cx); }));
+    return root.when(Boolean(this.mention), el => el.key_context('HerdrZedCalendarMention')
+      .on_action('herdr-zed-calendar-mention-up', (_event, cx) => { cx.stop_propagation(); this.moveMention(-1, cx); })
+      .on_action('herdr-zed-calendar-mention-down', (_event, cx) => { cx.stop_propagation(); this.moveMention(1, cx); })
+      .on_action('herdr-zed-calendar-mention-confirm', (_event, cx) => { cx.stop_propagation(); this.confirmMention(cx); })
+      .on_action('herdr-zed-calendar-mention-dismiss', (_event, cx) => { cx.stop_propagation(); this.dismissMention(cx); }));
   }
 
   render() {

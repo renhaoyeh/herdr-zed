@@ -22,7 +22,7 @@ async function bridge(name, args) {
   await mkdir(directory, { recursive: true });
   try {
     await writeFile(join(directory, `${id}.request.json`), JSON.stringify({ id, until, name, args }), { flag: 'wx' });
-    await execute('herdr-app', ['do', `devkits-tasks.mcp:${id}`], { timeout: 5000, windowsHide: true, env: { ...process.env, HERDR_APP_HOME: home } });
+    await execute('herdr-app', ['do', `herdr-zed-tasks.mcp:${id}`], { timeout: 5000, windowsHide: true, env: { ...process.env, HERDR_APP_HOME: home } });
     while (Date.now() < until) {
       try {
         const result = JSON.parse(await readFile(file, 'utf8'));
@@ -31,7 +31,7 @@ async function bridge(name, args) {
       } catch (error) { if (error.code !== 'ENOENT') throw error; }
       await delay(50);
     }
-    throw new Error('Tasks service did not reply. Open the Devkits layout in Herdr. The operation may have succeeded; list_tasks before retrying.');
+    throw new Error('Tasks service did not reply. Open the herdr-zed layout in Herdr. The operation may have succeeded; list_tasks before retrying.');
   } finally { await Promise.all([rm(file, { force: true }), rm(join(directory, `${id}.request.json`), { force: true })]); }
 }
 function start(input = process.stdin, output = process.stdout, call = bridge) {

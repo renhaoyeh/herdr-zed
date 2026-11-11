@@ -7,7 +7,7 @@ import { Button } from './components/button.js';
 
 // A modal confirmation, like Linear's Delete issue dialog.
 export function openDeleteTask(project, task) {
-  return openOverlay({ mod: 'devkits-tasks', kind: 'dialog', modal: true, frame: 'none', width: 440, height: 200,
+  return openOverlay({ mod: 'herdr-zed-tasks', kind: 'dialog', modal: true, frame: 'none', width: 440, height: 200,
     props: { view: 'delete-task', project, task: { gid: task.gid, name: task.name } } });
 }
 
