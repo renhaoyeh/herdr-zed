@@ -15,7 +15,7 @@ test('native terminal activity and turn counts never invent task progress', () =
   assert.equal(taskStatus({}, [...live('working'), { address: 't2', status: 'blocked' }]), 'todo');
 });
 test('stored progress is independent of native activity while action permissions still protect busy sessions', () => {
-  for (const status of ['todo', 'done', 'fail']) {
+  for (const status of ['todo', 'doing', 'review', 'done']) {
     const record = { status, manual: true };
     assert.equal(taskStatus(record, live('working')), status);
     assert.equal(taskStatus(record, live('blocked')), status);
@@ -172,7 +172,7 @@ test('all task action permissions agree with progress, archive visibility and li
     { canStart: false, canEdit: false, canSetStatus: true, canArchive: true, canRestore: false, canDelete: false, canSchedule: true });
   for (const status of ['todo', 'done', 'fail']) for (const running of ['working', 'blocked']) {
     const permissions = taskActions({ status, agents: live(running), tabs: [] });
-    assert.equal(permissions.canStart, false); assert.equal(permissions.canArchive, false);
+    assert.equal(permissions.canStart, false); assert.equal(permissions.canArchive, true);
     assert.equal(permissions.canEdit, false); assert.equal(permissions.canSetStatus, false);
   }
   assert.deepEqual(taskActions({ status: 'done', archived: true, agents: [], tabs: [] }),

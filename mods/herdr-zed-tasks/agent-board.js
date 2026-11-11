@@ -3,7 +3,7 @@ import { h_flex, v_flex, InputState, Input, TextareaState, Textarea, TextView } 
 import { shared, setShared, openOverlay, closeOverlay, props, appHome, readTextFile, agents as currentAgents, spaces as currentSpaces } from 'herdr';
 import { SourceTaskReader, installedSources } from './task-sources.js';
 import { TaskSession } from './task-session.js';
-import { boardStatuses, boardKey, liveVersion, boardPriorityOptions, boardPriorities, canStartTask, taskActions, taskManualStatusOptions, taskChildren, canAddSubtask } from './agent-board-model.js';
+import { boardStatuses, boardKey, liveVersion, boardPriorityOptions, boardPriorities, canStartTask, taskActions, taskManualStatusOptions, taskChildren, canAddSubtask, taskExecutionLabel } from './agent-board-model.js';
 import { launcherLabel, launcherOption, accountAddresses } from './components/session-model.js';
 import { rememberBoardTask, projectBoardTasks, boardRecords, setTaskDueDate } from './agent-board-state.js';
 import { taskTokenId } from './components/tasks-model.js';
@@ -122,9 +122,9 @@ export default class AgentBoard {
   }
   setStatus(project, gid, status) {
     const task = this.latestTask(project, gid);
-    if (!taskActions(task).canSetStatus || !['todo', 'done', 'fail'].includes(status)) return false;
+    if (!taskActions(task).canSetStatus || !boardStatuses.some(item => item.key === status)) return false;
     rememberBoardTask(project, task, { status, manual: true, liveVersion: liveVersion(task.agents),
-      ...(task.execution ? { execution: null, runs: [...(task.runs || []), task.execution].slice(-30) } : {}) });
+      ...(status === 'todo' && task.execution ? { execution: null, runs: [...(task.runs || []), task.execution].slice(-30) } : {}) });
     return true;
   }
   deleteTask(project, gid) {
@@ -189,9 +189,7 @@ export default class AgentBoard {
       this.drag = null; this.dropStatus = null; this.search.set_value('');
     }
     const t = boardTheme(), tasks = projectBoardTasks(project, agents);
-    if (shared('herdr-zed.board-attention') === project.id) {
-      setShared('herdr-zed.board-attention', null); this.attentionOnly = true; this.archived = false;
-    }
+
     const focus = shared('herdr-zed.board-focus');
     if (focus) {
       setShared('herdr-zed.board-focus', null);
@@ -200,7 +198,6 @@ export default class AgentBoard {
     }
     const query = this.search.value().trim().toLowerCase();
     const visible = tasks.filter(task => Boolean(task.archived) === Boolean(this.archived)
-      && (!this.attentionOnly || task.attention)
       && `${task.name} ${task.notes || ''} ${task.agentName || ''}`.toLowerCase().includes(query));
     const selected = tasks.find(task => task.gid === this.selected);
     if (!selected) this.detailPanel.end(cx);
@@ -251,6 +248,7 @@ export default class AgentBoard {
         .child(taskIdentifier(task)).child(div().flex_1()).child(menu)
         .when(Boolean(task.priority && task.priority !== 'none'), el => el.child(glyph(boardPriorities.find(priority => priority.key === task.priority)?.icon || 'priority-none', 14).text_color(task.priority === 'urgent' ? '#e4a45c' : t.muted).accessibility_label(`${task.priority} priority`))))
       .child(div().text_size(13).font_medium().child(task.name))
+      .when(Boolean(taskExecutionLabel(task)), el => el.child(div().text_size(11).text_color(t.muted).child(taskExecutionLabel(task))))
       .when(Boolean(task.parentTask), el => el.child(h_flex().gap(5).items_center().min_w(0).text_size(11).text_color(t.muted)
         .child(glyph('list-tree', 12)).child(div().min_w(0).truncate().child(task.parentTask.name))))
       .child(h_flex().gap(6).items_center().text_size(11).text_color(t.muted)
@@ -259,7 +257,7 @@ export default class AgentBoard {
           .child(glyph('list-tree', 12)).child(`${completed}/${children.length}`)))
         .when(Boolean(task.dueDate), el => el.child(div().text_size(10).child(task.dueDate)))
         .when(Boolean(task.attention), el => el.child(glyph('clock', 12).text_color('#b39af5').accessibility_label('Action Required'))))
-      .when(Boolean(task.attention), el => el.child(div().text_size(11).text_color('#b39af5').child(`Action Required · ${task.attention.message}`)))
+      .when(Boolean(task.attention), el => el.child(div().text_size(11).text_color('#b39af5').child(`${task.attention.kind === 'error' ? 'Attempt failed' : 'Action Required'} · ${task.attention.message}`)))
       .when(Boolean(task.interrupted), el => el.child(div().text_size(11).text_color(t.muted).child('Session interrupted')));
     };
     const columns = h_flex().id('agent-board-columns').flex_1().h_full().min_w(0).min_h(0).overflow_x_scrollbar().px(8).gap(12)
@@ -270,7 +268,7 @@ export default class AgentBoard {
       })
       .children(boardStatuses.map(status => {
         const rows = visible.filter(task => task.status === status.key);
-        const canDrop = this.drag?.active && ['todo', 'done', 'fail'].includes(status.key)
+        const canDrop = this.drag?.active && boardStatuses.some(item => item.key === status.key)
           && taskActions(tasks.find(task => task.gid === this.drag.gid)).canSetStatus;
         return v_flex().id(`board-lane-${status.key}`).w(340).flex_none().h_full().min_h(0)
           .rounded(6).bg(canDrop && this.dropStatus === status.key ? t.selected : t.background)
@@ -313,9 +311,8 @@ export default class AgentBoard {
         .child(button('board-close', t, { size: 'icon' }).accessibility_label('Close Tasks').tooltip('Close Tasks')
           .on_click(() => closeOverlay(props().overlay)).child(glyph('close', 14))))
       .child(h_flex().h(44).flex_none().px(8).gap(4).items_center().text_size(12)
-        .child(tab('board-active', 'All tasks', !this.archived && !this.attentionOnly, () => { this.archived = false; this.attentionOnly = false; this.selected = null; }))
-        .child(tab('board-archived', 'Archived', this.archived, () => { this.archived = true; this.attentionOnly = false; this.selected = null; }))
-        .child(tab('board-attention', `Action Required (${tasks.filter(task => !task.archived && task.attention).length})`, Boolean(this.attentionOnly), () => { this.archived = false; this.attentionOnly = !this.attentionOnly; }))
+        .child(tab('board-active', 'All tasks', !this.archived, () => { this.archived = false; this.selected = null; }))
+        .child(tab('board-archived', 'Archived', this.archived, () => { this.archived = true; this.selected = null; }))
         .child(div().flex_1())
         .child(Input.new(this.search).id('board-search').accessibility_label('Search tasks').w(180).h(28).px(10)
           .rounded(999).bg(t.control).border(1).border_color(t.controlBorder).text_size(12)))

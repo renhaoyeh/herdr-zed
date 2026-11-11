@@ -1,9 +1,9 @@
-import { taskTokenId, taskTokenRef } from './components/tasks-model.js';
+import { taskTokenId, taskTokenRef, boardStatuses } from './components/tasks-model.js';
 export { taskTokenId, taskTokenRef };
 
 export function taskLinkState(link, tasks = [], deleted = {}) {
   const task = tasks.find(task => task.id === link?.id);
-  if (task) return { task, label: task.name, state: task.archived ? 'Archived' : task.status === 'done' ? 'Done' : task.status === 'fail' ? 'Fail' : task.attention ? 'Action Required' : task.status === 'doing' ? 'Doing' : 'Todo' };
+  if (task) return { task, label: task.name, state: task.archived ? 'Archived' : task.attention ? 'Action Required' : boardStatuses.find(status => status.key === task.status)?.label || 'Todo' };
   const ref = taskTokenRef(link?.id);
   const removed = ref && deleted[JSON.stringify([ref.machine, ref.folder.replace(/\\/g, '/').replace(/\/+$/, '')])]?.[ref.gid];
   return { label: link?.label || 'Task', state: removed ? 'Deleted task' : 'Unavailable task' };

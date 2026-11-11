@@ -20,13 +20,14 @@ export const liveVersion = agents => agents.map(a => `${a.address}:${a.status}:$
 
 // Progress belongs to the task. Native terminal turns are never completion evidence.
 export function taskStatus(record = {}, agents = [], hasThread = false) {
-  return ['todo', 'doing', 'done', 'fail'].includes(record.status) ? record.status : 'todo';
+  return record.status === 'fail' ? 'doing' : boardStatuses.some(item => item.key === record.status) ? record.status : 'todo';
 }
 
 export function taskAttention(record, agents = []) {
   if (record.archived) return null;
   if (agents.some(agent => agent.status === 'blocked' || agent.needsInput))
     return { kind: 'native', message: 'Reply or approve in the agent conversation.' };
+  if (record.execution?.status === 'fail' || record.status === 'fail') return { kind: 'error', message: record.execution?.summary || 'The last attempt failed. Open the conversation to continue.' };
   return record.execution?.status === 'waiting' ? { kind: 'question', message: record.execution.summary } : null;
 }
 
@@ -96,18 +97,28 @@ export const canAddSubtask = task => Boolean(task && !task.archived);
 export function taskActions(task) {
   const archived = Boolean(task?.archived);
   const busy = Boolean(task?.agents?.some(agent => ['working', 'blocked'].includes(agent.status) || agent.needsInput));
-  const active = Boolean(task && (busy || task.attention || task.execution?.status === 'waiting'
+  const active = Boolean(task && (busy || task.attention && task.attention.kind !== 'error' || task.execution?.status === 'waiting'
     || task.execution?.status === 'starting' && Date.now() - task.execution.startedAt < 60000));
   const todo = task?.status === 'todo' && !archived && !active;
   return {
     canStart: Boolean(todo && (!task.tabs?.length || task.execution || task.runs?.length)),
     canEdit: Boolean(todo),
     canSetStatus: Boolean(task && !archived && !active),
-    canArchive: Boolean(task && !archived && !active),
+    canArchive: Boolean(task && !archived),
     canRestore: archived,
     canDelete: Boolean(['local', 'thread'].includes(task?.source) && !active),
     canSchedule: Boolean(task && !archived),
   };
 }
 export const canStartTask = task => taskActions(task).canStart;
-export const taskManualStatusOptions = t => boardStatusOptions(t).filter(option => ['todo', 'done', 'fail'].includes(option.key));
+export const taskManualStatusOptions = t => boardStatusOptions(t);
+export const taskNeedsArchiveChoice = task => Boolean(task && !task.archived && !taskActions(task).canSetStatus);
+
+export function taskExecutionLabel(task) {
+  if (task.agents?.some(agent => agent.status === 'working')) return 'Agent working';
+  if (task.attention?.kind === 'native' || task.attention?.kind === 'question') return 'Waiting for you';
+  if (task.execution?.status === 'fail' || task.agents?.some(agent => agent.status === 'error')) return 'Attempt failed';
+  if (task.execution?.status === 'starting') return 'Starting agent';
+  if (task.execution?.status === 'stopped') return 'Agent stopped';
+  return null;
+}

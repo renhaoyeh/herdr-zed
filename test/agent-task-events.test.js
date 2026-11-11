@@ -17,7 +17,7 @@ test('Action Required stays pending after async acceptance independently of stor
   const agents = [{ status: 'working', inputTracked: true, hasInput: true, needsInput: true }];
   assert.equal(taskStatus({ source: 'thread', status: 'done', manual: true }, agents), 'done');
   assert.equal(taskAttention({}, agents).kind, 'native');
-  assert.equal(taskActions({ status: 'waiting', agents }).canArchive, false);
+  assert.equal(taskActions({ status: 'waiting', agents }).canArchive, true);
   consumeTaskEvent(state, user);
   assert.deepEqual(state.pending, {});
   assert.equal(taskStatus({ source: 'thread' }, [{ ...agents[0], needsInput: false }]), 'todo');

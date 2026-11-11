@@ -397,3 +397,5 @@ No code reads both the old and new key; whichever is chosen is the only path.
   macOS preview. Real account sign-in and task-agent launches have not been exercised.
 
 Shared MCP connections use one Agents MCP Connections settings page and one shared configuration. Capabilities selects bundled Rules/Skills and shows MCP dependencies; missing or disabled dependencies must be managed in MCP Connections. Existing user-added servers use the validated transport and verification flow, with draft changes saved explicitly. The UI does not create arbitrary new servers.
+
+Tasks keeps workflow stage (`todo`, `doing`, `review`, `done`) separate from run status (`starting`, `doing`, `waiting`, `done`, `fail`, `stopped`). The existing report_task wire states are unchanged: a successful `done` report stores a finished execution and a `review` board stage, while `fail` retains `doing` with an error. User status controls accept review into done. Archived background runs explicitly retain report access; ordinary archives reject further reports. Archive/restore never launches, commits or discards changes.

@@ -1,15 +1,16 @@
 import { agents, spaces, terminals, shared, setShared, notify, props, run, hc } from 'herdr';
 import { projectCatalog, projectGroups, folderKey, launcherChoices, launcherLabel, isAccountLauncher, configuredAgents, resolveThreadProfiles } from './components/session-model.js';
-import { boardKey, taskActions, canStartTask } from './agent-board-model.js';
+import { boardKey, taskActions, canStartTask, taskNeedsArchiveChoice } from './agent-board-model.js';
 import { projectBoardTasks, rememberBoardTask, setTaskArchived, threadBoardTask, threadBoardStatus, sessionThreadTitle, boardRecords, createLocalTask } from './agent-board-state.js';
 import { observeTaskInput } from './agent-task-evidence.js';
+import { openArchiveTask } from './archive-task.js';
 import { taskPrompt } from './task-prompt.js';
 import { TaskSources, resolveTaskImport } from './task-sources.js';
 import { openTaskComposer } from './task-composer.js';
 import { AgentClient } from './components/agents.js';
 const startingThreads = new Set();
 const clip = (text, length = 40) => text.length > length ? `${text.slice(0, length - 1)}…` : text;
-const toneFor = (thread, task) => task.attention ? 'warning' : thread.status === 'fail' ? 'error' : thread.status === 'doing' ? 'accent' : 'muted';
+const toneFor = (thread, task) => task.execution?.status === 'fail' ? 'error' : task.attention ? 'warning' : thread.status === 'fail' ? 'error' : thread.status === 'doing' ? 'accent' : 'muted';
 
 export class TaskRuntime {
   agentClient = new AgentClient();
@@ -42,7 +43,7 @@ export class TaskRuntime {
       const all = agents(), sender = all.find(agent => agent.address === args.terminal);
       project = sender && this.projects().find(item => !item.machine && item.tabs?.some(tab => tab.id === sender.tab));
       const task = project && projectBoardTasks(project, all).find(task => task.agents.some(agent => agent.address === sender.address));
-      if (!task || task.archived) throw new Error('This terminal has no active Herdr task.');
+      if (!task || task.archived && !task.archivedBackground) throw new Error('This terminal has no active Herdr task.');
       const current = boardRecords(project)[task.gid];
       if (!current.execution || ['done', 'fail', 'stopped'].includes(current.execution.status) && args.status === 'doing') {
         if (args.status !== 'doing') throw new Error('Report doing to begin a task attempt before reporting an outcome.');
@@ -61,7 +62,7 @@ export class TaskRuntime {
     if (!project) throw new Error('This task run is no longer active.');
     if (project.machine) throw new Error('Progress reporting currently supports local tasks.');
     const task = args.task ? boardRecords(project)[args.task] : Object.values(boardRecords(project)).find(task => task.execution?.id === args.run);
-    if (!task || task.archived || !task.execution || task.execution.id !== args.run)
+    if (!task || task.archived && !task.archivedBackground || !task.execution || task.execution.id !== args.run)
       throw new Error('This task run is no longer active. Refresh the task before reporting.');
     const execution = task.execution;
     if (args.status === execution.status && args.message.trim() === execution.summary) return task;
@@ -74,7 +75,7 @@ export class TaskRuntime {
       ...(['done', 'fail'].includes(args.status) ? { finishedAt: at } : {}) };
     const activity = [...(task.activity || []), { run: execution.id, status: args.status, message: summary, at }].slice(-100);
     rememberBoardTask(project, task, { execution: next, activity,
-      status: args.status === 'waiting' ? 'doing' : args.status, manual: false });
+      status: args.status === 'done' ? 'review' : 'doing', manual: false });
     return boardRecords(project)[task.gid];
   }
   snapshot() {
@@ -188,7 +189,7 @@ export class TaskRuntime {
       ? { run: `run:${Date.now()}:${Math.random().toString(36).slice(2)}` } : null;
     const prompt = taskPrompt(task, reporting);
     const before = boardRecords(project)[task.gid] || {};
-    rememberBoardTask(project, task, { status: 'todo', manual: false, seenWorking: false, agentKey: agent.key, agentName: agent.name,
+    rememberBoardTask(project, task, { status: 'doing', manual: false, seenWorking: false, agentKey: agent.key, agentName: agent.name,
       ...(reporting ? { execution: { id: reporting.run, status: 'starting', profile: agent.key, profileName: agent.name,
         model: options.model ?? null, effort: options.effort ?? null, startedAt: Date.now(), summary: 'Starting session' },
         runs: [...(before.runs || []), ...(before.execution ? [before.execution] : [])].slice(-30) } : {}) });
@@ -226,6 +227,32 @@ export class TaskRuntime {
       .map(choice => ({ ...choice.agent, name: isAccountLauncher(choice.agent) ? launcherLabel(choice.name) : choice.name }));
   }
 
+  async archiveTask(project, gid, mode) {
+    const currentProject = this.projects().find(item => item.id === project.id) || project;
+    const current = projectBoardTasks(currentProject, agents()).find(item => item.gid === gid);
+    if (!taskActions(current).canArchive) throw Error('This task is no longer available.');
+    if (!['background', 'stop'].includes(mode)) throw Error('Choose how to handle the running agent.');
+    if (mode === 'stop') {
+      if (current.execution?.status === 'starting' && !current.agents.length) throw Error('The agent is still starting. Wait for it to appear before stopping.');
+      const live = current.agents.filter(agent => ['working', 'blocked'].includes(agent.status) || agent.needsInput);
+      for (const agent of live) {
+        const result = await hc(['interrupt', agent.address]);
+        if (result.code) throw Error(result.stderr?.trim() || 'Could not stop the agent. The task remains on the board.');
+        const stopped = await hc(['wait', agent.address, '--timeout', '20']);
+        if (stopped.code) throw Error('Could not confirm the agent stopped. The task remains on the board.');
+        const state = JSON.parse(stopped.stdout || '{}');
+        if (state.reason !== 'exit' && !['idle', 'done', 'error'].includes(state.status))
+          throw Error('The agent is still active. The task remains on the board.');
+      }
+    }
+    const latest = boardRecords(currentProject)[gid];
+    if (!latest || latest.archived) throw Error('This task changed while confirming. Reopen it to try again.');
+    if (mode === 'stop' && latest.execution && !['done', 'fail', 'stopped'].includes(latest.execution.status))
+      rememberBoardTask(currentProject, latest, { execution: { ...latest.execution, status: 'stopped', summary: 'Stopped by user', finishedAt: Date.now() } });
+    rememberBoardTask(currentProject, latest, { archivedBackground: mode === 'background' });
+    setTaskArchived(currentProject, latest, true);
+  }
+
   boardPanel(project, cx) {
     const launchers = this.taskAssignees(project);
     return this.agentBoard.render(project, agents(), launchers, {
@@ -233,8 +260,8 @@ export class TaskRuntime {
         const currentProject = this.projects().find(item => item.id === project.id) || project;
         const current = projectBoardTasks(currentProject, agents()).find(item => item.gid === task.gid);
         if (!taskActions(current).canArchive) return;
-        task = current;
-        setTaskArchived(project, task, true);
+        if (taskNeedsArchiveChoice(current)) openArchiveTask(project, current);
+        else setTaskArchived(project, current, true);
       },
       restore: task => {
         const current = projectBoardTasks(project, agents()).find(item => item.gid === task.gid);

@@ -64,9 +64,8 @@ export function createLocalTask(project, name, notes = '', options = {}, agents 
 
 export function setTaskArchived(project, task, archived, archiveId = null) {
   const current = boardRecords(project)[task.gid] || task;
-  rememberBoardTask(project, current, { archived, status: current.status || 'todo', ...(archiveId ? { archiveId } : {}),
-    ...(!archived && !current.execution && ['todo', 'done', 'fail'].includes(current.status) ? { manual: true } : {}),
-    ...(!archived && current.execution?.status === 'waiting' ? { execution: { ...current.execution, status: 'doing', summary: 'Restored; open the conversation to continue.' } } : {}) });
+  rememberBoardTask(project, current, { archived, status: taskStatus(current), ...(archiveId ? { archiveId } : {}),
+    ...(!archived ? { archivedBackground: false } : {}) });
 }
 
 export function setTaskDueDate(project, task, value) {

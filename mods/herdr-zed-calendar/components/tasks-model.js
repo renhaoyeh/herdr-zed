@@ -1,9 +1,9 @@
 // Shared: edit components/tasks-model.js, then npm run sync:shared.
 export const boardStatuses = [
   { key: 'todo', label: 'Todo', icon: 'circle', color: '#96969f' },
-  { key: 'doing', label: 'Doing', icon: 'circle-half', color: '#e5b454' },
+  { key: 'doing', label: 'In progress', icon: 'circle-half', color: '#e5b454' },
+  { key: 'review', label: 'For review', icon: 'eye', color: '#b291e8' },
   { key: 'done', label: 'Done', icon: 'circle-check', color: '#6b80ef' },
-  { key: 'fail', label: 'Fail', icon: 'circle-alert', color: '#e57878' },
 ];
 export const taskFolderKey = folder => (folder || '').replace(/\\/g, '/').replace(/\/+$/, '');
 export const taskProjectKey = project => JSON.stringify([project.machine || '', taskFolderKey(project.folder)]);

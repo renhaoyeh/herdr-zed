@@ -51,9 +51,9 @@ test('an existing conversation adopts reporting with its own terminal and retain
   assert.match(h.client.listTasks()[0].attention.message, /Which behavior/);
   report('doing', 'Answer received'); report('done', 'Validated');
   h.runtime.refresh(clock.cx);
-  assert.equal(h.client.listTasks()[0].status, 'done');
+  assert.equal(h.client.listTasks()[0].status, 'review');
   h.state.agents[0].status = 'working'; h.runtime.refresh(clock.cx);
-  assert.equal(h.client.listTasks()[0].status, 'done', 'Native work cannot reopen a finished task');
+  assert.equal(h.client.listTasks()[0].status, 'review', 'Native work cannot accept a completed attempt');
   report('doing', 'New user request');
   const task = h.owner.boardRecords(project)['thread:chat'];
   assert.notEqual(task.execution.id, first);
@@ -79,18 +79,18 @@ test('reported work stays Doing across native idle/done, separates attention and
   assert.equal(h.client.listTasks()[0].status, 'doing', 'Finishing a CLI turn never completes reported work');
   report('waiting', 'Which redirect should expired logins use?'); h.runtime.refresh(clock.cx);
   let card = h.client.listTasks()[0]; assert.equal(card.status, 'doing'); assert.match(card.attention.message, /redirect/);
-  assert.equal(card.policy.canDelete, false); assert.equal(card.policy.canArchive, false);
+  assert.equal(card.policy.canDelete, false); assert.equal(card.policy.canArchive, true);
   report('doing', 'User confirmed the login page'); h.runtime.refresh(clock.cx);
   assert.equal(h.client.listTasks()[0].attention, null);
   report('done', 'Fixed redirect; login tests passed'); h.runtime.refresh(clock.cx);
-  card = h.client.listTasks()[0]; assert.equal(card.status, 'done'); assert.equal(card.execution.model, 'saved-model');
+  card = h.client.listTasks()[0]; assert.equal(card.status, 'review'); assert.equal(card.execution.model, 'saved-model');
   const count = card.activity.length; report('done', 'Fixed redirect; login tests passed'); h.runtime.refresh(clock.cx);
   assert.equal(h.client.listTasks()[0].activity.length, count, 'A retried final report is idempotent');
   assert.throws(() => report('doing', 'Late reply'), /already finished/);
   h.owner.setTaskArchived(project, card, true);
   assert.throws(() => report('done', 'Changed result'), /no longer active/);
   h.owner.setTaskArchived(project, card, false); h.runtime.refresh(clock.cx);
-  assert.equal(h.client.listTasks()[0].status, 'done'); assert.deepEqual(h.native, []);
+  assert.equal(h.client.listTasks()[0].status, 'review'); assert.deepEqual(h.native, []);
   assert.throws(() => tasksMcpCall(h.runtime, 'report_task', { run: 'old-run', status: 'done', message: 'Late' }), /no longer active/);
   assert.throws(() => tasksMcpCall(h.runtime, 'report_task', { status: 'done', message: 'No ID' }), /run ID/);
 });
@@ -136,7 +136,7 @@ test('explicit resume keeps the archive on launch failure and removes it only af
   assert.deepEqual(h.memory['herdr-zed.archived-threads'], []);
   assert.equal(h.memory['herdr-zed.thread-profiles'].resumed, 'old-profile');
   assert.equal(h.memory['herdr-zed.thread-tasks'].resumed.gid, task.gid);
-  assert.equal(h.client.listTasks()[0].status, 'fail'); assert.equal(h.client.listTasks()[0].archived, false);
+  assert.equal(h.client.listTasks()[0].status, 'doing'); assert.equal(h.client.listTasks()[0].archived, false);
   assert.deepEqual(h.native, []);
 });
 
@@ -281,6 +281,7 @@ async function modules(records = {}, projects = [{ id: 'p', folder: '/project', 
     }
   };
   owner.launchResult = { model: 'prepared-model', effort: 'low', profile: 'prepared-profile' };
+  owner.openArchiveTask = (project, task) => base.openOverlay({ props: { view: 'archive-task', project, task } });
   const { TaskRuntime } = await evaluateNative('../mods/herdr-zed-tasks/runtime.js', owner, 'TaskRuntime');
   const runtime = new TaskRuntime();
   return { base, owner, client, runtime, state, memory, writes, overlays, closed, native, launches };
@@ -305,7 +306,7 @@ test('Tasks service publishes one authoritative Sidebar/Calendar projection whil
   assert.equal(h.client.threadBoardStatus(project, { tab: { id: 'thread' } }), 'doing');
   h.runtime.reportTask(null, { terminal: 't1', status: 'done', message: 'Completed with validation' }); h.runtime.refresh(clock.cx);
   h.state.agents[0].status = 'idle'; h.runtime.refresh(clock.cx);
-  assert.equal(h.client.listTasks().find(task => task.gid === 'thread:thread').status, 'done');
+  assert.equal(h.client.listTasks().find(task => task.gid === 'thread:thread').status, 'review');
   const settled = h.writes.length; h.runtime.refresh(clock.cx); assert.equal(h.writes.length, settled, 'Unchanged projections are not rewritten');
   assert.deepEqual(h.native, []);
 });
@@ -484,4 +485,90 @@ test('the board header has a Close Tasks control bound to its own overlay, and I
   const source = await readFile(new URL('../mods/herdr-zed-tasks/agent-board.js', import.meta.url), 'utf8');
   assert.match(source, /button\('board-close', t, \{ size: 'icon' \}\)\.accessibility_label\('Close Tasks'\)\.tooltip\('Close Tasks'\)\s*\.on_click\(\(\) => closeOverlay\(props\(\)\.overlay\)\)/);
   assert.match(source, /\.when\(sources\.length > 0, el => el\.child\(DropdownMenu\('board-import-menu'/);
+});
+
+test('archiving preserves each board stage and restoring never completes or restarts the task', async () => {
+  for (const status of ['todo', 'doing', 'review', 'done']) {
+    const task = { gid: 'local:stage', name: 'Stage', source: 'local', status };
+    const h = await modules({ '["","/project"]': { [task.gid]: task } }), project = h.state.projects[0];
+    h.owner.setTaskArchived(project, task, true);
+    assert.equal(h.owner.boardRecords(project)[task.gid].status, status);
+    h.owner.setTaskArchived(project, task, false);
+    assert.equal(h.owner.boardRecords(project)[task.gid].status, status);
+    assert.deepEqual(h.native, []); assert.deepEqual(h.launches, []);
+  }
+});
+
+test('active archive requires a choice and background reports still reach review', async () => {
+  const task = { gid: 'local:active', name: 'Active', source: 'local', status: 'doing',
+    execution: { id: 'run:archive', status: 'doing', startedAt: Date.now() } };
+  const h = await modules({ '["","/project"]': { [task.gid]: task } }), project = h.state.projects[0];
+  project.tabs = [{ id: 'work', name: task.name }];
+  h.memory['herdr-zed.thread-tasks'] = { work: { gid: task.gid, folder: project.folder, name: task.name } };
+  h.state.agents = [{ address: 't-active', tab: 'work', status: 'working' }];
+  h.runtime.agentBoard = { render: (_p, _a, _l, actions) => actions };
+  h.runtime.boardPanel(project, context().cx).archive(task);
+  assert.equal(h.overlays.at(-1).props.view, 'archive-task');
+  assert.equal(Boolean(h.owner.boardRecords(project)[task.gid].archived), false);
+  await h.runtime.archiveTask(project, task.gid, 'background');
+  assert.equal(h.owner.boardRecords(project)[task.gid].archived, true);
+  h.runtime.reportTask(project, { task: task.gid, run: 'run:archive', status: 'done', message: 'Validated' });
+  assert.equal(h.owner.boardRecords(project)[task.gid].status, 'review');
+  h.owner.setTaskArchived(project, task, false);
+  assert.equal(h.owner.boardRecords(project)[task.gid].status, 'review');
+  assert.equal(h.owner.boardRecords(project)[task.gid].archivedBackground, false);
+  assert.deepEqual(h.native, []);
+});
+
+test('failed stop keeps the active task visible; confirmed stop archives without changing its stage', async () => {
+  for (const fails of [true, false]) {
+    const task = { gid: 'local:stop', name: 'Stop', source: 'local', status: 'doing',
+      execution: { id: 'run:stop', status: 'doing', startedAt: Date.now() } };
+    const h = await modules({ '["","/project"]': { [task.gid]: task } }), project = h.state.projects[0];
+    project.tabs = [{ id: 'work', name: task.name }];
+    h.memory['herdr-zed.thread-tasks'] = { work: { gid: task.gid, folder: project.folder } };
+    h.state.agents = [{ address: 't-stop', tab: 'work', status: 'working' }];
+    const calls = [];
+    const { TaskRuntime } = await evaluateNative('../mods/herdr-zed-tasks/runtime.js', { ...h.owner,
+      hc: async args => { calls.push(args); return args[0] === 'interrupt'
+        ? { code: fails ? 1 : 0 } : { code: 0, stdout: JSON.stringify({ reason: 'exit', ended: true }) }; },
+    }, 'TaskRuntime');
+    const runtime = new TaskRuntime();
+    if (fails) await assert.rejects(runtime.archiveTask(project, task.gid, 'stop'), /Could not stop/);
+    else await runtime.archiveTask(project, task.gid, 'stop');
+    const record = h.owner.boardRecords(project)[task.gid];
+    assert.equal(Boolean(record.archived), !fails);
+    assert.equal(record.status, 'doing');
+    assert.equal(record.execution.status, fails ? 'doing' : 'stopped');
+    assert.equal(calls[0][0], 'interrupt');
+  }
+});
+
+test('user acceptance is distinct from an agent outcome and feedback returns work to progress', async () => {
+  const task = { gid: 'local:review', name: 'Review', source: 'local', status: 'doing',
+    execution: { id: 'run:review', status: 'doing', startedAt: Date.now() } };
+  const h = await modules({ '["","/project"]': { [task.gid]: task } }), project = h.state.projects[0];
+  h.runtime.reportTask(project, { run: 'run:review', status: 'done', message: 'Tests passed' });
+  assert.equal(h.owner.boardRecords(project)[task.gid].status, 'review');
+  const { AgentBoard } = await evaluateNative('../mods/herdr-zed-tasks/agent-board.js', h.owner, 'AgentBoard');
+  const board = new AgentBoard();
+  board.latestTask = () => ({ ...h.owner.boardRecords(project)[task.gid], agents: [] });
+  assert.equal(board.setStatus(project, task.gid, 'done'), true);
+  assert.equal(h.owner.boardRecords(project)[task.gid].status, 'done');
+  assert.equal(h.owner.boardRecords(project)[task.gid].execution.status, 'done');
+  assert.equal(board.setStatus(project, task.gid, 'doing'), true);
+  assert.equal(h.owner.boardRecords(project)[task.gid].status, 'doing');
+  assert.deepEqual(h.native, []);
+});
+
+test('failed attempts stay in progress with a separate error instead of a failure column', async () => {
+  const task = { gid: 'local:error', name: 'Error', source: 'local', status: 'doing',
+    execution: { id: 'run:error', status: 'doing', startedAt: Date.now() } };
+  const h = await modules({ '["","/project"]': { [task.gid]: task } }), project = h.state.projects[0];
+  h.runtime.reportTask(project, { run: 'run:error', status: 'fail', message: 'Missing dependency' });
+  const card = h.owner.projectBoardTasks(project)[0];
+  assert.equal(card.status, 'doing');
+  assert.equal(card.execution.status, 'fail');
+  assert.equal(card.attention.kind, 'error');
+  assert.equal(policy.taskActions(card).canSetStatus, true);
 });

@@ -6,6 +6,7 @@ import { TasksMcpBridge } from './mcp-bridge.js';
 import AgentBoard from './agent-board.js';
 import TaskComposer from './task-composer.js';
 import DeleteTask from './delete-task.js';
+import ArchiveTask from './archive-task.js';
 import { findProject } from './task-sources.js';
 import { boardTheme } from './components/task-theme.js';
 import { Button } from './components/button.js';
@@ -24,6 +25,8 @@ export default class TasksMod extends View {
     });
     if (this.target.view === 'task-composer') {
       this.composer = new TaskComposer(); this.composer.init(this.target, cx);
+    } else if (this.target.view === 'archive-task') {
+      this.archiver = new ArchiveTask(); this.archiver.init(this.target, this.runtime, cx);
     } else if (this.target.view === 'delete-task') {
       this.deleter = new DeleteTask(); this.deleter.init(this.target, cx);
     } else if (this.target.view === 'import-draft') {
@@ -41,6 +44,7 @@ export default class TasksMod extends View {
   render(cx) {
     if (this.target.view === 'service') return div().size_full();
     const t = boardTheme();
+    if (this.archiver) return this.archiver.render();
     if (this.deleter) return this.deleter.render();
     if (this.composer) return this.composer.render(this.runtime.taskAssignees(this.composer.project));
     if (this.importError) return v_flex().size_full().bg(t.popover).p(24).gap(12).text_color(t.foreground)
