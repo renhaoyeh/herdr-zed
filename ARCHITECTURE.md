@@ -1,6 +1,6 @@
 # herdr-zed Architecture
 
-Status: **draft for review (phase 1)**. Nothing here is implemented in this repository yet.
+Status: **phase 2 done** (shell moved with history, renamed, contract validators and type checking). Phases 3–4 pending.
 Mod names below (`herdr-zed`, `herdr-zed-*`) are working names pending the naming decision in
 [Open questions](#open-questions).
 
@@ -36,7 +36,7 @@ Rules:
 
 All declarations live in each mod's `extension.json`, `version: 1`. Every package is in this repository,
 so the manifest has no cross-version compatibility: when the schema changes, the parser, all manifests and
-the tests change in the same commit. Unknown keys are rejected (current `extension-model.js` behavior).
+the tests change in the same commit. Unknown keys inside `provides`, surfaces and services are rejected; unknown top-level keys are currently ignored.
 
 ### 2.1 UI extension (existing v1, kept as is)
 
@@ -268,8 +268,10 @@ No code reads both the old and new key; whichever is chosen is the only path.
   `session-model`, `session-shell`, `system-monitor*`, `task-source*`, `source-channel`, `task-theme`,
   `tasks-model`, `tasks`, `shared-mcp*`, `agent-session-windows`, `agent-process-windows`, `progress`,
   `usage`, `claude-usage-hook`, `agent-selection`, `agents`.
-- New: `extension-contract.js` (manifest/launch/decoration validators) shared by the shell and test
-  fixtures, so providers can validate their own events before sending.
+- New: `extension-contract.js` (launch/decoration/git-credential validators) and `contract-types.d.ts`
+  (contract types). Providers copy both to validate and type-check their own messages before sending.
+- Typing: JavaScript with JSDoc, no build step. `npm run typecheck` runs `tsc` against Herdr's installed
+  `herdr.d.ts`/`gpui-kit.d.ts`; contract code opts in with `// @ts-check`.
 - After the Agents+Usage merge, `usage.js` and `agents.js` copies inside the merged mod become internal;
   only Tasks (and the shell, not at all) keep a public-client copy. Remove unused components.
 
