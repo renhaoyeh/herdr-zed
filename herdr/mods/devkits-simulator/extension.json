@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "id": "simulator",
+  "title": "iOS Simulator",
+  "dependencies": ["devkits-sim-frames"],
+  "actions": [
+    {
+      "id": "open",
+      "title": "iOS Simulator",
+      "icon": "smartphone",
+      "popup": {
+        "view": "simulator-popup",
+        "width": 480,
+        "height": 760,
+        "modal": false
+      },
+      "location": "status.right"
+    }
+  ],
+  "surfaces": [{ "id": "simulator", "location": "dock.right", "view": "simulator", "title": "iOS Simulator", "icon": "smartphone" }]
+}

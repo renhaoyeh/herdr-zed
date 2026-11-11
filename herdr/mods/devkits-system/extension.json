@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "id": "system",
+  "title": "System Monitor",
+  "services": [
+    { "view": "service" }
+  ],
+  "surfaces": [
+    { "id": "widgets", "location": "sidebar.bottom", "view": "widgets", "title": "System widgets", "icon": "chart-column" },
+    { "id": "inline", "location": "status.right", "view": "inline", "title": "System metrics", "icon": "chart-column" }
+  ],
+  "actions": [
+    {
+      "id": "open",
+      "title": "SYSTEM",
+      "icon": "chart-column",
+      "popup": {
+        "view": "details",
+        "width": 1000,
+        "height": 700,
+        "modal": false
+      },
+      "location": "status.right"
+    }
+  ]
+}

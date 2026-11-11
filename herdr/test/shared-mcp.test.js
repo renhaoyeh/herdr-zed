@@ -1,0 +1,161 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { sessionKind, settingsKey, sessionArgv, tasksMcpServer } from '../mods/devkits/components/session-model.js';
+import { evaluateNative } from './source-harness.js';
+import { parseSharedMcp, mcpToml, platformSharedMcp } from '../mods/devkits/components/shared-mcp-model.js';
+import { syncSharedMcp } from '../mods/devkits-agents/shared-mcp-sync.js';
+
+const config = { version: 1, servers: { vs: { command: 'bridge', args: ['繁體中文', 'C:\\with spaces\\bridge', 'quote"'] }, ic: { url: 'http://127.0.0.1:18765/mcp' } } };
+
+const host = { parseSharedMcp, mcpToml, platformSharedMcp, window: () => ({ platform: 'windows' }), home: () => '/home', exec: async () => ({ code: 0 }), sessionKind, tasksMcpServer, settingsKey, appHome: () => '/herdr', readTextFile: async () => JSON.stringify(config) };
+const load = extra => evaluateNative('../mods/devkits/components/shared-mcp.js', { ...host, ...extra }, 'parseSharedMcp, sharedMcpArgv, sessionMcpArgv, mcpToml');
+
+test('shared MCP accepts only the current schema and preserves explicit CLI precedence', async () => {
+  const { parseSharedMcp, sharedMcpArgv } = await load();
+  const shared = parseSharedMcp(JSON.stringify(config));
+  const agent = { key: 'review', profileKey: 'devkits-codex-work' };
+  assert.throws(() => parseSharedMcp(JSON.stringify({ ...config, profiles: {} })), /Unsupported shared MCP fields/);
+  const original = ['env', 'CODEX_HOME=/account', 'codex', '-c', 'mcp_servers.vs.command="explicit"', '--', 'prompt'];
+  const argv = sharedMcpArgv(agent, original, shared);
+  assert.ok(argv.includes(`mcp_servers.vs=${mcpToml(config.servers.vs)}`));
+  assert.ok(argv.includes('mcp_servers.ic={"url"="http://127.0.0.1:18765/mcp"}'));
+  assert.deepEqual(argv.slice(-4), original.slice(-4));
+  assert.deepEqual(original.slice(0, 3), ['env', 'CODEX_HOME=/account', 'codex']);
+  delete shared.servers.ic;
+  assert.ok(!sharedMcpArgv(agent, ['codex'], shared).some(arg => arg.startsWith('mcp_servers.ic')));
+});
+
+test('launch preparation synchronizes account defaults before returning argv and skips other providers', async () => {
+  const calls = [];
+  const reads = [], { sessionMcpArgv } = await load({ exec: async (...args) => { calls.push(args); return { code: 0 }; }, readTextFile: async path => { reads.push(path); return JSON.stringify(config); } });
+  await sessionMcpArgv({ key: 'review', profileKey: 'devkits-codex-work' }, ['env', 'CODEX_HOME=/account', 'codex']);
+  assert.equal(calls[0][1][1], '/account');
+  assert.deepEqual(JSON.parse(calls[0][1][2]), { ...config.servers, herdr_tasks: tasksMcpServer('/herdr') });
+  assert.deepEqual(JSON.parse(calls[0][1][2]).herdr_tasks.env_vars, ['HC_TERMINAL_ID']);
+  assert.deepEqual(reads, ['/herdr/data/devkits/codex-mcp.json']);
+  await sessionMcpArgv({ key: 'claude' }, ['claude']);
+  assert.equal(reads.length, 1);
+  const absent = await load({ readTextFile: async () => null });
+  assert.deepEqual(await absent.sessionMcpArgv({ key: 'codex' }, ['codex']), ['codex']);
+});
+
+test('malformed shared settings stop preparation and invalid edits are rejected', async () => {
+  const { parseSharedMcp } = await load();
+  for (const servers of [{ ic: { url: 'https://external.example/mcp' } }, { a: { command: 'x', args: [3] } }, { a: { command: 'x', enabled: 'false' } }, { a: null }]) {
+    assert.throws(() => parseSharedMcp(JSON.stringify({ version: 1, servers })));
+  }
+  const broken = await load({ readTextFile: async () => '{broken' });
+  await assert.rejects(broken.sessionMcpArgv({ key: 'codex' }, ['codex']));
+});
+
+test('Codex parses generated MCP arguments including Windows paths, quotes and disabled shared services', async () => {
+  const { sharedMcpArgv } = await load();
+  const directory = await mkdtemp(join(tmpdir(), 'devkits-mcp-cli-'));
+  const shared = { ...config, servers: { ...config.servers, ic: { ...config.servers.ic, enabled: false } } };
+  const argv = sharedMcpArgv({ key: 'codex' }, ['codex', 'mcp', 'list', '--json'], shared);
+  const result = await promisify(execFile)('codex', argv.slice(1), { env: { ...process.env, CODEX_HOME: directory }, timeout: 15000, windowsHide: true });
+  const servers = JSON.parse(result.stdout);
+  assert.deepEqual(servers.find(server => server.name === 'vs').transport.args, config.servers.vs.args);
+  assert.equal(servers.find(server => server.name === 'ic').enabled, false);
+});
+
+test('MCP synchronization replaces transports, cleans owned entries, preserves personal changes and is idempotent', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'devkits-mcp-sync-'));
+  await writeFile(join(directory, 'config.toml'), '# original\n');
+  const old = { command: 'old', args: ['old'] }, changed = { command: 'personal-edit' };
+  const state = { model: 'personal', mcp_servers: { update: old, remove: old, edited: changed, personal: old },
+    devkits_shared_mcp: { servers: { update: old, remove: old, edited: old } } };
+  const desired = { update: { url: 'http://127.0.0.1:18765/mcp', enabled: false } };
+  let writes = 0, closes = 0;
+  const service = async () => ({ config: state, close: async () => closes++, write: async edits => {
+    writes++;
+    for (const edit of edits) {
+      if (edit.keyPath === 'devkits_shared_mcp') state.devkits_shared_mcp = edit.value;
+      else {
+        const name = JSON.parse(edit.keyPath.slice('mcp_servers.'.length));
+        if (edit.value === null) delete state.mcp_servers[name]; else state.mcp_servers[name] = edit.value;
+      }
+    }
+  } });
+  await syncSharedMcp(directory, desired, service);
+  assert.deepEqual(state.mcp_servers, { ...desired, edited: changed, personal: old });
+  assert.equal(state.model, 'personal');
+  assert.equal(await readFile(join(directory, 'config.toml.before-mcp-sync.bak'), 'utf8'), '# original\n');
+  await syncSharedMcp(directory, desired, service);
+  assert.equal(writes, 1); assert.equal(closes, 2);
+  await syncSharedMcp(directory, {}, service);
+  assert.deepEqual(state.mcp_servers, { edited: changed, personal: old });
+});
+
+test('real Codex config persists complete disabled transports and supports background enabled-only overrides', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'devkits-mcp-persist-'));
+  await writeFile(join(directory, 'config.toml'), '# preserve comment\nmodel = "personal"\n[mcp_servers.own]\ncommand = "personal-server"\n[mcp_servers.ic]\nurl = "http://127.0.0.1:18765/mcp"\nenabled = false\n');
+  const servers = { ic: { url: 'http://127.0.0.1:18765/mcp', enabled: false } };
+  await syncSharedMcp(directory, servers);
+  const run = args => promisify(execFile)('codex', args, { env: { ...process.env, CODEX_HOME: directory }, timeout: 15000, windowsHide: true });
+  const result = JSON.parse((await run(['-c', 'mcp_servers.ic.enabled=false', 'mcp', 'list', '--json'])).stdout);
+  assert.equal(result.find(server => server.name === 'ic').transport.url, servers.ic.url);
+  assert.equal(result.find(server => server.name === 'ic').enabled, false);
+  assert.ok(result.find(server => server.name === 'own'));
+  assert.match(await readFile(join(directory, 'config.toml'), 'utf8'), /# preserve comment/);
+  await syncSharedMcp(directory, {});
+  const after = JSON.parse((await run(['mcp', 'list', '--json'])).stdout);
+  assert.deepEqual(after.map(server => server.name), ['own']);
+});
+
+test('synchronization failure prevents launching with incomplete settings', async () => {
+  const { sessionMcpArgv } = await load({ exec: async () => ({ code: 1, stderr: 'sync failed' }) });
+  await assert.rejects(sessionMcpArgv({ key: 'codex' }, ['codex']), /sync failed/);
+});
+
+test('local launch persists Tasks transport without shared settings for background title generation', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'devkits-title-mcp-'));
+  await writeFile(join(directory, 'config.toml'), '# account settings\n[mcp_servers.own]\ncommand = "personal-server"\n[mcp_servers.herdr_tasks]\ncommand = "node"\nargs = ["/herdr/mods/devkits-tasks/mcp-server.cjs"]\nenabled = false\n');
+  const appDirectory = 'C:\\Users\\A B\\herdr';
+  let synchronized = false;
+  const { sessionMcpArgv } = await load({
+    appHome: () => appDirectory, readTextFile: async () => null,
+    exec: async (_command, args) => {
+      assert.equal(args[1], directory);
+      await syncSharedMcp(args[1], JSON.parse(args[2]));
+      synchronized = true;
+      return { code: 0 };
+    },
+  });
+  const agent = { key: 'codex' };
+  const argv = sessionArgv(agent, ['env', `CODEX_HOME=${directory}`, 'codex'], { tasksMcpHome: appDirectory });
+  assert.deepEqual(await sessionMcpArgv(agent, argv), argv);
+  assert.equal(synchronized, true);
+  // Like the background title worker, supply only disabled flags, with no launch transports.
+  const result = await promisify(execFile)('codex', ['-c', 'mcp_servers.herdr_tasks.enabled=false',
+    '-c', 'mcp_servers.own.enabled=false', 'mcp', 'list', '--json'], {
+    env: { ...process.env, CODEX_HOME: directory }, timeout: 15000, windowsHide: true,
+  });
+  const servers = JSON.parse(result.stdout), tasks = servers.find(server => server.name === 'herdr_tasks');
+  assert.equal(tasks.enabled, false);
+  assert.equal(tasks.transport.command, 'node');
+  assert.deepEqual(tasks.transport.args, tasksMcpServer(appDirectory).args);
+  assert.deepEqual(tasks.transport.env, { HERDR_APP_HOME: appDirectory });
+  assert.equal(servers.find(server => server.name === 'own').transport.command, 'personal-server');
+  assert.match(await readFile(join(directory, 'config.toml'), 'utf8'), /# account settings/);
+});
+
+test('automatic MCP synchronization excludes Windows-only transports on other platforms without rewriting shared source', async () => {
+  const source = JSON.stringify({ version: 1, servers: { visual_studio: { command: 'C:/VS/bridge.exe' }, browser: { command: 'browser' } } });
+  for (const platform of ['windows', 'macos', 'linux']) {
+    const calls = [];
+    const { sessionMcpArgv } = await load({ window: () => ({ platform }), readTextFile: async () => source,
+      exec: async (...args) => { calls.push(args); return { code: 0 }; } });
+    const argv = await sessionMcpArgv({ key: 'codex' }, ['codex']);
+    const synchronized = JSON.parse(calls[0][1][2]);
+    assert.equal(Boolean(synchronized.visual_studio), platform === 'windows');
+    assert.equal(argv.some(arg => arg.startsWith('mcp_servers.visual_studio=')), platform === 'windows');
+    assert.ok(synchronized.browser && synchronized.herdr_tasks);
+    assert.ok(JSON.parse(source).servers.visual_studio);
+  }
+});
