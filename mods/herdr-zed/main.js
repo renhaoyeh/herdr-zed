@@ -13,7 +13,7 @@ import { createNativeThread } from './native-threads.js';
 import { startPanel } from './start-panel.js';
 import { threadArchive, historyEligible } from './thread-archive.js';
 import { startThreadResume } from './thread-resume.js';
-import { SettingsNav, SettingsPage, SettingsHeader, openSettings } from './settings.js';
+import { SettingsNav, SettingsPage, SettingsHeader, openSettings, settingsPageKey } from './settings.js';
 import { ExtensionSlot, ExtensionSurfaceSlot, refreshExtensions, openExtension, extensionCatalog, openGitAction, activeLauncher } from './extensions.js';
 import { pollLaunchIntake } from './launch-intake.js';
 import { readNewTerminalCommand } from './components/extension-contract.js';
@@ -51,6 +51,18 @@ const hasConversation = (project, all, modelPanes) => {
 const conversationVisible = (project, all, modelPanes) => Boolean(hasConversation(project, all, modelPanes)
   && shared('herdr-zed.conversation-visible')?.[conversationKey(project)]);
 
+// A child or pane row is named by what it is: its title, its program, or its command. A terminal id (t3, an address)
+// is never a name, so a bare terminal reads as "Terminal".
+const rowLabel = (pane, terminal) => {
+  const ids = new Set([pane?.pane, pane?.terminal, terminal?.address].filter(Boolean));
+  const name = value => {
+    const text = typeof value === 'string' ? value.trim() : '';
+    return text && !ids.has(text) && !/^[tp]\d+$/.test(text) ? text : null;
+  };
+  return name(pane?.title) || name(pane?.mod) || name(pane?.program?.name) || name(terminal?.program?.name)
+    || name(terminal?.name) || name(terminal?.agent) || (terminal ? name(terminalLabel(terminal)) : null) || 'Terminal';
+};
+
 export default class HerdrZed extends View {
   init(_props, cx) {
     const view = props()?.view;
@@ -72,10 +84,11 @@ export default class HerdrZed extends View {
         const command = await nextCommand();
         if (command === 'new-thread') this.newThread(cx);
         if (command === 'reveal-conversation') this.showConversation(true);
-        // herdr-zed.settings opens the General page; herdr-zed.settings:<id> an extension's page (ARCHITECTURE §2.1).
+        // herdr-zed.settings opens the General page; herdr-zed.settings:<key> a shell page (general, git, extensions)
+        // or an extension's page (ARCHITECTURE §2.1).
         if (command === 'settings') openSettings('general', this.projects().find(project => project.active));
         if (command === 'extensions') openSettings('extensions', this.projects().find(project => project.active));
-        if (command.startsWith('settings:')) openSettings(`extension:${command.slice('settings:'.length)}`, this.projects().find(project => project.active));
+        if (command.startsWith('settings:')) openSettings(settingsPageKey(command.slice('settings:'.length)), this.projects().find(project => project.active));
         if (command === 'extensions-refresh') { await refreshExtensions(); cx.notify(); }
         if (command.startsWith('extension:')) openExtension(command.slice('extension:'.length), this.projects().find(project => project.active));
         // herdr-zed.new-terminal: the Agents picker's Terminal row (ARCHITECTURE §3.1). Same tab as the native Terminal.
@@ -327,9 +340,15 @@ export default class HerdrZed extends View {
     catch (error) { notify({ title: 'Could not start session', body: error.message, level: 'error' }); }
   }
 
+  // The status an agent reports for the thread (working, blocked or done), or null. A plain terminal reports none:
+  // its tab status or a foreground process never draws the agent marks.
+  agentStatus(thread, live = terminals()) {
+    const reported = thread.agents.map(agent => live.find(terminal => terminal.address === agent.address)?.status || agent.status);
+    return ['working', 'blocked', 'done'].find(status => reported.includes(status)) || null;
+  }
+
   threadBusy(thread, live = terminals()) {
-    return ['working', 'blocked'].includes(thread.status) || thread.agents.some(agent =>
-      ['working', 'blocked'].includes(live.find(terminal => terminal.address === agent.address)?.status || agent.status));
+    return ['working', 'blocked'].includes(this.agentStatus(thread, live));
   }
 
   async stopThread(thread) {
@@ -485,16 +504,16 @@ export default class HerdrZed extends View {
     const primaryAgent = thread.agents.find(agent => agent.address === primary?.terminal) || thread.agent;
     if (primaryAgent && primaryAgent !== thread.agent)
       thread = { ...thread, agent: primaryAgent, title: threadTitle(thread.tab, primaryAgent, this.projects().find(project => project.id === thread.space)) };
-    const working = thread.status === 'working' || thread.agents.some(agent => agent.status === 'working')
-      || terminalWorking(live.find(terminal => terminal.address === primary?.terminal));
+    // Spinner, blocked and done marks come from an agent's report only; a terminal without an agent shows its icon.
+    const reported = this.agentStatus(thread, live);
     const isFocused = thread.active && (!members.some(pane => pane.focused) || Boolean(primary?.focused));
     const p = threadProgram(thread, live, primary?.program);
     const stopping = this.threadBusy(thread, live);
     const archivable = !stopping && historyEligible(thread, live);
     const decoration = (this.renderModel?.decorations || this.decorationsNow()).get(thread.tab.id);
-    const icon = working ? glyph('loader', 14).text_color(t.working).spin(900).accessibility_label('Working')
-      : thread.status === 'blocked' ? glyph('circle-alert', 14).text_color(t.blocked).accessibility_label('Blocked')
-      : thread.status === 'done' ? glyph('circle-check', 14).text_color(t.done).accessibility_label('Done')
+    const icon = reported === 'working' ? glyph('loader', 14).text_color(t.working).spin(900).accessibility_label('Working')
+      : reported === 'blocked' ? glyph('circle-alert', 14).text_color(t.blocked).accessibility_label('Blocked')
+      : reported === 'done' ? glyph('circle-check', 14).text_color(t.done).accessibility_label('Done')
       : p?.icon ? (p.tint ? svg(p.icon).size(14).text_color(t.muted) : image(p.icon).size(14)) : glyph('terminal', 14).text_color(t.muted);
     return SidebarTreeMenuButton(`thread-${thread.tab.id}`, isFocused, t, 0, trunk)
       .on_hover((hovered, cx) => {
@@ -547,7 +566,7 @@ export default class HerdrZed extends View {
     const seen = new Set(), rows = [];
     const entry = (terminal, depth, pane) => ({ terminal: pane ? { ...terminal, address: pane.terminal || pane.pane,
       program: pane.program, status: pane.status || terminal?.status } : terminal, depth, pane,
-      label: pane?.title?.trim() || pane?.mod || (terminal ? terminalLabel(terminal) : 'Terminal') });
+      label: rowLabel(pane, terminal) });
     const descendants = address => {
       if (!address) return;
       seen.add(address);

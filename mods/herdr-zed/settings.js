@@ -17,11 +17,14 @@ export const SETTINGS_OVERLAY = 'herdr-zed.settings.overlay';
 const SHELL_PAGES = [
   { key: 'general', title: 'General', description: 'Herdr-zed behavior. Changes apply immediately.' },
   { key: 'git', title: 'Git', description: 'Changes filters, and the commit author of the repository in view.' },
-  { key: 'extensions', title: 'Extensions', description: 'Manage installed workspace extensions. Changes apply immediately.' },
+  { key: 'extensions', title: 'Manage extensions', description: 'Manage installed workspace extensions. Changes apply immediately.' },
 ];
 
 // Extension pages are keyed `extension:<id>`, so an extension ID can never shadow a shell page.
 export const extensionPageKey = id => `extension:${id}`;
+
+// The key behind the `herdr-zed.settings:<id>` command: a shell page key (general, git, extensions) or an extension ID.
+export const settingsPageKey = id => SHELL_PAGES.some(page => page.key === id) ? id : extensionPageKey(id);
 
 // Eligible extension pages only: the catalog's resolved list holds enabled, error-free, available packages that declare `settings`.
 export const extensionSettingsPages = () => (extensionCatalog().resolved?.settings || [])
@@ -91,13 +94,13 @@ export class SettingsNav {
     const done = () => closeSettingsDialog(overlay);
     const entry = (key, label) => Button(`settings-nav-${key.replace(/\W/g, '-')}`, t, { variant: 'ghost' })
       .w_full().h(32).px(10).justify_start()
-      .bg(page === key ? t.selected : t.chrome).text_color(page === key ? t.foreground : t.muted)
+      .bg(page === key ? t.selected : t.popover).text_color(page === key ? t.foreground : t.muted)
       .hover(el => el.bg(page === key ? t.selected : t.hover).text_color(t.foreground))
       .accessibility_label(label)
       .on_click(() => openSettings(key, context))
       .child(div().min_w(0).truncate().child(label));
     const extensions = extensionSettingsPages();
-    return v_flex().size_full().min_h(0).p(12).gap(2).bg(t.chrome).border(1).border_color(t.border)
+    return v_flex().size_full().min_h(0).p(12).gap(2).bg(t.popover).border(1).border_color(t.border)
       .on_key_down((event, cx) => { if (event.key === 'escape') { cx.stop_propagation(); done(); } })
       .child(DialogTitle().flex_none().px(10).pt(4).pb(8).child('Settings'))
       .child(heading(t, 'Workspace'))

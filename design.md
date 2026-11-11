@@ -1,13 +1,13 @@
 # herdr-zed Design Rules
 
 These rules extend the devkits `design.md` (Sera defaults: square corners, `theme()` tokens, Georgia dialog
-titles). Where they conflict, this file wins. Rationale and the audit behind them: [docs/ui-review.md](docs/ui-review.md).
+titles). Where they conflict, this file wins.
 
 ## Settings
 
 - There is one Settings dialog, opened from the header gear (and `herdr-zed.settings`). Layout: 220px nav on
   the left, the page on the right under a 32px title bar with an X, 1040×0.86, modal. No Done buttons anywhere.
-- Nav sections: **Workspace** (General, Git, Extensions) and **Extensions** (one page per enabled extension
+- Nav sections: **Workspace** (General, Git, Manage extensions) and **Extensions** (one page per enabled extension
   that declares `settings`). "Herdr settings…" at the bottom opens Herdr's native settings.
 - Extensions never open their own settings dialogs. They declare `settings: { view, title }` and deep-link
   with `run('herdr-zed.settings:<extension id>')`. An embedded settings view draws no frame, close button

@@ -70,13 +70,13 @@ function settingsRuntime({ settings = [], memory = {}, closeThrows = [] } = {}) 
     shared: key => memory[key], setShared: (key, value) => { memory[key] = value; },
   };
   return { memory, opened, closed, runs, notices, setProps: next => { current = next; },
-    ready: evaluateNative('../mods/herdr-zed/settings.js', host, 'openSettings, settingsOverlay, settingsPage, settingsContext, extensionSettingsPages, SettingsNav, SettingsHeader, SettingsPage, SETTINGS_OVERLAY') };
+    ready: evaluateNative('../mods/herdr-zed/settings.js', host, 'openSettings, settingsOverlay, settingsPage, settingsContext, extensionSettingsPages, settingsPageKey, SettingsNav, SettingsHeader, SettingsPage, SETTINGS_OVERLAY') };
 }
 
 const project = { id: 'p', folder: '/work', name: 'Work', machine: undefined, token: 'private' };
 const context = { id: 'p', folder: '/work', name: 'Work', machine: null };
 const cx = () => ({ notify() {}, stop_propagation() {}, spawn() {} });
-const theme = { selected: 'SELECTED', chrome: 'CHROME', muted: 'MUTED', foreground: 'FOREGROUND', hover: 'HOVER', border: 'BORDER' };
+const theme = { selected: 'SELECTED', chrome: 'CHROME', popover: 'POPOVER', muted: 'MUTED', foreground: 'FOREGROUND', hover: 'HOVER', border: 'BORDER' };
 
 test('a shell page opens the one dialog layout: nav beside the page, Sera size, no provider props', async () => {
   const r = settingsRuntime(); const s = await r.ready;
@@ -129,10 +129,12 @@ test('the nav lists Workspace pages and only eligible extensions, with no Done; 
   r.setProps({ page: 'extension:agents', context, overlay: 'overlay-1' });
   const nav = new s.SettingsNav().render(theme);
   const labels = text(nav);
-  for (const label of ['Settings', 'Workspace', 'General', 'Git', 'Extensions', 'Agents', 'Herdr settings…']) assert.match(labels, new RegExp(label));
+  for (const label of ['Settings', 'Workspace', 'General', 'Git', 'Manage extensions', 'Extensions', 'Agents', 'Herdr settings…']) assert.match(labels, new RegExp(label));
+  assert.equal(find(nav, 'settings-nav-extensions').__attrs.accessibility_label, 'Manage extensions', 'The Workspace page is labelled Manage extensions');
   assert.equal(find(nav, 'settings-done'), null, 'the nav has no Done');
   assert.equal(find(nav, 'settings-nav-extension-agents').__attrs.bg, theme.selected, 'The open page is the selected entry');
-  assert.equal(find(nav, 'settings-nav-general').__attrs.bg, theme.chrome);
+  assert.equal(find(nav, 'settings-nav-general').__attrs.bg, theme.popover, 'The nav shares the page column background: no seam');
+  assert.equal(nav.__attrs.bg, theme.popover, 'The nav column itself uses the popover background');
   assert.equal(find(nav, 'settings-nav-extension-missing'), null);
   find(nav, 'settings-nav-git').__handlers.on_click(undefined, cx());
   assert.deepEqual(r.closed, ['overlay-1']); assert.equal(r.opened[1].layout.children[1].children[1].content.props.page, 'git');
@@ -190,6 +192,18 @@ test('the Git page embeds the filter rules and commit author of the repository i
   assert.match(text(bare.render({})), /Open a project to set the commit author/);
 });
 
+test('settings:<key> resolves a shell page key before an extension ID; unknown keys stay unavailable', async () => {
+  const settings = [{ mod: 'herdr-zed-agents', id: 'agents', view: 'settings', title: 'Agents' }];
+  const r = settingsRuntime({ settings }); const s = await r.ready;
+  assert.equal(s.settingsPageKey('git'), 'git');
+  assert.equal(s.settingsPageKey('extensions'), 'extensions');
+  assert.equal(s.settingsPageKey('agents'), 'extension:agents');
+  assert.equal(s.openSettings(s.settingsPageKey('git'), project), 'overlay-1');
+  assert.equal(r.opened[0].layout.children[1].children[1].content.props.page, 'git');
+  assert.equal(s.openSettings(s.settingsPageKey('missing'), project), null);
+  assert.equal(r.notices[0].title, 'Settings unavailable');
+});
+
 test('the Extensions page embeds the manager body', async () => {
   const r = settingsRuntime(); const s = await r.ready;
   r.setProps({ page: 'extensions', context: null });
@@ -205,15 +219,16 @@ test('the header command loop routes herdr-zed.settings, settings:<id> and exten
     refreshExtensions: async () => {}, startThreadResume: () => ({}), pollLaunchIntake() {}, activeLauncher: () => null,
     nextCommand: async () => queue.length ? queue.shift() : new Promise(() => {}),
     openSettings: (key, target) => opened.push([key, target?.id ?? null]), openExtension() {}, notify() {}, run() {},
+    settingsPageKey: id => ['general', 'git', 'extensions'].includes(id) ? id : `extension:${id}`,
     theme: () => ({}), window: () => ({}), settings: () => ({ zoom: 1 }), layout: () => null, layoutNode: () => null,
     extensionCatalog: () => ({ resolved: {} }) };
   const { HerdrZed } = await evaluateNative('../mods/herdr-zed/main.js', host, 'HerdrZed');
   const view = new HerdrZed();
   view.init(null, { notify() {}, spawn: fn => jobs.push(fn), timer: { every() {} } });
-  queue.push('settings', 'settings:agents', 'extensions');
+  queue.push('settings', 'settings:agents', 'settings:git', 'settings:extensions', 'settings:general', 'extensions');
   jobs[1]({ notify() {}, spawn() {} });
-  for (let i = 0; i < 10 && opened.length < 3; i++) await new Promise(resolve => setImmediate(resolve));
-  assert.deepEqual(opened, [['general', 's'], ['extension:agents', 's'], ['extensions', 's']]);
+  for (let i = 0; i < 20 && opened.length < 6; i++) await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(opened, [['general', 's'], ['extension:agents', 's'], ['git', 's'], ['extensions', 's'], ['general', 's'], ['extensions', 's']]);
 });
 
 test('entry points: the gear, Changes menu and Git actions open Settings; the old entries are gone', async () => {
