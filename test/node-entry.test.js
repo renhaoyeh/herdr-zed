@@ -58,3 +58,31 @@ test('ECC reports empty or malformed helper replies clearly while accepting an e
     }
   }
 });
+
+test('usage reader executes through an aliased install and keeps known plans without quota data', async t => {
+  const { root, alias } = await linkedHelpers(t);
+  const empty = await run(process.execPath, [join(alias, 'usage/usage-reader.js'), '[]']);
+  assert.deepEqual(JSON.parse(empty.stdout), []);
+  const directory = join(root, 'claude-account'); await mkdir(directory);
+  await writeFile(join(directory, '.claude.json'), JSON.stringify({ oauthAccount: {
+    organizationType: 'claude_max', organizationRateLimitTier: 'default_claude_max_5x',
+  } }));
+  const result = await run(process.execPath, [join(alias, 'usage/usage-reader.js'), JSON.stringify([
+    { key: 'account', provider: 'claude', run: ['env', `CLAUDE_CONFIG_DIR=${directory}`, 'claude'] },
+  ])]);
+  const [account] = JSON.parse(result.stdout);
+  assert.equal(account.plan, 'claude_max_5x');
+  assert.match(account.error, /No usage yet/);
+});
+
+test('Claude quota recorder runs through an aliased install', async t => {
+  const { root, alias } = await linkedHelpers(t);
+  const directory = join(root, 'recording'); await mkdir(directory);
+  const stdout = await new Promise((resolve, reject) => {
+    const child = execFile(process.execPath, [join(alias, 'usage/claude-statusline.js')], {
+      env: { ...process.env, CLAUDE_CONFIG_DIR: directory },
+    }, (error, stdout) => error ? reject(error) : resolve(stdout));
+    child.stdin.end(JSON.stringify({ rate_limits: { five_hour: { used_percentage: 25 } } }));
+  });
+  assert.equal(stdout, '5h 25%');
+});

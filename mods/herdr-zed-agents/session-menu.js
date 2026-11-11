@@ -2,7 +2,7 @@ import { availableAgents, loadAccountIdentities } from './discovery.js';
 import { div } from 'gpui-kit';
 import { v_flex, h_flex } from 'gpui-base';
 import { shared, setShared, props, spaces, openOverlay, closeOverlay, home, readTextFile, keys, window, exec, appHome } from 'herdr';
-import { launcherChoices, launcherLabel, launcherOption, accountAddresses, programName, permissionModes, sessionKind, isAccountLauncher, claudeModels, claudeEfforts, codexHome, codexModels, mergeModels, orderedOptions, moveOption, effortLabel, sessionChoices, settingsKey, configuredAgents, autoRank, autoMultipliers, autoMultiplier, planMultiplier, planLabel, quotaResetLabel } from './components/session-model.js';
+import { launcherChoices, launcherLabel, launcherOption, accountAddresses, programName, permissionModes, sessionKind, isAccountLauncher, claudeModels, claudeEfforts, codexHome, codexModels, mergeModels, orderedOptions, moveOption, effortLabel, sessionChoices, settingsKey, configuredAgents, autoUsage, autoRank, autoMultipliers, autoMultiplier, planMultiplier, planLabel, quotaResetLabel } from './components/session-model.js';
 import { DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from './components/dropdown-menu.js';
 import { Button } from './components/button.js';
 import { Checkbox } from './components/checkbox.js';
@@ -380,7 +380,7 @@ export const sessionMenu = {
   },
 
   syncAccountChanges(cx) {
-    if (this.settingsPage === 'accounts') this.loadAccountIdentities(cx);
+    if (['accounts', 'agents'].includes(this.settingsPage)) this.loadAccountIdentities(cx);
     const revision = shared('herdr-zed.profile-revision') || 0;
     if (this.agentsRevision === undefined || revision === this.agentsRevision) { this.agentsRevision = revision; return; }
     this.agentsRevision = revision;
@@ -471,7 +471,7 @@ export const sessionMenu = {
     const multipliers = shared('herdr-zed.auto-multipliers') || {};
     const hiddenUsage = shared('herdr-zed.hidden-usage-profiles') || [];
     const accounts = profiles.filter(choice => choice.group === 2 && !hiddenUsage.includes(choice.agent.key));
-    const usage = shared('herdr-zed.usage.snapshot')?.contexts?.[JSON.stringify(null)]?.usage || [];
+    const usage = autoUsage(shared);
     const next = this.autoThreadAgent(this.launchers || [], null)?.key;
     const reading = key => usage.find(account => account.key === key);
     const standing = key => {

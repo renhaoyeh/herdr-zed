@@ -4,8 +4,7 @@
 import { spawnSync } from 'node:child_process';
 import { readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { isMain } from '../node-main.js';
 
 export function statusText(limits) {
   return [['five_hour', '5h'], ['seven_day', 'Week']]
@@ -43,4 +42,4 @@ export function runStatusLine() {
   process.stdout.write(other || text);
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) runStatusLine();
+if (await isMain(import.meta.url)) runStatusLine();

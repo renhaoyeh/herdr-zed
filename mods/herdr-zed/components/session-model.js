@@ -23,6 +23,17 @@ export function quotaResetLabel(window, now = Date.now()) {
 // in its tightest window (1 = on pace). Members at a limit go last, soonest reset first;
 // members without readings count as on pace.
 export const autoLauncherKey = 'auto';
+// Quota readings and account identity share the same plan. A hidden or not-yet-loaded
+// Usage surface must not turn a known plan back into the default x1.
+export function autoUsage(read) {
+  const readings = read('herdr-zed.usage.snapshot')?.contexts?.[JSON.stringify(null)]?.usage || [];
+  const identities = read('herdr-zed.account-identities') || {};
+  const keys = new Set([...Object.keys(identities), ...readings.map(account => account.key)]);
+  return [...keys].map(key => {
+    const reading = readings.find(account => account.key === key);
+    return { ...reading, key, plan: reading?.plan || identities[key]?.plan || null };
+  });
+}
 export const autoMultipliers = [1, 5, 20];
 // Plan size by price tier: Plus/Business and Claude Pro x1, Pro $100 (prolite) and Max 5x x5, Pro $200 and Max 20x x20.
 const planSizes = { pro: 20, prolite: 5, claude_max: 5, claude_max_20x: 20, claude_max_5x: 5 };

@@ -87,7 +87,7 @@ export class UsageMonitor extends UsageClient {
             const previous = next[entry.key];
             // Keep the last good windows when a later request fails.
             next[entry.key] = entry.error && previous?.windows
-              ? { ...previous, error: entry.error, ...(entry.email ? { email: entry.email } : {}), checkedAt: Date.now() } : { ...entry, checkedAt: Date.now() };
+              ? { ...previous, error: entry.error, ...(entry.plan ? { plan: entry.plan } : {}), ...(entry.email ? { email: entry.email } : {}), checkedAt: Date.now() } : { ...entry, checkedAt: Date.now() };
           }
           setShared('herdr-zed.usage-cache', next);
           this.usage = accounts.map(account => next[account.key]).filter(Boolean);

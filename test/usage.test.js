@@ -191,3 +191,18 @@ test('plans come from non-credential profile data and map to plan sizes by price
   assert.equal(autoAgent(members, usage, now).key, 'large', 'Pro Lite x5 with 0.8 beats Plus with 1.8');
   assert.equal(autoAgent(members, usage, now, { large: 1 }).key, 'small', 'a saved size overrides the plan');
 });
+
+test('Auto uses detected account plans before Usage loads while manual overrides still win', async () => {
+  const { autoUsage, autoMultiplier } = await import('../components/session-model.js');
+  const data = { 'herdr-zed.account-identities': { lite: { plan: 'prolite' }, large: { plan: 'pro' } } };
+  let usage = autoUsage(key => data[key]);
+  assert.equal(autoMultiplier('lite', usage.find(account => account.key === 'lite')), 5);
+  assert.equal(autoMultiplier('large', usage.find(account => account.key === 'large')), 20);
+  assert.equal(autoAgent([{ key: 'lite' }, { key: 'unknown' }], usage).key, 'lite');
+  data['herdr-zed.usage.snapshot'] = { contexts: { null: { usage: [{ key: 'lite', plan: null, windows: [] }] } } };
+  usage = autoUsage(key => data[key]);
+  assert.equal(autoMultiplier('lite', usage.find(account => account.key === 'lite')), 5);
+  assert.equal(autoMultiplier('lite', usage.find(account => account.key === 'lite'), { lite: 1 }), 1);
+  data['herdr-zed.usage.snapshot'].contexts.null.usage[0].plan = 'pro';
+  assert.equal(autoMultiplier('lite', autoUsage(key => data[key]).find(account => account.key === 'lite')), 20);
+});

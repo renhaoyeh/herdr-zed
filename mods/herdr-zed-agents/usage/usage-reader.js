@@ -3,8 +3,7 @@ import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { isMain } from '../node-main.js';
 import { commandArgv } from '../components/session-shell.js';
 
 export const claudeUsageFile = 'devkits-usage.json';
@@ -41,7 +40,7 @@ export async function readClaudeUsage(run, home = homedir()) {
   let saved, profile;
   try { saved = JSON.parse(await readFile(`${directory}/${claudeUsageFile}`, 'utf8')); } catch {}
   try { profile = JSON.parse(await readFile(configured ? `${directory}/.claude.json` : `${home}/.claude.json`, 'utf8')); } catch {}
-  if (!saved?.rate_limits) throw Object.assign(new Error('No usage yet. Start a session with this account to update it.'), { email: claudeEmail(profile) });
+  if (!saved?.rate_limits) throw Object.assign(new Error('No usage yet. Start a session with this account to update it.'), { email: claudeEmail(profile), plan: claudePlan(profile) });
   const plan = claudePlan(profile);
   return { email: claudeEmail(profile), windows: claudeUsageWindows(saved.rate_limits), fetchedAt: Number.isFinite(saved.capturedAt) ? saved.capturedAt : null,
     ...(plan ? { plan } : {}) };
@@ -109,13 +108,13 @@ export function readCodexUsage(argv, timeout = 18000) {
   });
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (await isMain(import.meta.url)) {
   const accounts = JSON.parse(process.argv[2]);
   console.log(JSON.stringify(await Promise.all(accounts.map(async account => {
     try {
       if (account.provider === 'claude') return { key: account.key, name: account.name, ...await readClaudeUsage(account.run) };
       return { key: account.key, name: account.name, ...await readCodexUsage(account.run), fetchedAt: Date.now() };
     }
-    catch (error) { return { key: account.key, name: account.name, error: error.message, ...(error.email ? { email: error.email } : {}) }; }
+    catch (error) { return { key: account.key, name: account.name, error: error.message, ...(error.email ? { email: error.email } : {}), ...(error.plan ? { plan: error.plan } : {}) }; }
   }))));
 }
