@@ -153,6 +153,19 @@ test('New thread and Agents rows name the program and account, and never show a 
   assert.equal(view.pickerName(claude, 'Default account'), 'Claude Code');
 });
 
+test('GitHub Settings without a project explains the requirement without reading accounts or Git config', async () => {
+  const pending = [];
+  const unexpectedRead = () => { throw new Error('No repository is selected'); };
+  const { host, log } = shell({ props: () => ({ view: 'settings', embedded: true, context: null }),
+    readGitAuthor: unexpectedRead, readGitAccounts: unexpectedRead, gitAccount: unexpectedRead });
+  const { GitHubAccount } = await evaluateNative('../mods/herdr-zed-github/account.js', host, 'GitHubAccount');
+  const view = new GitHubAccount(); view.init(ctx(pending)); await settle(pending);
+  view.render(theme());
+  assert.ok(log.some(([, method, text]) => method === 'child' && String(text).includes('Open a project')));
+  assert.ok(!names(log).some(name => name.startsWith('Button#git-author-save')));
+  view.close();
+});
+
 test('GitHub account Settings embedded lists signed-in accounts, keeps Save and Cancel, and never closes the shell', async () => {
   const { host, log, events, closed } = shell({ props: () => ({ view: 'settings', embedded: true, overlay: 'shell',
     context: { folder: '/repo', machine: '', name: 'repo' } }) });

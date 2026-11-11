@@ -25,6 +25,7 @@ export class GitHubAccount {
 
   // Reads the saved account, the signed-in accounts and the commit author; any unsaved draft is replaced.
   reload(cx) {
+    if (!this.project.folder) return;
     this.account = gitAccount(this.project); this.loading = true; this.loaded = false; this.error = null;
     this.loadAccounts(cx);
     cx.spawn(async cx => {
@@ -104,6 +105,8 @@ export class GitHubAccount {
 
   render(t) {
     const embedded = this.embedded;
+    if (embedded && !this.project.folder) return v_flex().size_full().p(24)
+      .child(DialogDescription(t).child('Open a project to manage its GitHub account and commit author.'));
     const cancel = cx => {
       if (this.saving) return;
       if (embedded) this.reload(cx); else closeOverlay(this.target.overlay);
