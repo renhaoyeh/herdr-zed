@@ -14,10 +14,11 @@ import { startPanel } from './start-panel.js';
 import { threadArchive, historyEligible } from './thread-archive.js';
 import { startThreadResume } from './thread-resume.js';
 import { SettingsNav, SettingsPage, SettingsHeader, openSettings, settingsPageKey } from './settings.js';
-import { ExtensionSlot, ExtensionSurfaceSlot, refreshExtensions, openExtension, extensionCatalog, openGitAction, activeLauncher, workspaceRectNow, publishWorkspaceRect, recordSize, WORK_WIDTH_KEY, SIDEBAR_HEIGHT_KEY, closeWorkspacePanel, visibleSurfaceCount, syncExtensionLayout } from './extensions.js';
+import { ExtensionSlot, ExtensionSurfaceSlot, refreshExtensions, openExtension, extensionCatalog, openGitAction, activeLauncher, publishWorkspaceRect, recordSize, WORK_WIDTH_KEY, SIDEBAR_HEIGHT_KEY, closeWorkspacePanel, visibleSurfaceCount, syncExtensionLayout } from './extensions.js';
 import { pollLaunchIntake } from './launch-intake.js';
 import { readNewTerminalCommand } from './components/extension-contract.js';
 import { workspaceTopAnchor } from './extension-model.js';
+import { usableWorkspaceRect, WORKSPACE_RECT_KEY } from './components/workspace-overlay.js';
 import { threadDecorations, decorationTone } from './decorations.js';
 import { DropdownMenu, DropdownMenuState, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from './components/dropdown-menu.js';
 import { Button, ToolbarButton, TOOLBAR_GLYPH, ROW_GLYPH } from './components/button.js';
@@ -304,7 +305,7 @@ export default class HerdrZed extends View {
     if (!project) { this.openProject(cx); return; }
     const launcher = activeLauncher(), width = launcher ? launcher.picker.width : 280;
     // A keyboard or command open has no pointer anchor: it centres at the top of the work area (review L10).
-    const anchor = at ?? workspaceTopAnchor(workspaceRectNow(), width, settings().zoom);
+    const anchor = at ?? workspaceTopAnchor(usableWorkspaceRect(shared(WORKSPACE_RECT_KEY)), width, settings().zoom);
     if (launcher) {
       openOverlay({ mod: launcher.mod, kind: 'popup', frame: 'none', width, at: anchor,
         props: { view: launcher.picker.view, ...this.launcherTarget(project) } });
@@ -340,7 +341,7 @@ export default class HerdrZed extends View {
     run('herdr-zed.open-file');
   }
 
-  repeatThread(cx, id) { this.newThread(cx, id); }
+  repeatThread(cx, id, at) { this.newThread(cx, id, at); }
 
   cachedAgents(machine) { return knownAgents({ on: machine }).then(items => items.filter(agent => agent.installed)); }
 
@@ -743,10 +744,10 @@ export default class HerdrZed extends View {
             .child(div().flex_1())
             .child(ToolbarButton(`new-thread-${space.id}`, t, { icon: true, row: true })
               .tooltip(`New thread in ${space.name}`).accessibility_label(`New thread in ${space.name}`)
-              .on_click((_event, cx) => {
+              .on_click((event, cx) => {
                 cx.stop_propagation();
                 this.folded.delete(space.id);
-                cx.spawn(async cx => { await this.repeatThread(cx, space.id); });
+                cx.spawn(async cx => { await this.repeatThread(cx, space.id, event.position); });
                 cx.notify();
               })
               .child(glyph('plus', ROW_GLYPH)).opacity(this.hoveredProject === space.id ? 1 : 0))

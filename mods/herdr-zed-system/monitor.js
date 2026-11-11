@@ -110,8 +110,8 @@ export class SystemMonitorCore extends SystemClient {
   hardwareSettings(t) {
     const config = hardwareConfig(), data = this.hardware || hardwareCached()?.data;
     const coreColumns = (this.hardwareWidth || 0) >= 1100 ? 4 : 2;
-    const choices = (id, label, options, value, key) => h_flex().w_full().py(10).gap(12).items_center()
-      .child(div().flex_1().text_size(12).child(label))
+    const choices = (id, label, options, value, key) => h_flex().w_full().py(10).gap(12).items_center().flex_wrap()
+      .child(div().flex_1().min_w(0).text_size(12).child(label))
       .child(ToggleGroup(`hardware-setting-${id}`, label, t).children(options.map(([option, name], index) =>
         ToggleGroupItem(`hardware-${id}-${option}`, value === option, index === 0, t).child(name)
           .accessibility_label(`${label}: ${name}`)

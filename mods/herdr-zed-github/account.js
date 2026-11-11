@@ -67,6 +67,13 @@ export class GitHubAccount {
     return this.project.name || String(this.project.folder || '').split(/[\/]/).filter(Boolean).pop() || 'this repository';
   }
 
+  // git errors can name the repository's folder; the page names the repository only, never its path.
+  visibleError(message) {
+    const folder = this.project.folder;
+    if (!message || !folder) return message;
+    return [folder, String(folder).replace(/\\/g, '/')].reduce((text, path) => text.split(path).join(this.repositoryName()), String(message));
+  }
+
   close() { this.closed = true; this.name?.release(); this.email?.release(); this.accountSelect?.search?.release(); }
 
   save(cx) {
@@ -111,17 +118,16 @@ export class GitHubAccount {
     const accountList = () => v_flex().id('git-account-list').gap(4)
       .children(choices.map(choice => {
         const current = choice.key === selected, disabled = this.loading || this.saving || !(choice.key === 'default' || choice.available);
-        return Button(`git-account-${choice.key}`, t, { variant: 'ghost' }).w_full().min_h(40).px(10).py(6).gap(10).justify_start()
-          .bg(current ? t.selected : t.popover).text_color(t.foreground).opacity(disabled ? 0.45 : 1)
-          .hover(el => el.bg(disabled ? t.popover : current ? t.selected : t.hover))
+        return Button(`git-account-${choice.key}`, t, { variant: 'ghost' }).w_full().h(32).px(10).gap(8).justify_start()
+          .bg(current ? t.selected : t.popover).border(1).border_color(t.border).text_color(t.foreground).opacity(disabled ? 0.45 : 1)
+          .hover(el => el.bg(disabled ? t.popover : t.hover))
           .disabled(disabled)
           .accessibility_label(`${choice.label}${choice.status ? `, ${choice.status}` : ''}${current ? ', selected' : ''}`)
           .on_click((_event, cx) => this.chooseAccount(choice.key, cx))
           .child(div().flex_none().size(16).flex().items_center().justify_center().text_color(current ? t.foreground : t.muted)
             .child(glyph(current ? 'circle-check' : 'circle', 16)))
-          .child(v_flex().flex_1().min_w(0).gap(2)
-            .child(div().truncate().text_size(13).child(choice.label))
-            .when(choice.key === 'default', el => el.child(div().text_size(11).text_color(t.muted).child('Use the machine\'s git credentials'))))
+          .child(div().flex_1().min_w(0).truncate().text_size(13).child(choice.label))
+          .when(choice.key === 'default', el => el.child(div().flex_none().text_size(11).text_color(t.muted).child('Use the machine\'s git credentials')))
           .when(Boolean(choice.status), el => el.child(div().flex_none().text_size(11).text_color(t.muted).child(choice.status)));
       }));
     const body = v_flex().gap(12)
@@ -130,7 +136,7 @@ export class GitHubAccount {
         'GitHub account', (key, cx) => this.chooseAccount(key, cx), t, { fullWidth: true })))
       .when(embedded && !this.loading && !this.saving, el => el.child(accountList()))
       .when(this.accountsLoading, el => el.child(div().text_size(12).text_color(t.muted).child('Loading accounts…')))
-      .when(Boolean(this.accountsError), el => el.child(div().text_size(12).text_color(t.ansi1).child(this.accountsError)))
+      .when(Boolean(this.accountsError), el => el.child(div().text_size(12).text_color(t.ansi1).child(this.visibleError(this.accountsError))))
       .child(Button('git-accounts-refresh', t, { variant: 'secondary' }).disabled(this.accountsLoading || this.saving)
         .on_click((_event, cx) => this.loadAccounts(cx)).child(this.accountsError ? 'Retry accounts' : 'Refresh accounts'))
       .child(DialogDescription(t).child(this.account
@@ -139,7 +145,7 @@ export class GitHubAccount {
       .child(div().text_size(12).text_color(t.muted).truncate().child(`Repository: ${this.repositoryName()}`))
       .child(field('name', 'Name', this.name)).child(field('email', 'Email', this.email))
       .when(this.loading, el => el.child(div().text_size(12).text_color(t.muted).child('Loading commit author…')))
-      .when(Boolean(this.error), el => el.child(div().text_size(12).text_color(t.ansi1).child(this.error)))
+      .when(Boolean(this.error), el => el.child(div().text_size(12).text_color(t.ansi1).child(this.visibleError(this.error))))
       .child(DialogFooter()
         .child(Button('git-author-cancel', t, { variant: 'secondary' }).disabled(Boolean(this.saving)).on_click((_event, cx) => cancel(cx)).child('Cancel'))
         .child(Button('git-author-save', t).disabled(!this.loaded || this.saving || !this.name.value().trim() || !this.email.value().trim())
