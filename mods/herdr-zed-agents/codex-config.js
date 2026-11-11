@@ -1,14 +1,18 @@
 // Codex's revision-checked TOML config API, used by MCP synchronization.
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
+import { realpath } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { commandArgv } from './components/session-shell.js';
 
 // Use Codex's TOML parser/editor, preserving comments, unrelated keys and concurrent edits.
 export async function openConfig(directory, overrides = []) {
+  // Codex canonicalizes its user-layer path (e.g. /var → /private/var on macOS). Match that same
+  // account directory before comparing layers or applying a revision-checked write.
+  directory = await realpath(directory);
   const env = { ...process.env, CODEX_HOME: directory };
   for (const key of ['OPENAI_API_KEY', 'CODEX_API_KEY', 'CODEX_ACCESS_TOKEN']) delete env[key];
-  const [command, ...args] = commandArgv(['codex', ...overrides, '-c', 'cli_auth_credentials_store="file"', 'app-server', '--listen', 'stdio://'],
+  const [command, ...args] = commandArgv(['codex', '--no-daemon', ...overrides, '-c', 'cli_auth_credentials_store="file"', 'app-server', '--listen', 'stdio://'],
     process.platform === 'win32' ? 'windows' : process.platform);
   const child = spawn(command, args, { cwd: directory, env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
   child.stderr.resume(); // Diagnostics may contain private config; do not forward them to the UI.
