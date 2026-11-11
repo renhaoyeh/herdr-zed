@@ -20,6 +20,8 @@ titles). Where they conflict, this file wins.
 - Top to bottom: the thread list, the sidebar surfaces (shown only when turned on in Manage extensions), and the
   thread history row. The history row is always the last row (its own layout block `sidebar-history`).
 - Sidebar surfaces start hidden the first time they mount; Manage extensions turns them on.
+- The sidebar width can be dragged horizontally. Its top bar and history row stay 32px high; internal vertical
+  boundaries cannot be dragged to resize the thread area.
 
 ## Status bar
 

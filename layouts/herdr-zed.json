@@ -1,6 +1,7 @@
 {
   "id": "root",
   "type": "row",
+  "resizable": true,
   "titlebar": "none",
   "traffic_lights": [
     12,
@@ -33,11 +34,13 @@
       "max": 440,
       "hidden": false,
       "background": "chrome",
-      "resizable": true,
+      "resizable": false,
       "children": [
         {
           "id": "brand",
           "type": "block",
+          "min": 32,
+          "max": 32,
           "size": {
             "px": 32
           },
@@ -59,6 +62,8 @@
         {
           "id": "sidebar-history",
           "type": "block",
+          "min": 32,
+          "max": 32,
           "size": {
             "px": 32
           },
