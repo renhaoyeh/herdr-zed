@@ -1,5 +1,7 @@
 // Shared: edit components/extension-contract.js, then npm run sync:shared.
 // Pure validators for provider messages (ARCHITECTURE.md §3). No imports, no native APIs.
+// @ts-check
+/** @import { LaunchRequest, LaunchTarget, Validation, ThreadDecoration, GitCredentialBinding } from './contract-types.js' */
 
 const MAX_LAUNCH_LEAD_MS = 60_000;
 const MAX_NAME_LENGTH = 120;
@@ -10,16 +12,25 @@ const HOST_PATTERN = /^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/i;
 const LOGIN_PATTERN = /^[a-z0-9][a-z0-9_.-]*$/i;
 const MAX_CREDENTIAL_PAIRS = 8;
 
+/** @type {(value: unknown) => value is Record<string, any>} */
 const plain = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+/** @param {string} error @returns {{ ok: false, error: string }} */
 const fail = error => ({ ok: false, error });
+/** @param {object} value @param {string[]} keys */
 const hasOnlyKeys = (value, keys) => Object.keys(value).every(key => keys.includes(key));
 
+/** @param {string | null | undefined} machine @param {string} folder */
 export function projectKey(machine, folder) {
   return JSON.stringify([machine || '', folder]);
 }
 
 // §3.1. `argv` is returned as the very same array the provider sent: no quoting, rewriting or copying.
-export function validateLaunchRequest(request, { now, launcherId, spaces = [] } = {}) {
+/**
+ * @param {unknown} request
+ * @param {{ now: number, launcherId: string | null | undefined, spaces?: { id: string, machine?: string | null }[] }} options
+ * @returns {Validation<LaunchRequest>}
+ */
+export function validateLaunchRequest(request, { now, launcherId, spaces = [] }) {
   if (!plain(request)) return fail('Launch request must be an object.');
   const { id, source, target, name, argv, profile, expiresAt } = request;
   if (typeof id !== 'string' || id.length === 0) return fail('Launch request id must be a non-empty string.');
@@ -44,15 +55,18 @@ export function validateLaunchRequest(request, { now, launcherId, spaces = [] } 
   if (!Array.isArray(argv) || argv.length === 0 || argv.some(item => typeof item !== 'string'))
     return fail('Launch request argv must be a non-empty array of strings.');
   if (profile !== null && typeof profile !== 'string') return fail('Launch request profile must be a string or null.');
-  return { ok: true, value: { id, source, target, name, argv, profile, expiresAt } };
+  return { ok: true, value: { id, source, target: /** @type {LaunchTarget} */ (target), name, argv, profile, expiresAt } };
 }
 
 // §3.3. `value` is the stored envelope `{ updatedAt, threads }`. Invalid entries are dropped; the rest is kept.
+/** @param {unknown} value @returns {Record<string, ThreadDecoration>} */
 export function validateDecorations(value) {
+  /** @type {Record<string, ThreadDecoration>} */
   const sanitized = {};
   if (!plain(value) || !plain(value.threads)) return sanitized;
   for (const [tabId, entry] of Object.entries(value.threads)) {
     if (!plain(entry) || !hasOnlyKeys(entry, DECORATION_FIELDS)) continue;
+    /** @type {Record<string, string>} */
     const clean = {};
     let valid = true;
     for (const field of ['badge', 'subtitle']) {
@@ -64,12 +78,13 @@ export function validateDecorations(value) {
       if (DECORATION_TONES.includes(entry.tone)) clean.tone = entry.tone;
       else valid = false;
     }
-    if (valid) sanitized[tabId] = clean;
+    if (valid) sanitized[tabId] = /** @type {ThreadDecoration} */ (clean);
   }
   return sanitized;
 }
 
 // §3.5. Returns ['-c', 'key=value', ...] or throws; a violation rejects the whole binding.
+/** @param {unknown} binding @returns {string[]} */
 export function gitCredentialArgs(binding) {
   if (!plain(binding)) throw new Error('Git credential binding must be an object.');
   const { host, login, config } = binding;

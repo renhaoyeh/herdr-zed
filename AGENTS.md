@@ -30,7 +30,11 @@ Where they mention the Devkits layout or `mods/devkits`, the rules below take pr
 
 ## Validation
 
-- `npm test` (includes `sync:shared -- --check`) and `herdr-app check` for every changed mod.
+- `npm test` (runs `sync:shared -- --check`, `typecheck`, then the tests) and `herdr-app check` for every changed mod.
+- Types: write JavaScript with JSDoc; there is no build step. Files opt in with `// @ts-check`; contract code
+  (`components/extension-contract.js`, `mods/herdr-zed/extension-model.js`) must stay checked. Contract types
+  live in `components/contract-types.d.ts`. `npm run typecheck` copies Herdr's `herdr.d.ts`/`gpui-kit.d.ts` from
+  `HERDR_APP_HOME` (default `~/.config/herdr-app`) into the ignored `types/herdr/`; never edit those files.
 - Use mocked native APIs and temporary Herdr homes. Never launch agents or modify real projects,
   sessions, account data or the user's installed layouts to verify a change.
 

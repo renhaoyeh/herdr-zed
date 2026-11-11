@@ -16,3 +16,4 @@ side-panel.js: herdr-zed
 sidebar.js: herdr-zed
 tree.js: herdr-zed
 extension-contract.js: herdr-zed
+contract-types.d.ts: herdr-zed

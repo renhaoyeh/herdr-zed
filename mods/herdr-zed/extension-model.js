@@ -1,4 +1,5 @@
 // Serializable declarations only. Extension implementations stay in their own mods.
+// @ts-check
 const name = value => typeof value === 'string' && /^[a-z][a-z0-9-]*$/.test(value);
 const title = value => typeof value === 'string' && value.trim().length > 0;
 const dimension = value => Number.isFinite(value) && value > 0 && value <= 2400;

@@ -5,7 +5,13 @@
   "type": "module",
   "scripts": {
     "sync:shared": "node sync-shared.js",
-    "test": "node sync-shared.js --check && node --test \"test/*.test.js\""
+    "test": "node sync-shared.js --check && node typecheck.js && node --test \"test/*.test.js\"",
+    "typecheck": "node typecheck.js"
   },
-  "engines": { "node": ">=22.13" }
+  "engines": {
+    "node": ">=22.13"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
 }
