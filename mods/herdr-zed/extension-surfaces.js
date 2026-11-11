@@ -1,10 +1,12 @@
 const PREFIX = 'zed-extension-surface-';
+// A status.right reading's width: four labelled percentages (CPU, RAM, GPU, Disk) fit without clipping.
+export const READING_PX = 280;
 const nodeId = surface => surface.location === 'dock.right' ? surface.id : `${PREFIX}${surface.mod}-${surface.id}`;
 // Sidebar and dock surfaces start hidden the first time they mount; status.right surfaces start visible.
 const block = surface => ({ id: nodeId(surface), type: 'block', hidden: surface.location !== 'status.right',
   ...(surface.location === 'dock.right' ? { size: { px: 380 }, min: 300, max: 900 } : {}),
   ...(surface.location === 'sidebar.bottom' ? { size: { px: 260 }, min: 96, max: 420 } : {}),
-  ...(surface.location === 'status.right' ? { size: { px: 220 } } : {}),
+  ...(surface.location === 'status.right' ? { size: { px: READING_PX } } : {}),
   content: { mod: surface.mod, props: { view: surface.view } } });
 const find = (node, id) => node?.id === id ? node : (node?.children || []).map(child => find(child, id)).find(Boolean) || null;
 const copyChildren = (node, children) => JSON.stringify(node.children || []) === JSON.stringify(children) ? node : { ...node, children };
@@ -56,6 +58,11 @@ export function extensionSurfaceLayout(root, packages, disabled = [], previous =
       const owner = owners.get(id);
       if (owner?.mod !== surface.mod || owner?.view !== surface.view || existing.content?.mod !== surface.mod || existing.content?.props?.view !== surface.view)
         throw new Error(`Extension surface layout ID is already in use: ${id}`);
+      // A reading mounted at an older width takes the current one.
+      if (surface.location === 'status.right' && existing.size?.px !== READING_PX) {
+        next = update(next, id, node => ({ ...node, size: { px: READING_PX } }));
+        changed = true;
+      }
       continue;
     }
     const mount = block(surface);
