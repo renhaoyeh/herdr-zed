@@ -17,7 +17,7 @@ const update = (node, id, change) => node.id === id ? change(node)
 // in px or weight, so status-tools is sized to its content (design.md, Status bar and Separators): icon buttons (28px
 // each, ToolbarButton), 8px gaps between items, and a 1px divider before each group after the first: readings,
 // extension icons, dock toggles, Changes and Files. ExtensionSlot shows at most STATUS_ACTION_LIMIT icons plus one
-// overflow button. `readings` counts the visible status.right surfaces the readings divider follows.
+// overflow button. `readings` counts the visible status.right surfaces the readings divider follows (statusReadings).
 export const STATUS_ACTION_LIMIT = 4;
 export const ICON_PX = 28, GAP_PX = 8, DIVIDER_PX = 1, PAD_PX = 4;
 export function statusToolsWidth({ actions = 0, dock = 0, readings = 0 } = {}) {
@@ -34,7 +34,17 @@ export function statusToolsWidth({ actions = 0, dock = 0, readings = 0 } = {}) {
 
 // Native blocks keep provider contexts and subscriptions owned by their mounted view lifecycle.
 // `status` (optional) = { actions, dock }: the counts status-tools is sized for.
-export function extensionSurfaceLayout(root, packages, disabled = [], previous = [], status = null) {
+// Provider-reported emptiness (ARCHITECTURE §3.8): the shared key a provider sets to true while a status.right reading
+// has nothing to show. `read` is the shell's shared-state reader; the result holds the node IDs to hide.
+export const surfaceEmptyKey = (extension, surface) => `herdr-zed.surface-empty.${extension}.${surface}`;
+export const emptyStatusSurfaces = (packages, read) => new Set(packages.filter(entry => entry.id)
+  .flatMap(entry => (entry.surfaces || []).filter(surface => surface.location === 'status.right'
+    && read(surfaceEmptyKey(entry.id, surface.id)) === true).map(nodeId)));
+// Readings the status row shows: enabled status.right surfaces that are not reported empty.
+export const statusReadings = (packages, disabled, empty) => packages.filter(entry => !entry.error && !disabled.includes(entry.mod))
+  .flatMap(entry => entry.surfaces || []).filter(surface => surface.location === 'status.right' && !empty.has(nodeId(surface))).length;
+
+export function extensionSurfaceLayout(root, packages, disabled = [], previous = [], status = null, empty = new Set()) {
   if (!root) return null;
   const old = previous.flatMap(entry => entry.surfaces || []);
   const enabled = packages.filter(entry => !entry.error && !disabled.includes(entry.mod)).flatMap(entry => entry.surfaces || []);
@@ -88,6 +98,14 @@ export function extensionSurfaceLayout(root, packages, disabled = [], previous =
       });
     } else if (surface.location === 'dock.right') {
       if (find(next, 'workspace-row')) next = addAt(next, 'workspace-row', (node, item) => copyChildren(node, [...(node.children || []), item]));
+    }
+  }
+  // A status.right reading is hidden while its provider reports it empty; the status row closes up around it.
+  for (const surface of enabled.filter(item => item.location === 'status.right')) {
+    const id = nodeId(surface), hidden = empty.has(id), node = find(next, id);
+    if (node && Boolean(node.hidden) !== hidden) {
+      next = update(next, id, item => ({ ...item, hidden }));
+      changed = true;
     }
   }
   if (status) {

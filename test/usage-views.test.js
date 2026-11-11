@@ -15,7 +15,7 @@ const snapshot = { contexts: { null: { machine: null, loading: false, error: nul
 
 // Records what each rendered view creates: element ids, text children and the click handler of each id.
 async function harness(memory = { 'herdr-zed.usage.snapshot': snapshot }) {
-  const nodes = new Map(), texts = [], opened = [], runs = [];
+  const nodes = new Map(), texts = [], opened = [], runs = [], writes = [], ticks = [];
   let current = {};
   const element = () => {
     const target = {};
@@ -28,12 +28,12 @@ async function harness(memory = { 'herdr-zed.usage.snapshot': snapshot }) {
     } });
     return proxy;
   };
-  const cx = { notify() {}, focus_handle: () => ({ focus() {} }), timer: { every() {} }, spawn() {} };
+  const cx = { notify() {}, focus_handle: () => ({ focus() {} }), timer: { every: (ms, tick) => ticks.push(tick) }, spawn() {} };
   const base = { ...sessions, div: element, v_flex: element, h_flex: element, glyph: element, AgentIcon: element,
     Button: id => element().id(id), Progress: id => element().id(id),
     DialogContent: id => element().id(id), DialogTitle: element, DialogDescription: element, DialogFooter: element,
     DialogHeader: (_theme, title, { id }) => { texts.push(title); return element().id(id); },
-    shared: key => clone(memory[key]), setShared: (key, value) => { memory[key] = clone(value); },
+    shared: key => clone(memory[key]), setShared: (key, value) => { memory[key] = clone(value); writes.push(key); },
     openOverlay: spec => { opened.push(spec); return spec; }, closeOverlay() {}, run: command => runs.push(command),
     layout: () => ({ content: { mod: 'herdr-zed-agents', props: { view: 'service' } } }),
     spaces: () => [], theme: () => ({}), props: () => current,
@@ -48,7 +48,7 @@ async function harness(memory = { 'herdr-zed.usage.snapshot': snapshot }) {
   // Each mount is a fresh view instance, as the shell creates one per surface or dialog.
   const mount = (view, extra = {}) => { current = { view, overlay: `${view}-overlay`, ...extra }; texts.length = 0; nodes.clear();
     const mod = new AgentsMod(); mod.init({}, cx); return mod.render(cx); };
-  return { mount, nodes, texts, opened, runs, cx };
+  return { mount, nodes, texts, opened, runs, cx, writes, ticks, memory };
 }
 
 test('the sidebar Usage surface renders each account whose quota can be read, opens details and the token statistics dialog', async () => {
@@ -100,4 +100,27 @@ test('Usage views render without a snapshot: one muted line and a link to add an
   h.mount('usage-status');
   assert.equal(h.nodes.has('status-usage-codex'), false);
   assert.equal(h.texts.includes('Account usage'), false, 'the status item draws no group when nothing is readable');
+});
+
+test('the status reading reports to the shell when it has nothing to show, from its timer and only when that changes', async () => {
+  const memory = { 'herdr-zed.usage.snapshot': snapshot };
+  const h = await harness(memory);
+  const key = 'herdr-zed.surface-empty.agents.usage-status';
+  const tickAll = () => h.ticks.forEach(tick => tick(h.cx));
+  const writesTo = () => h.writes.filter(name => name === key).length;
+  h.mount('usage-status');
+  assert.equal(memory[key], false, 'a readable account shows the reading');
+  const written = writesTo();
+  tickAll();
+  assert.equal(writesTo(), written, 'no write while nothing changes');
+  memory['herdr-zed.usage.snapshot'] = { contexts: { null: { ...snapshot.contexts.null, usage: [] } } };
+  tickAll();
+  assert.equal(memory[key], true, 'no readable quota reports the reading empty');
+  assert.equal(writesTo(), written + 1);
+  tickAll();
+  assert.equal(writesTo(), written + 1, 'the same value is not written again');
+  memory['herdr-zed.usage.snapshot'] = snapshot;
+  tickAll();
+  assert.equal(memory[key], false);
+  assert.equal(writesTo(), written + 2);
 });

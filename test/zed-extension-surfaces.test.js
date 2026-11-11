@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { extensionMetadata, parseExtensionManifest } from '../mods/herdr-zed/extension-model.js';
-import { extensionSurfaceLayout, extensionSurfaceNodeId, statusToolsWidth } from '../mods/herdr-zed/extension-surfaces.js';
+import { extensionSurfaceLayout, extensionSurfaceNodeId, statusToolsWidth, surfaceEmptyKey, emptyStatusSurfaces, statusReadings } from '../mods/herdr-zed/extension-surfaces.js';
 import { systemManifest as systemText, simulatorManifest as simulatorText } from './extension-fixtures.js';
 
 const packageFor = (mod, text) => ({ mod, ...extensionMetadata(mod, text) });
@@ -92,4 +92,44 @@ test('surface removal keeps base status and unrelated nodes; native ID collision
   const before = structuredClone(collision);
   assert.throws(() => extensionSurfaceLayout(collision, [simulator]), /already in use/);
   assert.deepEqual(collision, before, 'Failed reconciliation does not mutate the supplied layout');
+});
+
+test('a status.right reading a provider reports empty is hidden, takes no width, and shows again when the key clears', () => {
+  const system = packageFor('herdr-zed-system', systemText);
+  const nodeId = 'zed-extension-surface-herdr-zed-system-inline';
+  assert.equal(surfaceEmptyKey('system', 'inline'), 'herdr-zed.surface-empty.system.inline');
+  const memory = { [surfaceEmptyKey('system', 'inline')]: true };
+  const read = key => memory[key];
+  const empty = emptyStatusSurfaces([system], read);
+  assert.deepEqual([...empty], [nodeId]);
+  assert.deepEqual(emptyStatusSurfaces([system], () => false), new Set(), 'false or absent keys are shown');
+  assert.equal(statusReadings([system], [], empty), 0, 'an empty reading does not count toward the readings divider');
+  assert.equal(statusReadings([system], [], new Set()), 1);
+  assert.equal(statusReadings([system], ['herdr-zed-system'], new Set()), 0, 'disabled packages count nothing');
+
+  const hidden = extensionSurfaceLayout(rootLayout(), [system], [], [], { actions: 2, dock: 0, readings: 0 }, empty);
+  assert.equal(find(hidden, nodeId).hidden, true, 'mounted hidden when reported empty');
+  assert.equal(find(hidden, 'status-tools').size.px, 133, 'the status row closes up: no divider before the actions');
+  assert.equal(extensionSurfaceLayout(hidden, [system], [], [system], { actions: 2, dock: 0, readings: 0 }, empty), null,
+    'unchanged emptiness does not rewrite the layout');
+
+  const shown = extensionSurfaceLayout(hidden, [system], [], [system], { actions: 2, dock: 0, readings: 1 }, new Set());
+  assert.equal(find(shown, nodeId).hidden, false, 'shown again when the key clears');
+  assert.equal(find(shown, 'status-tools').size.px, 142, 'the readings divider returns with the reading');
+  assert.deepEqual(find(shown, 'status-content').children.map(child => child.id), ['status-main', nodeId, 'status-tools']);
+
+  memory[surfaceEmptyKey('system', 'inline')] = null;
+  assert.equal(emptyStatusSurfaces([system], read).size, 0, 'a cleared (null) key is shown');
+  const bare = extensionSurfaceLayout(rootLayout(), [system], [], [], null, new Set([nodeId]));
+  assert.equal(find(bare, nodeId).hidden, true, 'an empty reading mounts hidden without a status argument');
+});
+
+test('only status.right surfaces are governed by emptiness; sidebar and dock state keeps its own rules', () => {
+  const system = packageFor('herdr-zed-system', systemText), simulator = packageFor('herdr-zed-simulator', simulatorText);
+  const empty = emptyStatusSurfaces([system, simulator], key => key.startsWith('herdr-zed.surface-empty.') ? true : undefined);
+  assert.deepEqual([...empty], ['zed-extension-surface-herdr-zed-system-inline'], 'widgets and the dock surface are not governed');
+  const mounted = extensionSurfaceLayout(rootLayout(), [system, simulator], [], [], null, empty);
+  assert.equal(find(mounted, 'zed-extension-surface-herdr-zed-system-widgets').hidden, true, 'sidebar keeps its first-mount hidden');
+  assert.equal(find(mounted, 'simulator').hidden, true, 'dock keeps its first-mount hidden');
+  assert.equal(find(mounted, 'zed-extension-surface-herdr-zed-system-inline').hidden, true);
 });

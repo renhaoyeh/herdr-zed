@@ -272,6 +272,18 @@ never writes it otherwise. Providers only read it.
   it stops presses (a window is otherwise dragged by them) and closes the panel on Esc that its controls did not consume.
 - The shell's `popup.placement: "workspace"` actions use the same function (§2.1), so there is one placement path.
 
+### 3.8 Status reading emptiness (provider → shell)
+
+`herdr-zed.surface-empty.<extension id>.<surface id>` = `true` while a `status.right` surface has nothing to show; `false`
+or absent (or `null`) means shown. The shell hides such a reading (`layout.hide`) so it takes no width, and shows it again
+when the key clears. Hidden readings do not count toward the readings divider (`statusReadings`).
+
+- The provider writes the key only when its value changes, from a timer or sync logic, never during render (every
+  `setShared` re-renders all mods, so a write from render would loop).
+- The shell reads the keys on each status layout sync; the status-tools view re-renders after every shared write and
+  triggers that sync. Disabling the extension clears its keys.
+- Only `status.right` surfaces are governed; the shell never hides a sidebar or dock surface through this key.
+
 ## 4. Mods and move order
 
 | # | Target | Source in devkits | Notes |

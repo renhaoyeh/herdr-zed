@@ -20,6 +20,9 @@ import { UsageService } from './usage/service.js';
 import { UsageDetails } from './usage/details.js';
 import Analytics from './usage/analytics.js';
 
+// The status reading's emptiness, read by the shell (ARCHITECTURE §3.8): extension id `agents`, surface `usage-status`.
+const USAGE_STATUS_EMPTY = 'herdr-zed.surface-empty.agents.usage-status';
+
 // One provider mod: the Agents views (picker, settings, accounts) and the Usage views (sidebar, details,
 // token statistics). A single `service` view runs both services.
 export default class AgentsMod extends View {
@@ -32,7 +35,11 @@ export default class AgentsMod extends View {
       return;
     }
     // Usage surfaces mount as native blocks (extension.json); each keeps its own lease with the Usage service.
-    if (['usage-sidebar', 'usage-status'].includes(target.view)) { this.usageClient = new UsageClient(); this.usageClient.init(cx); return; }
+    if (['usage-sidebar', 'usage-status'].includes(target.view)) {
+      this.usageClient = new UsageClient(); this.usageClient.init(cx);
+      if (target.view === 'usage-status') this.reportStatusEmpty(cx);
+      return;
+    }
     if (target.view === 'usage-details') { this.details = new UsageDetails(); this.details.init(cx); return; }
     if (target.view === 'token-statistics') { this.analytics = new Analytics(); this.analytics.init(cx); return; }
     if (target.view === 'account-login') { this.login = new AccountLogin(); this.login.init(target, cx); return; }
@@ -45,6 +52,19 @@ export default class AgentsMod extends View {
     } else this.initSessionMenu(cx);
   }
   cachedAgents(machine) { return discoverAgents(machine); }
+
+  // The shell hides the status reading while it has nothing to show (ARCHITECTURE §3.8). Checked from a timer, never from
+  // render, and written only when the value changes.
+  reportStatusEmpty(cx) {
+    const report = () => {
+      const empty = !this.usageClient.active() || !this.usageClient.readableEntries().length;
+      if (empty === this.statusEmpty) return;
+      this.statusEmpty = empty;
+      setShared(USAGE_STATUS_EMPTY, empty);
+    };
+    report();
+    cx.timer.every(1000, report);
+  }
 
   // The picker asks the Agents service to prepare the account and emit the launch request. The shell
   // takes it from there. The picker stays open with the error if preparation fails.

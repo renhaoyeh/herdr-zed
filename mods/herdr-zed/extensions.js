@@ -4,7 +4,7 @@ import { ToolbarButton, TOOLBAR_GLYPH } from './components/button.js';
 import { glyph } from './components/icon.js';
 import { DropdownMenu } from './components/dropdown-menu.js';
 import { parseExtensionRegistry, parseExtensionManifest, extensionPopup, extensionMetadata, extensionServiceLayout, gitActionPopup, resolveProviders, launcherAvailable, platformSupported, workspaceRect, windowHeightFromSidebar } from './extension-model.js';
-import { extensionSurfaceLayout, extensionSurfaceNodeId, STATUS_ACTION_LIMIT } from './extension-surfaces.js';
+import { extensionSurfaceLayout, extensionSurfaceNodeId, STATUS_ACTION_LIMIT, surfaceEmptyKey, emptyStatusSurfaces, statusReadings } from './extension-surfaces.js';
 import { openWorkspacePanel, WORKSPACE_RECT_KEY, WORKSPACE_PANEL_OVERLAY, usableWorkspaceRect } from './components/workspace-overlay.js';
 
 const DISABLED = 'herdr-zed.extensions.disabled';
@@ -44,12 +44,13 @@ export function setExtensionEnabled(mod, enabled) {
   syncExtensionServices();
 }
 
-// A disabled extension's shared envelopes must not outlive it: decorations and Git credentials are read by the shell.
+// A disabled extension's shared envelopes must not outlive it: decorations, Git credentials and surface emptiness are read by the shell.
 function clearExtensionState(mod) {
-  const id = (extensionCatalog().packages || []).find(entry => entry.mod === mod)?.id;
+  const entry = (extensionCatalog().packages || []).find(item => item.mod === mod), id = entry?.id;
   if (!id) return;
   setShared(`herdr-zed.decorations.${id}`, null);
   setShared(`herdr-zed.git-credentials.${id}`, null);
+  for (const surface of entry.surfaces || []) if (surface.location === 'status.right') setShared(surfaceEmptyKey(id, surface.id), null);
 }
 
 // Mods whose services and surfaces must not mount: disabled, or unavailable because a required extension is not active.
@@ -65,9 +66,11 @@ function syncExtensionServices() {
 function applyExtensionLayout(root, packages, disabled, previous) {
   try {
     const services = extensionServiceLayout(root, packages, disabled) || root;
+    // Providers report status.right readings with nothing to show (ARCHITECTURE §3.8); those mount hidden and take no width.
+    const empty = emptyStatusSurfaces(packages, shared);
     const status = { actions: extensionActions('status.right').length, dock: activeSurfaces('dock.right').length,
-      readings: visibleSurfaceCount('status.right') };
-    const next = extensionSurfaceLayout(services, packages, disabled, previous, status) || services;
+      readings: statusReadings(packages, disabled, empty) };
+    const next = extensionSurfaceLayout(services, packages, disabled, previous, status, empty) || services;
     if (next !== root) run('layout.set', { layout: next });
   } catch (error) {
     notify({ title: 'Could not mount extension surfaces', body: error.message, level: 'error' });
