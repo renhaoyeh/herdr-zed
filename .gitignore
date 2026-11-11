@@ -4,3 +4,4 @@ types/herdr/
 mods/*/gpui-kit.d.ts
 mods/*/components/gpui-kit.d.ts
 mods/*/jsconfig.json
+docs/
