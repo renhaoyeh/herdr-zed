@@ -3,8 +3,8 @@ import { h_flex, v_flex } from 'gpui-base';
 import { exec, appHome, knownAgents, closeOverlay, props, theme } from 'herdr';
 import { summarize } from './analytics-model.js';
 import { costLabel, pricingDate } from './analytics-pricing.js';
-import { Button } from './components/button.js';
-import { DialogContent, DialogTitle, DialogDescription, DialogFooter } from './components/dialog.js';
+import { Button } from '../components/button.js';
+import { DialogContent, DialogTitle, DialogDescription, DialogFooter } from '../components/dialog.js';
 
 const number = value => String(Math.round(value || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 const short = value => value >= 1e9 ? `${(value / 1e9).toFixed(1)}B` : value >= 1e6 ? `${(value / 1e6).toFixed(1)}M` : value >= 1000 ? `${(value / 1000).toFixed(1)}K` : number(value);
@@ -26,7 +26,7 @@ export default class Analytics {
             : agent.key === 'claude' || agent.run?.some(arg => arg.startsWith('CLAUDE_CONFIG_DIR=')) ? 'claude' : null;
           return provider ? [{ ...agent, provider }] : [];
         });
-        const result = await exec('node', [`${appHome()}/mods/devkits-usage/analytics-reader.js`, appHome(), JSON.stringify(accounts)]);
+        const result = await exec('node', [`${appHome()}/mods/herdr-zed-agents/usage/analytics-reader.js`, appHome(), JSON.stringify(accounts)]);
         if (result.code !== 0) throw new Error('Could not read local token statistics.');
         this.data = JSON.parse(result.stdout); this.error = null;
       } catch (error) { this.error = error.message; }

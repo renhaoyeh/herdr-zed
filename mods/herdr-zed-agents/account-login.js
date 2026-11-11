@@ -249,8 +249,8 @@ export default class AccountLogin {
         }
         await registerAccount(profile);
         // Settings stays open beneath this dialog and reloads its accounts on this revision.
-        setShared('devkits.agent-cache', {});
-        setShared('devkits.profile-revision', (shared('devkits.profile-revision') || 0) + 1);
+        setShared('herdr-zed.agent-cache', {});
+        setShared('herdr-zed.profile-revision', (shared('herdr-zed.profile-revision') || 0) + 1);
         this.phase = 'success';
         this.email = email || profile.name;
       } catch (error) {
@@ -405,7 +405,7 @@ export default class AccountLogin {
 
   finish() {
     closeOverlay(this.target.overlay);
-    if (this.target.returnTo) openOverlay({ mod: 'devkits-agents', kind: 'dialog', frame: 'none', modal: false, width: 1040, height: 0.86,
+    if (this.target.returnTo) openOverlay({ mod: 'herdr-zed-agents', kind: 'dialog', frame: 'none', modal: false, width: 1040, height: 0.86,
       props: { ...this.target.returnTo, refreshAgents: true } });
   }
 

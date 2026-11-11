@@ -1,4 +1,4 @@
-// Shared: edit mods/devkits/components/claude-usage-hook.js, then npm run sync:shared.
+// Shared: edit components/claude-usage-hook.js, then npm run sync:shared.
 import { appHome, readTextFile, writeTextFile } from 'herdr';
 
 // Usage comes from Claude Code's own status line data. Another tool's status line is kept: without
@@ -8,9 +8,9 @@ export async function ensureClaudeStatusLine(directory, { chain = false } = {}) 
   const source = await readTextFile(path);
   const data = source === null ? {} : JSON.parse(source);
   if (!data || typeof data !== 'object' || Array.isArray(data)) return false;
-  const command = `node "${appHome().replace(/\\/g, '/')}/mods/devkits-usage/claude-statusline.js"`;
+  const command = `node "${appHome().replace(/\\/g, '/')}/mods/herdr-zed-agents/usage/claude-statusline.js"`;
   const current = data.statusLine;
-  const ours = /\/devkits-usage\/claude-statusline\.js"$/.test(String(current?.command || ''));
+  const ours = /\/herdr-zed-agents\/usage\/claude-statusline\.js"$/.test(String(current?.command || ''));
   if (ours && current.command === command) return false;
   if (current && !ours) {
     if (!chain || current.type !== 'command' || typeof current.command !== 'string') return false;

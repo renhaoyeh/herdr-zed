@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { usageWindows, readUsage, readCodexUsage, claudePlan } from '../mods/devkits-usage/usage-reader.js';
-import { quotaResetLabel, autoAgent, planMultiplier, planLabel } from '../mods/devkits/components/session-model.js';
+import { usageWindows, readUsage, readCodexUsage, claudePlan } from '../mods/herdr-zed-agents/usage/usage-reader.js';
+import { quotaResetLabel, autoAgent, planMultiplier, planLabel } from '../components/session-model.js';
 
 test('resets count down in days/hours or hours/minutes; overdue and absent times stay explicit', () => {
   const now = Date.UTC(2026, 10, 6, 8);
@@ -108,8 +108,8 @@ test('usage reads a saved env launcher through an npm-style shell shim on Window
 });
 
 test('Claude usage comes only from the status line recording in the account directory', async () => {
-  const { claudeUsageWindows, readClaudeUsage, claudeConfigDir } = await import('../mods/devkits-usage/usage-reader.js');
-  const { record, statusText } = await import('../mods/devkits-usage/claude-statusline.js');
+  const { claudeUsageWindows, readClaudeUsage, claudeConfigDir } = await import('../mods/herdr-zed-agents/usage/usage-reader.js');
+  const { record, statusText } = await import('../mods/herdr-zed-agents/usage/claude-statusline.js');
   const { mkdtemp, readFile } = await import('node:fs/promises');
   const { tmpdir } = await import('node:os');
   assert.deepEqual(claudeUsageWindows({ five_hour: { used_percentage: 13.4, resets_at: 1793939999 },
@@ -141,7 +141,7 @@ test('Claude usage comes only from the status line recording in the account dire
 });
 
 test('a chained status line receives the same input and its output replaces the usage text', async () => {
-  const { chained } = await import('../mods/devkits-usage/claude-statusline.js');
+  const { chained } = await import('../mods/herdr-zed-agents/usage/claude-statusline.js');
   const { mkdtemp, writeFile } = await import('node:fs/promises');
   const { tmpdir } = await import('node:os');
   const directory = await mkdtemp(`${tmpdir()}/claude-chain-`);

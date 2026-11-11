@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "id": "agents",
+  "title": "Agents",
+  "services": [{ "view": "service" }],
+  "actions": [],
+  "provides": {
+    "launcher": {
+      "picker": { "view": "launcher", "width": 280 },
+      "settings": { "view": "manage-launchers", "width": 1040, "height": 0.86 }
+    },
+    "threadDecorator": { "fields": ["badge", "tone"] }
+  }
+}

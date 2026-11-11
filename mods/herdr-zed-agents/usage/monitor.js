@@ -1,8 +1,8 @@
-import { AgentClient } from './components/agents.js';
+import { AgentClient } from '../components/agents.js';
 import { shared, setShared, exec, appHome, home } from 'herdr';
-import { launcherChoices, isAccountLauncher, configuredAgents } from './components/session-model.js';
-import { ensureClaudeStatusLine } from './components/claude-usage-hook.js';
-import { UsageClient } from './components/usage.js';
+import { launcherChoices, isAccountLauncher, configuredAgents } from '../components/session-model.js';
+import { ensureClaudeStatusLine } from '../components/claude-usage-hook.js';
+import { UsageClient } from '../components/usage.js';
 const usageCacheMs = 5 * 60000;
 const usageProvider = agent => !Array.isArray(agent?.run) ? null
   : agent.run.some(arg => !arg.includes('=') && /(?:^|[/\\])codex(?:\.exe)?$/i.test(arg)) ? 'codex'
@@ -16,14 +16,14 @@ export class UsageMonitor extends UsageClient {
   projects() { return [{ active: true, machine: this.machine }]; }
   agentClient = new AgentClient();
   cachedAgents(machine, refresh = false) {
-    const cached = shared('devkits.agent-cache')?.[JSON.stringify(machine || null)];
-    if (!refresh && cached) return Promise.resolve(machine ? cached.filter(agent => !isAccountLauncher(agent)) : configuredAgents(cached, shared('devkits.agent-configs') || []));
+    const cached = shared('herdr-zed.agent-cache')?.[JSON.stringify(machine || null)];
+    if (!refresh && cached) return Promise.resolve(machine ? cached.filter(agent => !isAccountLauncher(agent)) : configuredAgents(cached, shared('herdr-zed.agent-configs') || []));
     return this.agentClient.discover(machine, refresh);
   }
   snapshot() {
     const machine = this.projects().find(project => project.active)?.machine || null;
-    const choices = launcherChoices(this.usageMachine === machine ? this.usageAgents || [] : [], shared('devkits.launcher-order') || [])
-      .filter(choice => choice.agent && !choice.agent.profileKey && !(shared('devkits.hidden-usage-profiles') || []).includes(choice.agent.key))
+    const choices = launcherChoices(this.usageMachine === machine ? this.usageAgents || [] : [], shared('herdr-zed.launcher-order') || [])
+      .filter(choice => choice.agent && !choice.agent.profileKey && !(shared('herdr-zed.hidden-usage-profiles') || []).includes(choice.agent.key))
       .map(choice => ({ key: choice.key, name: choice.name,
         agent: { key: choice.agent.key, name: choice.agent.name, icon: choice.agent.icon, tint: choice.agent.tint },
         provider: machine ? null : usageProvider(choice.agent) }));
@@ -36,15 +36,15 @@ export class UsageMonitor extends UsageClient {
   publish() {
     const snapshot = this.snapshot(), signature = JSON.stringify(snapshot);
     if (signature === this.published) return; this.published = signature;
-    const cached = shared('devkits.usage.snapshot') || {};
-    setShared('devkits.usage.snapshot', { contexts: { ...cached.contexts, [JSON.stringify(snapshot.machine)]: snapshot } });
+    const cached = shared('herdr-zed.usage.snapshot') || {};
+    setShared('herdr-zed.usage.snapshot', { contexts: { ...cached.contexts, [JSON.stringify(snapshot.machine)]: snapshot } });
   }
   refreshUsage(cx, force = true, manual = false) {
     if (!this.active()) { this.usageScope = null; return; }
     const machine = this.projects().find(project => project.active)?.machine || null;
-    const hidden = shared('devkits.hidden-usage-profiles') || [];
-    const order = shared('devkits.launcher-order') || [];
-    const scope = JSON.stringify([machine, hidden, order, shared('devkits.profile-revision') || 0]);
+    const hidden = shared('herdr-zed.hidden-usage-profiles') || [];
+    const order = shared('herdr-zed.launcher-order') || [];
+    const scope = JSON.stringify([machine, hidden, order, shared('herdr-zed.profile-revision') || 0]);
     if (this.usageLoading || (!force && this.usageScope === scope)) return;
     this.usageScope = scope;
     this.usageLoading = true; this.publish();
@@ -59,9 +59,9 @@ export class UsageMonitor extends UsageClient {
         this.usageError = null;
         this.publish(); cx.notify();
         const accounts = launcherChoices(this.usageAgents, order)
-          .filter(choice => choice.agent && !(shared('devkits.hidden-usage-profiles') || []).includes(choice.agent.key) && !machine && usageProvider(choice.agent)).map(choice => choice.agent);
+          .filter(choice => choice.agent && !(shared('herdr-zed.hidden-usage-profiles') || []).includes(choice.agent.key) && !machine && usageProvider(choice.agent)).map(choice => choice.agent);
         // Cached results survive reloads and restarts so providers are queried at most once per interval.
-        const cached = () => shared('devkits.usage-cache') || {};
+        const cached = () => shared('herdr-zed.usage-cache') || {};
         const now = Date.now();
         // Set up the status line once per app session; the built-in profile chains any status line it already has.
         this.statusLines ||= new Set();
@@ -79,7 +79,7 @@ export class UsageMonitor extends UsageClient {
         if (stale.length) {
           if (!this.active()) return;
           this.publish(); cx.notify();
-          const result = await exec('node', [`${appHome()}/mods/devkits-usage/usage-reader.js`,
+          const result = await exec('node', [`${appHome()}/mods/herdr-zed-agents/usage/usage-reader.js`,
             JSON.stringify(stale.map(account => ({ ...account, provider: usageProvider(account) })))]);
           if (result.code !== 0) throw new Error('Could not read usage');
           const next = { ...cached() };
@@ -89,7 +89,7 @@ export class UsageMonitor extends UsageClient {
             next[entry.key] = entry.error && previous?.windows
               ? { ...previous, error: entry.error, ...(entry.email ? { email: entry.email } : {}), checkedAt: Date.now() } : { ...entry, checkedAt: Date.now() };
           }
-          setShared('devkits.usage-cache', next);
+          setShared('herdr-zed.usage-cache', next);
           this.usage = accounts.map(account => next[account.key]).filter(Boolean);
         }
       } catch { this.usageError = 'Could not read usage'; }

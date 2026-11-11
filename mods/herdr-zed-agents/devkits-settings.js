@@ -61,7 +61,7 @@ export const devkitsSettings = {
       try {
         const catalog = devkitsCatalog(appHome());
         const [text, mcp, info, skills] = await Promise.all([readTextFile(devkitsPath()), readTextFile(sharedMcpPath()),
-          exec('node', [`${appHome()}/mods/devkits-agents/mcp-probe.js`, 'info'], { timeout: 10000 }), readDevkitsSkills([...catalog.rules, ...catalog.skills])]);
+          exec('node', [`${appHome()}/mods/herdr-zed-agents/mcp-probe.js`, 'info'], { timeout: 10000 }), readDevkitsSkills([...catalog.rules, ...catalog.skills])]);
         if (info.code !== 0) throw Error('Could not identify the local platform. Check Node.js.');
         const platformInfo = JSON.parse(info.stdout || '{}');
         if (!['windows', 'macos', 'linux'].includes(platformInfo.platform)) throw Error('Local platform information is unavailable.');
@@ -89,7 +89,7 @@ export const devkitsSettings = {
     cx.spawn(async cx => {
       try {
         const payload = { capabilities: { expected: this.capOriginal, text }, mcp: { expected: this.mcpOriginal, text: mcp } };
-        const result = await exec('node', [`${appHome()}/mods/devkits-agents/devkits-save.js`, appHome(), JSON.stringify(payload)], { timeout: 15000 });
+        const result = await exec('node', [`${appHome()}/mods/herdr-zed-agents/devkits-save.js`, appHome(), JSON.stringify(payload)], { timeout: 15000 });
         if (result.code !== 0) throw Error(result.stderr?.trim() || 'Could not save selections and connections. The draft is retained.');
         if (JSON.parse(result.stdout || '{}').saved !== true) throw Error('Save returned no confirmation. Reload before retrying.');
         if (this.capClosed) return;

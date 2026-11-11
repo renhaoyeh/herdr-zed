@@ -3,15 +3,15 @@ import { sessionKind, isAccountLauncher, configuredAgents } from './components/s
 const agentDiscoveryLoads = new Map();
 export function availableAgents(profiles, machine) {
     if (machine) return profiles;
-    return configuredAgents(profiles, shared('devkits.agent-configs') || []);
+    return configuredAgents(profiles, shared('herdr-zed.agent-configs') || []);
   }
 export async function discoverAgents(machine, refresh = false) {
     if (refresh) {
-      const next = { ...(shared('devkits.agent-cache') || {}) }; delete next[JSON.stringify(machine || null)];
-      setShared('devkits.agent-cache', next);
+      const next = { ...(shared('herdr-zed.agent-cache') || {}) }; delete next[JSON.stringify(machine || null)];
+      setShared('herdr-zed.agent-cache', next);
     }
     const key = JSON.stringify(machine || null);
-    const cached = shared('devkits.agent-cache')?.[key];
+    const cached = shared('herdr-zed.agent-cache')?.[key];
     if (cached) return availableAgents(cached, machine);
     if (agentDiscoveryLoads.has(key)) return availableAgents(await agentDiscoveryLoads.get(key), machine);
     const pending = (async () => {
@@ -32,7 +32,7 @@ export async function discoverAgents(machine, refresh = false) {
           .map(agent => typeof programs[agent.key]?.name === 'string'
           ? { ...agent, name: programs[agent.key].name } : agent);
       }
-      setShared('devkits.agent-cache', { ...(shared('devkits.agent-cache') || {}), [key]: agents });
+      setShared('herdr-zed.agent-cache', { ...(shared('herdr-zed.agent-cache') || {}), [key]: agents });
       return agents;
     })();
     agentDiscoveryLoads.set(key, pending);
@@ -43,19 +43,19 @@ export async function discoverAgents(machine, refresh = false) {
 const identityReads = new Set();
 export function loadAccountIdentities(cx, agents, machine = null) {
     if (machine) return;
-    const usage = shared('devkits.usage.snapshot')?.contexts?.[JSON.stringify(null)]?.usage || [];
+    const usage = shared('herdr-zed.usage.snapshot')?.contexts?.[JSON.stringify(null)]?.usage || [];
     const missing = (agents || []).filter(agent => !agent.profileKey && ['claude', 'codex'].includes(sessionKind(agent))
       && !usage.find(item => item.key === agent.key)?.email && !identityReads.has(agent.key));
     if (!missing.length) return;
     for (const agent of missing) identityReads.add(agent.key);
     cx.spawn(async cx => {
       try {
-        const result = await exec('node', [`${appHome()}/mods/devkits-usage/usage-reader.js`,
+        const result = await exec('node', [`${appHome()}/mods/herdr-zed-agents/usage/usage-reader.js`,
           JSON.stringify(missing.map(agent => ({ key: agent.key, name: agent.name, run: agent.run, provider: sessionKind(agent) })))]);
         if (result.code === 0) {
-          const saved = { ...(shared('devkits.account-identities') || {}) };
+          const saved = { ...(shared('herdr-zed.account-identities') || {}) };
           for (const entry of JSON.parse(result.stdout)) saved[entry.key] = { email: entry.email || null, plan: entry.plan || null };
-          setShared('devkits.account-identities', saved);
+          setShared('herdr-zed.account-identities', saved);
         }
       } catch {}
       cx.notify();

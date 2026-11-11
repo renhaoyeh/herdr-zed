@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import * as model from '../mods/devkits-agents/global-rules-model.js';
-import { rulesArgv } from '../mods/devkits/components/session-model.js';
+import * as model from '../mods/herdr-zed-agents/global-rules-model.js';
+import { rulesArgv } from '../components/session-model.js';
 import { evaluateNative } from './source-harness.js';
 
 test('Global Rules contains only custom instructions and preserves their headings', () => {
@@ -14,7 +14,7 @@ test('Global Rules contains only custom instructions and preserves their heading
 });
 
 test('both providers receive custom global text without built-in instructions', async () => {
-  const { sessionRules } = await evaluateNative('../mods/devkits-agents/global-rules.js', {
+  const { sessionRules } = await evaluateNative('../mods/herdr-zed-agents/global-rules.js', {
     ...model, rulesPath: () => '/guide/AGENTS.md', readTextFile: async () => 'My custom policy.', shared: () => undefined,
   }, 'sessionRules');
   const rules = await sessionRules();
@@ -27,7 +27,7 @@ test('both providers receive custom global text without built-in instructions', 
 
 test('all disabled rules and intentionally empty Guides inject no global instructions', async () => {
   for (const source of [model.defaultRules, '', null]) {
-    const { sessionRules } = await evaluateNative('../mods/devkits-agents/global-rules.js', {
+    const { sessionRules } = await evaluateNative('../mods/herdr-zed-agents/global-rules.js', {
       ...model, rulesPath: () => '/guide', readTextFile: async () => source,
       shared: () => ({ core: false, tasks: false, mcp: false, visual_studio: false, custom: false }),
     }, 'sessionRules');
@@ -38,7 +38,7 @@ test('all disabled rules and intentionally empty Guides inject no global instruc
 test('settings keep checkbox edits as drafts and preserve them after a concurrent Guide write fails', async () => {
   const memory = {}, jobs = [], states = [];
   let source = model.defaultRules, conflict = false;
-  const { globalRulesSettings } = await evaluateNative('../mods/devkits-agents/global-rules-settings.js', {
+  const { globalRulesSettings } = await evaluateNative('../mods/herdr-zed-agents/global-rules-settings.js', {
     ...model, rulesPath: () => '/guide', shared: key => memory[key], setShared: (key, value) => { memory[key] = value; },
     readTextFile: async () => source,
     writeTextFile: async (_path, next, expected) => {

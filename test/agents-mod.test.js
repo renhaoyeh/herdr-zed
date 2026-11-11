@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import * as sessions from '../mods/devkits/components/session-model.js';
+import * as sessions from '../components/session-model.js';
 import { evaluateNative } from './source-harness.js';
 
 const clone = value => value === undefined ? undefined : JSON.parse(JSON.stringify(value));
@@ -8,14 +8,14 @@ async function modules(overrides = {}) {
   const memory = {}, queue = [], calls = [];
   const host = { ...sessions, appHome: () => '/herdr',
     shared: key => clone(memory[key]), setShared: (key, value) => { memory[key] = clone(value); },
-    layout: () => ({ id: 'root', children: [{ content: { mod: 'devkits-agents', props: { view: 'service' } } }] }),
+    layout: () => ({ id: 'root', children: [{ content: { mod: 'herdr-zed-agents', props: { view: 'service' } } }] }),
     run: (...args) => calls.push(args), openOverlay: spec => spec, spaces: () => [],
     ensureRules: async () => {}, discoverAgents: async () => [{ key: 'codex' }],
     prepareSession: async (agent, target, options) => ({ argv: [agent.key, options.model || 'default'], session: {} }),
     ...overrides,
   };
-  const { AgentClient } = await evaluateNative('../mods/devkits/components/agents.js', host, 'AgentClient');
-  const { AgentsService } = await evaluateNative('../mods/devkits-agents/service.js', host, 'AgentsService');
+  const { AgentClient } = await evaluateNative('../components/agents.js', host, 'AgentClient');
+  const { AgentsService } = await evaluateNative('../mods/herdr-zed-agents/service.js', host, 'AgentsService');
   const cx = { timer: { every() {} }, spawn(fn) { queue.push(fn(this)); }, notify() {} };
   const service = new AgentsService(), client = new AgentClient(); client.init(cx);
   const drain = async () => { service.poll(cx); await Promise.all(queue.splice(0)); client.poll(); };
@@ -28,8 +28,8 @@ test('isolated Agents clients use serialized discovery and preparation without c
   assert.deepEqual(await discovery, [{ key: 'codex' }]);
   const preparation = h.client.prepare({ key: 'codex' }, { space: 'one' }, { model: 'chosen' }); await h.drain();
   assert.deepEqual((await preparation).argv, ['codex', 'chosen']);
-  assert.deepEqual(h.memory['devkits.agents.requests'], []);
-  assert.deepEqual(h.memory['devkits.agents.results'], {});
+  assert.deepEqual(h.memory['herdr-zed.agents.requests'], []);
+  assert.deepEqual(h.memory['herdr-zed.agents.results'], {});
   assert.deepEqual(h.calls, []);
   assert.ok(!Object.keys(h.memory).some(key => key.includes('tasks') || key.includes('thread')));
 });
@@ -48,7 +48,7 @@ test('preparation failures reach the caller and cancelled in-flight replies are 
   h.client.close(); await rejected;
   finish({ argv: ['codex'] }); await new Promise(resolve => setImmediate(resolve));
   assert.equal(reads, 1);
-  assert.deepEqual(h.memory['devkits.agents.results'], {});
+  assert.deepEqual(h.memory['herdr-zed.agents.results'], {});
 });
 
 test('unmounted and expired requests fail without hanging or retaining transport data', async () => {
@@ -68,7 +68,7 @@ test('one client consuming its reply preserves another client’s pending reply'
   const first = h.client.discover(), second = other.discover('remote');
   await h.drain();
   assert.deepEqual(await first, [{ key: 'codex' }]);
-  assert.equal(Object.keys(h.memory['devkits.agents.results']).length, 1);
+  assert.equal(Object.keys(h.memory['herdr-zed.agents.results']).length, 1);
   other.poll(); assert.deepEqual(await second, [{ key: 'codex' }]);
-  assert.deepEqual(h.memory['devkits.agents.results'], {});
+  assert.deepEqual(h.memory['herdr-zed.agents.results'], {});
 });

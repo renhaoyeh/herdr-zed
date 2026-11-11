@@ -1,6 +1,6 @@
 // Rule content stays in the editable Guide; switches control only session injection.
 export const ruleModules = [];
-export const ruleSettingsKey = 'devkits.global-rules';
+export const ruleSettingsKey = 'herdr-zed.global-rules';
 export const defaultRules = '';
 
 export function ruleSelection(saved = {}) {

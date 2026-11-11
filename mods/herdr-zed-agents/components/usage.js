@@ -1,4 +1,4 @@
-// Shared: edit mods/devkits/components/usage.js, then npm run sync:shared.
+// Shared: edit components/usage.js, then npm run sync:shared.
 import { div } from 'gpui-kit';
 import { v_flex, h_flex } from 'gpui-base';
 import { shared, openOverlay, run, layout } from 'herdr';
@@ -8,7 +8,7 @@ import { Progress } from './progress.js';
 import { glyph, AgentIcon } from './icon.js';
 export const usageClientPrefix = 'usage-client:';
 const usageServiceMounted = (node = layout()) => Boolean(node && (
-  node.content?.mod === 'devkits-usage' && node.content.props?.view === 'service'
+  node.content?.mod === 'herdr-zed-agents' && node.content.props?.view === 'service'
   || node.children?.some(child => usageServiceMounted(child))));
 export const usageRefreshPrefix = 'usage-refresh:';
 export const usageCommand = (prefix, payload) => prefix + encodeURIComponent(JSON.stringify(payload));
@@ -16,8 +16,8 @@ export function usageMessage(command, prefix) {
   if (!command.startsWith(prefix)) return null;
   try { return JSON.parse(decodeURIComponent(command.slice(prefix.length))); } catch { return null; }
 }
-export const openUsageAnalytics = () => openOverlay({ mod: 'devkits-usage', kind: 'dialog', frame: 'none', modal: false, width: 1080, height: 0.85, props: { view: 'token-statistics' } });
-export const openUsageDetails = account => openOverlay({ mod: 'devkits-usage', kind: 'dialog', frame: 'none', modal: false, width: 480, height: 480, props: { view: 'usage-details', account } });
+export const openUsageAnalytics = () => openOverlay({ mod: 'herdr-zed-agents', kind: 'dialog', frame: 'none', modal: false, width: 1080, height: 0.85, props: { view: 'token-statistics' } });
+export const openUsageDetails = account => openOverlay({ mod: 'herdr-zed-agents', kind: 'dialog', frame: 'none', modal: false, width: 480, height: 480, props: { view: 'usage-details', account } });
 // Compact percentages turn the meter's warning colors at the same thresholds.
 const percentColor = (percent, t) => percent >= 90 ? t.ansi1 : percent >= 70 ? t.blocked : t.muted;
 const shortWindow = window => `${window.minutes === 300 ? '5h' : 'W'} ${Math.round(window.usedPercent)}%`;
@@ -30,7 +30,7 @@ export class UsageClient {
   heartbeat() {
     if (!this.started || !usageServiceMounted()) return false;
     this.contextSignature = JSON.stringify([Boolean(this.active()), this.context()?.machine || null]);
-    run('devkits-usage.' + usageCommand(usageClientPrefix, { id: this.clientId, active: Boolean(this.active()), machine: this.context()?.machine || null }));
+    run('herdr-zed-agents.' + usageCommand(usageClientPrefix, { id: this.clientId, active: Boolean(this.active()), machine: this.context()?.machine || null }));
     return true;
   }
   sync() { if (this.contextSignature !== JSON.stringify([Boolean(this.active()), this.context()?.machine || null])) this.heartbeat(); }
@@ -38,10 +38,10 @@ export class UsageClient {
     // Native close commands can outlive their provider; let the five-second lease expire.
     this.started = false;
   }
-  refresh() { if (this.heartbeat()) run('devkits-usage.' + usageCommand(usageRefreshPrefix, { id: this.clientId })); }
+  refresh() { if (this.heartbeat()) run('herdr-zed-agents.' + usageCommand(usageRefreshPrefix, { id: this.clientId })); }
   snapshot() {
     const machine = this.context()?.machine || null;
-    return shared('devkits.usage.snapshot')?.contexts?.[JSON.stringify(machine)] || { machine, choices: [], usage: [], loading: false, error: null };
+    return shared('herdr-zed.usage.snapshot')?.contexts?.[JSON.stringify(machine)] || { machine, choices: [], usage: [], loading: false, error: null };
   }
   // Each shown account's reading, status and display name, shared by the sidebar and status bar presentations.
   entries(snapshot = this.snapshot()) {

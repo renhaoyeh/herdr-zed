@@ -1,18 +1,18 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { evaluateNative } from './source-harness.js';
-import { configuredAgents } from '../mods/devkits/components/session-model.js';
+import { configuredAgents } from '../components/session-model.js';
 
 const profile = { key: 'codex', name: 'Codex', run: ['codex'] };
 const preset = { key: 'devkits-preset-review', profileKey: 'codex', name: 'Review', instructions: 'Use the current profile guide.' };
 
 async function load({ eccInstructions = '', kitInstructions = '', remote = false, rulesError = false, rulesGate = null, config = preset, saved = {}, options = {}, target = { space: 'local' } } = {}) {
   const calls = [], memory = {
-    'devkits.agent-cache': { null: [{ ...profile, name: 'Current Codex' }] },
-    'devkits.agent-configs': config ? [config] : [],
-    'devkits.profile-sessions': { [config?.key || 'codex']: { model: 'saved-model', effort: 'high', serviceTier: 'fast', ...saved } },
-    'devkits.codex-permissions': { [config?.key || 'codex']: 'workspace-write' },
-    'devkits.session-options': {},
+    'herdr-zed.agent-cache': { null: [{ ...profile, name: 'Current Codex' }] },
+    'herdr-zed.agent-configs': config ? [config] : [],
+    'herdr-zed.profile-sessions': { [config?.key || 'codex']: { model: 'saved-model', effort: 'high', serviceTier: 'fast', ...saved } },
+    'herdr-zed.codex-permissions': { [config?.key || 'codex']: 'workspace-write' },
+    'herdr-zed.session-options': {},
   };
   const host = {
     spaces: () => [{ id: 'local', ...(remote ? { machine: 'host' } : {}) }],
@@ -28,7 +28,7 @@ async function load({ eccInstructions = '', kitInstructions = '', remote = false
     sessionDevkits: async () => { calls.push(['devkits']); return kitInstructions; },
     sessionMcpArgv: async (agent, argv) => { calls.push(['mcp']); return [...argv, 'shared-mcp']; },
   };
-  const { prepareSession } = await evaluateNative('../mods/devkits-agents/session-preparation.js', host, 'prepareSession');
+  const { prepareSession } = await evaluateNative('../mods/herdr-zed-agents/session-preparation.js', host, 'prepareSession');
   return { prepareSession, calls, options, target, memory };
 }
 
@@ -47,7 +47,7 @@ test('local preparation uses current profile instructions, saved settings and pe
 test('either remote target marker omits local rules, profile instructions and both MCP sources', async () => {
   for (const target of [{ machine: 'host', space: 'local' }, { space: 'local' }]) {
     const h = await load({ remote: target.machine === undefined, target });
-    h.memory['devkits.agent-cache'][JSON.stringify('host')] = [{ ...profile, run: ['remote-codex'] }];
+    h.memory['herdr-zed.agent-cache'][JSON.stringify('host')] = [{ ...profile, run: ['remote-codex'] }];
     const result = await h.prepareSession({ key: 'codex', run: ['stale-codex'] }, target, {});
     assert.ok(result.argv.includes('tasks=null'));
     assert.ok(!result.argv.includes('shared-mcp'));
@@ -64,7 +64,7 @@ test('missing named profile configuration rejects before argv preparation', asyn
 
 test('a valid passed named profile remains usable before the profile cache is populated', async () => {
   const h = await load();
-  delete h.memory['devkits.agent-cache'];
+  delete h.memory['herdr-zed.agent-cache'];
   const result = await h.prepareSession({ key: preset.key, profileKey: 'codex', run: ['codex'] }, h.target);
   assert.ok(result.argv.includes('instructions=Use the current profile guide.'));
   assert.equal(h.calls.find(([name]) => name === 'launcher')[1], preset.key);
@@ -83,7 +83,7 @@ test('removing a profile while its global guide loads prevents the prepared laun
   const rulesGate = new Promise(resolve => { release = resolve; });
   const h = await load({ rulesGate });
   const pending = h.prepareSession({ key: preset.key, profileKey: 'codex' }, h.target);
-  h.memory['devkits.agent-configs'] = [];
+  h.memory['herdr-zed.agent-configs'] = [];
   release();
   await assert.rejects(pending, /configuration is unavailable/);
   assert.ok(!h.calls.some(([name]) => name === 'mcp'));

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
-import { verifyMcp, mcpSetupInfo } from '../mods/devkits-agents/mcp-probe.js';
+import { verifyMcp, mcpSetupInfo } from '../mods/herdr-zed-agents/mcp-probe.js';
 
 const stdioSource = `const r=require('node:readline').createInterface({input:process.stdin});r.on('line',line=>{const m=JSON.parse(line);if(!m.id)return;let result;if(m.method==='initialize')result={protocolVersion:'2025-06-18',capabilities:{tools:{}},serverInfo:{name:String(process.pid)}};else if(m.method==='tools/list')result={tools:[{name:'fixture'}]};else process.exit(19);console.log(JSON.stringify({jsonrpc:'2.0',id:m.id,result}));});`;
 

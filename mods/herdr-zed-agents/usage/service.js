@@ -1,6 +1,6 @@
 import { nextCommand } from 'herdr';
 import { UsageMonitor } from './monitor.js';
-import { usageMessage, usageClientPrefix, usageRefreshPrefix } from './components/usage.js';
+import { usageMessage, usageClientPrefix, usageRefreshPrefix } from '../components/usage.js';
 export class UsageService {
   constructor() { this.clients = new Map(); this.monitors = new Map(); }
   active(machine) { return [...this.clients.values()].some(client => client.machine === machine && client.until > Date.now()); }

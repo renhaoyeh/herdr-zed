@@ -1,10 +1,10 @@
 import { div } from 'gpui-kit';
 import { v_flex, h_flex } from 'gpui-base';
 import { props, closeOverlay } from 'herdr';
-import { quotaResetLabel, quotaElapsedPercent } from './components/session-model.js';
-import { Button } from './components/button.js';
-import { Progress } from './components/progress.js';
-import { DialogContent, DialogTitle, DialogDescription, DialogFooter } from './components/dialog.js';
+import { quotaResetLabel, quotaElapsedPercent } from '../components/session-model.js';
+import { Button } from '../components/button.js';
+import { Progress } from '../components/progress.js';
+import { DialogContent, DialogTitle, DialogDescription, DialogFooter } from '../components/dialog.js';
 export class UsageDetails {
   init(cx) { this.handle = cx.focus_handle(); this.handle.focus(); cx.timer.every(60000, cx => cx.notify()); }
   render(t) { return this.usageDetails(t); }

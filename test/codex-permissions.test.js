@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { codexPermissionModes, claudePermissionModes, launcherArgv } from '../mods/devkits/components/session-model.js';
+import { codexPermissionModes, claudePermissionModes, launcherArgv } from '../components/session-model.js';
 
 test('Codex modes preserve default commands and do not apply to other launchers', () => {
   const codex = { key: 'codex', run: ['codex', '--profile', 'work'] };

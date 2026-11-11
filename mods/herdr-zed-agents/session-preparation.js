@@ -8,9 +8,9 @@ import { sessionRules } from './global-rules.js';
 export async function prepareSession(agent, target = {}, options = {}) {
   const space = spaces().find(item => item.id === target.space);
   const machine = target.machine || space?.machine || null;
-  const cached = shared('devkits.agent-cache')?.[JSON.stringify(machine)];
+  const cached = shared('herdr-zed.agent-cache')?.[JSON.stringify(machine)];
   const profiles = cached || [];
-  const configs = shared('devkits.agent-configs') || [];
+  const configs = shared('herdr-zed.agent-configs') || [];
   let config = agent?.profileKey && configs.find(item => item.key === agent.key && item.profileKey === agent.profileKey);
   const available = machine ? profiles : configuredAgents(profiles, configs);
   let current = available.find(item => item.key === agent?.key) || agent;
@@ -19,14 +19,14 @@ export async function prepareSession(agent, target = {}, options = {}) {
     if (!current) throw new Error('Agent configuration is unavailable. Choose another agent configuration.');
   }
 
-  const key = settingsKey(current), saved = shared('devkits.profile-sessions')?.[key] || {};
+  const key = settingsKey(current), saved = shared('herdr-zed.profile-sessions')?.[key] || {};
   const session = {
     model: options.model === undefined ? saved.model : options.model,
     effort: options.effort === undefined ? saved.effort : options.effort,
     serviceTier: saved.serviceTier,
-    permission: shared('devkits.codex-permissions')?.[key] || 'default',
+    permission: shared('herdr-zed.codex-permissions')?.[key] || 'default',
   };
-  const hidden = shared('devkits.session-options')?.[sessionKind(current)] || {};
+  const hidden = shared('herdr-zed.session-options')?.[sessionKind(current)] || {};
   if (hidden.models?.includes(session.model)) session.model = null;
   if (hidden.efforts?.includes(session.effort)) session.effort = null;
 
@@ -38,7 +38,7 @@ export async function prepareSession(agent, target = {}, options = {}) {
     let rules = null;
     try { rules = await sessionRules(); } catch {}
     if (config) {
-      config = (shared('devkits.agent-configs') || []).find(item => item.key === agent.key && item.profileKey === agent.profileKey);
+      config = (shared('herdr-zed.agent-configs') || []).find(item => item.key === agent.key && item.profileKey === agent.profileKey);
       if (!config) throw new Error('Agent configuration is unavailable. Choose another agent configuration.');
     }
     argv = await sessionMcpArgv(current, argv);
@@ -49,7 +49,7 @@ export async function prepareSession(agent, target = {}, options = {}) {
     if (kits) rules = { ...rules, composed: true, text: [rules?.text, '# Devkits capabilities\n\n' + kits].filter(Boolean).join('\n\n') };
     argv = rulesArgv(current, argv, rules, config?.instructions);
   }
-  if (agent?.profileKey && !(shared('devkits.agent-configs') || []).some(item => item.key === agent.key && item.profileKey === agent.profileKey))
+  if (agent?.profileKey && !(shared('herdr-zed.agent-configs') || []).some(item => item.key === agent.key && item.profileKey === agent.profileKey))
     throw new Error('Agent configuration is unavailable. Choose another agent configuration.');
   return { argv, session };
 }

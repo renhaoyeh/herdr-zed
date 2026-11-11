@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import { mkdtemp, writeFile, readFile, mkdir, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { parseTranscript, scan, compactEvents } from '../mods/devkits-usage/analytics-reader.js';
-import { summarize, localDay } from '../mods/devkits-usage/analytics-model.js';
-import { estimateCost, costLabel, pricingDate } from '../mods/devkits-usage/analytics-pricing.js';
+import { parseTranscript, scan, compactEvents } from '../mods/herdr-zed-agents/usage/analytics-reader.js';
+import { summarize, localDay } from '../mods/herdr-zed-agents/usage/analytics-model.js';
+import { estimateCost, costLabel, pricingDate } from '../mods/herdr-zed-agents/usage/analytics-pricing.js';
 
 const stamp = new Date(2026, 10, 6, 12).toISOString();
 const meta = { type: 'session_meta', payload: { id: 'one', cwd: '/project' } };
@@ -90,7 +90,7 @@ test('projects group transcript subfolders by their nearest Git root, including 
 });
 
 test('native statistics view switches providers, changes ranges and clears grouped filters', async () => {
-  const source = await readFile(new URL('../mods/devkits-usage/analytics.js', import.meta.url), 'utf8');
+  const source = await readFile(new URL('../mods/herdr-zed-agents/usage/analytics.js', import.meta.url), 'utf8');
   const nodes = new Map(), texts = [];
   const element = () => {
     const state = {};

@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
-import * as model from '../mods/devkits/components/session-model.js';
+import * as model from '../components/session-model.js';
 import { evaluateNative } from './source-harness.js';
 
 const clone = value => value == null ? value : JSON.parse(JSON.stringify(value));
@@ -21,7 +21,7 @@ async function setup(options = {}) {
   const endpoint = name => {
     const endpoint = { name, queue: [], waiting: null }; endpoints.push(endpoint);
     return { ...model,
-      layout: () => ({ content: { mod: 'devkits-usage', props: { view: 'service' } } }),
+      layout: () => ({ content: { mod: 'herdr-zed-agents', props: { view: 'service' } } }),
       globalThis: { window: { sessionStorage: { getItem: () => null, setItem() {} } } },
       shared: key => clone(memory[key]), setShared: (key, value) => { memory[key] = clone(value); writes.push(key); },
       appHome: () => '/herdr', home: () => '/home', readTextFile: async () => null,
@@ -29,7 +29,7 @@ async function setup(options = {}) {
       ensureClaudeStatusLine: async () => {},
       exec: async (command, args) => {
         queries.push([command, args]);
-        assert.match(args[0], /mods\/devkits-usage\/usage-reader.js$/);
+        assert.match(args[0], /mods\/herdr-zed-agents\/usage\/usage-reader.js$/);
         return { code: 0, stdout: JSON.stringify(JSON.parse(args[1]).map(account => ({ key: account.key, secret: 'hidden',
           plan: 'plus', email: null, windows: [{ bucket: 'codex', name: 'Codex', minutes: 300, usedPercent: 42, resetsAt: Date.now() / 1000 + 1800, secret: 'hidden' }] }))) };
       },
@@ -44,16 +44,16 @@ async function setup(options = {}) {
     };
   };
   const exports = 'UsageClient, usageClientPrefix, usageRefreshPrefix, usageMessage, usageCommand';
-  const owner = endpoint('devkits-usage');
-  Object.assign(owner, await evaluateNative('../mods/devkits/components/usage.js', owner, exports));
-  const discovery = await evaluateNative('../mods/devkits-agents/discovery.js', owner, 'discoverAgents');
+  const owner = endpoint('herdr-zed-agents');
+  Object.assign(owner, await evaluateNative('../components/usage.js', owner, exports));
+  const discovery = await evaluateNative('../mods/herdr-zed-agents/discovery.js', owner, 'discoverAgents');
   owner.AgentClient = class { init() {} close() {} discover(machine, refresh) { return discovery.discoverAgents(machine, refresh); } };
-  Object.assign(owner, await evaluateNative('../mods/devkits-usage/monitor.js', owner, 'UsageMonitor'));
-  const { UsageService } = await evaluateNative('../mods/devkits-usage/service.js', owner, 'UsageService');
+  Object.assign(owner, await evaluateNative('../mods/herdr-zed-agents/usage/monitor.js', owner, 'UsageMonitor'));
+  const { UsageService } = await evaluateNative('../mods/herdr-zed-agents/usage/service.js', owner, 'UsageService');
   const service = new UsageService(), serviceClock = clock(errors); service.init(serviceClock.cx);
   const client = async config => {
     const host = endpoint(`consumer-${endpoints.length}`);
-    const { UsageClient } = await evaluateNative('../mods/devkits/components/usage.js', host, 'UsageClient');
+    const { UsageClient } = await evaluateNative('../components/usage.js', host, 'UsageClient');
     const client = new UsageClient(config); client.init(clock(errors).cx); return client;
   };
   return { memory, writes, queries, discoveries, errors, available, owner, service, serviceClock, client };
@@ -120,14 +120,14 @@ test('expired consumer leases stop automatic quota refreshes and unchanged heart
 });
 
 test('the configured Claude hook stays idempotent and preserves existing chains and backups', async () => {
-  const previous = { type: 'command', command: 'node "/app/mods/devkits-usage/claude-statusline.js"', padding: 2 };
+  const previous = { type: 'command', command: 'node "/app/mods/herdr-zed-agents/usage/claude-statusline.js"', padding: 2 };
   const files = { '/profile/settings.json': JSON.stringify({ statusLine: previous }), '/profile/devkits-statusline-chain.json': 'original chain', '/profile/settings.json.devkits-backup': 'original backup' }, written = [];
-  const { ensureClaudeStatusLine } = await evaluateNative('../mods/devkits/components/claude-usage-hook.js', {
+  const { ensureClaudeStatusLine } = await evaluateNative('../components/claude-usage-hook.js', {
     appHome: () => '/app', readTextFile: async path => files[path] ?? null,
     writeTextFile: async (path, text, expected) => { assert.equal(files[path] ?? null, expected); files[path] = text; written.push(path); },
   }, 'ensureClaudeStatusLine');
   assert.equal(await ensureClaudeStatusLine('/profile', { chain: true }), false);
-  assert.equal(JSON.parse(files['/profile/settings.json']).statusLine.command, 'node "/app/mods/devkits-usage/claude-statusline.js"');
+  assert.equal(JSON.parse(files['/profile/settings.json']).statusLine.command, 'node "/app/mods/herdr-zed-agents/usage/claude-statusline.js"');
   assert.deepEqual(written, []);
   assert.equal(files['/profile/devkits-statusline-chain.json'], 'original chain'); assert.equal(files['/profile/settings.json.devkits-backup'], 'original backup');
   assert.equal(await ensureClaudeStatusLine('/profile', { chain: true }), false);
@@ -135,7 +135,7 @@ test('the configured Claude hook stays idempotent and preserves existing chains 
 
 test('the Usage mod status-line entry records usage directly', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'devkits-hook-')); t.after(() => rm(directory, { recursive: true, force: true }));
-  const script = fileURLToPath(new URL('../mods/devkits-usage/claude-statusline.js', import.meta.url));
+  const script = fileURLToPath(new URL('../mods/herdr-zed-agents/usage/claude-statusline.js', import.meta.url));
   const result = spawnSync(process.execPath, [script], { env: { ...process.env, CLAUDE_CONFIG_DIR: directory },
     input: JSON.stringify({ rate_limits: { five_hour: { used_percentage: 42 } } }), encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr); assert.equal(result.stdout, '5h 42%');

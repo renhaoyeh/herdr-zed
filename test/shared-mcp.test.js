@@ -5,15 +5,15 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { sessionKind, settingsKey, sessionArgv, tasksMcpServer } from '../mods/devkits/components/session-model.js';
+import { sessionKind, settingsKey, sessionArgv, tasksMcpServer } from '../components/session-model.js';
 import { evaluateNative } from './source-harness.js';
-import { parseSharedMcp, mcpToml, platformSharedMcp } from '../mods/devkits/components/shared-mcp-model.js';
-import { syncSharedMcp } from '../mods/devkits-agents/shared-mcp-sync.js';
+import { parseSharedMcp, mcpToml, platformSharedMcp } from '../components/shared-mcp-model.js';
+import { syncSharedMcp } from '../mods/herdr-zed-agents/shared-mcp-sync.js';
 
 const config = { version: 1, servers: { vs: { command: 'bridge', args: ['繁體中文', 'C:\\with spaces\\bridge', 'quote"'] }, ic: { url: 'http://127.0.0.1:18765/mcp' } } };
 
 const host = { parseSharedMcp, mcpToml, platformSharedMcp, window: () => ({ platform: 'windows' }), home: () => '/home', exec: async () => ({ code: 0 }), sessionKind, tasksMcpServer, settingsKey, appHome: () => '/herdr', readTextFile: async () => JSON.stringify(config) };
-const load = extra => evaluateNative('../mods/devkits/components/shared-mcp.js', { ...host, ...extra }, 'parseSharedMcp, sharedMcpArgv, sessionMcpArgv, mcpToml');
+const load = extra => evaluateNative('../components/shared-mcp.js', { ...host, ...extra }, 'parseSharedMcp, sharedMcpArgv, sessionMcpArgv, mcpToml');
 
 test('shared MCP accepts only the current schema and preserves explicit CLI precedence', async () => {
   const { parseSharedMcp, sharedMcpArgv } = await load();
@@ -115,7 +115,7 @@ test('synchronization failure prevents launching with incomplete settings', asyn
 
 test('local launch persists Tasks transport without shared settings for background title generation', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'devkits-title-mcp-'));
-  await writeFile(join(directory, 'config.toml'), '# account settings\n[mcp_servers.own]\ncommand = "personal-server"\n[mcp_servers.herdr_tasks]\ncommand = "node"\nargs = ["/herdr/mods/devkits-tasks/mcp-server.cjs"]\nenabled = false\n');
+  await writeFile(join(directory, 'config.toml'), '# account settings\n[mcp_servers.own]\ncommand = "personal-server"\n[mcp_servers.herdr_tasks]\ncommand = "node"\nargs = ["/herdr/mods/herdr-zed-tasks/mcp-server.cjs"]\nenabled = false\n');
   const appDirectory = 'C:\\Users\\A B\\herdr';
   let synchronized = false;
   const { sessionMcpArgv } = await load({

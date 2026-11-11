@@ -18,13 +18,13 @@ export const accountActions = {
   },
 
   addAccount(provider) {
-    openOverlay({ mod: 'devkits-agents', kind: 'dialog', frame: 'none', modal: true, width: 520, height: 380,
+    openOverlay({ mod: 'herdr-zed-agents', kind: 'dialog', frame: 'none', modal: true, width: 520, height: 380,
       props: { view: 'account-login', provider } });
   },
 
   renameAccount(account) {
     const target = props();
-    openOverlay({ mod: 'devkits-agents', kind: 'dialog', frame: 'none', modal: true, width: 480, height: 260,
+    openOverlay({ mod: 'herdr-zed-agents', kind: 'dialog', frame: 'none', modal: true, width: 480, height: 260,
       props: { view: 'rename-account', account: { key: account.key, name: account.name }, space: target.space } });
   },
 
@@ -40,8 +40,8 @@ export const accountActions = {
     cx.spawn(async cx => {
       try {
         await renameAccountProfile((props() || {}).account.key, name);
-        setShared('devkits.agent-cache', {});
-        setShared('devkits.profile-revision', (shared('devkits.profile-revision') || 0) + 1);
+        setShared('herdr-zed.agent-cache', {});
+        setShared('herdr-zed.profile-revision', (shared('herdr-zed.profile-revision') || 0) + 1);
         this.renaming = false; this.finishRename();
       } catch (error) { this.renaming = false; this.renameError = error.message; cx.notify(); }
     });
@@ -66,7 +66,7 @@ export const accountActions = {
 
   confirmRemoveAccount(account) {
     const target = props();
-    openOverlay({ mod: 'devkits-agents', kind: 'dialog', frame: 'none', modal: true, width: 480, height: 300,
+    openOverlay({ mod: 'herdr-zed-agents', kind: 'dialog', frame: 'none', modal: true, width: 480, height: 300,
       props: { view: 'remove-account', account: { key: account.key, name: account.name }, space: target.space } });
   },
 
@@ -82,21 +82,21 @@ export const accountActions = {
       cx.spawn(async cx => {
         try {
           await removeAccountProfile(target.account.key);
-          setShared('devkits.agent-cache', {});
-          const configs = shared('devkits.agent-configs') || [];
+          setShared('herdr-zed.agent-cache', {});
+          const configs = shared('herdr-zed.agent-configs') || [];
           const removed = new Set([target.account.key, ...configs.filter(item => item.profileKey === target.account.key).map(item => item.key)]);
-          setShared('devkits.agent-configs', configs.filter(item => !removed.has(item.key)));
-          setShared('devkits.hidden-usage-profiles', (shared('devkits.hidden-usage-profiles') || []).filter(item => !removed.has(item)));
+          setShared('herdr-zed.agent-configs', configs.filter(item => !removed.has(item.key)));
+          setShared('herdr-zed.hidden-usage-profiles', (shared('herdr-zed.hidden-usage-profiles') || []).filter(item => !removed.has(item)));
           const key = `agent:${target.account.key}`;
-          for (const setting of ['devkits.hidden-launchers', 'devkits.launcher-order']) {
+          for (const setting of ['herdr-zed.hidden-launchers', 'herdr-zed.launcher-order']) {
             setShared(setting, (shared(setting) || []).filter(item => item !== key && !removed.has(item.slice(6))));
           }
-          for (const setting of ['devkits.codex-permissions', 'devkits.profile-sessions']) {
+          for (const setting of ['herdr-zed.codex-permissions', 'herdr-zed.profile-sessions']) {
             const saved = { ...(shared(setting) || {}) };
             for (const item of removed) delete saved[item];
             setShared(setting, saved);
           }
-          setShared('devkits.profile-revision', (shared('devkits.profile-revision') || 0) + 1);
+          setShared('herdr-zed.profile-revision', (shared('herdr-zed.profile-revision') || 0) + 1);
           this.removing = false; back();
         } catch (error) { this.removing = false; this.removeError = error.message; cx.notify(); }
       });

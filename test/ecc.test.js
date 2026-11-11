@@ -6,10 +6,10 @@ import { join } from 'node:path';
 import { createRequire } from 'node:module';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { syncEcc } from '../mods/devkits-agents/ecc-sync.js';
-import { parseEcc, eccAccount, eccItemEnabled, chooseEccItem } from '../mods/devkits-agents/ecc-model.js';
-import { readEccCatalog, eccCatalogForUi, readEccDetail } from '../mods/devkits-agents/ecc-catalog.js';
-import { buildEccPackage } from '../mods/devkits-agents/ecc-package.js';
+import { syncEcc } from '../mods/herdr-zed-agents/ecc-sync.js';
+import { parseEcc, eccAccount, eccItemEnabled, chooseEccItem } from '../mods/herdr-zed-agents/ecc-model.js';
+import { readEccCatalog, eccCatalogForUi, readEccDetail } from '../mods/herdr-zed-agents/ecc-catalog.js';
+import { buildEccPackage } from '../mods/herdr-zed-agents/ecc-package.js';
 import { evaluateNative } from './source-harness.js';
 
 async function fixture(fn) {
@@ -121,18 +121,18 @@ test('never-managed disabled ECC accounts are untouched and preparation returns 
   await syncEcc('codex', directory, { ...config, providerEnabled: { claude: true, codex: false } }, { run: () => assert.fail('provider off') });
   await assert.rejects(access(directory), { code: 'ENOENT' });
   const calls = [];
-  const { prepareEcc } = await evaluateNative('../mods/devkits-agents/ecc.js', {
+  const { prepareEcc } = await evaluateNative('../mods/herdr-zed-agents/ecc.js', {
     appHome: () => '/herdr', home: () => '/home', parseEcc, eccAccount, sessionKind: () => 'codex',
     readTextFile: async () => JSON.stringify(config), exec: async (...args) => { calls.push(args); return { code: 0, stdout: '{"instructionsFile":"/selected-guidance.md"}' }; },
   }, 'prepareEcc');
   const argv = ['env', 'CODEX_HOME=/account', 'codex'];
   const prepared = await prepareEcc({}, argv); assert.deepEqual(prepared.argv, argv); assert.match(prepared.instructions, /selected-guidance\.md/);
-  assert.deepEqual(calls[0][1], ['/herdr/mods/devkits-agents/ecc-sync.js', 'codex', '/account', '/herdr/data/devkits/ecc.json']);
+  assert.deepEqual(calls[0][1], ['/herdr/mods/herdr-zed-agents/ecc-sync.js', 'codex', '/account', '/herdr/data/devkits/ecc.json']);
 }));
 
 test('catalog requests ignore older sources and results arriving after the panel closes', async () => {
   const gates = [], tasks = [];
-  const { eccSettings } = await evaluateNative('../mods/devkits-agents/ecc-settings.js', {
+  const { eccSettings } = await evaluateNative('../mods/herdr-zed-agents/ecc-settings.js', {
     appHome: () => '/herdr', exec: async () => new Promise(resolve => gates.push(resolve)),
   }, 'eccSettings');
   const view = { ...eccSettings, eccSource: '/old' };

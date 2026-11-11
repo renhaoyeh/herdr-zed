@@ -26,7 +26,7 @@ import { openAgentSettings, noAccount } from './components/agents.js';
 export const sessionMenu = {
   availableAgents,
   initSessionMenu(cx) {
-    if ((props() || {}).refreshAgents) setShared('devkits.agent-cache', {});
+    if ((props() || {}).refreshAgents) setShared('herdr-zed.agent-cache', {});
     this.launchers = [];
     this.manageIndex = 0;
     this.handle = cx.focus_handle();
@@ -66,9 +66,9 @@ export const sessionMenu = {
   // Default adds no flag and leaves the profile's underlying configuration.
   providerDefaults(agent, draft = null) {
     const key = settingsKey(agent), kind = sessionKind(agent), modes = permissionModes(agent);
-    const permission = draft ? draft.permission : shared('devkits.codex-permissions')?.[key] || 'default';
-    const settings = shared('devkits.session-options')?.[kind] || {};
-    const stored = draft || shared('devkits.profile-sessions')?.[key] || {};
+    const permission = draft ? draft.permission : shared('herdr-zed.codex-permissions')?.[key] || 'default';
+    const settings = shared('herdr-zed.session-options')?.[kind] || {};
+    const stored = draft || shared('herdr-zed.profile-sessions')?.[key] || {};
     const saved = { model: settings.models?.includes(stored.model) ? null : stored.model,
       effort: settings.efforts?.includes(stored.effort) ? null : stored.effort };
     const { models, efforts } = sessionChoices(kind, this.profileModels(agent), settings, saved.model);
@@ -77,22 +77,22 @@ export const sessionMenu = {
     // Read the saved choice when picking, so several picks before a repaint keep each other.
     const set = change => {
       if (draft) { Object.assign(draft, change); return; }
-      const current = shared('devkits.profile-sessions')?.[key] || {};
-      setShared('devkits.profile-sessions', { ...(shared('devkits.profile-sessions') || {}),
+      const current = shared('herdr-zed.profile-sessions')?.[key] || {};
+      setShared('herdr-zed.profile-sessions', { ...(shared('herdr-zed.profile-sessions') || {}),
         [key]: { ...current, model: current.model ?? null, effort: current.effort ?? null, ...change } });
     };
     return [
       { id: 'permissions', label: 'Permissions', items: modes.map(mode => ({ key: mode.key, label: mode.label, checked: mode.key === permission,
         choose: () => {
           if (draft) { draft.permission = mode.key; return; }
-          const saved = { ...(shared('devkits.codex-permissions') || {}) };
+          const saved = { ...(shared('herdr-zed.codex-permissions') || {}) };
           if (mode.key === 'default') delete saved[key]; else saved[key] = mode.key;
-          setShared('devkits.codex-permissions', saved);
+          setShared('herdr-zed.codex-permissions', saved);
         } })) },
       { id: 'model', label: 'Model', items: [{ key: 'default', label: 'Default' }, ...models].map(item => ({ key: item.key, label: item.label,
         checked: (item.key === 'default' ? null : item.key) === model, choose: () => {
           const next = item.key === 'default' ? null : item.key;
-          const current = draft ? draft.effort : shared('devkits.profile-sessions')?.[key]?.effort ?? null;
+          const current = draft ? draft.effort : shared('herdr-zed.profile-sessions')?.[key]?.effort ?? null;
           set({ model: next, effort: sessionChoices(kind, this.profileModels(agent), settings, next).efforts.includes(current) ? current : null });
         } })) },
       { id: 'effort', label: 'Effort', items: ['default', ...efforts].map(value => ({ key: value, label: value === 'default' ? 'Default' : effortLabel(value),
@@ -105,8 +105,8 @@ export const sessionMenu = {
   // Its session defaults choose from the provider's shared Models in menus, so both sit together.
   accountsPage(t, cx) {
     const agents = this.availableAgents(this.launchers).filter(agent => !agent.profileKey);
-    const usage = shared('devkits.usage.snapshot')?.contexts?.[JSON.stringify(null)]?.usage || [];
-    const order = shared('devkits.launcher-order') || [];
+    const usage = shared('herdr-zed.usage.snapshot')?.contexts?.[JSON.stringify(null)]?.usage || [];
+    const order = shared('herdr-zed.launcher-order') || [];
     const groups = ['claude', 'codex'].map(kind => ({ kind, name: kind === 'claude' ? 'Claude' : 'Codex',
       accounts: launcherChoices(agents.filter(agent => sessionKind(agent) === kind), order).map(choice => choice.agent).filter(Boolean) }));
     const all = groups.flatMap(group => group.accounts);
@@ -194,7 +194,7 @@ export const sessionMenu = {
     this.accountStorage.set(key, state);
     cx.spawn(async cx => {
       try {
-        const result = await exec('node', [`${appHome()}/mods/devkits-agents/account-storage-reader.js`, target.directory], { timeout: 15000 });
+        const result = await exec('node', [`${appHome()}/mods/herdr-zed-agents/account-storage-reader.js`, target.directory], { timeout: 15000 });
         if (result.code !== 0) throw new Error('Could not read local data sizes.');
         const data = JSON.parse(result.stdout);
         if (!Number.isFinite(data.bytes) || !data.groups) throw new Error('Could not read local data sizes.');
@@ -265,22 +265,22 @@ export const sessionMenu = {
   // Which models and efforts Asana's session composer offers, like Cursor's model list: one row and switch per model,
   // and efforts as joined segments as in Claude Code and Codex. Turned-off ones are hidden; Default always stays.
   sessionOptions(kinds, t) {
-    const saved = shared('devkits.session-options') || {};
+    const saved = shared('herdr-zed.session-options') || {};
     const shown = (kind, field, key) => !(saved[kind]?.[field] || []).includes(key);
     const toggle = (kind, field, key) => {
-      const current = shared('devkits.session-options') || {};
+      const current = shared('herdr-zed.session-options') || {};
       const hidden = current[kind]?.[field] || [];
-      setShared('devkits.session-options', { ...current, [kind]: { ...current[kind],
+      setShared('herdr-zed.session-options', { ...current, [kind]: { ...current[kind],
         [field]: hidden.includes(key) ? hidden.filter(item => item !== key) : [...hidden, key] } });
       if (!hidden.includes(key)) {
-        const profiles = { ...(shared('devkits.profile-sessions') || {}) };
+        const profiles = { ...(shared('herdr-zed.profile-sessions') || {}) };
         for (const [profileKey, profile] of Object.entries(profiles)) {
-          const profileAgent = configuredAgents(this.launchers, shared('devkits.agent-configs') || []).find(agent => agent.key === profileKey) || { key: profileKey };
+          const profileAgent = configuredAgents(this.launchers, shared('herdr-zed.agent-configs') || []).find(agent => agent.key === profileKey) || { key: profileKey };
           if (sessionKind(profileAgent) !== kind) continue;
           const setting = field === 'models' ? 'model' : 'effort';
           if (profile[setting] === key) profiles[profileKey] = { ...profile, [setting]: null };
         }
-        setShared('devkits.profile-sessions', profiles);
+        setShared('herdr-zed.profile-sessions', profiles);
       }
     };
     const title = effortLabel;
@@ -288,8 +288,8 @@ export const sessionMenu = {
     return kinds.map(kind => {
         const models = orderedOptions(kind === 'claude' ? claudeModels : this.codexModelList || [], saved[kind]?.order);
         const reorder = (key, target) => {
-          const current = shared('devkits.session-options') || {};
-          setShared('devkits.session-options', { ...current, [kind]: { ...current[kind], order: moveOption(models.map(model => model.key), key, target) } });
+          const current = shared('herdr-zed.session-options') || {};
+          setShared('herdr-zed.session-options', { ...current, [kind]: { ...current[kind], order: moveOption(models.map(model => model.key), key, target) } });
         };
         const dragging = this.modelDrag?.kind === kind;
         const efforts = kind === 'claude' ? claudeEfforts : [...new Set(models.flatMap(model => model.efforts))];
@@ -334,7 +334,7 @@ export const sessionMenu = {
 
   loadAgents(cx) {
     const machine = spaces().find(s => s.id === (props() || {}).space)?.machine;
-    const cached = shared('devkits.agent-cache')?.[JSON.stringify(machine || null)];
+    const cached = shared('herdr-zed.agent-cache')?.[JSON.stringify(machine || null)];
     if (cached) {
       this.launchers = this.availableAgents(cached, machine);
       this.loading = false;
@@ -356,8 +356,8 @@ export const sessionMenu = {
   // A local account's signed-in address: Usage's reading, else the address read for accounts Usage does not show.
   accountIdentity(agent) {
     const key = agent?.profileKey || agent?.key;
-    const reading = (shared('devkits.usage.snapshot')?.contexts?.[JSON.stringify(null)]?.usage || []).find(item => item.key === key);
-    const saved = shared('devkits.account-identities')?.[key];
+    const reading = (shared('herdr-zed.usage.snapshot')?.contexts?.[JSON.stringify(null)]?.usage || []).find(item => item.key === key);
+    const saved = shared('herdr-zed.account-identities')?.[key];
     return { email: reading?.email || saved?.email || null, plan: reading?.plan || saved?.plan || null };
   },
 
@@ -376,7 +376,7 @@ export const sessionMenu = {
 
   syncAccountChanges(cx) {
     if (this.settingsPage === 'accounts') this.loadAccountIdentities(cx);
-    const revision = shared('devkits.profile-revision') || 0;
+    const revision = shared('herdr-zed.profile-revision') || 0;
     if (this.agentsRevision === undefined || revision === this.agentsRevision) { this.agentsRevision = revision; return; }
     this.agentsRevision = revision;
     const before = new Set((this.launchers || []).map(agent => agent.key));
@@ -390,22 +390,22 @@ export const sessionMenu = {
   },
 
   manageLaunchers(t, cx) {
-    const hidden = shared('devkits.hidden-launchers') || [];
-    const choices = launcherChoices(this.availableAgents(this.launchers, spaces().find(space => space.id === (props() || {}).space)?.machine), shared('devkits.launcher-order') || []);
+    const hidden = shared('herdr-zed.hidden-launchers') || [];
+    const choices = launcherChoices(this.availableAgents(this.launchers, spaces().find(space => space.id === (props() || {}).space)?.machine), shared('herdr-zed.launcher-order') || []);
     const local = !spaces().find(space => space.id === (props() || {}).space)?.machine;
     const toggle = (key, cx) => {
-      const current = shared('devkits.hidden-launchers') || [];
-      setShared('devkits.hidden-launchers', current.includes(key) ? current.filter(item => item !== key) : [...current, key]);
+      const current = shared('herdr-zed.hidden-launchers') || [];
+      setShared('herdr-zed.hidden-launchers', current.includes(key) ? current.filter(item => item !== key) : [...current, key]);
       cx.notify();
     };
     const done = () => closeOverlay((props() || {}).overlay);
     const move = (index, target, cx) => {
       if (!choices[index] || !choices[target] || choices[index].group !== choices[target].group || index === target) return;
-      const order = [...new Set([...(shared('devkits.launcher-order') || []), ...choices.map(choice => choice.key)])];
+      const order = [...new Set([...(shared('herdr-zed.launcher-order') || []), ...choices.map(choice => choice.key)])];
       const key = choices[index].key;
       order.splice(order.indexOf(key), 1);
       order.splice(order.indexOf(choices[target].key) + (index < target ? 1 : 0), 0, key);
-      setShared('devkits.launcher-order', order);
+      setShared('herdr-zed.launcher-order', order);
       this.manageIndex = target;
       cx.notify();
     };
@@ -464,11 +464,11 @@ export const sessionMenu = {
   // Auto in Add session starts one of these accounts, chosen by quota at each launch.
   // The rules and each account's current standing are shown, so the pick is predictable.
   autoAccountsSection(profiles, t) {
-    const members = shared('devkits.auto-accounts') || [];
-    const multipliers = shared('devkits.auto-multipliers') || {};
-    const hiddenUsage = shared('devkits.hidden-usage-profiles') || [];
+    const members = shared('herdr-zed.auto-accounts') || [];
+    const multipliers = shared('herdr-zed.auto-multipliers') || {};
+    const hiddenUsage = shared('herdr-zed.hidden-usage-profiles') || [];
     const accounts = profiles.filter(choice => choice.group === 2 && !hiddenUsage.includes(choice.agent.key));
-    const usage = shared('devkits.usage.snapshot')?.contexts?.[JSON.stringify(null)]?.usage || [];
+    const usage = shared('herdr-zed.usage.snapshot')?.contexts?.[JSON.stringify(null)]?.usage || [];
     const next = this.autoThreadAgent(this.launchers || [], null)?.key;
     const reading = key => usage.find(account => account.key === key);
     const standing = key => {
@@ -483,9 +483,9 @@ export const sessionMenu = {
       'Plan size follows each account’s detected plan: ×1 for ChatGPT Plus, Business or Claude Pro; ×5 for ChatGPT Pro $100 or Claude Max 5x; ×20 for ChatGPT Pro $200 or Claude Max 20x. Choose another size to override it, or the detected size to follow the plan again.',
       'Only accounts shown in Usage above can join Auto. Accounts without a reading count as on pace. A session keeps the account it started with.'];
     const setMultiplier = (key, value) => {
-      const saved = { ...(shared('devkits.auto-multipliers') || {}) };
+      const saved = { ...(shared('herdr-zed.auto-multipliers') || {}) };
       if (value === planMultiplier(reading(key)?.plan)) delete saved[key]; else saved[key] = value;
-      setShared('devkits.auto-multipliers', saved);
+      setShared('herdr-zed.auto-multipliers', saved);
     };
     return v_flex().id('auto-account-settings').flex_none().gap(4)
       .child(h_flex().flex_none().mt(8).gap(8).items_center()
@@ -505,8 +505,8 @@ export const sessionMenu = {
           return h_flex().h(40).px(12).gap(12).items_center().when(index > 0, el => el.border_t(1).border_color(t.border))
             .child(Checkbox(`auto-account-${key}`, selected, t).h_full().flex_1().min_w(0)
               .accessibility_label(`Use ${choice.name} for Auto. ${status}`).on_change((checked, cx) => {
-                const saved = (shared('devkits.auto-accounts') || []).filter(item => item !== key);
-                setShared('devkits.auto-accounts', checked ? [...saved, key] : saved);
+                const saved = (shared('herdr-zed.auto-accounts') || []).filter(item => item !== key);
+                setShared('herdr-zed.auto-accounts', checked ? [...saved, key] : saved);
                 cx.notify();
               }).child(AgentIcon(choice.agent, t).flex_none()).child(div().truncate().text_size(13)
                   .when(this.accountName(choice.agent, choice.name) === noAccount, el => el.text_color(t.muted)).child(this.accountName(choice.agent, choice.name)))
@@ -525,10 +525,10 @@ export const sessionMenu = {
 
   // One list for what Add session and Usage show, in their shared order, with Auto below.
   agentsPage(choices, hidden, toggle, move, cancelDrag, t) {
-    const usageHidden = shared('devkits.hidden-usage-profiles') || [];
+    const usageHidden = shared('herdr-zed.hidden-usage-profiles') || [];
     const toggleUsage = (key, checked, cx) => {
-      const saved = shared('devkits.hidden-usage-profiles') || [];
-      setShared('devkits.hidden-usage-profiles', checked ? saved.filter(item => item !== key) : [...new Set([...saved, key])]);
+      const saved = shared('herdr-zed.hidden-usage-profiles') || [];
+      setShared('herdr-zed.hidden-usage-profiles', checked ? saved.filter(item => item !== key) : [...new Set([...saved, key])]);
       cx.notify();
     };
     // Usage lists native agents and accounts; Terminal and profiles share their account's quota.
@@ -586,8 +586,8 @@ export const sessionMenu = {
 
   launcher(t) {
     const available = this.availableAgents(this.launchers, spaces().find(space => space.id === (props() || {}).space)?.machine);
-    const hidden = shared('devkits.hidden-launchers') || [];
-    const choices = launcherChoices(available, shared('devkits.launcher-order') || []).filter(choice => !hidden.includes(choice.key));
+    const hidden = shared('herdr-zed.hidden-launchers') || [];
+    const choices = launcherChoices(available, shared('herdr-zed.launcher-order') || []).filter(choice => !hidden.includes(choice.key));
     const launchers = choices.filter(choice => choice.agent).map(choice => choice.agent);
     const target = props(), machine = spaces().find(space => space.id === target.space)?.machine || '';
     const remembered = this.defaultThreadChoice({ id: target.space, folder: target.folder, machine }, this.launchers);
@@ -623,6 +623,8 @@ export const sessionMenu = {
                 .child(div().text_size(11).text_color(t.muted).child(shortcutLabel)))] : []),
           ];
         }))
+        .when(Boolean(this.startError), el => el.child(div().id('launch-error').p(10).text_size(12).text_color(t.error ?? t.muted)
+          .accessibility_label(`Could not start session: ${this.startError}`).child(this.startError)))
         .when(this.loading, el => el.child(div().p(10).text_size(12).text_color(t.muted).child('Loading agents…')))
         .when(this.launchError, el => el.child(div().id('retry-agents').p(10).text_size(12).text_color(t.muted).cursor_pointer()
           .on_click((_event, cx) => this.loadAgents(cx)).child('Could not load agents. Click to retry.')))

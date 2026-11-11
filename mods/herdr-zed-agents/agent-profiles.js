@@ -13,7 +13,7 @@ import { noAccount } from './components/agents.js';
 // Profiles can use any installed account, in Add session's saved order.
 export const agentProfiles = {
   profileAccounts() {
-    return launcherChoices(this.launchers, shared('devkits.launcher-order') || [])
+    return launcherChoices(this.launchers, shared('herdr-zed.launcher-order') || [])
       .filter(choice => choice.agent && !choice.agent.profileKey && choice.agent.installed !== false && sessionKind(choice.agent))
       .map(choice => choice.agent);
   },
@@ -23,7 +23,7 @@ export const agentProfiles = {
   openAgentProfileEditor(config = null) {
     if (!config && !this.profileAccounts().length) return;
     const target = props();
-    openOverlay({ mod: 'devkits-agents', kind: 'dialog', modal: true, frame: 'none', width: 640, height: 680,
+    openOverlay({ mod: 'herdr-zed-agents', kind: 'dialog', modal: true, frame: 'none', width: 640, height: 680,
       props: { view: 'agent-profile-editor', configKey: config?.key || null, space: target.space } });
   },
 
@@ -35,11 +35,11 @@ export const agentProfiles = {
 
   initAgentProfileEditor() {
     const key = (props() || {}).configKey;
-    const config = (shared('devkits.agent-configs') || []).find(item => item.key === key);
-    const session = config && shared('devkits.profile-sessions')?.[key] || {};
+    const config = (shared('herdr-zed.agent-configs') || []).find(item => item.key === key);
+    const session = config && shared('herdr-zed.profile-sessions')?.[key] || {};
     this.profileDraft = { name: config?.name || '', profileKey: config?.profileKey || null,
       model: session.model || null, effort: session.effort || null, serviceTier: session.serviceTier || null,
-      permission: config && shared('devkits.codex-permissions')?.[key] || 'default' };
+      permission: config && shared('herdr-zed.codex-permissions')?.[key] || 'default' };
     this.configName = InputState.new({ placeholder: 'Profile name', value: this.profileDraft.name });
     this.configName.set_value(this.profileDraft.name);
     this.configName.on('change', (_event, cx) => { this.profileError = null; cx.notify(); });
@@ -51,17 +51,17 @@ export const agentProfiles = {
 
   chooseProfileAccount(key) {
     const account = this.profileEditorAccounts().find(item => item.key === key);
-    const saved = account && shared('devkits.profile-sessions')?.[account.key] || {};
+    const saved = account && shared('herdr-zed.profile-sessions')?.[account.key] || {};
     Object.assign(this.profileDraft, { profileKey: account?.key || null, model: saved.model || null, effort: saved.effort || null,
       serviceTier: sessionKind(account) === 'codex' ? saved.serviceTier || null : null,
-      permission: account && shared('devkits.codex-permissions')?.[account.key] || 'default' });
+      permission: account && shared('herdr-zed.codex-permissions')?.[account.key] || 'default' });
     this.profileError = null;
   },
 
   saveAgentProfile(cx) {
     if (this.profileSaving || this.profileSaved) return;
     const draft = this.profileDraft, account = this.profileEditorAccounts().find(item => item.key === draft.profileKey);
-    const name = this.configName.value().trim(), configs = shared('devkits.agent-configs') || [], existing = (props() || {}).configKey;
+    const name = this.configName.value().trim(), configs = shared('herdr-zed.agent-configs') || [], existing = (props() || {}).configKey;
     const instructions = this.configInstructions.value().trim();
     let error;
     if (existing && !configs.some(item => item.key === existing)) error = 'This agent profile no longer exists.';
@@ -69,7 +69,7 @@ export const agentProfiles = {
     else if (instructions.includes('\u0000')) error = 'Instructions cannot contain null characters.';
     else if (!account) error = 'Choose an account.';
     else {
-      const choices = sessionChoices(sessionKind(account), this.profileModels(account), shared('devkits.session-options')?.[sessionKind(account)] || {}, draft.model);
+      const choices = sessionChoices(sessionKind(account), this.profileModels(account), shared('herdr-zed.session-options')?.[sessionKind(account)] || {}, draft.model);
       if (draft.model && !choices.models.some(model => model.key === draft.model)) error = 'Choose an available model.';
       else if (draft.effort && !choices.efforts.includes(draft.effort)) error = 'Choose an effort supported by this model.';
       else if (!permissionModes(account).some(mode => mode.key === draft.permission)) error = 'Choose an available permission mode.';
@@ -79,24 +79,24 @@ export const agentProfiles = {
     let number = configs.length + 1, key = existing || `devkits-preset-${Date.now().toString(36)}-${number}`;
     while (!existing && configs.some(item => item.key === key)) key = `devkits-preset-${Date.now().toString(36)}-${++number}`;
     const config = { key, profileKey: account.key, name, ...(instructions ? { instructions } : {}) };
-    const sessions = shared('devkits.profile-sessions') || {};
-    setShared('devkits.profile-sessions', { ...sessions, [key]: { ...sessions[key], model: draft.model, effort: draft.effort,
+    const sessions = shared('herdr-zed.profile-sessions') || {};
+    setShared('herdr-zed.profile-sessions', { ...sessions, [key]: { ...sessions[key], model: draft.model, effort: draft.effort,
       serviceTier: sessionKind(account) === 'codex' && draft.serviceTier === 'fast' ? 'fast' : null } });
-    const permissions = { ...(shared('devkits.codex-permissions') || {}) };
+    const permissions = { ...(shared('herdr-zed.codex-permissions') || {}) };
     if (draft.permission === 'default') delete permissions[key]; else permissions[key] = draft.permission;
-    setShared('devkits.codex-permissions', permissions);
-    setShared('devkits.agent-configs', existing ? configs.map(item => item.key === key ? config : item) : [...configs, config]);
+    setShared('herdr-zed.codex-permissions', permissions);
+    setShared('herdr-zed.agent-configs', existing ? configs.map(item => item.key === key ? config : item) : [...configs, config]);
     this.profileSaved = true;
     this.profileSaving = false;
     this.finishAgentProfileEditor();
   },
 
   removeConfiguration(config) {
-    setShared('devkits.agent-configs', (shared('devkits.agent-configs') || []).filter(item => item.key !== config.key));
-    for (const key of ['devkits.profile-sessions', 'devkits.codex-permissions']) {
+    setShared('herdr-zed.agent-configs', (shared('herdr-zed.agent-configs') || []).filter(item => item.key !== config.key));
+    for (const key of ['herdr-zed.profile-sessions', 'herdr-zed.codex-permissions']) {
       const saved = { ...(shared(key) || {}) }; delete saved[config.key]; setShared(key, saved);
     }
-    for (const key of ['devkits.hidden-launchers', 'devkits.launcher-order']) {
+    for (const key of ['herdr-zed.hidden-launchers', 'herdr-zed.launcher-order']) {
       setShared(key, (shared(key) || []).filter(item => item !== `agent:${config.key}`));
     }
   },
@@ -142,7 +142,7 @@ export const agentProfiles = {
   },
 
   agentProfilesPage(t) {
-    const accounts = this.profileAccounts(), configs = shared('devkits.agent-configs') || [];
+    const accounts = this.profileAccounts(), configs = shared('herdr-zed.agent-configs') || [];
     const canAdd = accounts.length > 0;
     const columns = (name, account, model, effort, speed, actions) => h_flex().w_full().px(12).gap(12).items_center()
       .child(div().flex_1().min_w(0).child(name)).child(div().w(144).flex_none().min_w(0).child(account))
@@ -162,7 +162,7 @@ export const agentProfiles = {
         .child(v_flex().flex_1().min_h(0).overflow_y_scroll()
           .when(!configs.length, el => el.child(div().p(12).text_size(12).text_color(t.muted).child('No agent profiles. Click Add to create one.')))
           .children(configs.map((config, index) => {
-            const account = accounts.find(item => item.key === config.profileKey), saved = shared('devkits.profile-sessions')?.[config.key] || {};
+            const account = accounts.find(item => item.key === config.profileKey), saved = shared('herdr-zed.profile-sessions')?.[config.key] || {};
             const models = sessionKind(account) === 'claude' ? claudeModels : account ? this.profileModels(account) || [] : [];
             const label = h_flex().gap(6).items_center().min_w(0).child(AgentIcon(account, t).flex_none())
               .child(text(account ? this.accountName(account, launcherLabel(account.name || sessionKind(account))) : 'Unavailable'));

@@ -9,7 +9,7 @@ export async function prepareEcc(agent, argv) {
   const account = eccAccount(sessionKind(agent), argv, home());
   if (!account) return { argv, instructions: '' };
   parseEcc(text);
-  const result = await exec('node', [`${appHome()}/mods/devkits-agents/ecc-sync.js`, account.provider, account.directory, eccPath()], { timeout: 240000 });
+  const result = await exec('node', [`${appHome()}/mods/herdr-zed-agents/ecc-sync.js`, account.provider, account.directory, eccPath()], { timeout: 240000 });
   if (result.code !== 0) throw new Error(result.stderr?.trim() || 'Could not apply global ECC settings. Open Agent settings → ECC and retry.');
   const resultData = JSON.parse(result.stdout || '{}');
   return { argv, instructions: resultData.instructionsFile ? `Read and follow the selected ECC rules and context in this file before doing any work:\n${resultData.instructionsFile}` : '' };

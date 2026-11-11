@@ -12,7 +12,7 @@ import { glyph, AgentIcon } from './components/icon.js';
 import { DialogTitle, DialogDescription, DialogFooter } from './components/dialog.js';
 
 const eccProviderName = provider => provider === 'claude' ? 'Claude Code' : 'Codex';
-const eccRuntimePath = () => `${appHome()}/mods/devkits-agents/ecc-runtime.js`;
+const eccRuntimePath = () => `${appHome()}/mods/herdr-zed-agents/ecc-runtime.js`;
 const eccPageSize = 24;
 const eccCategoryIcons = { rules: 'list-todo', agents: 'agent', skills: 'book-open', commands: 'terminal',
   hooks: 'refresh-cw', mcp: 'external-link', contexts: 'columns-3', workflows: 'git-graph' };

@@ -18,7 +18,7 @@ export const resourceSupported = (item, platform) => !item.platforms || item.pla
 
 export function devkitsCatalog(root) {
   const items = devkitsDefinitions.map(({ skill, ...item }) => ({ ...item,
-    path: `${root}/mods/devkits-agents/assets/skills/${skill}/SKILL.md`, policyPath: `${root}/data/devkits/skills/${skill}/SKILL.md` }));
+    path: `${root}/mods/herdr-zed-agents/assets/skills/${skill}/SKILL.md`, policyPath: `${root}/data/devkits/skills/${skill}/SKILL.md` }));
   return { rules: items.filter(item => item.group === 'rules'), skills: items.filter(item => item.group === 'skills') };
 }
 export function parseDevkits(text) {

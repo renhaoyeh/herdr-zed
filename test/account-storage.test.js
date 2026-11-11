@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, symlink, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { readAccountStorage } from '../mods/devkits-agents/account-storage-reader.js';
-import { accountStorageDirectory, storageSize } from '../mods/devkits-agents/account-storage-model.js';
+import { readAccountStorage } from '../mods/herdr-zed-agents/account-storage-reader.js';
+import { accountStorageDirectory, storageSize } from '../mods/herdr-zed-agents/account-storage-model.js';
 import { evaluateNative } from './source-harness.js';
 
 test('storage scan groups files once, excludes linked contents and leaves files intact', async t => {
@@ -55,7 +55,7 @@ test('profiles resolve to their existing account directory, including default an
 
 test('account reads coalesce; late results stay with their account and closed views ignore results', async () => {
   const pending = [], jobs = [];
-  const { sessionMenu } = await evaluateNative('../mods/devkits-agents/session-menu.js', {
+  const { sessionMenu } = await evaluateNative('../mods/herdr-zed-agents/session-menu.js', {
     accountStorageDirectory, availableAgents() {}, home: () => '/home', appHome: () => '/herdr',
     exec: (_command, args) => new Promise(resolve => pending.push({ args, resolve })),
   }, 'sessionMenu');

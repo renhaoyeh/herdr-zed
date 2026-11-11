@@ -38,7 +38,7 @@ export const mcpSetupSettings = {
     return candidate;
   },
   async probeMcp(name, server) {
-    const result = await exec('node', [`${appHome()}/mods/devkits-agents/mcp-probe.js`, 'verify', name, JSON.stringify(server), appHome()], { timeout: 15000 });
+    const result = await exec('node', [`${appHome()}/mods/herdr-zed-agents/mcp-probe.js`, 'verify', name, JSON.stringify(server), appHome()], { timeout: 15000 });
     if (result.code !== 0) throw Error(result.stderr?.trim() || 'Connection verification failed.');
     const value = JSON.parse(result.stdout || '{}');
     if (!Number.isFinite(value.verifiedAt) || !Number.isInteger(value.toolsCount) || value.toolsCount < 0) throw Error('Connection verification returned no result.');
@@ -82,7 +82,7 @@ export const mcpSetupSettings = {
     this.capChecking = true; this.capError = null; cx.notify();
     cx.spawn(async cx => {
       try {
-        const result = await exec('node', [`${appHome()}/mods/devkits-agents/mcp-probe.js`, 'info'], { timeout: 10000 });
+        const result = await exec('node', [`${appHome()}/mods/herdr-zed-agents/mcp-probe.js`, 'info'], { timeout: 10000 });
         if (result.code !== 0) throw Error('Could not inspect the installed bridge.');
         const info = JSON.parse(result.stdout);
         if (this.capClosed || this.capSetup !== form) return;

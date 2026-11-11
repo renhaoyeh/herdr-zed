@@ -5,7 +5,7 @@ import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { commandArgv } from './components/session-shell.js';
+import { commandArgv } from '../components/session-shell.js';
 
 export const claudeUsageFile = 'devkits-usage.json';
 const claudeLimits = [['five_hour', '5-hour', 300], ['seven_day', 'Weekly', 10080]];
