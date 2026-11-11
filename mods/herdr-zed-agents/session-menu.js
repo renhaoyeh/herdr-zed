@@ -14,7 +14,7 @@ import { Select, SelectState } from './components/select.js';
 import { accountStorageDirectory, storageGroups, storageSize } from './account-storage-model.js';
 
 const launcherSections = ['Terminal', 'Agents', 'Your accounts', 'Agent profiles'];
-import { openAgentSettings, noAccount } from './components/agents.js';
+import { openSharedMcp, noAccount } from './components/agents.js';
 // Accounts whose address was already requested in this app session.
 
 
@@ -420,7 +420,7 @@ export const sessionMenu = {
       { id: 'agents', label: 'Agents', icon: glyph('square-plus') },
       ...(local ? [{ id: 'agent-profiles', label: 'Profiles', icon: glyph('agent') },
         { id: 'global-rules', label: 'Global Rules', icon: glyph('book-open') },
-        { id: 'shared-mcp', label: 'Devkits', icon: glyph('folder') },
+        { id: 'shared-mcp', label: 'Capabilities', icon: glyph('folder') },
         { id: 'ecc', label: 'ECC', icon: glyph('agent') }] : [])];
     const page = pages.some(item => item.id === this.settingsPage) ? this.settingsPage : 'agents';
     return DialogContent('manage-launchers', t).accessibility_label('Settings')
@@ -577,6 +577,8 @@ export const sessionMenu = {
                       .accessibility_label(`Show ${choice.name} in Usage`).on_change((checked, cx) => toggleUsage(choice.agent.key, checked, cx))
                     : div().text_size(12).text_color(t.muted).child('–'))))))))))
         .when(local, el => el.child(this.autoAccountsSection(choices.filter(usageEligible), t)))
+        .when(local, el => el.child(Button('agents-open-shared-mcp', t, { variant: 'secondary' }).on_click(() => openSharedMcp())
+          .child('Shared MCP connections…')))
         .when(this.loading, el => el.child(div().p(8).text_size(12).text_color(t.muted).child('Loading agents…')))
         .when(this.launchError, el => el.child(Button('manage-retry-agents', t, { variant: 'secondary' })
           .on_click((_event, cx) => this.loadAgents(cx)).child('Could not load agents. Retry')));

@@ -31,7 +31,8 @@ export default class AgentsMod extends View {
       this.usageService = new UsageService(); this.usageService.init(cx);
       return;
     }
-    if (target.view === 'sidebar') { this.usageClient = new UsageClient({ context: () => ({ machine: target.machine || null }) }); this.usageClient.init(cx); return; }
+    // Usage surfaces mount as native blocks (extension.json); each keeps its own lease with the Usage service.
+    if (['usage-sidebar', 'usage-status'].includes(target.view)) { this.usageClient = new UsageClient(); this.usageClient.init(cx); return; }
     if (target.view === 'usage-details') { this.details = new UsageDetails(); this.details.init(cx); return; }
     if (target.view === 'token-statistics') { this.analytics = new Analytics(); this.analytics.init(cx); return; }
     if (target.view === 'account-login') { this.login = new AccountLogin(); this.login.init(target, cx); return; }
@@ -78,7 +79,8 @@ export default class AgentsMod extends View {
   render(cx) {
     const t = theme(), view = props()?.view;
     if (view === 'service') { this.service?.poll(cx); return div().size_full(); }
-    if (view === 'sidebar') return this.usageClient.render(t);
+    if (view === 'usage-sidebar') return this.usageClient.render(t);
+    if (view === 'usage-status') return this.usageClient.renderStatus(t);
     if (view === 'usage-details') return this.details.render(t);
     if (view === 'token-statistics') return this.analytics.render();
     if (view === 'account-login') return this.login.render();

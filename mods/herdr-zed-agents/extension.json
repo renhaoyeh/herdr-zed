@@ -3,6 +3,10 @@
   "id": "agents",
   "title": "Agents",
   "services": [{ "view": "service" }],
+  "surfaces": [
+    { "id": "usage", "location": "sidebar.bottom", "view": "usage-sidebar", "title": "Usage", "icon": "chart-column" },
+    { "id": "usage-status", "location": "status.right", "view": "usage-status", "title": "Usage", "icon": "chart-column" }
+  ],
   "actions": [],
   "provides": {
     "launcher": {

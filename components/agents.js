@@ -1,18 +1,13 @@
 // Shared: edit components/agents.js, then npm run sync:shared.
 import { shared, setShared, layout, openOverlay, appHome } from 'herdr';
-import { launcherOption, accountAddresses, noAccountLabel } from './session-model.js';
+import { noAccountLabel } from './session-model.js';
 
 const REQUESTS = 'herdr-zed.agents.requests', RESULTS = 'herdr-zed.agents.results';
 export const rulesPath = () => `${appHome()}/data/devkits/AGENTS.md`;
 export const noAccount = noAccountLabel;
-export const openAgentSettings = (space = null, page = 'accounts') => openOverlay({ mod: 'herdr-zed-agents', kind: 'dialog', frame: 'none', modal: false,
-  width: 1040, height: 0.86, props: { view: 'manage-launchers', space, page } });
-export const openAgentLauncher = (target, at) => openOverlay({ mod: 'herdr-zed-agents', kind: 'popup', frame: 'none', width: 280, at,
-  props: { ...target, view: 'launcher' } });
-export const openSharedMcp = agent => openOverlay({ mod: 'herdr-zed-agents', kind: 'dialog', frame: 'none', modal: true, width: 720, height: 0.8,
-  props: { view: 'shared-mcp', agent } });
-export const agentAccountName = (agent, label) => label === 'Default account' && agent && !agent.profileKey
-  ? launcherOption(agent, accountAddresses(shared)).label : label;
+// The shell owns the New thread picker; the Agents settings page opens the shared MCP dialog.
+export const openSharedMcp = () => openOverlay({ mod: 'herdr-zed-agents', kind: 'dialog', frame: 'none', modal: true, width: 720, height: 0.8,
+  props: { view: 'shared-mcp' } });
 const mounted = node => node?.content?.mod === 'herdr-zed-agents' && node.content.props?.view === 'service'
   || (node?.children || []).some(mounted);
 const LONG_ACTIONS = ['prepare', 'launch'];

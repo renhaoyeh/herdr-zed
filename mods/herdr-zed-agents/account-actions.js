@@ -48,11 +48,11 @@ export const accountActions = {
   },
 
   renameAccountPrompt(t) {
-    return DialogContent('rename-account-dialog', t).accessibility_label('Rename agent profile')
+    return DialogContent('rename-account-dialog', t).accessibility_label('Rename account')
       .track_focus(this.handle).on_key_down((event, cx) => {
         if (event.key === 'escape') { cx.stop_propagation(); this.finishRename(); }
       })
-      .child(DialogTitle().child('Rename agent profile'))
+      .child(DialogTitle().child('Rename account'))
       .child(DialogDescription(t).child('Choose a display name for this account.'))
       .child(Input.new(this.renameInput, t).id('rename-account-name').accessibility_label('Account name')
         )
