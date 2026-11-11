@@ -189,6 +189,10 @@
             {
               "id": "status-content",
               "type": "row",
+              "divider": {
+                "width": 0,
+                "color": "border"
+              },
               "children": [
                 {
                   "id": "status-main",

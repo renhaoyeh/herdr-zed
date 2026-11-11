@@ -177,7 +177,7 @@ export class SystemMonitor {
     return openWorkspacePanel({ mod: 'herdr-zed-system', props: { view: 'details', page } });
   }
   renderInline(t, { id = 'system-inline' } = {}) {
-    const root = h_flex().id(id).flex_1().min_w(0).h_full().items_center().gap(2);
+    const root = h_flex().id(id).size_full().min_w(0).justify_end().items_center().gap(2);
     const config = hardwareConfig();
     const items = hardwareDisplayItems(this.hardware, config);
     const prefix = id;

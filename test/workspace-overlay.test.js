@@ -27,7 +27,7 @@ test('with a published work area the panel is a borderless window named for work
   assert.equal(WORKSPACE_PANEL_KEY, 'herdr-zed.workspace-panel');
   const spec = workspaceOverlay({ mod: 'herdr-zed-tasks', props: { view: 'board' }, width: 0.5, height: 0.5, modal: true });
   assert.deepEqual(spec, { mod: 'herdr-zed-tasks', kind: 'window', key: 'herdr-zed.workspace-panel', frame: 'none',
-    at: { x: 280, y: 32 }, width: 1000, height: 968, props: { view: 'board' } });
+    at: { x: 280, y: 32 }, width: 1000, height: 968, props: { view: 'board', docked: true } });
   assert.equal(spec.modal, undefined, 'a window never dims or closes on a click beside it');
 });
 

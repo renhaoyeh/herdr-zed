@@ -71,7 +71,7 @@ export class UsageClient {
     if (!this.active()) return div().flex_none();
     const entries = this.readableEntries();
     if (!entries.length) return div().flex_none();
-    return h_flex().id('status-usage').flex_none().h_full().items_center().gap(2).accessibility_label('Account usage')
+    return h_flex().id('status-usage').size_full().justify_end().items_center().gap(2).accessibility_label('Account usage')
       .when(Boolean(openMenu), el => el.on_mouse_down('right', (event, cx) => { cx.stop_propagation(); openMenu(event.position); }))
       .children(entries.map(({ choice, windows, status, account, name, unknown }) =>
         Button(`status-usage-${choice.key}`, t, { variant: 'ghost' }).h_full().px(6).gap(4).text_size(11)

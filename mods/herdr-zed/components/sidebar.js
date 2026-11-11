@@ -24,7 +24,7 @@ export function SidebarMenuButton(id, active, t) {
 }
 
 export function SidebarFooter(t) {
-  return h_flex().id('sidebar-bottom-bar').h(32).flex_none().px(4).gap(4).border_t(1).border_color(t.border).items_center();
+  return h_flex().id('sidebar-bottom-bar').w_full().h(32).flex_none().px(4).gap(4).border_t(1).border_color(t.border).items_center();
 }
 
 // Only related panes get a shared bracket. Independent threads remain ordinary rows.

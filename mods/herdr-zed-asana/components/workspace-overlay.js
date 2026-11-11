@@ -7,6 +7,7 @@ import { shared, setShared, settings, openOverlay, closeOverlay, props } from 'h
 export const WORKSPACE_RECT_KEY = 'herdr-zed.workspace-rect';
 // The window's name: opening a workspace panel with it replaces the open one, in its place.
 export const WORKSPACE_PANEL_KEY = 'herdr-zed.workspace-panel';
+// A docked panel (props.docked) fills the work area edge to edge: it draws square corners and no outer border.
 // The open workspace panel's overlay id. The shell closes it on a project switch or when Settings opens.
 export const WORKSPACE_PANEL_OVERLAY = 'herdr-zed.workspace-panel.overlay';
 // The centered fallback while no work area is published (and the default size of a provider panel).
@@ -34,7 +35,7 @@ export function workspaceOverlay(spec) {
   const zoom = Number(settings().zoom) || 1;
   // A window is dragged by any press its mod doesn't stop; workspacePanel stops them. It doesn't close on a click beside it.
   return /** @type {const} */ ({ mod: spec.mod, kind: 'window', key: WORKSPACE_PANEL_KEY, frame: 'none', at: { x: rect.x * zoom, y: rect.y * zoom },
-    width: rect.width, height: rect.height, props: spec.props });
+    width: rect.width, height: rect.height, props: { ...spec.props, docked: true } });
 }
 
 /** Opens a workspace panel and records its id (WORKSPACE_PANEL_OVERLAY). Returns the id. */

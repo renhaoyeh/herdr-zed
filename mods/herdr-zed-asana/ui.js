@@ -1,6 +1,6 @@
 import { div, svg } from 'gpui-kit';
 import { v_flex, h_flex, Input, TextView } from 'gpui-base';
-import { theme, settings, run } from 'herdr';
+import { theme, settings, run, props } from 'herdr';
 import { sourcePathKey as folderKey } from './components/task-source-model.js';
 import { TaskSourceController, TaskSourceProjectPicker } from './components/task-source.js';
 import { asanaSource } from './source.js';
@@ -377,7 +377,7 @@ export default class AsanaPanel extends TaskSourceController {
       this.resizing = false;
       if (this.width) this.writeState('preview-width', this.width);
     };
-    return v_flex().id('asana-panel').size_full().min_h(0).rounded(10).shadow_xl().overflow_hidden().font_family('Arial').border(1).border_color(t.border).bg(t.background).text_color(t.foreground)
+    return v_flex().id('asana-panel').size_full().min_h(0).overflow_hidden().when(!props()?.docked, el => el.rounded(10).shadow_xl().border(1).border_color(t.border)).font_family('Arial').bg(t.background).text_color(t.foreground)
       .on_mouse_down('right', (_event, cx) => cx.stop_propagation())
       .on_click((_event, cx) => cx.stop_propagation())
       .on_scroll_wheel((_event, cx) => cx.stop_propagation())

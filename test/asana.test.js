@@ -123,7 +123,7 @@ test('the token is stored locally and only replaced against the file it was read
 const element = () => new Proxy(() => {}, { get: (_target, key) => key === 'when'
   ? (condition, render) => condition ? render(element()) : element() : () => element() });
 const ui = { div: element, svg: element, v_flex: element, h_flex: element, Input: { new: element },
-  TextView: { markdown: element }, theme: () => ({}), openOverlay() {}, DropdownMenuContent: element, DropdownMenuItem: element, DropdownMenuLabel: element,
+  TextView: { markdown: element }, theme: () => ({}), props: () => ({}), openOverlay() {}, DropdownMenuContent: element, DropdownMenuItem: element, DropdownMenuLabel: element,
   InputState: { new: () => ({ on() {}, value: () => '', set_value() {}, set_masked() {}, focus() {} }) },
   Textarea: { new: element }, TextareaState: { new: () => { let value = '', change; return { on: (name, handler) => { if (name === 'change') change = handler; },
     value: () => value, set_value: next => { value = next; }, type: next => { value = next; change?.(); }, set_auto_grow() {} }; } },

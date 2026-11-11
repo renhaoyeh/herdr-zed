@@ -496,7 +496,7 @@ export default class LocalCalendar {
         if (event.key === 'escape') { cx.stop_propagation(); this.cancel(cx); }
         else if (event.key === 'enter' && (event.modifiers?.platform || event.modifiers?.control)) { cx.stop_propagation(); this.save(cx); }
       }).child(this.editor({ ...t, background: t.popover })));
-    return this.mentionKeyboard(v_flex().id('local-calendar').size_full().min_h(0).rounded(12).overflow_hidden().border(1).border_color(t.border)
+    return this.mentionKeyboard(v_flex().id('local-calendar').size_full().min_h(0).overflow_hidden().when(!props()?.docked, el => el.rounded(12).border(1).border_color(t.border))
       .bg(t.background).font_family(t.fontFamily).text_color(t.foreground).role('dialog').accessibility_label('Calendar').track_focus(this.handle)
       .on_key_down((event, cx) => {
         if (event.key === 'escape') { cx.stop_propagation(); if (this.drag) this.cancelRange(cx); else this.composing ? this.cancel(cx) : close(); }
