@@ -280,6 +280,8 @@ when the key clears. Hidden readings do not count toward the readings divider (`
 
 - The provider writes the key only when its value changes, from a timer or sync logic, never during render (every
   `setShared` re-renders all mods, so a write from render would loop).
+- Agents owns the status Usage subscription and emptiness reporter in its always-mounted service, so hiding an empty
+  reading cannot stop quota discovery or prevent it from showing again when readable data returns.
 - The shell reads the keys on each status layout sync; the status-tools view re-renders after every shared write and
   triggers that sync. Disabling the extension clears its keys.
 - Only `status.right` surfaces are governed; the shell never hides a sidebar or dock surface through this key.

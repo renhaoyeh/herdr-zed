@@ -40,7 +40,8 @@ async function harness(memory = { 'herdr-zed.usage.snapshot': snapshot }) {
   };
   const { UsageClient } = await evaluateNative('../components/usage.js', base, 'UsageClient');
   const { UsageDetails } = await evaluateNative('../mods/herdr-zed-agents/usage/details.js', base, 'UsageDetails');
-  const host = { ...base, View: class {}, AccountLogin: class {}, AgentClient: class {}, AgentsService: class {}, UsageService: class {},
+  const host = { ...base, View: class {}, AccountLogin: class {}, AgentClient: class {},
+    AgentsService: class { init() {} poll() {} }, UsageService: class { init() {} },
     Analytics: class {}, UsageClient, UsageDetails, newTerminalCommand: () => '', discoverAgents: async () => [],
     autoLauncherKey: 'auto', folderKey: () => '', sessionMenu: {}, accountActions: {}, agentProfiles: {}, mcpSetupSettings: {},
     devkitsSettings: {}, eccSettings: {}, sharedMcpSettings: {}, globalRulesSettings: {}, agentSelection: {} };
@@ -102,13 +103,13 @@ test('Usage views render without a snapshot: one muted line and a link to add an
   assert.equal(h.texts.includes('Account usage'), false, 'the status item draws no group when nothing is readable');
 });
 
-test('the status reading reports to the shell when it has nothing to show, from its timer and only when that changes', async () => {
+test('the service reports status emptiness even with no status view mounted, only when it changes', async () => {
   const memory = { 'herdr-zed.usage.snapshot': snapshot };
   const h = await harness(memory);
   const key = 'herdr-zed.surface-empty.agents.usage-status';
   const tickAll = () => h.ticks.forEach(tick => tick(h.cx));
   const writesTo = () => h.writes.filter(name => name === key).length;
-  h.mount('usage-status');
+  h.mount('service');
   assert.equal(memory[key], false, 'a readable account shows the reading');
   const written = writesTo();
   tickAll();

@@ -32,12 +32,15 @@ export default class AgentsMod extends View {
     if (target.view === 'service') {
       this.service = new AgentsService(); this.service.init(cx);
       this.usageService = new UsageService(); this.usageService.init(cx);
+      // Hidden surfaces lose their view/timers. Keep the status subscription and emptiness reporter in the
+      // always-mounted service so an empty reading can discover data and become visible again.
+      this.usageClient = new UsageClient(); this.usageClient.init(cx);
+      this.reportStatusEmpty(cx);
       return;
     }
     // Usage surfaces mount as native blocks (extension.json); each keeps its own lease with the Usage service.
     if (['usage-sidebar', 'usage-status'].includes(target.view)) {
       this.usageClient = new UsageClient(); this.usageClient.init(cx);
-      if (target.view === 'usage-status') this.reportStatusEmpty(cx);
       return;
     }
     if (target.view === 'usage-details') { this.details = new UsageDetails(); this.details.init(cx); return; }
