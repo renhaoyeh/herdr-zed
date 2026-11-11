@@ -3,7 +3,7 @@ import { h_flex, v_flex } from 'gpui-base';
 import { openOverlay, closeOverlay, props } from 'herdr';
 import { Button } from './components/button.js';
 import { DialogContent, DialogTitle, DialogDescription, DialogFooter } from './components/dialog.js';
-import { extensionCatalog, refreshExtensions, extensionEnabled, setExtensionEnabled,
+import { extensionCatalog, refreshExtensions, extensionEnabled, extensionActive, setExtensionEnabled,
   extensionSurfaceVisible, setExtensionSurfaceVisible } from './extensions.js';
 
 export const openExtensions = () => openOverlay({ mod: 'herdr-zed', kind: 'dialog', frame: 'none',
@@ -25,13 +25,20 @@ export class ExtensionsManager {
           el => el.child(div().text_size(12).text_color(t.muted).child('No extensions installed.')))
         .children((catalog.packages || []).map(entry => {
           const enabled = extensionEnabled(entry.mod);
-          const surfaces = (enabled ? entry.surfaces || [] : []).filter(surface => ['sidebar.bottom', 'status.right', 'dock.right'].includes(surface.location));
+          const missing = (catalog.resolved?.unavailable || []).find(item => item.mod === entry.mod);
+          const conflict = (catalog.resolved?.conflicts || []).find(item => item.mods.includes(entry.mod));
+          const active = extensionActive(entry.mod);
+          const surfaces = (active ? entry.surfaces || [] : []).filter(surface => ['sidebar.bottom', 'status.right', 'dock.right'].includes(surface.location));
+          const status = entry.error ? 'Unavailable'
+            : !enabled ? 'Disabled'
+            : conflict ? `Conflict · ${conflict.provider} is provided by ${conflict.mods.join(', ')}; none is used`
+            : missing ? `Unavailable · requires ${missing.missing.join(', ')}`
+            : `Enabled · ${entry.surfaces?.length ? `Popup · ${entry.surfaces.length} surfaces` : 'Popup'}`;
           return v_flex().gap(8).p(12).border(1).border_color(t.border)
             .child(h_flex().items_center().gap(16)
               .child(v_flex().flex_1().min_w(0).gap(4)
                 .child(div().text_size(13).font_semibold().child(entry.title))
-                .child(div().text_size(11).text_color(t.muted).child(entry.error ? 'Unavailable'
-                  : enabled ? `Enabled · ${entry.surfaces?.length ? `Popup · ${entry.surfaces.length} surfaces` : 'Popup'}` : 'Disabled')))
+                .child(div().text_size(11).text_color(conflict || missing || entry.error ? t.ansi1 : t.muted).child(status)))
               .child(Button(`extension-toggle-${entry.mod}`, t, { variant: 'secondary' })
                 .disabled(catalog.loading || Boolean(entry.error))
                 .on_click(() => setExtensionEnabled(entry.mod, !extensionEnabled(entry.mod)))

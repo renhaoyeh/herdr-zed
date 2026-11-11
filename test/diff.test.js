@@ -10,17 +10,19 @@ async function load(host = {}) {
   const memory = {};
   host = { readBuildRules: async () => null, withBuildRulesFile: (rules, _on, read) => read(rules?.path || ''), openBuildRules() {}, SelectState: class { constructor() { this.open = false; } }, shared: key => memory[key], setShared: (key, value) => { memory[key] = value; }, TextEncoder: undefined, TextDecoder: undefined,
     v_virtual_list: (_id, count, _sizes, _key, render) => { render({ start: 0, end: count }); return host.div(); },
-    Scrollbar: { vertical: () => host.div() }, ...host };
+    Scrollbar: { vertical: () => host.div() },
+    // Provider-facing shell functions used by the Git panel; no provider is active unless a test supplies one.
+    extensionActions: () => [], extensionCatalog: () => ({ resolved: {} }), openGitAction() {}, credentialArgsFor: () => [],
+    ...host };
   const source = await readFile(new URL('../mods/herdr-zed/diff.js', import.meta.url), 'utf8');
   const sidePanel = await readFile(new URL('../components/side-panel.js', import.meta.url), 'utf8');
   const menu = await readFile(new URL('../components/dropdown-menu.js', import.meta.url), 'utf8');
   const history = await readFile(new URL('../mods/herdr-zed/git-history.js', import.meta.url), 'utf8');
-  const auth = await readFile(new URL('../mods/herdr-zed/git-auth.js', import.meta.url), 'utf8');
   const shell = await readFile(new URL('../mods/herdr-zed/shell.js', import.meta.url), 'utf8');
   const command = await readFile(new URL('../components/session-shell.js', import.meta.url), 'utf8');
   const utf8 = await readFile(new URL('../mods/herdr-zed/utf8.js', import.meta.url), 'utf8');
   const toast = await readFile(new URL('../mods/herdr-zed/git-result-toast.js', import.meta.url), 'utf8');
-  return new Function(...Object.keys(host), (utf8 + '\n' + command + '\n' + shell + '\n' + menu + '\n' + history + '\n' + auth + '\n' + sidePanel + '\n' + toast + '\n' + source).replace(/^import .*;\r?\n/gm, '')
+  return new Function(...Object.keys(host), (utf8 + '\n' + command + '\n' + shell + '\n' + menu + '\n' + history + '\n' + sidePanel + '\n' + toast + '\n' + source).replace(/^import .*;\r?\n/gm, '')
     .replace('export default class', 'class').replace(/^export /gm, '') + '\nreturn { DiffViewer, ALL_REPOSITORIES, readAllDiff, readRepositories, DropdownMenu, DropdownMenuState, showGitToast, clearGitToast, utf8ByteLength, parseDiff, parseDiffBatches, parseDiffAsync, parseDiffIndex, readDiff, readPushState, pushBranch, gitRemoteAction, affectsDiff, pairLines, changedRanges, changeSections, changeTree, wrapLine, isBuildOutput };')(...Object.values(host));
 }
 const run = promisify(execFile);
@@ -395,10 +397,13 @@ test('Git menu runs only known commands and passes remote names as literal argum
   assert.equal(calls.length, 6);
   await assert.rejects(gitRemoteAction('/project', null, 'publish'), /Choose a Git remote/);
   await assert.rejects(gitRemoteAction('/project', null, 'push-tags'), /Choose a Git remote/);
-  await gitRemoteAction('/project', 'box', 'push', 'origin', { host: 'github.com', login: 'alice' });
+  // Credential arguments arrive already validated by the shell (credentialArgsFor); they precede the Git subcommand.
+  const credential = ['-c', 'credential.https://github.com.username=alice'];
+  await gitRemoteAction('/project', 'box', 'push', 'origin', credential);
+  assert.deepEqual(calls.at(-1)[1].slice(4, 6), credential);
   assert.ok(calls.at(-1)[1].includes('credential.https://github.com.username=alice'));
   assert.deepEqual(calls.at(-1)[1].slice(-3), ['push', '--', 'origin']);
-  await gitRemoteAction('/project', 'box', 'push-tags', 'remote$(x)', { host: 'github.com', login: 'alice' });
+  await gitRemoteAction('/project', 'box', 'push-tags', 'remote$(x)', credential);
   assert.ok(calls.at(-1)[1].includes('credential.https://github.com.username=alice'));
   assert.deepEqual(calls.at(-1)[1].slice(-4), ['push', '--tags', '--', 'remote$(x)']);
 });
@@ -655,9 +660,10 @@ test('split button menu exposes Git operations, counts and keyboard navigation w
   assert.equal(view.output, null);
   assert.equal(view.pushResult.failed, true, 'Dismissal retains the result');
   view.pushFooter({});
-  nodes.get('diff-git-actions-accounts').click({}, cx);
+  // The shell's menu keeps Commit author; GitHub account comes from the git.actions catalog (see git-actions tests).
+  nodes.get('diff-git-actions-commit-author').click({}, cx);
   assert.deepEqual(actions.at(-1), ['author', view.context, undefined]);
-  assert.equal(accountSettings, undefined, 'Opening the modal does not change the account');
+  assert.equal(accountSettings, undefined, 'Opening the commit author does not change any account');
 });
 
 
@@ -1489,4 +1495,45 @@ test('the Changes index appears before a blocked first patch or branch-state rea
   finishState({ code: 0, stdout: '' });
   await Promise.all(tasks);
   assert.equal(view.files[0].deferred, false); assert.equal(view.loaded, true);
+});
+
+test('Git menu lists git.actions providers, opens them with the repository context and reports a bad credential binding once', async () => {
+  const nodes = new Map(), opened = [], notices = [], painted = [];
+  const element = () => {
+    const data = { children: [] };
+    const el = new Proxy(data, { get(target, key) {
+      if (key === 'when') return (condition, render) => { if (condition) render(el); return el; };
+      return (...args) => {
+        if (key === 'id') nodes.set(args[0], data);
+        if (key === 'child') { data.children.push(args[0]); if (typeof args[0] === 'string') painted.push(args[0]); }
+        if (key === 'children') data.children.push(...args[0]);
+        if (key === 'on_click' || key === 'on_item_click') data.click = args[0];
+        return el;
+      };
+    } });
+    return el;
+  };
+  const { DiffViewer } = await load({ div: element, svg: element, v_flex: element, h_flex: element,
+    Button: id => element().id(id), Popup: { new: id => element().id(id) }, Empty: element, EmptyDescription: element,
+    theme: () => ({}), settings: () => ({}), notify: notice => notices.push(notice),
+    VirtualListScrollHandle: { new: () => ({}) }, Editor: { new: element }, EditorState: { new: options => ({ ...options }) },
+    extensionActions: location => location === 'git.actions' ? [{ id: 'github.account', title: 'GitHub account…', mod: 'herdr-zed-github', location }] : [],
+    openGitAction: (id, repository) => opened.push([id, repository]),
+    extensionCatalog: () => ({ resolved: { gitCredentials: { id: 'github', mod: 'herdr-zed-github' } } }),
+    credentialArgsFor: (provider, repository, read, report) => { report('Git credential host is invalid.'); report('Git credential host is invalid.'); return []; },
+    shared: () => undefined, setShared() {} });
+  const cx = { notify() {}, stop_propagation() {}, focus_handle: () => ({ focus() {} }), spawn() {} };
+  const view = new DiffViewer(); view.init(cx);
+  view.context = { id: 'project', folder: '/project', machine: 'box' };
+  view.loaded = true;
+  view.pushState = { branch: 'main', committed: true, remote: true, remotes: ['origin'], ahead: 0, behind: 0 };
+  view.pushFooter({});
+  assert.ok(nodes.has('diff-git-actions-ext:github.account'), 'the provider action is a menu item');
+  assert.ok(nodes.has('diff-git-actions-commit-author'), 'the shell keeps its own Commit author item');
+  nodes.get('diff-git-actions-ext:github.account').click({}, cx);
+  assert.deepEqual(opened, [['github.account', { id: 'project', folder: '/project', machine: 'box' }]]);
+  assert.deepEqual(view.credentialArgs({ folder: '/project', machine: 'box' }), []);
+  assert.deepEqual(view.credentialArgs({ folder: '/project', machine: 'box' }), []);
+  assert.equal(notices.length, 1, 'the same invalid binding is reported once');
+  assert.equal(notices[0].title, 'Git credentials ignored');
 });

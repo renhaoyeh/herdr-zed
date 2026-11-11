@@ -6,10 +6,12 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { execFile } from 'node:child_process';
 import { gitShellCommand } from '../components/session-shell.js';
+import { projectKey } from '../components/extension-contract.js';
 
 const run = promisify(execFile);
 async function load(host = {}) {
-  const source = await readFile(new URL('../mods/herdr-zed/git-auth.js', import.meta.url), 'utf8');
+  const source = await readFile(new URL('../mods/herdr-zed-github/git-auth.js', import.meta.url), 'utf8');
+  host = { projectKey, ...host };
   return new Function(...Object.keys(host), source.replace(/^import .*;\r?\n/gm, '').replace(/^export /gm, '')
     + '\nreturn { gitAccount, setGitAccount, readGitAccounts, gitAuthArgs, readAccountAuthor, rememberGitAuthor };')(...Object.values(host));
 }
@@ -59,14 +61,14 @@ test('GitHub accounts retain only public metadata and report unavailable account
 });
 
 test('account choices are scoped by machine and folder and Default removes the choice', async () => {
-  let data;
-  const auth = await load({ shared: () => data, setShared: (_key, value) => { data = value; } });
+  const memory = {};
+  const auth = await load({ shared: key => memory[key], setShared: (key, value) => { memory[key] = structuredClone(value); } });
   const project = { machine: '', folder: 'C:/project' };
   auth.setGitAccount(project, { host: 'github.com', login: 'alice', token: 'discard-me' });
   assert.deepEqual(auth.gitAccount(project), { host: 'github.com', login: 'alice' });
   assert.equal(auth.gitAccount({ ...project, machine: 'remote' }), null);
   assert.equal(auth.gitAccount({ folder: 'C:/other' }), null);
-  assert.ok(!JSON.stringify(data).includes('discard-me'));
+  assert.ok(!JSON.stringify(memory).includes('discard-me'));
   auth.setGitAccount(project, null);
   assert.equal(auth.gitAccount(project), null);
   assert.throws(() => auth.setGitAccount(project, { host: 'github.com', login: '$(bad)' }), /Invalid/);

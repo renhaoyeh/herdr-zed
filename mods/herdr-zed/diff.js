@@ -15,7 +15,8 @@ import { GitGraph } from './git-graph.js';
 import { SidePanelLayout, SidePanelState } from './components/side-panel.js';
 import { showGitToast, clearGitToast } from './git-result-toast.js';
 import { openGitAuthor } from './git-author-settings.js';
-import { gitAccount, gitAuthArgs } from './git-auth.js';
+import { extensionCatalog, extensionActions, openGitAction } from './extensions.js';
+import { credentialArgsFor } from './git-credentials.js';
 
 const icon = name => svg(`mods/herdr-zed/assets/icons/${name}.svg`).size(12).flex_none();
 // Native virtual lists accept at most 10,000 per-item sizes, including chrome rows.
@@ -345,7 +346,8 @@ const gitActions = [
   { key: 'force-push', label: 'Force Push (with lease)', progress: 'Pushing…', args: ['push', '--force-with-lease'] },
 ];
 
-export async function gitRemoteAction(folder, on, action, remote, account = null) {
+// `credentialArgs` are the `-c` pairs of the repository's gitCredentials binding (see credentialArgsFor).
+export async function gitRemoteAction(folder, on, action, remote, credentialArgs = []) {
   const operation = gitActions.find(item => item.key === action);
   if (!operation) throw new Error('Unknown Git operation.');
   const publish = action === 'publish' || action === 'republish';
@@ -356,7 +358,7 @@ export async function gitRemoteAction(folder, on, action, remote, account = null
     + (publish ? 'branch=$(git symbolic-ref --quiet --short HEAD) || exit 3; set -- "$@" "HEAD:refs/heads/$branch"; ' : '')
     + 'GIT_TERMINAL_PROMPT=0 GCM_INTERACTIVE=never git "$@"';
   const result = await execShell(['-c', script,
-    'herdr-zed-git', folder, ...gitAuthArgs(account), ...args], { on });
+    'herdr-zed-git', folder, ...credentialArgs, ...args], { on });
   if (result.code !== 0) throw new Error(result.stderr.trim() || result.stdout.trim() || `${operation.label} failed.`);
 }
 
@@ -782,7 +784,7 @@ export default class DiffViewer {
     cx.notify();
     cx.spawn(async cx => {
       let message = `${operation.label} completed.`, failed = false;
-      try { await gitRemoteAction(context.folder, context.machine, action, remote, gitAccount(context)); }
+      try { await gitRemoteAction(context.folder, context.machine, action, remote, this.credentialArgs(context)); }
       catch (error) { message = String(error.message || error); failed = true; }
       // Read the new ahead/behind counts before re-enabling the button, so it never shows the pre-push counts.
       if (this.context === context) {
@@ -807,6 +809,15 @@ export default class DiffViewer {
         this.reload(cx);
       } else notify({ title: `${operation.label} ${failed ? 'failed' : 'completed'}`, body: context.name || context.folder, level: failed ? 'error' : 'success' });
       cx.notify();
+    });
+  }
+
+  // Credentials come from the active gitCredentials provider. An invalid binding is reported once and Git runs without it.
+  credentialArgs(repository) {
+    return credentialArgsFor(extensionCatalog().resolved?.gitCredentials, repository, key => shared(key), message => {
+      if (this.credentialError === message) return;
+      this.credentialError = message;
+      notify({ title: 'Git credentials ignored', body: message, level: 'error' });
     });
   }
 
@@ -848,7 +859,9 @@ export default class DiffViewer {
     const counts = `${behind > 0 ? `↓${behind} ` : ''}${ahead > 0 ? `↑${ahead} ` : ''}`;
     const pushUnavailable = Boolean(this.pushUnavailable('push'));
     const page = this.gitMenu.page;
-    const account = gitAccount(this.context), accountLabel = account?.login || 'Default';
+    // Provider actions for the repository come first; the shell's own commit author item always stays available.
+    const providerActions = extensionActions('git.actions').map((action, index) => ({ key: `ext:${action.id}`, label: action.title,
+      separator: index === 0, disabled: Boolean(this.pushing) }));
     const items = page ? [
       { key: 'back', label: '‹ Git operations' },
       ...(this.pushState?.remotes || []).map(remote => ({ key: `remote:${remote}`, label: remote })),
@@ -862,10 +875,12 @@ export default class DiffViewer {
       { key: 'push-to', label: 'Push To…', disabled: pushUnavailable },
       { key: 'push-tags', label: 'Push Tags', description: 'All local tags', disabled: Boolean(this.pushUnavailable('push-tags')) },
       { key: 'force-push', label: 'Force Push (with lease)', disabled: pushUnavailable },
-      { key: 'accounts', label: 'GitHub account…', description: accountLabel, separator: true, disabled: Boolean(this.pushing) },
+      ...providerActions,
+      { key: 'commit-author', label: 'Commit author…', separator: providerActions.length === 0, disabled: Boolean(this.pushing) },
     ];
     const choose = (key, cx) => {
-      if (key === 'accounts') openGitAuthor(this.context);
+      if (key === 'commit-author') openGitAuthor(this.context);
+      else if (key.startsWith('ext:')) openGitAction(key.slice('ext:'.length), this.context);
       else if (key === 'back' || key === 'fetch-from' || key === 'push-to') {
         this.gitMenu.page = key === 'back' ? null : key === 'fetch-from' ? 'fetch' : 'push';
         this.gitMenu.index = 0; this.gitMenu.open = true;

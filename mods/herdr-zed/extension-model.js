@@ -169,3 +169,10 @@ export function extensionPopup(action, project) {
     props: { view: action.popup.view, ...(context ? { context } : {}),
       stateKey: `herdr-zed.extension.${action.extensionId}.${scope}` } };
 }
+
+// Git actions open with the selected repository (ARCHITECTURE §2.1), not the workspace project.
+export function gitActionPopup(action, { machine, folder }) {
+  return { mod: action.mod, kind: 'dialog', frame: 'none', modal: action.popup.modal,
+    width: action.popup.width, height: action.popup.height,
+    props: { view: action.popup.view, context: { machine: machine || null, folder } } };
+}

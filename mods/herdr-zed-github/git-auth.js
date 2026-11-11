@@ -1,11 +1,13 @@
 import { exec, shared, setShared } from 'herdr';
+import { projectKey } from './components/extension-contract.js';
 
 const validAccount = account => account && typeof account.host === 'string' && typeof account.login === 'string'
   && /^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/i.test(account.host)
   && /^[a-z0-9][a-z0-9_.-]*$/i.test(account.login);
-const projectKey = project => JSON.stringify([project?.machine || '', project?.folder || '']);
 const key = 'herdr-zed.git-accounts';
 const authorKey = 'herdr-zed.git-account-authors';
+// The shell reads this envelope (ARCHITECTURE §3.5). Tokens never enter it; only the inline helper does.
+export const CREDENTIALS_KEY = 'herdr-zed.git-credentials.github';
 const accountAuthorKey = (account, on) => JSON.stringify([on || '', account.host.toLowerCase(), account.login.toLowerCase()]);
 
 export function rememberGitAuthor(account, on, author) {
@@ -32,16 +34,17 @@ export async function readAccountAuthor(account, on) {
 }
 
 export function gitAccount(project) {
-  const account = shared(key)?.[projectKey(project)];
+  const account = shared(key)?.[projectKey(project?.machine, project?.folder)];
   return validAccount(account) ? { host: account.host, login: account.login } : null;
 }
 
 export function setGitAccount(project, account) {
   if (account && !validAccount(account)) throw new Error('Invalid GitHub account.');
   const accounts = { ...(shared(key) || {}) };
-  if (account) accounts[projectKey(project)] = { host: account.host, login: account.login };
-  else delete accounts[projectKey(project)];
+  if (account) accounts[projectKey(project?.machine, project?.folder)] = { host: account.host, login: account.login };
+  else delete accounts[projectKey(project?.machine, project?.folder)];
   setShared(key, accounts);
+  publishGitCredentials();
 }
 
 export async function readGitAccounts(on) {
@@ -55,8 +58,8 @@ export async function readGitAccounts(on) {
   return accounts.filter(validAccount).map(({ host, login, state }) => ({ host, login, available: state === 'success' }));
 }
 
-/** Apply credentials to this process and host only, without switching gh's active account. */
-export function gitAuthArgs(account) {
+/** `[key, value]` pairs applied to one Git command, in order. Only this host is affected. */
+export function gitCredentialConfig(account) {
   if (!account) return [];
   if (!validAccount(account)) throw new Error('Invalid GitHub account.');
   const { host, login } = account;
@@ -67,8 +70,24 @@ export function gitAuthArgs(account) {
     + 'unset GH_TOKEN GITHUB_TOKEN GH_ENTERPRISE_TOKEN GITHUB_ENTERPRISE_TOKEN; '
     + `token=$(gh auth token --hostname '${host}' --user '${login}') || { printf 'quit=true\\n'; return 1; }; `
     + `[ -n "$token" ] || { printf 'quit=true\\n'; return 1; }; printf 'username=%s\\npassword=%s\\n' '${login}' "$token"; }; f`;
-  return ['-c', `credential.https://${host}.helper=`, '-c', `credential.https://${host}.helper=${helper}`,
-    '-c', `credential.https://${host}.username=${login}`,
-    '-c', `url.https://${host}/.insteadOf=git@${host}:`,
-    '-c', `url.https://${host}/.insteadOf=ssh://git@${host}/`];
+  return [[`credential.https://${host}.helper`, ''], [`credential.https://${host}.helper`, helper],
+    [`credential.https://${host}.username`, login],
+    [`url.https://${host}/.insteadOf`, `git@${host}:`], [`url.https://${host}/.insteadOf`, `ssh://git@${host}/`]];
+}
+
+/** Apply credentials to this process and host only, without switching gh's active account. */
+export function gitAuthArgs(account) {
+  return gitCredentialConfig(account).flatMap(([name, value]) => ['-c', `${name}=${value}`]);
+}
+
+/** Rebuilds the shared binding from the saved account choices. Writes only when a binding actually changed. */
+export function publishGitCredentials() {
+  const repositories = {};
+  for (const [scope, account] of Object.entries(shared(key) || {})) {
+    if (!validAccount(account)) continue;
+    repositories[scope] = { host: account.host, login: account.login, config: gitCredentialConfig(account) };
+  }
+  const current = shared(CREDENTIALS_KEY);
+  if (JSON.stringify(current?.repositories || {}) === JSON.stringify(repositories)) return;
+  setShared(CREDENTIALS_KEY, { updatedAt: Date.now(), repositories });
 }

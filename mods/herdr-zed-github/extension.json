@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "id": "github",
+  "title": "GitHub",
+  "services": [
+    { "view": "service" }
+  ],
+  "provides": {
+    "gitCredentials": {}
+  },
+  "actions": [
+    {
+      "id": "account",
+      "title": "GitHub account…",
+      "icon": "github",
+      "location": "git.actions",
+      "popup": {
+        "view": "account",
+        "width": 480,
+        "height": 600,
+        "modal": true
+      }
+    }
+  ]
+}

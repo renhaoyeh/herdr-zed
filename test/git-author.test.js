@@ -8,59 +8,6 @@ import { promisify } from 'node:util';
 import { gitShellCommand } from '../components/session-shell.js';
 
 const run = promisify(execFile);
-test('account modal loads an account draft without applying it and Default restores repository author', async () => {
-  const source = await readFile(new URL('../mods/herdr-zed/git-author-settings.js', import.meta.url), 'utf8');
-  const { GitAuthorSettings } = new Function('readAccountAuthor', 'readGitAuthor',
-    source.replace(/^import .*;\r?\n/gm, '').replace(/^export /gm, '') + '\nreturn { GitAuthorSettings };')(
-    async () => ({ name: 'Alice', email: '' }), async () => ({ name: 'Repo', email: 'repo@example.test' }));
-  const view = new GitAuthorSettings(), pending = [];
-  const input = () => ({ value: '', set_value(value) { this.value = value; } });
-  Object.assign(view, { target: { folder: '/repo', machine: 'remote' }, name: input(), email: input(),
-    accounts: [{ host: 'github.com', login: 'alice', available: true }, { login: 'unavailable', available: false }] });
-  const cx = { notify() {}, spawn(fn) { pending.push(fn); } };
-  view.chooseAccount('1', cx); assert.equal(pending.length, 0);
-  view.chooseAccount('0', cx); assert.equal(view.loaded, false);
-  await pending.shift()(cx);
-  assert.equal(view.name.value, 'Alice'); assert.equal(view.email.value, '');
-  assert.equal(view.loaded, true);
-  view.chooseAccount('default', cx); await pending.shift()(cx);
-  assert.equal(view.account, null); assert.equal(view.email.value, 'repo@example.test');
-});
-
-test('selecting accounts always waits for Save, asks for missing email and commits choices only after successful writes', async () => {
-  const source = await readFile(new URL('../mods/herdr-zed/git-author-settings.js', import.meta.url), 'utf8');
-  const account = { host: 'github.com', login: 'alice' };
-  for (const email of ['alice@example.test', '', null]) {
-    const target = { folder: '/repo', machine: 'remote', overlay: 'dialog', account };
-    const pending = [], events = [];
-    let fail = false;
-    const { GitAuthorSettings } = new Function('props', 'InputState', 'gitAccount', 'readAccountAuthor', 'saveGitAuthor', 'rememberGitAuthor', 'setGitAccount', 'closeOverlay',
-      source.replace(/^import .*;\r?\n/gm, '').replace(/^export /gm, '') + '\nreturn { GitAuthorSettings };')(
-      () => target, { new: () => ({ text: '', on() {}, value() { return this.text; }, set_value(text) { this.text = text; }, release() {} }) },
-      () => null, async () => { if (email === null) throw new Error('Offline'); return { name: 'Alice', email }; },
-      async (...args) => { events.push(['write', ...args]); if (fail) throw new Error('Locked'); },
-      (...args) => events.push(['remember', ...args]), (...args) => events.push(['account', ...args]), id => events.push(['close', id]));
-    const cx = { notify() {}, spawn(fn) { pending.push(fn); } };
-    const view = new GitAuthorSettings(); view.init(cx);
-    await pending.shift()(cx);
-    assert.equal(view.email.value(), email || '', 'Never prefill another account email');
-    assert.equal(pending.length, 0); assert.deepEqual(events, []);
-    if (!email) {
-      assert.equal(pending.length, 0); assert.deepEqual(events, []);
-      view.email.set_value('manual@example.test'); fail = true;
-      view.save(cx); await pending.shift()(cx);
-      assert.deepEqual(events.map(event => event[0]), ['write']);
-      assert.equal(view.error, 'Locked'); events.length = 0;
-      fail = false; view.save(cx);
-    }
-    if (email) view.save(cx);
-    await pending.shift()(cx);
-    assert.deepEqual(events.map(event => event[0]), ['write', 'remember', 'account', 'close']);
-    assert.deepEqual(events[2], ['account', target, account]);
-    view.close();
-  }
-});
-
 test('author dialog preserves failed drafts for retry and saves to its original repository', async () => {
   const target = { folder: '/repo', machine: 'remote', overlay: 'author-dialog' };
   const source = await readFile(new URL('../mods/herdr-zed/git-author-settings.js', import.meta.url), 'utf8');

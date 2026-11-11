@@ -15,11 +15,20 @@ import { startPanel } from './start-panel.js';
 import { threadArchive, historyEligible } from './thread-archive.js';
 import { GitAuthorSettings } from './git-author-settings.js';
 import { ExtensionsManager, openExtensions } from './extensions-manager.js';
-import { ExtensionSlot, ExtensionSurfaceSlot, refreshExtensions, openExtension } from './extensions.js';
+import { ExtensionSlot, ExtensionSurfaceSlot, refreshExtensions, openExtension, extensionCatalog, openGitAction } from './extensions.js';
+import { takeLaunchRequests, acceptLaunchRequests, reconcileLaunches, openLaunch, LAUNCH_PENDING, THREADS } from './launch-intake.js';
+import { threadDecorations, decorationTone } from './decorations.js';
 import { DropdownMenu, DropdownMenuState, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from './components/dropdown-menu.js';
 import { Button, ToolbarButton } from './components/button.js';
 import { AlertDialogContent, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from './components/alert-dialog.js';
 import { Sidebar, SidebarContent, SidebarGroup, SidebarGroupLabel, SidebarTreeMenuButton, SidebarFooter } from './components/sidebar.js';
+
+// Provider decoration badge: a small outlined pill in the decoration's tone; subtitles are plain muted text.
+const decorationBadge = (decoration, t) => {
+  const color = decorationTone(t, decoration.tone);
+  return div().flex_none().flex().items_center().px(5).h(16).rounded(8).border(1).border_color(color)
+    .text_size(10).text_color(color).child(decoration.badge);
+};
 
 // A 28px icon button centred in a 32px project row: 8px below the row.
 const SIDEBAR_MENU = { x: 0, y: 10 };
@@ -55,6 +64,7 @@ export default class HerdrZed extends View {
     if (view === 'git-author-settings') { this.gitAuthorSettings = new GitAuthorSettings(); this.gitAuthorSettings.init(cx); return; }
     if (view === 'header') {
       cx.spawn(async cx => { await refreshExtensions(); cx.notify(); });
+      this.launchTimer = cx.timer.every(100, () => this.pollLaunches());
       cx.spawn(async cx => {
       for (;;) {
         const command = await nextCommand();
@@ -238,12 +248,50 @@ export default class HerdrZed extends View {
       ]));
   }
 
+  // Context handed to a provider launcher: the same fields the native picker reads.
+  launcherContext(project) {
+    return { space: project.pending ? null : project.id, folder: project.folder, projectName: project.name, machine: project.machine || null };
+  }
+
+  // Long-lived intake (ARCHITECTURE §3.1): take every queued request, open the valid ones, then reconcile pending tabs.
+  pollLaunches() {
+    const now = Date.now(), launcher = extensionCatalog().resolved?.launcher;
+    const requests = takeLaunchRequests(shared, setShared);
+    if (requests.length) {
+      const { accepted, errors } = acceptLaunchRequests(requests, { now, launcherId: launcher?.id, spaces: spaces().map(space => ({ id: space.id, machine: space.machine || null })) });
+      for (const body of errors) notify({ title: 'Launch request rejected', body, level: 'error' });
+      for (const request of accepted) openLaunch(request, { spaces, shared, setShared, run, closeOverlay });
+    }
+    const pending = shared(LAUNCH_PENDING) || [], threads = shared(THREADS) || {};
+    if (!pending.length && !Object.keys(threads).length) return;
+    const next = reconcileLaunches({ pending, threads }, spaces(), now);
+    if (JSON.stringify(next.pending) !== JSON.stringify(pending)) setShared(LAUNCH_PENDING, next.pending);
+    if (JSON.stringify(next.threads) !== JSON.stringify(threads)) setShared(THREADS, next.threads);
+  }
+
+  // Decorations are read from the shared envelopes of the active decorators (ARCHITECTURE §3.3).
+  decorationsNow() {
+    return threadDecorations(extensionCatalog().resolved?.decorators || [], key => shared(key));
+  }
+
   newThread(cx, id, at) {
     const project = this.projects().find(project => id ? project.id === id : project.active);
     if (!project) { this.openProject(cx); return; }
+    const launcher = extensionCatalog().resolved?.launcher;
+    if (launcher) {
+      openOverlay({ mod: launcher.mod, kind: 'popup', frame: 'none', width: launcher.picker.width, at,
+        props: { view: launcher.picker.view, context: this.launcherContext(project) } });
+      return;
+    }
     openOverlay({ mod: 'herdr-zed', kind: 'popup', frame: 'none', width: 280, at,
       props: { view: 'launcher', space: project.pending ? null : project.id, folder: project.folder,
         projectName: project.name, machine: project.machine || null } });
+  }
+
+  // The launcher provider's settings dialog, opened with the same context as its picker.
+  openLauncherSettings(launcher, project) {
+    openOverlay({ mod: launcher.mod, kind: 'dialog', frame: 'none', modal: true, width: launcher.settings.width, height: launcher.settings.height,
+      props: { view: launcher.settings.view, context: this.launcherContext(project) } });
   }
 
   showConversation(visible = true, project = this.projects().find(project => project.active)) {
@@ -362,8 +410,16 @@ export default class HerdrZed extends View {
     const project = this.projects().find(project => project.id === thread?.space);
     const maximized = conversationMaximized(project);
     this.threadMenu ??= new DropdownMenuState();
-    const actions = [{ key: 'close', label: secondary ? 'Close terminal' : 'Close thread', icon: 'close' }];
-    const choose = () => run('pane.close', { pane: p.pane });
+    const launcher = extensionCatalog().resolved?.launcher;
+    const launcherTitle = extensionCatalog().packages?.find(entry => entry.mod === launcher?.mod)?.title;
+    const decoration = this.decorationsNow().get(thread?.tab.id);
+    const actions = [
+      ...(launcher && project ? [{ key: 'agent-settings', label: `${launcherTitle || 'Agent'} settings…`, icon: 'settings' }] : []),
+      { key: 'close', label: secondary ? 'Close terminal' : 'Close thread', icon: 'close' }];
+    const choose = key => {
+      if (key === 'agent-settings') this.openLauncherSettings(launcher, project);
+      else run('pane.close', { pane: p.pane });
+    };
     const terminal = terminals().find(terminal => terminal.address === p.terminal);
     const working = terminalWorking({ ...terminal, status: p.status || terminal?.status });
     const icon = working ? glyph('loader', 14).text_color(t.working).spin(900).accessibility_label('Working')
@@ -374,6 +430,8 @@ export default class HerdrZed extends View {
       .child(div().flex_none().child(icon))
       .child(div().min_w(0).truncate().text_color(p.focused ? t.foreground : t.muted)
         .when(Boolean(p.focused), el => el.font_medium()).child(title))
+      .when(Boolean(decoration?.subtitle), el => el.child(div().min_w(0).truncate().text_size(11).text_color(t.muted).child(decoration.subtitle)))
+      .when(Boolean(decoration?.badge), el => el.child(decorationBadge(decoration, t)))
       .child(div().flex_1())
       .child(h_flex().h_full().flex_none().items_center()
         // + then maximize then ⋯, as in Zed's panel toolbars.
@@ -435,6 +493,7 @@ export default class HerdrZed extends View {
     const p = threadProgram(thread, live, primary?.program);
     const stopping = this.threadBusy(thread, live);
     const archivable = !stopping && historyEligible(thread, live);
+    const decoration = (this.renderModel?.decorations || this.decorationsNow()).get(thread.tab.id);
     const icon = working ? glyph('loader', 14).text_color(t.working).spin(900).accessibility_label('Working')
       : thread.status === 'blocked' ? glyph('circle-alert', 14).text_color(t.blocked).accessibility_label('Blocked')
       : thread.status === 'done' ? glyph('circle-check', 14).text_color(t.done).accessibility_label('Done')
@@ -454,8 +513,11 @@ export default class HerdrZed extends View {
         this.showConversation(true, { ...this.projects().find(project => project.id === thread.space), tabs: [{ id: thread.tab.id, active: true }] });
       })
       .child(div().size(16).mr(8).flex_none().flex().items_center().justify_center().child(icon))
-      .child(div().flex_1().min_w(0).truncate().text_size(13).text_color(t.foreground)
-        .when(isFocused, el => el.font_medium()).child(thread.title))
+      .child(h_flex().flex_1().min_w(0).gap(6).items_center()
+        .child(div().min_w(0).truncate().text_size(13).text_color(t.foreground)
+          .when(isFocused, el => el.font_medium()).child(thread.title))
+        .when(Boolean(decoration?.subtitle), el => el.child(div().min_w(0).truncate().text_size(11).text_color(t.muted).child(decoration.subtitle)))
+        .when(Boolean(decoration?.badge), el => el.child(decorationBadge(decoration, t))))
       .child(Button(`${stopping ? 'stop' : archivable ? 'archive' : 'close'}-thread-${thread.tab.id}`, t, { variant: 'row', size: 'icon-sm' })
         .ml(8).opacity(this.hovered === thread.tab.id ? 1 : 0)
         .accessibility_label(stopping ? 'Stop generation' : archivable ? 'Archive conversation' : 'Close thread')
@@ -621,7 +683,7 @@ export default class HerdrZed extends View {
     for (const group of groups) for (const thread of group.threads)
       if (thread.tab.id === defaults[group.space.id] && !thread.agent) thread.title = 'Terminal';
     const live = terminals();
-    this.renderModel = { projects: workspaces, panes: modelPanes, terminals: live };
+    this.renderModel = { projects: workspaces, panes: modelPanes, terminals: live, decorations: this.decorationsNow() };
     const visible = groups.filter(group => !this.folded.has(group.space.id)).flatMap(group => group.threads.flatMap(thread => thread.agents));
     setAgentOrder(visible.map(a => a.address));
     return Sidebar(t)

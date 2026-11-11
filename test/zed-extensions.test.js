@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, copyFile, readFile, writeFile, rm } from 'node:fs/promi
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
-import { parseExtensionRegistry, parseExtensionManifest, extensionPopup, extensionMetadata, extensionServiceLayout } from '../mods/herdr-zed/extension-model.js';
+import { parseExtensionRegistry, parseExtensionManifest, extensionPopup, extensionMetadata, extensionServiceLayout, gitActionPopup, resolveProviders } from '../mods/herdr-zed/extension-model.js';
 import { extensionSurfaceLayout, extensionSurfaceNodeId } from '../mods/herdr-zed/extension-surfaces.js';
 import { installZed } from '../install-zed.js';
 import { evaluateNative } from './source-harness.js';
@@ -63,9 +63,9 @@ const runtime = async (readTextFile, initialLayout = null) => {
   const host = { shared: key => memory[key], setShared: (key, value) => { memory[key] = structuredClone(value); },
     appHome: () => '/herdr', readTextFile, layout: () => root, run: (command, args) => { assert.equal(command, 'layout.set'); root = args.layout; layoutUpdates.push(root); }, openOverlay: value => { opened.push(value); return 'overlay'; }, notify: value => notices.push(value),
     parseExtensionRegistry, parseExtensionManifest, extensionPopup, extensionMetadata, extensionServiceLayout,
-    extensionSurfaceLayout, extensionSurfaceNodeId };
+    extensionSurfaceLayout, extensionSurfaceNodeId, gitActionPopup, resolveProviders };
   return { memory, opened, notices, layoutUpdates, ...await evaluateNative('../mods/herdr-zed/extensions.js', host,
-    'refreshExtensions, openExtension, extensionCatalog, extensionEnabled, setExtensionEnabled') };
+    'refreshExtensions, openExtension, extensionCatalog, extensionEnabled, setExtensionEnabled, extensionActive, extensionActions, openGitAction') };
 };
 
 test('discovery reads declarations only; activation alone opens the existing provider popup', async () => {
@@ -237,3 +237,54 @@ test('registry removal unmounts old service and surfaces while retaining shell l
 function findLayout(node, id) {
   return node?.id === id ? node : (node?.children || []).map(child => findLayout(child, id)).find(Boolean) || null;
 }
+
+// Launcher and dependency states as the catalog publishes them. Two launchers conflict and neither is used; a package
+// that requires a missing extension is unavailable and contributes no actions; disabling clears shared envelopes.
+const launcherManifest = id => JSON.stringify({ version: 1, id, title: id, actions: [],
+  provides: { launcher: { picker: { view: 'launcher', width: 280 }, settings: { view: 'settings', width: 1040, height: 0.86 } } } });
+const dependentManifest = JSON.stringify({ version: 1, id: 'calendar', title: 'Calendar', requires: ['tasks'],
+  actions: [{ id: 'open', title: 'Calendar', icon: 'calendar', location: 'status.right', popup: { view: 'calendar', width: 1000, height: 700, modal: false } }] });
+const gitManifest = JSON.stringify({ version: 1, id: 'github', title: 'GitHub', provides: { gitCredentials: {} },
+  actions: [{ id: 'account', title: 'GitHub account…', icon: 'github', location: 'git.actions', popup: { view: 'account', width: 480, height: 600, modal: true } }] });
+const catalogFiles = {
+  '/herdr/data/herdr-zed/extensions.json': '{"version":1,"extensions":["herdr-zed-alpha","herdr-zed-beta","herdr-zed-calendar","herdr-zed-github"]}',
+  '/herdr/mods/herdr-zed-alpha/extension.json': launcherManifest('alpha'),
+  '/herdr/mods/herdr-zed-beta/extension.json': launcherManifest('beta'),
+  '/herdr/mods/herdr-zed-calendar/extension.json': dependentManifest,
+  '/herdr/mods/herdr-zed-github/extension.json': gitManifest,
+};
+
+test('two enabled launchers conflict, unavailable packages are reported, and disabling one restores the other', async () => {
+  const r = await runtime(async path => catalogFiles[path] ?? (() => { throw new Error('missing ' + path); })());
+  await r.refreshExtensions();
+  const catalog = r.extensionCatalog();
+  assert.equal(catalog.resolved.launcher, null, 'no launcher is used while two are enabled');
+  assert.deepEqual(catalog.resolved.conflicts.map(item => [item.provider, item.mods]), [['launcher', ['herdr-zed-alpha', 'herdr-zed-beta']]]);
+  assert.deepEqual(catalog.resolved.unavailable, [{ mod: 'herdr-zed-calendar', id: 'calendar', missing: ['tasks'] }]);
+  assert.equal(r.extensionActive('herdr-zed-calendar'), false);
+  assert.equal(catalog.packages.find(entry => entry.mod === 'herdr-zed-alpha').enabled, true);
+  assert.deepEqual(catalog.packages.find(entry => entry.mod === 'herdr-zed-github').provides, { gitCredentials: {} });
+  assert.deepEqual(r.extensionActions('status.right'), [], 'unavailable packages contribute no status actions');
+  r.setExtensionEnabled('herdr-zed-alpha', false);
+  assert.equal(r.extensionCatalog().resolved.launcher.mod, 'herdr-zed-beta');
+  assert.deepEqual(r.extensionCatalog().resolved.conflicts, []);
+  assert.equal(r.extensionCatalog().packages.find(entry => entry.mod === 'herdr-zed-alpha').enabled, false);
+});
+
+test('git.actions lists only enabled, active providers; disabling a provider clears its credential and decoration keys', async () => {
+  const r = await runtime(async path => catalogFiles[path]);
+  await r.refreshExtensions();
+  assert.deepEqual(r.extensionActions('git.actions').map(action => [action.id, action.mod]), [['github.account', 'herdr-zed-github']]);
+  assert.equal(r.extensionCatalog().resolved.gitCredentials.id, 'github');
+  r.openGitAction('github.account', { machine: 'box', folder: '/repo' });
+  assert.equal(r.opened.at(-1).mod, 'herdr-zed-github');
+  assert.deepEqual(r.opened.at(-1).props, { view: 'account', context: { machine: 'box', folder: '/repo' } });
+  r.memory['herdr-zed.git-credentials.github'] = { updatedAt: 1, repositories: {} };
+  r.memory['herdr-zed.decorations.github'] = { updatedAt: 1, threads: {} };
+  r.setExtensionEnabled('herdr-zed-github', false);
+  assert.equal(r.memory['herdr-zed.git-credentials.github'], null);
+  assert.equal(r.memory['herdr-zed.decorations.github'], null);
+  assert.deepEqual(r.extensionActions('git.actions'), []);
+  r.openGitAction('github.account', { machine: null, folder: '/repo' });
+  assert.equal(r.opened.length, 1, 'a disabled provider action does not open');
+});
