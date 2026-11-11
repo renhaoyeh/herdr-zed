@@ -13,6 +13,7 @@ import { NativeLauncher } from './native-launcher.js';
 import { createNativeThread } from './native-threads.js';
 import { startPanel } from './start-panel.js';
 import { threadArchive, historyEligible } from './thread-archive.js';
+import { startThreadResume } from './thread-resume.js';
 import { GitAuthorSettings } from './git-author-settings.js';
 import { ExtensionsManager, openExtensions } from './extensions-manager.js';
 import { ExtensionSlot, ExtensionSurfaceSlot, refreshExtensions, openExtension, extensionCatalog, openGitAction, activeLauncher } from './extensions.js';
@@ -21,7 +22,7 @@ import { readNewTerminalCommand } from './components/extension-contract.js';
 import { threadDecorations, decorationTone } from './decorations.js';
 import { DropdownMenu, DropdownMenuState, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from './components/dropdown-menu.js';
 import { Button, ToolbarButton } from './components/button.js';
-import { AlertDialogContent, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from './components/alert-dialog.js';
+import { AlertDialogContent, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel } from './components/alert-dialog.js';
 import { Sidebar, SidebarContent, SidebarGroup, SidebarGroupLabel, SidebarTreeMenuButton, SidebarFooter } from './components/sidebar.js';
 
 // Provider decoration badge: a small outlined pill in the decoration's tone; subtitles are plain muted text.
@@ -67,6 +68,7 @@ export default class HerdrZed extends View {
       cx.spawn(async cx => { await refreshExtensions(); cx.notify(); });
       this.launchIntake = { handled: [] };
       this.launchTimer = cx.timer.every(100, () => this.pollLaunches());
+      this.threadResume = startThreadResume(cx);
       cx.spawn(async cx => {
       for (;;) {
         const command = await nextCommand();
@@ -148,7 +150,7 @@ export default class HerdrZed extends View {
 
   closeProject(project) {
     if (project.pending) { this.finishCloseProject(project); return; }
-    openOverlay({ mod: 'herdr-zed', kind: 'dialog', frame: 'none', width: 440, height: 220,
+    openOverlay({ mod: 'herdr-zed', kind: 'dialog', frame: 'none', modal: true, width: 440, height: 220,
       props: { view: 'close-project', project } });
   }
 
@@ -249,7 +251,7 @@ export default class HerdrZed extends View {
         .child('This ends every session in this project, including running agents. Your project files stay on disk.'))
       .child(AlertDialogFooter().children([
         AlertDialogCancel('cancel-close-project', t).on_click(cancel).child('Cancel'),
-        AlertDialogAction('confirm-close-project', t).on_click(confirm).child('Close project'),
+        Button('confirm-close-project', t, { variant: 'destructive' }).on_click(confirm).child('Close project'),
       ]));
   }
 

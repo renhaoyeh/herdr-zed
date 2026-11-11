@@ -1,7 +1,8 @@
 import { div, image } from 'gpui-kit';
 import { h_flex } from 'gpui-base';
 import { agents, spaces, shared, setShared, run, notify, exec, readTextFile, home, terminals, window } from 'herdr';
-import { agentCommand, commandKind, resumeArgv, codexSessionId, archivedAge, folderKey, projectGroups, threadTitle } from './components/session-model.js';
+import { agentCommand, commandKind, archivedAge, folderKey, projectGroups, threadTitle } from './components/session-model.js';
+import { RESUME_RECORDS_KEY, recordsWithout, sessionIdentity, resumeCommand, accountEnv, executable, hasCredential } from './thread-identity.js';
 import { Button } from './components/button.js';
 import { SidebarContent, SidebarGroup, SidebarMenuButton } from './components/sidebar.js';
 import { glyph } from './components/icon.js';
@@ -35,28 +36,11 @@ export function historyRestoreCandidate(entry, threads, live = terminals(), proj
   }));
 }
 
+// Archive keeps its own Windows gate; only the Unix lookup is used here (auto-resume has the Windows path).
 async function sessionId(kind, command, pid) {
   if (window()?.platform === 'windows') return null;
-  if (kind === 'claude') {
-    const dir = command.find(arg => arg.startsWith('CLAUDE_CONFIG_DIR='))?.slice(18) || `${home()}/.claude`;
-    const id = JSON.parse(await readTextFile(`${dir}/sessions/${pid}.json`) || '{}').sessionId;
-    return id && (await exec('sh', ['-c', 'ls "$1"/projects/*/"$2".jsonl', 'sh', dir, id])).code === 0 ? id : null;
-  }
-  const result = await exec('sh', ['-c', 'pids=$(pgrep -P "$1" | tr "\\n" ,)$1; lsof -Fn -p "$pids"', 'sh', String(pid)]);
-  return codexSessionId(result.stdout);
+  return sessionIdentity(kind, command, pid, { exec, readTextFile, home });
 }
-
-const accountEnv = command => command.filter(arg => /^(?:CODEX_HOME|CLAUDE_CONFIG_DIR)=/.test(arg));
-const executable = command => command.find(arg => !arg.includes('=') && commandKind([arg]));
-const hasCredential = command => command.some(arg => /^[A-Z_][A-Z0-9_]*=/.test(arg) && /(?:TOKEN|SECRET|PASSWORD|CREDENTIAL|API[_-]?KEY|AUTH)/i.test(arg.split('=', 1)[0]));
-const valuedOptions = new Set(['-m', '--model', '-s', '--sandbox', '-a', '--ask-for-approval', '--profile', '--permission-mode', '-c', '--config']);
-const resumeCommand = (command, id) => {
-  const executable = command.findIndex(arg => !arg.includes('=') && commandKind([arg]));
-  const args = command.slice(executable + 1);
-  if (args.some((arg, index) => !arg.startsWith('-') && !valuedOptions.has(args[index - 1])
-      && arg !== 'resume' && arg !== id && !/^[a-f0-9-]{36}$/i.test(arg))) return null;
-  return resumeArgv(command, id);
-};
 
 export const threadArchive = {
   threadBusy(thread, live = terminals()) {
@@ -107,6 +91,8 @@ export const threadArchive = {
         title: thread.title, folder, projectName: project?.name || folder, argv, at: Date.now(),
         icon: agent.program?.icon || null, tint: Boolean(agent.program?.tint) };
       setShared(HISTORY_KEY, [entry, ...history().filter(item => item.id !== entry.id)].slice(0, 200));
+      // Archived on purpose: auto-resume must never reopen it after a restart.
+      setShared(RESUME_RECORDS_KEY, recordsWithout(shared(RESUME_RECORDS_KEY), tab));
       run('tab.close', { id: tab });
     } catch (error) {
       notify({ title: 'Could not archive thread', body: error.message, level: 'error' });

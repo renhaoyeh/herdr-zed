@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { evaluateNative } from './source-harness.js';
 import * as model from '../mods/herdr-zed/components/session-model.js';
+import * as identity from '../mods/herdr-zed/thread-identity.js';
 
 const ui = () => {
   const element = { nodes: [] }; let proxy;
@@ -19,7 +20,7 @@ const ui = () => {
 const uiText = element => element?.nodes ? element.nodes.map(uiText).join(' ') : String(element ?? '');
 async function load(options = {}) {
   const memory = options.memory || {}, commands = options.commands || [], live = options.live || [];
-  const host = { ...model, div: ui, image: ui, h_flex: ui, shared: key => memory[key],
+  const host = { ...model, ...identity, div: ui, image: ui, h_flex: ui, shared: key => memory[key],
     setShared: (key, value) => { memory[key] = value; }, run: (...args) => commands.push(args), notify: value => options.notices?.push(value),
     exec: options.exec || (async () => ({ code: 0, stdout: '' })),
     readTextFile: options.readTextFile || (async () => JSON.stringify({ sessionId: '11111111-1111-4111-8111-111111111111' })),
@@ -63,6 +64,14 @@ test('archive preserves the exact safe launch command and keeps Zed history inde
   assert.match(entry.id, /accounts\/work/);
   assert.deepEqual(memory['herdr-zed.archived-threads'], [{ id: 'task-owned' }]);
   assert.ok(commands.some(([name]) => name === 'tab.close'));
+});
+
+test('archive also forgets the conversation for auto-resume, leaving other tabs recorded', async () => {
+  const live = [terminal()], { threadArchive, memory } = await load({ live });
+  memory['herdr-zed.thread-sessions'] = { 'tab-1': { tabId: 'tab-1', sessionId: 'x' }, 'tab-2': { tabId: 'tab-2', sessionId: 'y' } };
+  const owner = Object.assign({ projects: () => [project] }, threadArchive);
+  await owner.archiveThread(thread());
+  assert.deepEqual(Object.keys(memory['herdr-zed.thread-sessions']), ['tab-2']);
 });
 
 test('a replaced terminal during identity lookup leaves its tab and history untouched', async () => {
