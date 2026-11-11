@@ -92,7 +92,7 @@ export async function refreshExtensions() {
         if (entries.some(action => ids.has(action.id))) throw new Error('Duplicate contribution ID.');
         if (metadata.surfaces.some(surface => surfaceIds.has(extensionSurfaceNodeId(surface)))) throw new Error('Duplicate surface ID.');
         packages.push({ mod, id: metadata.id, title: metadata.title, provides: metadata.provides, requires: metadata.requires,
-          services: metadata.services, surfaces: metadata.surfaces });
+          settings: metadata.settings, services: metadata.services, surfaces: metadata.surfaces });
         for (const action of entries) { ids.add(action.id); actions.push(action); }
         for (const surface of metadata.surfaces) surfaceIds.add(extensionSurfaceNodeId(surface));
       } catch (error) { packages.push({ mod, title: mod, provides: {}, requires: [], error: error.message }); errors.push(`${mod}: ${error.message}`); }

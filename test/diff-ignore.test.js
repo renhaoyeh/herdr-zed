@@ -103,5 +103,5 @@ test('rules editor saves checked templates and custom rules with revision checks
   assert.match(view.error, /Changed on disk/); assert.deepEqual(closed, []); assert.deepEqual(memory, {});
   assert.deepEqual(writes[0], ['/filters.json', { templates: ['A.gitignore', 'B.gitignore'], custom: 'mine\n!keep' }, 'original']);
   conflict = false; view.save(cx); await Promise.all(tasks.splice(0));
-  assert.deepEqual(closed, ['dialog']); assert.equal(memory['herdr-zed.diff-build-rules-revision'], 1);
+  assert.deepEqual(closed, []); assert.equal(view.saved, true); assert.equal(memory['herdr-zed.diff-build-rules-revision'], 1);
 });

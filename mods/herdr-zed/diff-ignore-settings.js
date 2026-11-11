@@ -1,18 +1,14 @@
 import { div } from 'gpui-kit';
 import { Editor, EditorState, h_flex, v_flex } from 'gpui-base';
-import { props, openOverlay, closeOverlay, writeTextFile, shared, setShared } from 'herdr';
+import { writeTextFile, shared, setShared } from 'herdr';
 import { readBuildFilters, serializeBuildFilters } from './diff-ignore.js';
 import { Button } from './components/button.js';
 import { Checkbox } from './components/checkbox.js';
-import { DialogContent, DialogTitle, DialogDescription, DialogFooter } from './components/dialog.js';
-
-export const openBuildRules = () => openOverlay({ mod: 'herdr-zed', kind: 'dialog', frame: 'none',
-  modal: true, width: 860, height: 0.8, props: { view: 'diff-ignore-settings' } });
 
 const CUSTOM = 'custom';
 
 /** Every Git panel display filter: checked github/gitignore templates with a read-only preview, and Custom rules
-    applied last. */
+    applied last. The Settings dialog's Git page embeds this body (settings.js). */
 export class BuildRulesSettings {
   init(cx) {
     this.loading = true; this.templates = []; this.checked = new Set(); this.page = CUSTOM;
@@ -40,21 +36,20 @@ export class BuildRulesSettings {
 
   save(cx) {
     if (this.loading || this.saving || this.original === undefined) return;
-    this.saving = true; this.error = null; cx.notify();
+    this.saving = true; this.saved = false; this.error = null; cx.notify();
     const text = serializeBuildFilters({ templates: this.templates.map(entry => entry.file).filter(file => this.checked.has(file)),
       custom: this.custom.value() });
     cx.spawn(async cx => {
       try {
         await writeTextFile(this.path, text, this.original);
         setShared('herdr-zed.diff-build-rules-revision', (shared('herdr-zed.diff-build-rules-revision') || 0) + 1);
-        closeOverlay(props().overlay);
+        this.original = text; this.saved = true;
       } catch (error) { this.error = error.message; }
       finally { this.saving = false; cx.notify(); }
     });
   }
 
   render(t) {
-    const cancel = () => { if (!this.saving) closeOverlay(props().overlay); };
     const page = (key, label) => Button(`diff-rules-page-${key.replace(/\W/g, '-')}`, t, { variant: 'ghost' }).flex_1().min_w(0).h_full().justify_start().px(8)
       .bg(this.page === key ? t.selected : t.popover).text_color(this.page === key ? t.foreground : t.muted)
       .hover(el => el.bg(this.page === key ? t.selected : t.hover))
@@ -67,11 +62,7 @@ export class BuildRulesSettings {
         .accessibility_label(`Use ${label}`).on_change((next, cx) => { toggle(next); this.show(key); cx.notify(); }))
       .child(page(key, label));
     const included = checked => checked ? 'Included.' : 'Not included.';
-    return DialogContent('diff-ignore-settings', t).on_key_down((event, cx) => {
-      if (event.key === 'escape') { cx.stop_propagation(); cancel(); }
-    })
-      .child(DialogTitle().flex_none().child('Filter rules'))
-      .child(DialogDescription(t).flex_none().child('Hide matching untracked files in the Git panel; tracked changes always stay visible. Custom applies last, so !exceptions override templates.'))
+    return v_flex().flex_1().min_h(0).gap(8)
       .child(div().flex_none().text_size(11).text_color(t.muted).child(this.path || ''))
       .child(h_flex().flex_1().min_h(0).items_start().gap(16)
         .child(v_flex().w(200).h_full().flex_none().min_h(0).overflow_y_scroll()
@@ -84,10 +75,10 @@ export class BuildRulesSettings {
             ? `${template.label}: ${lines(template.text)} rules from github/gitignore, read-only. ${included(this.checked.has(template.file))}`
             : 'Your own gitignore patterns and !exceptions, applied after the checked templates.'))
           .child(Editor.new(this.page === CUSTOM ? this.custom : this.preview).flex_1().min_h(0).border(1).border_color(t.border))))
-      .when(this.loading, el => el.child(div().text_size(12).text_color(t.muted).child('Loading rules…')))
-      .when(Boolean(this.error), el => el.child(div().text_size(12).text_color(t.ansi1).child(this.error)))
-      .child(DialogFooter().flex_none()
-        .child(Button('diff-rules-cancel', t, { variant: 'secondary' }).disabled(Boolean(this.saving)).on_click(cancel).child('Cancel'))
+      .when(this.loading, el => el.child(div().flex_none().text_size(12).text_color(t.muted).child('Loading rules…')))
+      .when(Boolean(this.error), el => el.child(div().flex_none().text_size(12).text_color(t.ansi1).child(this.error)))
+      .child(h_flex().flex_none().gap(8).justify_end().items_center()
+        .when(this.saved && !this.saving, el => el.child(div().text_size(12).text_color(t.muted).child('Saved.')))
         .child(Button('diff-rules-save', t).disabled(this.loading || this.saving || this.original === undefined)
           .on_click((_event, cx) => this.save(cx)).child(this.saving ? 'Saving…' : 'Save')));
   }

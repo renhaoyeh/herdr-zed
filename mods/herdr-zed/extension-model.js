@@ -63,6 +63,13 @@ function validateMetadata(mod, value) {
     throw new Error('Invalid extension services.');
   validateRequires(value.id, value.requires);
   validateProvides(value.provides);
+  validateSettings(value.settings);
+}
+
+// ARCHITECTURE §2.1: the Settings dialog hosts `view` embedded, listed under `title`. Exactly these two keys.
+function validateSettings(settings) {
+  if (settings !== undefined && (!hasExactKeys(settings, ['view', 'title']) || !name(settings.view) || !title(settings.title)))
+    throw new Error('Invalid extension settings.');
 }
 
 function validateRequires(id, requires) {
@@ -123,14 +130,18 @@ export function resolveProviders(packages = [], disabledMods = []) {
     .map(entry => ({ mod: entry.mod, id: entry.id, ...entry.provides.importer }));
   const decorators = available.filter(entry => entry.provides?.threadDecorator)
     .map(entry => ({ mod: entry.mod, id: entry.id, fields: [...entry.provides.threadDecorator.fields] }));
-  return { launcher, gitCredentials, importers, decorators, conflicts, unavailable };
+  // Settings pages: enabled, error-free, available packages that declare `settings`, in catalog order.
+  const settings = available.filter(entry => entry.settings)
+    .map(entry => ({ mod: entry.mod, id: entry.id, view: entry.settings.view, title: entry.settings.title }));
+  return { launcher, gitCredentials, importers, decorators, settings, conflicts, unavailable };
 }
 
 export function extensionMetadata(mod, text) {
   parseExtensionManifest(mod, text);
   const value = JSON.parse(text);
   return { id: value.id, title: value.title, dependencies: value.dependencies || [], requires: value.requires || [],
-    provides: value.provides || {}, services: (value.services || []).map(({ view }) => ({ view })),
+    provides: value.provides || {}, settings: value.settings ? { view: value.settings.view, title: value.settings.title } : null,
+    services: (value.services || []).map(({ view }) => ({ view })),
     surfaces: (value.surfaces || []).map(surface => ({ ...surface, extensionId: value.id, mod })) };
 }
 

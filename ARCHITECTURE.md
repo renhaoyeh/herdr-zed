@@ -14,7 +14,7 @@ Devkits layout or its mods.
 
 | Layer | Mods (working names) | Owns | May depend on |
 | --- | --- | --- | --- |
-| **Shell** | `herdr-zed` | Projects/workspace, threads and sidebar history, Files, Git (changes, history, graph, repository commit author), central previews and editor tabs, project layout memory, panes, focus, Extensions manager, extension registry/catalog, launch-event intake | Herdr native API and shared components only |
+| **Shell** | `herdr-zed` | Projects/workspace, threads and sidebar history, Files, Git (changes, history, graph, repository commit author), central previews and editor tabs, project layout memory, panes, focus, Settings dialog (General, Git, Extensions pages and the extension pages they host), extension registry/catalog, launch-event intake | Herdr native API and shared components only |
 | **Agent Runtime** | `herdr-zed-agents` (Agents + Usage merged) | Accounts and sign-in, Profiles, Auto selection, Rules/Guide, Shared MCP, launch preparation, quota readers, usage details/statistics, Claude status-line recorder | Shell contracts |
 | **Work** | `herdr-zed-tasks`, `herdr-zed-calendar` | Tasks: records, policies, drafts, progress/evidence, board, execution preparation, Tasks MCP. Calendar: events and views, independent mod, reads only the Tasks read model | Shell contracts; Agent Runtime public client (Tasks only); Calendar → Tasks read model |
 | **Integrations** | `herdr-zed-asana`, `herdr-zed-mantisbt`, `herdr-zed-github` | Asana/MantisBT: source browsers, connections, REST/API layers, read-only historical task reader; deliver selections to an importer. GitHub: gh CLI account discovery, per-repository account choice, remembered account authors, credential configuration for the shell's Git commands | Shell contracts; the `importer` contract (never Tasks code) |
@@ -53,7 +53,8 @@ the tests change in the same commit. Unknown keys inside `provides`, surfaces an
   "actions":  [{ "id": "open", "title": "…", "icon": "…", "iconColor": "#RRGGBB",
                  "location": "status.right|git.actions",
                  "popup": { "view": "details", "width": 1000, "height": 700, "modal": false } }],
-  "provides": { … }               // NEW: provider contracts, §2.2
+  "provides": { … },               // NEW: provider contracts, §2.2
+  "settings": { "view": "settings", "title": "Agents" }  // NEW: page in the Settings dialog, §2.1
 }
 ```
 
@@ -66,6 +67,11 @@ the tests change in the same commit. Unknown keys inside `provides`, surfaces an
 - `requires`: the Extensions manager shows a package as *unavailable* while a required extension is missing,
   failed or disabled; disabling a required extension shows which dependents become unavailable. Calendar
   declares `requires: ["tasks"]`; Asana and MantisBT do **not** require Tasks (import is optional, §2.2.3).
+- `settings` (optional, `{ view, title }`, exactly these keys): the package's page in the shell's Settings dialog. The
+  shell opens `view` embedded beside the Settings nav, with `{ context, embedded: true }` (the current project, or null);
+  `title` is its nav label. The page is listed only while the package is enabled, error-free and available. Settings
+  opens from the header gear, from the Extensions page, or from the provider's own panel with the shell command
+  `herdr-zed.settings:<extension id>`. The provider never gets a reply and never renders the nav or the frame.
 
 ### 2.2 Provider contracts (new, typed, closed set)
 
@@ -166,9 +172,8 @@ user clicks + / New Thread
   only on the native knownAgents path, as today.
 - **Terminal**: a launcher's picker opens a plain terminal with the shell command `herdr-zed.new-terminal`
   (target encoded in the command name, validated with `validateLaunchTarget`); it never opens tabs itself.
-- **Settings**: the shell opens `settings.view` as a dialog with `{ context }`, from the thread title bar ⋯
-  menu; there is no reply.
-  Entry point location is an open question.
+- **Settings**: the shell no longer opens `launcher.settings` (its thread ⋯ entry is removed). A launcher's settings page
+  is its `settings` declaration (§2.1), shown in the Settings dialog.
 - Closing or failing the picker never leaves a request behind; requests older than `expiresAt` are dropped
   by the shell on its next poll, so a crashed provider cannot start a thread later.
 
@@ -301,8 +306,9 @@ No code reads both the old and new key; whichever is chosen is the only path.
    other. Also decide where conversation history, Git accounts/authors and Tasks/Calendar data live.
 2. **Name.** "Zed" is Zed Industries' product name and may cause confusion. The repo/mod/key prefix
    (`herdr-zed`) should be fixed before step 2, because it appears in mod names, shared keys and data paths.
-3. **Launcher settings entry.** Implemented provisionally in the thread title bar ⋯ menu
-   (`<launcher title> settings…`). Confirm, or move it to the status bar.
+3. **Launcher settings entry.** Resolved: one Settings dialog (§2.1 `settings`) opened from the header gear. The thread ⋯
+   entry and the status bar Extensions icon are removed. Previously: thread title bar ⋯ menu
+   (`<launcher title> settings…`).
 4. **Task-originated launches.** Adopted proposal (phase 3): Tasks calls `AgentClient.launch(…, { origin })`;
    the launcher adds optional `origin: { extension, ref }` to the launch request and the shell echoes it in
    `herdr-zed.threads`. Revisit if you prefer matching by tab appearance.

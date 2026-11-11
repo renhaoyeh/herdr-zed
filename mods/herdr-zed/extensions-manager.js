@@ -1,24 +1,16 @@
 import { div } from 'gpui-kit';
 import { h_flex, v_flex } from 'gpui-base';
-import { openOverlay, closeOverlay, props } from 'herdr';
 import { Button } from './components/button.js';
-import { DialogContent, DialogTitle, DialogDescription, DialogFooter } from './components/dialog.js';
 import { extensionCatalog, refreshExtensions, extensionEnabled, extensionActive, setExtensionEnabled,
   extensionSurfaceVisible, setExtensionSurfaceVisible } from './extensions.js';
 
-export const openExtensions = () => openOverlay({ mod: 'herdr-zed', kind: 'dialog', frame: 'none',
-  modal: true, width: 640, height: 480, props: { view: 'extensions' } });
-
+// The Extensions page of the Settings dialog (settings.js). Its body only: the dialog supplies title and frame.
 export class ExtensionsManager {
   init(cx) { this.refresh(cx); }
   refresh(cx) { cx.spawn(async cx => { await refreshExtensions(); cx.notify(); }); }
   render(t) {
-    const catalog = extensionCatalog(), close = () => closeOverlay(props().overlay);
-    return DialogContent('extensions-manager', t).on_key_down((event, cx) => {
-      if (event.key === 'escape') { cx.stop_propagation(); close(); }
-    })
-      .child(DialogTitle().flex_none().child('Extensions'))
-      .child(DialogDescription(t).flex_none().child('Manage installed workspace extensions. Changes apply immediately.'))
+    const catalog = extensionCatalog();
+    return v_flex().flex_1().min_h(0).gap(12)
       .child(v_flex().flex_1().min_h(0).overflow_y_scroll().gap(8)
         .when(catalog.loading, el => el.child(div().text_size(12).text_color(t.muted).child('Loading extensions…')))
         .when(catalog.ready && !catalog.packages?.length && !catalog.errors.length,
@@ -54,9 +46,8 @@ export class ExtensionsManager {
             }));
         }))
         .children(catalog.errors.map(error => div().text_size(12).text_color(t.ansi1).child(error))))
-      .child(DialogFooter().flex_none()
+      .child(h_flex().flex_none().gap(8).justify_end()
         .child(Button('extensions-refresh', t, { variant: 'secondary' }).disabled(catalog.loading)
-          .on_click((_event, cx) => this.refresh(cx)).child('Refresh'))
-        .child(Button('extensions-close', t, { variant: 'secondary' }).on_click(close).child('Close')));
+          .on_click((_event, cx) => this.refresh(cx)).child('Refresh')));
   }
 }

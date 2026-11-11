@@ -30,11 +30,13 @@ export interface ExtensionSurface {
   id: string; location: 'sidebar.bottom' | 'status.right' | 'dock.right';
   view: string; title: string; icon: string;
 }
+/** ARCHITECTURE §2.1: a UI extension's page in the shell's Settings dialog. */
+export interface ExtensionSettings { view: string; title: string; }
 export interface ExtensionManifest {
   version: 1; id: ExtensionId; title: string;
   dependencies?: string[]; requires?: ExtensionId[];
   services?: { view: string }[]; surfaces?: ExtensionSurface[];
-  actions: ExtensionAction[]; provides?: Provides;
+  actions: ExtensionAction[]; provides?: Provides; settings?: ExtensionSettings;
 }
 
 /** §3.1 provider → shell, appended to `herdr-zed.launch.requests`. */

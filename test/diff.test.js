@@ -8,7 +8,7 @@ import { execFile } from 'node:child_process';
 
 async function load(host = {}) {
   const memory = {};
-  host = { readBuildRules: async () => null, withBuildRulesFile: (rules, _on, read) => read(rules?.path || ''), openBuildRules() {}, SelectState: class { constructor() { this.open = false; } }, shared: key => memory[key], setShared: (key, value) => { memory[key] = value; }, TextEncoder: undefined, TextDecoder: undefined,
+  host = { readBuildRules: async () => null, withBuildRulesFile: (rules, _on, read) => read(rules?.path || ''), openSettings() {}, SelectState: class { constructor() { this.open = false; } }, shared: key => memory[key], setShared: (key, value) => { memory[key] = value; }, TextEncoder: undefined, TextDecoder: undefined,
     v_virtual_list: (_id, count, _sizes, _key, render) => { render({ start: 0, end: count }); return host.div(); },
     Scrollbar: { vertical: () => host.div() },
     // Provider-facing shell functions used by the Git panel; no provider is active unless a test supplies one.
@@ -295,7 +295,7 @@ test('Git evaluates downloaded templates and user exceptions without hiding trac
 test('Git panel settings open filter rules and display the hidden count', async () => {
   const memory = {}; let opened = 0;
   const { DiffViewer } = await load({
-    shared: key => memory[key], setShared: (key, value) => { memory[key] = value; }, openBuildRules: () => { opened++; },
+    shared: key => memory[key], setShared: (key, value) => { memory[key] = value; }, openSettings: key => { if (key === 'git') opened++; },
     VirtualListScrollHandle: { new: () => ({ scroll_to_item() {} }) },
   });
   const view = new DiffViewer(); view.init();
@@ -569,7 +569,7 @@ test('split button menu exposes Git operations, counts and keyboard navigation w
     return el;
   };
   const { DiffViewer, showGitToast } = await load({ div: element, svg: element, v_flex: element, h_flex: element,
-    openGitAuthor: (project, account) => actions.push(['author', project, account]),
+    openSettings: (key, project) => actions.push(['settings', key, project]),
     Button: id => element().id(id), Popup: { new: id => element().id(id) },
     Empty: element, EmptyDescription: element, theme: () => ({}), settings: () => ({}),
     shared: key => key === 'herdr-zed.git-accounts' ? accountSettings : memory[key],
@@ -662,7 +662,7 @@ test('split button menu exposes Git operations, counts and keyboard navigation w
   view.pushFooter({});
   // The shell's menu keeps Commit author; GitHub account comes from the git.actions catalog (see git-actions tests).
   nodes.get('diff-git-actions-commit-author').click({}, cx);
-  assert.deepEqual(actions.at(-1), ['author', view.context, undefined]);
+  assert.deepEqual(actions.at(-1), ['settings', 'git', view.context]);
   assert.equal(accountSettings, undefined, 'Opening the commit author does not change any account');
 });
 

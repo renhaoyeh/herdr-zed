@@ -8,7 +8,7 @@ button.js: herdr-zed herdr-zed-agents herdr-zed-asana herdr-zed-calendar herdr-z
 checkbox.js: herdr-zed herdr-zed-agents herdr-zed-asana herdr-zed-calendar herdr-zed-mantisbt herdr-zed-simulator herdr-zed-system
 claude-usage-hook.js: herdr-zed-agents
 contract-types.d.ts: herdr-zed herdr-zed-agents herdr-zed-github
-dialog.js: herdr-zed herdr-zed-agents herdr-zed-asana herdr-zed-github herdr-zed-simulator herdr-zed-system
+dialog.js: herdr-zed herdr-zed-agents herdr-zed-asana herdr-zed-github herdr-zed-simulator herdr-zed-system herdr-zed-mantisbt
 dropdown-menu.js: herdr-zed herdr-zed-agents herdr-zed-asana herdr-zed-github herdr-zed-mantisbt herdr-zed-simulator herdr-zed-tasks
 empty.js: herdr-zed
 extension-contract.js: herdr-zed herdr-zed-agents herdr-zed-github
@@ -23,7 +23,7 @@ shared-mcp.js: herdr-zed-agents
 side-panel.js: herdr-zed herdr-zed-tasks
 sidebar.js: herdr-zed
 source-channel.js: herdr-zed-asana herdr-zed-mantisbt herdr-zed-tasks
-switch.js: herdr-zed-agents
+switch.js: herdr-zed herdr-zed-agents
 system-monitor-model.js: herdr-zed-system
 system-monitor-topology.js: herdr-zed-system
 system-monitor.js: herdr-zed-system
@@ -32,7 +32,7 @@ task-source.js: herdr-zed-asana herdr-zed-mantisbt
 task-theme.js: herdr-zed-calendar herdr-zed-tasks
 tasks-model.js: herdr-zed-calendar herdr-zed-tasks
 tasks.js: herdr-zed-calendar
-toggle-group.js: herdr-zed-agents herdr-zed-system
+toggle-group.js: herdr-zed herdr-zed-agents herdr-zed-system
 tree.js: herdr-zed
 usage.js: herdr-zed-agents
 agent-process-windows.js: herdr-zed herdr-zed-tasks

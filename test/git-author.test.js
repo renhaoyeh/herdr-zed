@@ -13,13 +13,13 @@ test('author dialog preserves failed drafts for retry and saves to its original 
   const source = await readFile(new URL('../mods/herdr-zed/git-author-settings.js', import.meta.url), 'utf8');
   const pending = [], writes = [], closed = [];
   let fail = true;
-  const { GitAuthorSettings } = new Function('props', 'InputState', 'readGitAuthor', 'saveGitAuthor', 'closeOverlay', 'gitAccount',
+  const { GitAuthorSettings } = new Function('InputState', 'readGitAuthor', 'saveGitAuthor', 'closeOverlay', 'gitAccount',
     source.replace(/^import .*;\r?\n/gm, '').replace(/^export /gm, '') + '\nreturn { GitAuthorSettings };')(
-    () => target, { new: () => ({ text: '', on() {}, value() { return this.text; }, set_value(text) { this.text = text; }, release() {} }) },
+    { new: () => ({ text: '', on() {}, value() { return this.text; }, set_value(text) { this.text = text; }, release() {} }) },
     async () => ({ name: 'Initial', email: 'initial@example.test' }),
     async (...args) => { writes.push(args); if (fail) throw new Error('Config locked'); }, id => closed.push(id), () => null);
   const cx = { notify() {}, spawn(fn) { pending.push(fn); } };
-  const view = new GitAuthorSettings(); view.init(cx);
+  const view = new GitAuthorSettings(target); view.init(cx);
   view.save(cx); assert.equal(writes.length, 0);
   await pending.shift()(cx);
   view.name.set_value('Edited'); view.save(cx); view.save(cx);
@@ -29,7 +29,7 @@ test('author dialog preserves failed drafts for retry and saves to its original 
   assert.deepEqual(closed, []);
   fail = false; view.save(cx); await pending.shift()(cx);
   assert.deepEqual(writes.at(-1), ['/repo', 'remote', { name: 'Edited', email: 'initial@example.test' }]);
-  assert.deepEqual(closed, ['author-dialog']); view.close();
+  assert.equal(view.saved, true); assert.deepEqual(closed, []); view.close();
 });
 
 test('commit author inherits defaults, saves only repository config and applies to future commits', async t => {

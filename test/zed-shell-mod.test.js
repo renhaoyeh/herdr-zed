@@ -96,7 +96,7 @@ test('native sidebar, pane menu, dock controls and empty editor render without e
     NativeLauncher: class {}, createNativeThread() {},
     GitAuthorSettings: class { init() {} render() { return ui(); } close() {} },
     ExtensionSurfaceSlot: () => null,
-    openExtensions: () => {}, ExtensionSlot: () => null,
+    openSettings() {}, ExtensionSlot: () => null,
     extensionCatalog: () => ({ ready: true, actions: [], packages: [], errors: [], resolved: { decorators: [] } }), openGitAction() {},
   };
   for (const name of ['Button', 'ToolbarButton', 'Sidebar', 'SidebarContent', 'SidebarGroup', 'SidebarGroupLabel', 'SidebarMenuButton', 'SidebarTreeMenuButton', 'SidebarFooter',
@@ -116,7 +116,7 @@ test('native sidebar, pane menu, dock controls and empty editor render without e
   target = { view: 'header' }; const header = view.render(cx);
   target = { view: 'status' }; const bottom = view.render(cx);
   assert.ok(elements(bottom).some(element => element.attributes.id === 'open-files'));
-  assert.ok(elements(bottom).some(element => element.attributes.id === 'manage-extensions'));
+  assert.ok(!elements(bottom).some(element => element.attributes.id === 'manage-extensions'), 'The status bar has no Extensions icon; Settings owns extensions');
   assert.ok(!elements(sidebar).some(element => element.attributes.id === 'manage-extensions'));
   target = { view: 'editor' }; view.init(null, cx); const editor = view.render(cx);
   assert.match(text(editor), /Start a thread/);

@@ -4,7 +4,6 @@ import { agents, spaces, panes, theme, run, props, window, openOverlay, closeOve
 import { projectGroups, projectCatalog, folderKey, threadTitle, threadProgram, childTerminals, terminalLabel, terminalWorking } from './components/session-model.js';
 import FileViewer, { FileMenu } from './files.js';
 import DiffViewer from './diff.js';
-import { BuildRulesSettings } from './diff-ignore-settings.js';
 import { GitResultToast, clearGitToast } from './git-result-toast.js';
 import WorkspaceEditor from './workspace-editor.js';
 import { BranchMenu } from './branch-menu.js';
@@ -14,8 +13,7 @@ import { createNativeThread } from './native-threads.js';
 import { startPanel } from './start-panel.js';
 import { threadArchive, historyEligible } from './thread-archive.js';
 import { startThreadResume } from './thread-resume.js';
-import { GitAuthorSettings } from './git-author-settings.js';
-import { ExtensionsManager, openExtensions } from './extensions-manager.js';
+import { SettingsNav, SettingsPage, openSettings } from './settings.js';
 import { ExtensionSlot, ExtensionSurfaceSlot, refreshExtensions, openExtension, extensionCatalog, openGitAction, activeLauncher } from './extensions.js';
 import { pollLaunchIntake } from './launch-intake.js';
 import { readNewTerminalCommand } from './components/extension-contract.js';
@@ -56,14 +54,13 @@ const conversationVisible = (project, all, modelPanes) => Boolean(hasConversatio
 export default class HerdrZed extends View {
   init(_props, cx) {
     const view = props()?.view;
-    if (view === 'extensions') { this.extensionsManager = new ExtensionsManager(); this.extensionsManager.init(cx); return; }
     if (view === 'launcher') { this.launcher = new NativeLauncher(); this.launcher.init(cx); return; }
-    if (view === 'diff-ignore-settings') { this.buildRulesSettings = new BuildRulesSettings(); this.buildRulesSettings.init(cx); return; }
+    if (view === 'settings-nav') { this.settingsNav = new SettingsNav(); return; }
+    if (view === 'settings-page') { this.settingsPage = new SettingsPage(); this.settingsPage.init(cx); return; }
     if (view === 'status') { clearGitToast(); setShared('herdr-zed.git-output-request', null); }
     if (view === 'pane') { this.threadMenu = new DropdownMenuState(cx); return; }
     if (view === 'file-menu') { this.fileMenu = new FileMenu(); this.fileMenu.init(cx); return; }
     if (view === 'branch-menu') { this.branchMenu = new BranchMenu(); this.branchMenu.init(cx); return; }
-    if (view === 'git-author-settings') { this.gitAuthorSettings = new GitAuthorSettings(); this.gitAuthorSettings.init(cx); return; }
     if (view === 'header') {
       cx.spawn(async cx => { await refreshExtensions(); cx.notify(); });
       this.launchIntake = { handled: [] };
@@ -74,7 +71,10 @@ export default class HerdrZed extends View {
         const command = await nextCommand();
         if (command === 'new-thread') this.newThread(cx);
         if (command === 'reveal-conversation') this.showConversation(true);
-        if (command === 'extensions') openExtensions();
+        // herdr-zed.settings opens the General page; herdr-zed.settings:<id> an extension's page (ARCHITECTURE §2.1).
+        if (command === 'settings') openSettings('general', this.projects().find(project => project.active));
+        if (command === 'extensions') openSettings('extensions', this.projects().find(project => project.active));
+        if (command.startsWith('settings:')) openSettings(`extension:${command.slice('settings:'.length)}`, this.projects().find(project => project.active));
         if (command === 'extensions-refresh') { await refreshExtensions(); cx.notify(); }
         if (command.startsWith('extension:')) openExtension(command.slice('extension:'.length), this.projects().find(project => project.active));
         // herdr-zed.new-terminal: the Agents picker's Terminal row (ARCHITECTURE §3.1). Same tab as the native Terminal.
@@ -291,12 +291,6 @@ export default class HerdrZed extends View {
       props: { view: 'launcher', ...this.launcherTarget(project) } });
   }
 
-  // The launcher provider's settings dialog, opened with the same fields as its picker.
-  openLauncherSettings(launcher, project) {
-    openOverlay({ mod: launcher.mod, kind: 'dialog', frame: 'none', modal: true, width: launcher.settings.width, height: launcher.settings.height,
-      props: { view: launcher.settings.view, ...this.launcherTarget(project) } });
-  }
-
   showConversation(visible = true, project = this.projects().find(project => project.active)) {
     if (!project) return;
     if (!visible) maximizeConversation(null, false);
@@ -354,8 +348,7 @@ export default class HerdrZed extends View {
   groupedThreads(space, threads, t, live) { return threads.map(thread => this.renderThreadGroup(thread, t, live)); }
 
   async close() {
-    this.buildRulesSettings?.close();
-    this.gitAuthorSettings?.close();
+    this.settingsPage?.close();
     if (this.editor) this.editor.close(); else this.files?.close();
     this.diff?.close();
   }
@@ -386,8 +379,8 @@ export default class HerdrZed extends View {
         )
       .child(h_flex().flex_1().min_w(0).h_full().items_center().justify_end()
         .child(ToolbarButton('settings', t, { icon: true })
-          .accessibility_label('Herdr settings')
-          .on_click(() => run('app.settings')).child(glyph('gear')))
+          .accessibility_label('Settings')
+          .on_click(() => openSettings('general', this.projects().find(project => project.active))).child(glyph('gear')))
         .when(Boolean(win?.buttons), el => el
           .child(Button('minimize', t, { variant: 'ghost', size: 'icon' }).h_full().w(32).accessibility_label('Minimize')
             .on_click(() => run('window.minimize')).child(glyph('minus')))
@@ -413,16 +406,9 @@ export default class HerdrZed extends View {
     const project = this.projects().find(project => project.id === thread?.space);
     const maximized = conversationMaximized(project);
     this.threadMenu ??= new DropdownMenuState();
-    const launcher = activeLauncher();
-    const launcherTitle = extensionCatalog().packages?.find(entry => entry.mod === launcher?.mod)?.title;
     const decoration = this.decorationsNow().get(thread?.tab.id);
-    const actions = [
-      ...(launcher && project ? [{ key: 'agent-settings', label: `${launcherTitle || 'Agent'} settings…`, icon: 'settings' }] : []),
-      { key: 'close', label: secondary ? 'Close terminal' : 'Close thread', icon: 'close' }];
-    const choose = key => {
-      if (key === 'agent-settings') this.openLauncherSettings(launcher, project);
-      else run('pane.close', { pane: p.pane });
-    };
+    const actions = [{ key: 'close', label: secondary ? 'Close terminal' : 'Close thread', icon: 'close' }];
+    const choose = () => run('pane.close', { pane: p.pane });
     const terminal = terminals().find(terminal => terminal.address === p.terminal);
     const working = terminalWorking({ ...terminal, status: p.status || terminal?.status });
     const icon = working ? glyph('loader', 14).text_color(t.working).spin(900).accessibility_label('Working')
@@ -471,8 +457,6 @@ export default class HerdrZed extends View {
       .child(div().flex_1())
       .children([ExtensionSlot('status.right', t, space)].filter(Boolean))
       .children([ExtensionSurfaceSlot('dock.right', t)].filter(Boolean))
-      .child(ToolbarButton('manage-extensions', t, { icon: true }).accessibility_label('Manage extensions')
-        .on_click(openExtensions).child(glyph('extensions', 16)))
       .when(Boolean(space), el => el.child(h_flex().id('status-panel-actions').flex_none().h_full().gap(0)
         .child(ToolbarButton('open-diff', t, { icon: true, selected: showing('diff') })
           .accessibility_label(showing('diff') ? 'Hide changes' : 'Show changes')
@@ -624,8 +608,8 @@ export default class HerdrZed extends View {
 
   renderView(cx) {
     const t = theme();
-    if (props()?.view === 'extensions') return this.extensionsManager.render(t);
-    if (props()?.view === 'diff-ignore-settings') return this.buildRulesSettings.render(t);
+    if (props()?.view === 'settings-nav') return this.settingsNav.render(t);
+    if (props()?.view === 'settings-page') return this.settingsPage.render(t);
     if (props()?.view === 'launcher') return this.launcher.render(t);
     if (props()?.view === 'file-menu') return this.fileMenu.render();
     if (props()?.view === 'editor') {
@@ -637,7 +621,6 @@ export default class HerdrZed extends View {
     if (props()?.view === 'diff') return this.diff.render(this.projects().find(project => project.active), cx);
     if (props()?.view === 'header') return this.header(t);
     if (props()?.view === 'branch-menu') return this.branchMenu.render(t);
-    if (props()?.view === 'git-author-settings') return this.gitAuthorSettings.render(t);
     if (props()?.view === 'brand') return this.brand(t);
     if (props()?.view === 'pane') return this.paneHeader(t, cx);
     if (props()?.view === 'status') return this.statusBar(t);

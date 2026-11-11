@@ -3,7 +3,7 @@ import { h_flex, v_flex, v_virtual_list, Scrollbar, VirtualListScrollHandle, Edi
 import { watchFolder, settings, theme, shared, setShared, notify } from 'herdr';
 import { execShell } from './shell.js';
 import { readBuildRules, withBuildRulesFile } from './diff-ignore.js';
-import { openBuildRules } from './diff-ignore-settings.js';
+import { openSettings } from './settings.js';
 import { utf8ByteLength } from './utf8.js';
 import { Button } from './components/button.js';
 import { DropdownMenu, DropdownMenuState } from './components/dropdown-menu.js';
@@ -14,7 +14,6 @@ import { CommitHistory, readCommitSummary } from './git-history.js';
 import { GitGraph } from './git-graph.js';
 import { SidePanelLayout, SidePanelState } from './components/side-panel.js';
 import { showGitToast, clearGitToast } from './git-result-toast.js';
-import { openGitAuthor } from './git-author-settings.js';
 import { extensionCatalog, extensionActions, openGitAction } from './extensions.js';
 import { credentialArgsFor } from './git-credentials.js';
 
@@ -879,7 +878,7 @@ export default class DiffViewer {
       { key: 'commit-author', label: 'Commit author…', separator: providerActions.length === 0, disabled: Boolean(this.pushing) },
     ];
     const choose = (key, cx) => {
-      if (key === 'commit-author') openGitAuthor(this.context);
+      if (key === 'commit-author') openSettings('git', this.context);
       else if (key.startsWith('ext:')) openGitAction(key.slice('ext:'.length), this.context);
       else if (key === 'back' || key === 'fetch-from' || key === 'push-to') {
         this.gitMenu.page = key === 'back' ? null : key === 'fetch-from' ? 'fetch' : 'push';
@@ -1017,7 +1016,7 @@ export default class DiffViewer {
   }
 
   choosePanelSetting(key, cx) {
-    if (key === 'filter-rules') openBuildRules();
+    if (key === 'filter-rules') openSettings('git', this.context);
     else if (key === 'list' || key === 'tree') this.setFileView(key, cx);
   }
 
