@@ -20,6 +20,25 @@ titles). Where they conflict, this file wins. Rationale and the audit behind the
   extension action icons (icon only, tooltip = title; at most 4, the rest in an overflow ⋯) → dock toggles
   → separator → Changes, Files.
 
+## Separators
+
+- 1px `border`-colored dividers separate distinct groups: in the status bar between context, live readings,
+  extension icons, dock toggles and Changes/Files; in the sidebar between the thread list, optional
+  extension surfaces and the bottom history row (always the last row); in the Settings nav between
+  Workspace, Extensions and "Herdr settings…".
+- No dividers inside a group; spacing alone separates items of the same kind.
+
+## Icons and hover
+
+- Glyphs come from `assets/icons/` via `glyph(name, size)`; never font glyphs or emoji. One icon per meaning
+  (settings = `settings`, close = `close`, more = `ellipsis`, new = `plus`, Changes = `git-compare`).
+- Sizes: 14px in rows and menus, 16px in toolbars and the status bar. Icon-only buttons have a 28×28 hit
+  area (24×24 in dense rows) and always a tooltip + accessibility label.
+- Every toolbar or status-bar action is an icon button. In a menu, either every item has an icon or none.
+- One hover treatment for all interactive elements: background `hover`, no border or color shift; selected
+  state uses `selected`; disabled is 45% opacity and never hovers. Non-interactive rows never hover.
+- Hover-revealed row actions (e.g. thread close) keep their space reserved so rows don't shift.
+
 ## Dialogs
 
 Closing is an X in the header (or Cancel/Esc); there are no Done buttons.
