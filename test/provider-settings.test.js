@@ -64,8 +64,13 @@ function shell(overrides = {}) {
 }
 
 const manifests = ['agents', 'github', 'asana', 'mantisbt', 'system'];
-const expectedSettings = { agents: { view: 'manage-launchers', title: 'Agents' }, github: { view: 'settings', title: 'GitHub' },
-  asana: { view: 'settings', title: 'Asana' }, mantisbt: { view: 'settings', title: 'MantisBT' }, system: { view: 'settings', title: 'System Monitor' } };
+// The Agents extension's pages, as its manifest lists them. The shell mounts one per id with `page` in props.
+const agentsPages = [{ id: 'accounts', title: 'Accounts' }, { id: 'agents', title: 'Agents' }, { id: 'profiles', title: 'Profiles' },
+  { id: 'global-rules', title: 'Global Rules' }, { id: 'capabilities', title: 'Capabilities' }, { id: 'ecc', title: 'ECC' }];
+
+const expectedSettings = { agents: { view: 'manage-launchers', title: 'Agents', pages: agentsPages }, github: { view: 'settings', title: 'GitHub', pages: [] },
+  asana: { view: 'settings', title: 'Asana', pages: [] }, mantisbt: { view: 'settings', title: 'MantisBT', pages: [] },
+  system: { view: 'settings', title: 'System Monitor', pages: [] } };
 
 test('each provider manifest declares its Settings page and the shell parser accepts it', async () => {
   for (const id of manifests) {
@@ -75,16 +80,23 @@ test('each provider manifest declares its Settings page and the shell parser acc
   }
 });
 
-test('Agents Settings embedded in the shell draws no frame, title or close control, and leaves Escape to the shell', async () => {
-  const { host, log, events, closed, factory } = shell({ props: () => ({ view: 'manage-launchers', embedded: true, overlay: 'shell' }),
+// The Agents view with the page methods the session menu mixes in, so `this` resolves as it does in the mod.
+function agentsView(sessionMenu, overrides = {}) {
+  return { launchers: [], manageIndex: 0, handle: { focus() {} }, availableAgents: () => [], settingsPageBody: sessionMenu.settingsPageBody,
+    withSideNav: sessionMenu.withSideNav, accountName: sessionMenu.accountName, pickerName: sessionMenu.pickerName, ...overrides };
+}
+
+test('Agents Settings embedded draws only its page: padded, with no frame, title, page list or close control, and leaves Escape to the shell', async () => {
+  const { host, log, events, closed, factory } = shell({ props: () => ({ view: 'manage-launchers', embedded: true, overlay: 'shell', page: 'agents' }),
     ...sessions, availableAgents: () => [], spaces: () => [] });
   const { sessionMenu } = await evaluateNative('../mods/herdr-zed-agents/session-menu.js', host, 'sessionMenu');
   const page = factory('page')();
-  sessionMenu.manageLaunchers.call({ launchers: [], manageIndex: 0, handle: { focus() {} }, settingsPage: 'agents',
-    availableAgents: () => [], agentsPage: () => page }, theme(), ctx([]));
+  sessionMenu.manageLaunchers.call(agentsView(sessionMenu, { settingsPage: 'agents', agentsPage: () => page }), theme(), ctx([]));
   assert.ok(!names(log).some(name => name.startsWith('DialogContent')), 'no dialog frame');
   assert.ok(names(log).includes('v_flex#manage-launchers'), 'the shell owns the frame');
-  assert.ok(!log.some(([name, method, arg]) => name === 'DialogTitle' && method === 'child' && arg === '"Agents"'), 'no title of its own');
+  assert.ok(log.some(([name, method, arg]) => name === 'v_flex#manage-launchers' && method === 'p' && arg === '24'), 'the page has 24px padding');
+  assert.ok(!log.some(([name, method, arg]) => name === 'DialogTitle' && method === 'child'), 'no title of its own');
+  assert.ok(!names(log).some(name => name.startsWith('Button#settings-page-') || name.startsWith('v_flex#settings-section-')), 'no page list');
   assert.ok(!names(log).some(name => name.startsWith('Button#manage-launchers-close')), 'no close control of its own');
   let stopped = false;
   events['v_flex#manage-launchers'].on_key_down({ key: 'escape' }, { stop_propagation() { stopped = true; } });
@@ -92,17 +104,53 @@ test('Agents Settings embedded in the shell draws no frame, title or close contr
   assert.equal(stopped, false);
 });
 
-test('Agents Settings standalone keeps its dialog frame, a header X in place of Done, and Escape close', async () => {
-  const { host, log, events, closed, factory } = shell({ props: () => ({ view: 'manage-launchers', overlay: 'legacy' }),
+test('Agents Settings mounts exactly the page its props name, and remote projects only get Agents', async () => {
+  const { host, log, factory } = shell({ props: () => ({ view: 'manage-launchers', embedded: true, overlay: 'shell' }),
     ...sessions, availableAgents: () => [], spaces: () => [] });
   const { sessionMenu } = await evaluateNative('../mods/herdr-zed-agents/session-menu.js', host, 'sessionMenu');
-  sessionMenu.manageLaunchers.call({ launchers: [], manageIndex: 0, handle: { focus() {} }, settingsPage: 'agents',
-    availableAgents: () => [], agentsPage: () => factory('page')() }, theme(), ctx([]));
-  assert.ok(names(log).includes('DialogContent#manage-launchers'));
-  assert.ok(log.some(([name, method, arg]) => name === 'DialogTitle' && method === 'child' && arg === '"Settings"'), 'the header names the dialog');
-  assert.ok(!names(log).some(name => name.startsWith('Button#manage-launchers-done')), 'no Done footer');
-  events['Button#manage-launchers-close'].on_click({}, ctx([]));
-  assert.deepEqual(closed, ['legacy']);
+  const stubs = { accountsPage: 'accounts', agentProfilesPage: 'profiles', globalRulesPage: 'global-rules', devkitsNavigation: 'cap-nav',
+    devkitsPage: 'capabilities', eccNavigation: 'ecc-nav', eccPage: 'ecc' };
+  const view = agentsView(sessionMenu, Object.fromEntries(Object.entries(stubs).map(([method, id]) => [method, () => factory(id)()])));
+  // Each page draws its own content; the two pages with sub-navigation draw it beside the page.
+  const expected = { accounts: ['accounts'], profiles: ['profiles'], 'global-rules': ['global-rules'],
+    capabilities: ['cap-nav', 'capabilities'], ecc: ['ecc-nav', 'ecc'] };
+  for (const [page, drawnNames] of Object.entries(expected)) {
+    log.length = 0;
+    sessionMenu.manageLaunchers.call({ ...view, settingsPage: page }, theme(), ctx([]));
+    const drawn = names(log);
+    for (const name of drawnNames) assert.ok(drawn.includes(name), `${page} draws ${name}`);
+    assert.ok(!drawn.some(name => name.startsWith('Button#settings-page-')), `${page} has no page list of its own`);
+    assert.ok(!drawn.includes('agents'), `${page} draws no Agents list`);
+  }
+  log.length = 0;
+  sessionMenu.manageLaunchers.call({ ...view, settingsPage: 'remote-unavailable' }, theme(), ctx([]));
+  assert.ok(log.some(([, method, arg]) => method === 'child' && String(arg).includes('on this computer')), 'a remote project is told where these pages live');
+  assert.ok(!names(log).includes('accounts'), 'and draws no account page');
+});
+
+test('New thread and Agents rows name the program and account, and never show a bare No account', async () => {
+  const identities = { claude: { email: 'work@example.test' } };
+  const { host } = shell({ shared: key => key === 'herdr-zed.account-identities' ? identities : null, ...sessions, availableAgents: () => [], spaces: () => [] });
+  const { sessionMenu } = await evaluateNative('../mods/herdr-zed-agents/session-menu.js', host, 'sessionMenu');
+  const view = agentsView(sessionMenu);
+  const claude = { key: 'claude', name: 'Claude Code' }, codex = { key: 'codex', name: 'Codex' }, named = { key: 'devkits-claude-team', name: 'Claude Code · team' };
+  // A Default account is named by its address when one is known.
+  assert.equal(view.pickerName(claude, 'Default account'), 'Claude Code · work@example.test');
+  assert.equal(view.accountName(claude, 'Default account'), 'work@example.test');
+  // Without an address the program names the row, not "No account".
+  assert.equal(view.pickerName(codex, 'Default account'), 'Codex CLI');
+  assert.equal(view.accountName(codex, 'Default account'), 'Codex CLI');
+  // Named accounts keep their own name after the program.
+  assert.equal(view.pickerName(named, 'team'), 'Claude Code · team');
+  // Terminal and profiles keep their own labels.
+  assert.equal(view.pickerName(null, 'Terminal'), 'Terminal');
+  assert.equal(view.pickerName({ key: 'devkits-claude-team', profileKey: 'claude', name: 'Work profile' }, 'Work profile'), 'Work profile');
+  for (const agent of [claude, codex, named]) {
+    for (const label of ['Default account', 'team']) assert.doesNotMatch(view.pickerName(agent, label), /No account/);
+  }
+  // With no identities at all, the rule still holds.
+  identities.claude = undefined;
+  assert.equal(view.pickerName(claude, 'Default account'), 'Claude Code');
 });
 
 test('GitHub account Settings embedded lists signed-in accounts, keeps Save and Cancel, and never closes the shell', async () => {
@@ -122,6 +170,10 @@ test('GitHub account Settings embedded lists signed-in accounts, keeps Save and 
   assert.ok(!names(log).some(name => name.startsWith('DialogContent')), 'no dialog frame');
   assert.ok(!names(log).some(name => name.startsWith('Select')), 'signed-in accounts are listed, not a popup');
   assert.ok(!log.some(([, method, arg]) => method === 'child' && arg === '"GitHub"'), 'no page title of its own');
+  assert.ok(log.some(([name, method, arg]) => name === 'v_flex#github-account' && method === 'p' && arg === '24'), 'the page has 24px padding');
+  assert.ok(log.some(([, method, arg]) => method === 'child' && arg === '"Repository: repo"'), 'the repository is named by its folder');
+  assert.ok(!log.some(([, method, arg]) => method === 'child' && arg === '"/repo"'), 'no raw path');
+  assert.ok(log.some(([, method, arg]) => method === 'child' && arg === '"Use the machine\x27s git credentials"'), 'Default is explained');
   for (const id of ['default', '0', '1']) assert.ok(events[`Button#git-account-${id}`], `account row ${id}`);
   assert.ok(log.some(([name, method, arg]) => name === 'Button#git-account-1' && method === 'disabled' && arg === 'true'),
     'a row that needs sign-in is disabled');
@@ -189,6 +241,7 @@ for (const { id, file, cls, panel, source, title, prefix } of [
     assert.equal(panel().calls.filter(([name]) => name === 'seedSettings').length, 1, 'the saved connection seeds the form once');
     assert.ok(panel().calls.some(([name]) => name === 'syncFields'), 'field display loads');
     assert.ok(!names(log).some(name => name.startsWith('DialogContent')), 'no frame');
+    assert.ok(log.some(([name, method, arg]) => name === `v_flex#${prefix}-settings` && method === 'p' && arg === '24'), 'the page has 24px padding');
     assert.ok(!log.some(([, method, arg]) => method === 'child' && arg === `"${title}"`), 'no page title of its own');
     assert.ok(!log.some(([name]) => name.includes(`${prefix}-settings-close`)), 'no close control of its own');
     assert.deepEqual(closed, []);
@@ -248,6 +301,8 @@ test('System Monitor Settings embedded draws no frame, title or Done, and the de
 
   monitor.renderSettings(theme(), true);
   assert.ok(!names(log).some(name => name.startsWith('DialogContent')), 'no frame when embedded');
+  assert.ok(log.some(([name, method, arg]) => name === 'v_flex#system-settings' && method === 'p' && arg === '24'), 'the page has 24px padding');
+  assert.ok(!log.some(([, method, arg]) => method === 'child' && arg === '"System monitor"'), 'the page body has no title of its own');
   assert.ok(!names(log).some(name => name.includes('system-settings-close')), 'no close control when embedded');
   assert.ok(!log.some(([name, method, arg]) => name.startsWith('DialogTitle') && method === 'child' && arg === '"System Monitor"'), 'no title when embedded');
 

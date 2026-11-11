@@ -168,7 +168,7 @@ export const agentProfiles = {
               .child(text(account ? this.accountName(account, launcherLabel(account.name || sessionKind(account))) : 'Unavailable'));
             const actions = h_flex().gap(4).items_center()
               .child(Button(`edit-agent-profile-${config.key}`, t, { variant: 'ghost' }).h(28).px(4).on_click(() => this.openAgentProfileEditor(config)).child('Edit'))
-              .child(Button(`remove-agent-profile-${config.key}`, t, { variant: 'ghost', size: 'icon' }).accessibility_label(`Remove ${config.name}`)
+              .child(Button(`remove-agent-profile-${config.key}`, t, { variant: 'ghost', size: 'icon' }).accessibility_label(`Remove ${config.name}`).tooltip(`Remove ${config.name}`)
                 .on_click((_event, cx) => { this.removeConfiguration(config); cx.notify(); }).child(glyph('trash')));
             return columns(text(config.name), label, text(models.find(item => item.key === saved.model)?.label || saved.model || 'Default'),
               text(saved.effort ? effortLabel(saved.effort) : 'Default'), text(saved.serviceTier === 'fast' ? 'Fast' : '—'), actions)

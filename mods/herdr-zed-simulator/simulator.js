@@ -419,7 +419,7 @@ export default class SimulatorPanel {
         .on_click((_e, cx) => { const url = this.session?.preview; if (url) cx.spawn(() => openPreviewWindow(url)); })
         .child(glyph('external-link'))))
       .child(Button('close-simulator', t, { variant: 'ghost', size: 'icon' }).h_full().w(32)
-        .accessibility_label(this.popup ? 'Close simulator' : 'Hide simulator')
+        .accessibility_label(this.popup ? 'Close simulator' : 'Hide simulator').tooltip(this.popup ? 'Close simulator' : 'Hide simulator')
         .on_click(() => closeSimulator(this.popup)).child(glyph('close')));
   }
 
@@ -546,7 +546,7 @@ export class SimulatorMenu {
       .when(d.id === target?.id, el => el.child(glyph('check')))
       // Each booted simulator shuts down from its own row, so two booted ones are never confused.
       .when(d.booted, el => el.child(Button(`simulator-shutdown-${d.id}`, t, { variant: 'row', size: 'icon' })
-        .accessibility_label(`Shut down ${d.name}`)
+        .accessibility_label(`Shut down ${d.name}`).tooltip(`Shut down ${d.name}`)
         .on_click((_event, cx) => { cx.stop_propagation(); this.shutdown(d); }).child(glyph('power'))))]);
     const message = this.devices == null ? 'Loading…' : this.error || (!this.devices.length ? 'No simulators. Create one in Xcode.' : null);
     // A scrolling list needs a definite height: rows up to 360px, plus the label, message and actions below.

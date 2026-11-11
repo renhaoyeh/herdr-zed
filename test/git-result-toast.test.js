@@ -20,9 +20,9 @@ test('window toast centers across the viewport at any zoom and routes actions wi
     } });
     return el;
   };
-  const { showGitToast, clearGitToast, GitResultToast } = new Function('div', 'svg', 'h_flex', 'Popup', 'Button', 'shared', 'setShared', 'settings', 'globalThis',
+  const { showGitToast, clearGitToast, GitResultToast } = new Function('div', 'svg', 'h_flex', 'Popup', 'Button', 'ToolbarButton', 'shared', 'setShared', 'settings', 'globalThis',
     source.replace(/^import .*;\r?\n/gm, '').replace(/^export /gm, '') + '\nreturn { showGitToast, clearGitToast, GitResultToast };')(
-    element, element, element, { new: id => element().id(id) }, id => element().id(id),
+    element, element, element, { new: id => element().id(id) }, id => element().id(id), id => element().id(id),
     key => store[key], (key, value) => { store[key] = value; }, () => ({ zoom }),
     { window: { viewport_size: () => ({ width: 1440, height: 900 }) } });
   const project = { folder: '/repo', machine: 'remote' };

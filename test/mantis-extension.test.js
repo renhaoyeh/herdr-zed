@@ -9,6 +9,6 @@ test('MantisBT is an optional status popup at Tasks source dimensions', () => {
   const [action] = parseExtensionManifest('herdr-zed-mantisbt', manifestText);
   assert.equal(action.id, 'mantisbt.open');
   assert.equal(action.location, 'status.right');
-  assert.deepEqual(action.popup, { view: 'browser', width: 0.9, height: 0.86, modal: false });
+  assert.deepEqual(action.popup, { view: 'browser', width: 0.9, height: 0.86, modal: false, placement: 'workspace' });
 });
 

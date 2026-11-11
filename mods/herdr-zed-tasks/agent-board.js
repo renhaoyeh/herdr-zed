@@ -212,7 +212,7 @@ export default class AgentBoard {
       const children = taskChildren(tasks, task.gid), completed = children.filter(child => child.status === 'done').length;
       const policy = taskActions(task);
       const trigger = button(`board-card-actions-${task.gid}`, t, { size: 'icon' })
-        .accessibility_label(`Actions for ${task.name}`).child(glyph('ellipsis', 14))
+        .accessibility_label(`Actions for ${task.name}`).tooltip(`Actions for ${task.name}`).child(glyph('ellipsis', 14))
         .on_mouse_down('left', (_e, cx) => cx.stop_propagation())
         .on_click((_e, cx) => { cx.stop_propagation(); this.cardMenuTask = task.gid; this.cardMenu.open = true; this.cardMenu.focus?.focus(); cx.notify(); });
       const menu = this.cardMenuTask === task.gid ? DropdownMenu(`board-card-menu-${task.gid}`, this.cardMenu, trigger, [
@@ -281,7 +281,7 @@ export default class AgentBoard {
             .child(icon(status.key)).child(status.label).child(div().text_color(t.muted).font_normal().child(String(rows.length)))
             .child(div().flex_1())
             .when(!this.archived && status.key === 'todo', el => el.child(button(`board-add-${status.key}`, t, { size: 'icon' })
-              .accessibility_label(`Create task in ${status.label}`).on_click((_event, cx) => {
+              .accessibility_label(`Create task in ${status.label}`).tooltip(`Create task in ${status.label}`).on_click((_event, cx) => {
                 cx.stop_propagation(); this.compose(project, null, status.key);
               }).child(glyph('plus', 14)))))
           .child(v_flex().id(`board-column-${status.key}`).flex_1().min_h(0).overflow_y_scrollbar().px(8).gap(8).pb(24).children(rows.map(card)));
@@ -310,7 +310,7 @@ export default class AgentBoard {
           sources.map(source => ({ key: source.key, label: source.label })), key => actions.importSource(key), t)))
         .child(button('board-new-task', t).pl(8).pr(10)
           .on_click(() => this.compose(project)).child(glyph('plus', 14)).child('New task'))
-        .child(button('board-close', t, { size: 'icon' }).accessibility_label('Close Tasks')
+        .child(button('board-close', t, { size: 'icon' }).accessibility_label('Close Tasks').tooltip('Close Tasks')
           .on_click(() => closeOverlay(props().overlay)).child(glyph('close', 14))))
       .child(h_flex().h(44).flex_none().px(8).gap(4).items_center().text_size(12)
         .child(tab('board-active', 'All tasks', !this.archived && !this.attentionOnly, () => { this.archived = false; this.attentionOnly = false; this.selected = null; }))
@@ -377,7 +377,7 @@ export default class AgentBoard {
     return v_flex().id('board-detail').w_full().h_full().flex_none().min_h(0).border_l(1).border_color(t.border).bg(t.background)
       .child(h_flex().h(40).flex_none().px(24).gap(8).items_center().border_b(1).border_color(t.border).text_size(11).text_color(t.muted)
         .child(taskIdentifier(task)).child(div().flex_1())
-        .child(button('board-close-detail', t, { size: 'icon' }).accessibility_label('Close task details')
+        .child(button('board-close-detail', t, { size: 'icon' }).accessibility_label('Close task details').tooltip('Close task details')
           .on_click((_e, cx) => { this.selected = null; this.currentTask = null; cx.notify(); }).child(glyph('close', 14))))
       .child(v_flex().id('board-detail-scroll').flex_1().min_h(0).overflow_y_scrollbar().p(24).gap(20)
         .child(editable ? Input.new(this.title).id('board-task-title').accessibility_label('Task title').w_full().h(36)
@@ -441,7 +441,7 @@ export default class AgentBoard {
         .when(task.agents.length > 0 || Boolean(text), el => el.child(v_flex().gap(12)
           .child(h_flex().gap(8).items_center().text_size(12).font_medium()
             .child('Latest output').child(div().flex_1())
-            .child(button('board-refresh-output', t, { size: 'icon' }).disabled(Boolean(output.busy)).accessibility_label('Refresh agent output')
+            .child(button('board-refresh-output', t, { size: 'icon' }).disabled(Boolean(output.busy)).accessibility_label('Refresh agent output').tooltip('Refresh agent output')
               .on_click((_e, cx) => this.loadOutput(task, project, cx)).child(glyph('refresh-cw', 14))))
           .when(Boolean(output.error), el => el.child(div().text_size(12).text_color(t.destructive).child(output.error)))
           .when(!text && !output.error, el => el.child(div().text_size(12).text_color(t.muted).child('Reading agent output…')))

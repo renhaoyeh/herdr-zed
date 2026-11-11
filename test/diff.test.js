@@ -193,7 +193,7 @@ test('All panel exposes the saved choice, disables History and omits branch and 
   };
   const { DiffViewer, ALL_REPOSITORIES } = await load({
     div: element, svg: element, h_flex: element, v_flex: element,
-    Button: id => element().id(id), Popup: { new: id => element().id(id) },
+    Button: id => element().id(id), ToolbarButton: id => element().id(id), Popup: { new: id => element().id(id) },
     Select: (_id, _state, value, options) => { selection = { value, options }; return element(); },
     VirtualListScrollHandle: { new: () => ({}) },
   });
@@ -570,7 +570,7 @@ test('split button menu exposes Git operations, counts and keyboard navigation w
   };
   const { DiffViewer, showGitToast } = await load({ div: element, svg: element, v_flex: element, h_flex: element,
     openSettings: (key, project) => actions.push(['settings', key, project]),
-    Button: id => element().id(id), Popup: { new: id => element().id(id) },
+    Button: id => element().id(id), ToolbarButton: id => element().id(id), Popup: { new: id => element().id(id) },
     Empty: element, EmptyDescription: element, theme: () => ({}), settings: () => ({}),
     shared: key => key === 'herdr-zed.git-accounts' ? accountSettings : memory[key],
     setShared: (key, value) => { if (key === 'herdr-zed.git-accounts') accountSettings = value; else memory[key] = value; },
@@ -853,7 +853,7 @@ test('large diffs render within the native item_sizes limit in both layouts, wit
     return el;
   };
   const { DiffViewer } = await load({
-    div: element, svg: element, h_flex: element, v_flex: element, Button: element,
+    div: element, svg: element, h_flex: element, v_flex: element, Button: element, ToolbarButton: element,
     Popup: { new: element }, Scrollbar: { vertical: element },
     VirtualListScrollHandle: { new: () => ({}) }, theme: () => ({}), settings: () => ({}),
     shared: key => memory[key],
@@ -1056,7 +1056,7 @@ test('List and Tree menu choices persist and preserve selection, collapsed folde
     return el;
   };
   const { DiffViewer, parseDiff } = await load({ div: element, svg: element, h_flex: element, v_flex: element,
-    Button: id => element().id(id), Popup: { new: id => element().id(id) },
+    Button: id => element().id(id), ToolbarButton: id => element().id(id), Popup: { new: id => element().id(id) },
     TreeItem: (id, depth, selected) => { treeRows.push({ id, depth, selected }); return element().id(id); },
     TreeItemIcon: element, TreeItemLabel: element, GitStatusColor: {},
     v_virtual_list: (id, count, _sizes, _key, render) => { render({ start: 0, end: count }); return element().id(id); },
@@ -1234,7 +1234,7 @@ test('commit descriptions start folded, expand on demand and leave single-line m
     } }); return el;
   };
   const { DiffViewer } = await load({ div: element, v_flex: element, h_flex: element, svg: element,
-    Button: id => element().id(id), VirtualListScrollHandle: { new: () => ({}) } });
+    Button: id => element().id(id), ToolbarButton: id => element().id(id), VirtualListScrollHandle: { new: () => ({}) } });
   const view = new DiffViewer(); view.init();
   const commit = { sha: 'a'.repeat(40), author: 'Author', at: 1700000000, message: 'Subject\n\nLong description\nSecond line' };
   const render = current => { nodes.clear(); view.commitHeader({ commit: current }, {}); };
@@ -1289,7 +1289,7 @@ test('Git Graph entry is in the latest-commit row below Git actions and absent f
     } }); return el;
   };
   const { DiffViewer } = await load({ div: element, h_flex: element, v_flex: element, svg: element,
-    Button: id => element().id(id), Popup: { new: element }, VirtualListScrollHandle: { new: () => ({}) } });
+    Button: id => element().id(id), ToolbarButton: id => element().id(id), Popup: { new: element }, VirtualListScrollHandle: { new: () => ({}) } });
   const view = new DiffViewer(); view.init(); view.pushFooter = () => element().id('git-actions');
   view.latestCommit = { sha: 'a'.repeat(40), shortSha: 'aaaaaaa', subject: 'Latest commit' };
   const panel = view.panel({});
@@ -1417,7 +1417,7 @@ test('large Changes panels build native elements only for visible files and disp
     } }); return proxy;
   };
   const { DiffViewer } = await load({ div: element, svg: element, v_flex: element, h_flex: element,
-    Button: element, Popup: { new: element }, TreeItem: () => { painted++; return element(); },
+    Button: element, ToolbarButton: element, Popup: { new: element }, TreeItem: () => { painted++; return element(); },
     TreeItemIcon: element, TreeItemLabel: element, GitStatusColor: {}, Scrollbar: { vertical: element },
     VirtualListScrollHandle: { new: () => ({}) },
     v_virtual_list: (id, count, sizes, key, render) => { list = { id, count, sizes, key, render }; return element(); } });
@@ -1514,7 +1514,7 @@ test('Git menu lists git.actions providers, opens them with the repository conte
     return el;
   };
   const { DiffViewer } = await load({ div: element, svg: element, v_flex: element, h_flex: element,
-    Button: id => element().id(id), Popup: { new: id => element().id(id) }, Empty: element, EmptyDescription: element,
+    Button: id => element().id(id), ToolbarButton: id => element().id(id), Popup: { new: id => element().id(id) }, Empty: element, EmptyDescription: element,
     theme: () => ({}), settings: () => ({}), notify: notice => notices.push(notice),
     VirtualListScrollHandle: { new: () => ({}) }, Editor: { new: element }, EditorState: { new: options => ({ ...options }) },
     extensionActions: location => location === 'git.actions' ? [{ id: 'github.account', title: 'GitHub account…', mod: 'herdr-zed-github', location }] : [],

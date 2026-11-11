@@ -431,7 +431,7 @@ export default class AccountLogin {
           .child(div().text_size(13).text_color(t.muted).child(this.phase === 'success'
             ? `${this.email} is ready in your agent menu.` : `Connect a ${source.service} account to use with ${source.label}.`)))
         .when(this.phase === 'success', el => el.child(Button(`${id}-login-close`, t, { variant: 'ghost', size: 'icon' })
-          .accessibility_label('Close').on_click(() => this.finish()).child(glyph('close', 14)))))
+          .accessibility_label('Close').tooltip('Close').on_click(() => this.finish()).child(glyph('close', 14)))))
       .child(v_flex().flex_1().min_h(0).overflow_y_scrollbar().gap(10)
         .when(pasteCallback, el => el
           .child(v_flex().gap(12)

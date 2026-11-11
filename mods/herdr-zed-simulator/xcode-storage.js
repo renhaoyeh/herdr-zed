@@ -157,7 +157,7 @@ export default class XcodeStorage {
       .on_key_down((event, cx) => { if (event.key === 'escape') { cx.stop_propagation(); close(); } })
       .child(h_flex().flex_none().items_center().gap(12)
         .child(DialogTitle().flex_1().min_w(0).child('Xcode storage'))
-        .child(Button('xcode-storage-close', t, { variant: 'ghost', size: 'icon' }).accessibility_label('Close Xcode storage').on_click(close).child(glyph('close', 14))))
+        .child(Button('xcode-storage-close', t, { variant: 'ghost', size: 'icon' }).accessibility_label('Close Xcode storage').tooltip('Close Xcode storage').on_click(close).child(glyph('close', 14))))
       .child(DialogDescription(t).flex_none().child('~/Library/Developer · Xcode rebuilds DerivedData when a project builds again. Deleting a simulator removes its apps and data.'))
       .child(h_flex().flex_none().gap(16)
         .children([['Total', sum(totals.map(([, size]) => ({ size })))], ...totals].map(([title, size]) => v_flex().flex_1().min_w(0).gap(4)

@@ -52,7 +52,7 @@ export class MantisSettings {
           .when(Boolean(panel.token), el => el.child(Button('mantis-clear-token', t, { variant: 'outline' }).disabled(busy)
             .on_click((_event, cx) => panel.clearToken(cx)).child('Clear saved token'))))
         .child(panel.fieldSettings()));
-    if (this.embedded) return v_flex().id('mantis-settings').size_full().min_h(0).overflow_y_scroll().child(body);
+    if (this.embedded) return v_flex().id('mantis-settings').size_full().min_h(0).p(24).overflow_y_scroll().child(body);
     const close = () => closeOverlay(this.target.overlay);
     return DialogContent('mantis-settings', t).overflow_y_scroll().on_key_down((event, cx) => {
       if (event.key === 'escape') { cx.stop_propagation(); close(); }

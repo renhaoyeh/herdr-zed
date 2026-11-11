@@ -241,7 +241,7 @@ export default class MantisPanel extends TaskSourceController {
         .child(div().max_w(320).truncate().child(bound?.name || 'Select Project')).child(glyph('chevron-down', 12)), 280,
       (_cx, at) => { if (ready) this.openProjectPicker?.(this.folder, at); }, 'end', { x: 0, y: 0 })))
       .child(Button('mantis-close', mantisTheme, { variant: 'ghost', size: 'icon' }).size(45).rounded(0).text_color('#ffffff')
-        .accessibility_label('Close MantisBT tasks').on_click(close).child(glyph('close', 16)));
+        .accessibility_label('Close MantisBT tasks').tooltip('Close MantisBT tasks').on_click(close).child(glyph('close', 16)));
   }
 
   sidebar() {
@@ -283,7 +283,7 @@ export default class MantisPanel extends TaskSourceController {
         .child(div().flex_1())
         .child(field(this.issueSearch, 'mantis-search', 'Search MantisBT issues').w(190).h(24))
         .child(Button('mantis-toggle-filters', mantisTheme, { variant: 'ghost', size: 'icon' }).size(28).rounded(0).text_color('#ffffff')
-          .accessibility_label(this.filtersOpen ? 'Collapse filters' : 'Expand filters')
+          .accessibility_label(this.filtersOpen ? 'Collapse filters' : 'Expand filters').tooltip(this.filtersOpen ? 'Collapse filters' : 'Expand filters')
           .on_click((_event, cx) => { this.filtersOpen = !this.filtersOpen; cx.notify(); }).child(glyph(this.filtersOpen ? 'chevron-down' : 'chevron-right', 16))))
       .when(this.filtersOpen && this.tab === 'all', el => el.child(h_flex().p(8).gap(8).items_center().border_t(1).border_color(rule)
         .child(this.fetchingAll
@@ -434,7 +434,7 @@ export default class MantisPanel extends TaskSourceController {
           .on_mouse_move((_event, cx) => this.hoverField(surface, field.id, cx))
           .on_mouse_up('left', (_event, cx) => { if (this.fieldDrag) { this.dropField(surface, field.id, cx); cx.stop_propagation(); } })
           .child(div().w(36).h_full().flex_none().flex().items_center().justify_center().border_r(1).border_color(rule).child(Button(`source-field-drag-${surface}-${field.id}`, mantisTheme, { variant: 'ghost', size: 'icon' }).w(36).h(30).cursor_grab()
-            .accessibility_label(`Reorder ${field.name}. Drag or use Alt + Up or Down.`)
+            .accessibility_label(`Reorder ${field.name}. Drag or use Alt + Up or Down.`).tooltip(`Reorder ${field.name}. Drag or use Alt + Up or Down.`)
             .on_mouse_down('left', (_event, cx) => { cx.stop_propagation(); this.startFieldDrag(surface, field.id, cx); })
             .on_key_down((event, cx) => this.fieldDragKey(event, surface, field.id, cx)).child(glyph('grip-vertical'))))
           .child(div().w(85).h_full().flex().items_center().px(12).border_r(1).border_color(rule).child(Checkbox(`source-field-visible-${surface}-${field.id}`, field.visible, mantisTheme)

@@ -11,7 +11,7 @@ import { Button } from './components/button.js';
 import { Input } from './components/input.js';
 import { Switch } from './components/switch.js';
 import { glyph } from './components/icon.js';
-import { DialogTitle, DialogDescription, DialogFooter } from './components/dialog.js';
+import { DialogDescription, DialogFooter } from './components/dialog.js';
 
 export const devkitsSettings = {
   initDevkits(cx) {
@@ -218,7 +218,7 @@ export const devkitsSettings = {
           .on_click((_event, cx) => this.verifyDevkitsMcp(row, cx)).child(this.capChecking ? 'Testing…' : 'Verify connection')));
   },
   devkitsNavigation(t) {
-    return v_flex().pl(16).gap(2).children([{ id: 'overview', label: 'Overview', icon: 'book-open' }, { id: 'components', label: 'Components', icon: 'settings' }].map(tab =>
+    return v_flex().gap(2).children([{ id: 'overview', label: 'Overview', icon: 'book-open' }, { id: 'components', label: 'Components', icon: 'settings' }].map(tab =>
       Button(`devkits-page-${tab.id}`, t, { variant: 'ghost' }).h(30).w_full().justify_start().gap(8).px(8)
         .disabled(this.capChecking || this.capSaving || Boolean(this.capSetup))
         .bg((this.capTab === 'overview' ? 'overview' : 'components') === tab.id ? t.selected : t.popover)
@@ -261,7 +261,6 @@ export const devkitsSettings = {
   devkitsPage(t) {
     const busy = Boolean(this.capLoading || this.capSaving || this.capChecking);
     return v_flex().id('devkits-capabilities').h_full().flex_1().min_h(0).gap(10)
-      .child(DialogTitle().child('Capabilities'))
       .child(DialogDescription(t).flex_none().child('Changes are saved when you click Save. Explore the architecture, then choose Rules, Skills and MCP. Selections apply to new local Claude and Codex sessions. Shared MCP setup configures Codex; Claude uses its account connections.'))
       .when(this.capTab !== 'overview' && Boolean(this.capConfig), el => el
         .child(div().text_size(12).text_color(t.muted).child(this.capTab === 'mcp'

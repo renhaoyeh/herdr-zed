@@ -9,7 +9,7 @@ import { Switch } from './components/switch.js';
 import { Select, SelectState } from './components/select.js';
 import { Button } from './components/button.js';
 import { glyph, AgentIcon } from './components/icon.js';
-import { DialogTitle, DialogDescription, DialogFooter } from './components/dialog.js';
+import { DialogDescription, DialogFooter } from './components/dialog.js';
 
 const eccProviderName = provider => provider === 'claude' ? 'Claude Code' : 'Codex';
 const eccRuntimePath = () => `${appHome()}/mods/herdr-zed-agents/ecc-runtime.js`;
@@ -208,7 +208,7 @@ export const eccSettings = {
           .when(!selected, el => el.child(div().text_size(12).text_color(t.muted).child(items.length ? 'Select a component to read its purpose and change its selection.' : 'No matching components.')))));
   },
   eccNavigation(t) {
-    return v_flex().pl(16).gap(2).children([{ id: 'overview', label: 'Overview' }, { id: 'claude', label: 'Claude Code' }, { id: 'codex', label: 'Codex' }].map(tab =>
+    return v_flex().gap(2).children([{ id: 'overview', label: 'Overview' }, { id: 'claude', label: 'Claude Code' }, { id: 'codex', label: 'Codex' }].map(tab =>
           Button(`ecc-page-${tab.id}`, t, { variant: 'ghost' }).h(30).w_full().justify_start().gap(8).px(8).bg(this.eccTab === tab.id ? t.selected : t.popover)
             .on_click((_event, cx) => { if (tab.id === 'overview') { this.eccTab = 'overview'; cx.notify(); } else this.selectEccSection(tab.id, eccGroups.some(group => group.id === this.eccSection && group.providers.includes(tab.id)) ? this.eccSection : 'skills', cx); })
             .child(tab.id === 'overview' ? glyph('book-open', 16) : AgentIcon({ icon: `icons/${tab.id}.svg` }, t))
@@ -217,7 +217,7 @@ export const eccSettings = {
   eccPage(t) {
     const busy = Boolean(this.eccLoading || this.eccSaving), draft = this.eccDraft;
     return v_flex().h_full().flex_1().min_h(0).gap(10)
-      .child(h_flex().justify_between().items_center().child(DialogTitle().child('Everything Claude Code'))
+      .child(h_flex().justify_end().items_center()
         .when(Boolean(draft), el => el.child(h_flex().gap(8).items_center().child(div().text_size(12).child('Enable ECC'))
           .child(Switch('ecc-enabled', draft.enabled, t).disabled(busy).on_change((checked, cx) => { draft.enabled = checked; this.eccSaved = false; cx.notify(); })))))
       .child(DialogDescription(t).flex_none().child('Changes are saved when you click Save. Explore the architecture, then choose what Claude Code and Codex use. Settings are global and apply to new sessions.'))

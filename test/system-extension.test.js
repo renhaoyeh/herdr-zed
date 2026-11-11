@@ -17,7 +17,7 @@ test('SYSTEM extension declares a parsed popup and the existing service and deta
   assert.equal(action.id, 'system.open');
   assert.equal(action.icon, 'chart-column');
   assert.equal(action.location, 'status.right');
-  assert.deepEqual(action.popup, { view: 'details', width: 0.9, height: 0.86, modal: false });
+  assert.deepEqual(action.popup, { view: 'details', width: 0.9, height: 0.86, modal: false, placement: 'workspace' });
 
   const main = await readFile(new URL('../mods/herdr-zed-system/main.js', import.meta.url), 'utf8');
   assert.match(main, /if \(this\.view === 'service'\) \{\s*this\.monitor\.init\(cx\)/);

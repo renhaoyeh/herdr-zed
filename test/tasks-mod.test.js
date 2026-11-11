@@ -479,6 +479,6 @@ test('Import from opens the chosen source browser for the board project through 
 
 test('the board header has a Close Tasks control bound to its own overlay, and Import from only appears with sources', async () => {
   const source = await readFile(new URL('../mods/herdr-zed-tasks/agent-board.js', import.meta.url), 'utf8');
-  assert.match(source, /button\('board-close', t, \{ size: 'icon' \}\)\.accessibility_label\('Close Tasks'\)\s*\.on_click\(\(\) => closeOverlay\(props\(\)\.overlay\)\)/);
+  assert.match(source, /button\('board-close', t, \{ size: 'icon' \}\)\.accessibility_label\('Close Tasks'\)\.tooltip\('Close Tasks'\)\s*\.on_click\(\(\) => closeOverlay\(props\(\)\.overlay\)\)/);
   assert.match(source, /\.when\(sources\.length > 0, el => el\.child\(DropdownMenu\('board-import-menu'/);
 });

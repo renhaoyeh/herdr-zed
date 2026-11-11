@@ -3,6 +3,7 @@ import { div } from 'gpui-kit';
 import { InputState, v_flex } from 'gpui-base';
 import { props, closeOverlay } from 'herdr';
 import { Button } from './components/button.js';
+import { glyph } from './components/icon.js';
 import { Select, SelectState } from './components/select.js';
 import { DialogContent, DialogTitle, DialogDescription, DialogFooter } from './components/dialog.js';
 import { readGitAuthor, saveGitAuthor } from './git-author.js';
@@ -61,6 +62,11 @@ export class GitHubAccount {
     });
   }
 
+  // The repository is named by its folder, never by its path.
+  repositoryName() {
+    return this.project.name || String(this.project.folder || '').split(/[\/]/).filter(Boolean).pop() || 'this repository';
+  }
+
   close() { this.closed = true; this.name?.release(); this.email?.release(); this.accountSelect?.search?.release(); }
 
   save(cx) {
@@ -101,14 +107,23 @@ export class GitHubAccount {
         .bg(t.background).border_b(1).border_color(t.input).text_color(t.foreground)
         .disabled(this.loading || this.saving || !this.loaded).accessibility_label(label));
     const { choices, selected } = this.choices();
+    // One radio-style row per account: a circle, with a check when it is the saved account. Disabled rows fade and never hover.
     const accountList = () => v_flex().id('git-account-list').gap(4)
-      .children(choices.map(choice => Button(`git-account-${choice.key}`, t, { variant: 'ghost' }).w_full().h(36).px(10).justify_start()
-        .bg(choice.key === selected ? t.selected : t.popover).text_color(t.foreground)
-        .disabled(this.loading || this.saving || !(choice.key === 'default' || choice.available))
-        .accessibility_label(`${choice.label}${choice.status ? `, ${choice.status}` : ''}${choice.key === selected ? ', selected' : ''}`)
-        .on_click((_event, cx) => this.chooseAccount(choice.key, cx))
-        .child(div().min_w(0).truncate().child(choice.label))
-        .when(Boolean(choice.status), el => el.child(div().flex_none().text_size(11).text_color(t.muted).child(choice.status)))));
+      .children(choices.map(choice => {
+        const current = choice.key === selected, disabled = this.loading || this.saving || !(choice.key === 'default' || choice.available);
+        return Button(`git-account-${choice.key}`, t, { variant: 'ghost' }).w_full().min_h(40).px(10).py(6).gap(10).justify_start()
+          .bg(current ? t.selected : t.popover).text_color(t.foreground).opacity(disabled ? 0.45 : 1)
+          .hover(el => el.bg(disabled ? t.popover : current ? t.selected : t.hover))
+          .disabled(disabled)
+          .accessibility_label(`${choice.label}${choice.status ? `, ${choice.status}` : ''}${current ? ', selected' : ''}`)
+          .on_click((_event, cx) => this.chooseAccount(choice.key, cx))
+          .child(div().flex_none().size(16).flex().items_center().justify_center().text_color(current ? t.foreground : t.muted)
+            .child(glyph(current ? 'circle-check' : 'circle', 16)))
+          .child(v_flex().flex_1().min_w(0).gap(2)
+            .child(div().truncate().text_size(13).child(choice.label))
+            .when(choice.key === 'default', el => el.child(div().text_size(11).text_color(t.muted).child('Use the machine\'s git credentials'))))
+          .when(Boolean(choice.status), el => el.child(div().flex_none().text_size(11).text_color(t.muted).child(choice.status)));
+      }));
     const body = v_flex().gap(12)
       .when(!embedded && !this.loading && !this.saving, el => el.child(Select('git-account', this.accountSelect, selected,
         choices.map(choice => ({ key: choice.key, label: choice.status ? `${choice.label} · ${choice.status}` : choice.label, color: t.foreground })),
@@ -121,7 +136,7 @@ export class GitHubAccount {
       .child(DialogDescription(t).child(this.account
         ? `Use ${this.account.login} (${this.account.host}) for Git operations and future commits. If GitHub does not provide a public email, enter it once; this author will be remembered for the account.`
         : 'Set the name and email for future commits in this repository. Existing commits stay unchanged.'))
-      .child(div().text_size(11).text_color(t.muted).child(this.project.folder))
+      .child(div().text_size(12).text_color(t.muted).truncate().child(`Repository: ${this.repositoryName()}`))
       .child(field('name', 'Name', this.name)).child(field('email', 'Email', this.email))
       .when(this.loading, el => el.child(div().text_size(12).text_color(t.muted).child('Loading commit author…')))
       .when(Boolean(this.error), el => el.child(div().text_size(12).text_color(t.ansi1).child(this.error)))
@@ -130,7 +145,7 @@ export class GitHubAccount {
         .child(Button('git-author-save', t).disabled(!this.loaded || this.saving || !this.name.value().trim() || !this.email.value().trim())
           .on_click((_event, cx) => this.save(cx)).child(this.saving ? 'Saving…' : 'Save')));
     // Embedded in the shell's Settings dialog the page has no title of its own: the shell's header names it.
-    if (embedded) return v_flex().id('github-account').size_full().min_h(0).gap(12).text_color(t.foreground).overflow_y_scroll()
+    if (embedded) return v_flex().id('github-account').size_full().min_h(0).p(24).gap(12).text_color(t.foreground).overflow_y_scroll()
       .child(body);
     const title = DialogTitle().child('GitHub account');
     return DialogContent('github-account', t).gap(12).on_key_down((event, cx) => {

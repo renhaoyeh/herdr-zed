@@ -94,7 +94,7 @@ export default class TaskComposer {
         .when(Boolean(this.parent), el => el.child(glyph('chevron-right', 12))
           .child(div().max_w(180).truncate().child(this.parent.name)))
         .child(glyph('chevron-right', 12)).child(this.task ? 'Edit task' : this.parent ? 'New subtask' : this.mantisbt ? 'Import from MantisBT' : this.asana ? 'Import from Asana' : 'New task').child(div().flex_1())
-        .child(Button('composer-close', t, { variant: 'ghost', size: 'icon' }).accessibility_label('Close task composer')
+        .child(Button('composer-close', t, { variant: 'ghost', size: 'icon' }).accessibility_label('Close task composer').tooltip('Close task composer')
           .on_click(() => this.dismiss()).child(glyph('close', 14))))
       .child(v_flex().id('composer-content').flex_1().min_h(0).overflow_y_scrollbar().px(24).gap(14)
         .child(Input.new(this.title).id('composer-title').accessibility_label('Task title').w_full().h(36).text_size(22).font_semibold().bg(t.popover).border(0))

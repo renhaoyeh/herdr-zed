@@ -13,7 +13,8 @@
         "view": "calendar",
         "width": 0.9,
         "height": 0.86,
-        "modal": false
+        "modal": false,
+        "placement": "workspace"
       }
     }
   ]

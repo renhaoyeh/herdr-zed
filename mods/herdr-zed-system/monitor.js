@@ -122,6 +122,7 @@ export class SystemMonitorCore extends SystemClient {
           .when(index > 0, el => el.border_t(1).border_color(t.border))
           .opacity(this.hardwareDrag === id ? 0.5 : 1)
           .bg(this.hardwareDrag && this.hardwareDrop === id && this.hardwareDrag !== id ? t.selected : t.popover)
+          .hover(el => el.bg(t.hover))
           .when(Boolean(this.hardwareDrag), el => el.cursor_grabbing())
           .on_mouse_move((_event, cx) => {
             if (this.hardwareDrag && this.hardwareDrop !== id) { this.hardwareDrop = id; cx.notify(); }
@@ -132,7 +133,7 @@ export class SystemMonitorCore extends SystemClient {
             this.cancelHardwareDrag(cx); this.saveHardwarePreference({ order }, cx); cx.stop_propagation();
           })
           .child(Button(`hardware-drag-${id}`, t, { variant: 'ghost', size: 'icon' }).cursor_grab()
-            .accessibility_label(`Reorder ${module.name}. Drag or use Alt + Up or Down.`)
+            .accessibility_label(`Reorder ${module.name}. Drag or use Alt + Up or Down.`).tooltip(`Reorder ${module.name}. Drag or use Alt + Up or Down.`)
             .on_mouse_down('left', (_event, cx) => {
               cx.stop_propagation(); this.hardwareDrag = id; this.hardwareDrop = id; cx.notify();
             })
@@ -172,17 +173,16 @@ export class SystemMonitorCore extends SystemClient {
               });
           })))))
       .child(this.hardwareDisplaySettings(t));
+    // The two columns stack, so each keeps the full content width and nothing is clipped beside the other.
     return v_flex().id('hardware-settings').flex_1().min_h(0).overflow_y_scroll().gap(20)
       .on_mouse_up('left', (_event, cx) => this.cancelHardwareDrag(cx))
       .on_hover((inside, cx) => { if (!inside) this.cancelHardwareDrag(cx); })
       .on_key_down((event, cx) => {
         if (event.key === 'escape' && this.hardwareDrag) { this.cancelHardwareDrag(cx); cx.stop_propagation(); }
       })
-      .child(v_flex().flex_none().gap(4)
-        .child(div().text_size(16).font_semibold().child('System monitor'))
-        .child(DialogDescription(t).child('Choose what to show and drag the handles to reorder. Changes save automatically.')))
-      .child(h_flex().w_full().gap(24).items_start()
-        .child(v_flex().flex_1().min_w(0).gap(16)
+      .child(DialogDescription(t).flex_none().child('Choose what to show and drag the handles to reorder. Changes save automatically.'))
+      .child(v_flex().w_full().flex_none().gap(20)
+        .child(v_flex().w_full().gap(16)
           .child(div().text_size(11).font_medium().text_color(t.muted).child('WIDGETS')).child(widgets))
         .child(display));
   }
@@ -489,13 +489,13 @@ export class SystemMonitorCore extends SystemClient {
       }));
   }
 
-  // The System Monitor page of the shell's Settings dialog. Embedded it has no title or frame of its own; standalone
-  // it keeps a frame with its title and the header X.
+  // The System Monitor page of the shell's Settings dialog. Embedded it has no title or frame of its own (the shell header
+  // names the page) and keeps the page's 24px padding; standalone it keeps a frame with its title and the header X.
   renderSettings(t, embedded) {
     const close = () => closeOverlay(this.overlay);
     const page = v_flex().id('system-settings').size_full().min_h(0).gap(16).text_color(t.foreground)
       .child(this.hardwareSettings(t));
-    if (embedded) return page;
+    if (embedded) return page.p(24);
     return DialogContent('system-settings', t).track_focus(this.handle)
       .on_key_down((event, cx) => { if (event.key === 'escape') { cx.stop_propagation(); close(); } })
       .child(DialogHeader(t, 'System Monitor', { id: 'system-settings-close', label: 'Close System Monitor settings', onClose: close }))
@@ -521,7 +521,7 @@ export class SystemMonitorCore extends SystemClient {
         .child(v_flex().flex_1().gap(4).child(DialogTitle().child('System monitor'))
           .child(DialogDescription(t).child(`${data?.cpuName || 'This computer'} · ${topologyLabel(data?.topology, data?.cores)}`)))
         .child(div().text_size(11).text_color(this.hardwareError ? t.ansi1 : t.muted).child(this.hardwareError ? 'Read unavailable' : `Live · ${config.interval}s`))
-        .child(Button('hardware-details-close', t, { variant: 'ghost', size: 'icon' }).accessibility_label('Close System monitor').on_click(close).child(glyph('close', 14))))
+        .child(Button('hardware-details-close', t, { variant: 'ghost', size: 'icon' }).accessibility_label('Close System monitor').tooltip('Close System monitor').on_click(close).child(glyph('close', 14))))
       .child(h_flex().flex_1().min_h(0).gap(24).items_start()
         .child(v_flex().id('hardware-pages').w(132).flex_none().gap(3).children(nav.map(item =>
           Button(`hardware-page-${item.id}`, t, { variant: 'ghost' }).h(32).px(10).justify_start()

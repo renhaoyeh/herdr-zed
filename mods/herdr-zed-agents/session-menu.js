@@ -2,26 +2,24 @@ import { availableAgents, loadAccountIdentities } from './discovery.js';
 import { div } from 'gpui-kit';
 import { v_flex, h_flex } from 'gpui-base';
 import { shared, setShared, props, spaces, openOverlay, closeOverlay, home, readTextFile, keys, window, exec, appHome } from 'herdr';
-import { launcherChoices, launcherLabel, launcherOption, accountAddresses, noAccountLabel, permissionModes, sessionKind, isAccountLauncher, claudeModels, claudeEfforts, codexHome, codexModels, mergeModels, orderedOptions, moveOption, effortLabel, sessionChoices, settingsKey, configuredAgents, autoRank, autoMultipliers, autoMultiplier, planMultiplier, planLabel, quotaResetLabel } from './components/session-model.js';
+import { launcherChoices, launcherLabel, launcherOption, accountAddresses, permissionModes, sessionKind, isAccountLauncher, claudeModels, claudeEfforts, codexHome, codexModels, mergeModels, orderedOptions, moveOption, effortLabel, sessionChoices, settingsKey, configuredAgents, autoRank, autoMultipliers, autoMultiplier, planMultiplier, planLabel, quotaResetLabel } from './components/session-model.js';
 import { DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from './components/dropdown-menu.js';
 import { Button } from './components/button.js';
 import { Checkbox } from './components/checkbox.js';
 import { Switch } from './components/switch.js';
 import { ToggleGroup, ToggleGroupItem } from './components/toggle-group.js';
-import { DialogContent, DialogHeader, DialogDescription, DialogFooter } from './components/dialog.js';
+import { DialogDescription } from './components/dialog.js';
 import { glyph, AgentIcon } from './components/icon.js';
 import { Select, SelectState } from './components/select.js';
 import { accountStorageDirectory, storageGroups, storageSize } from './account-storage-model.js';
 
 const launcherSections = ['Terminal', 'Agents', 'Your accounts', 'Agent profiles'];
-import { openSharedMcp, noAccount } from './components/agents.js';
-// Accounts whose address was already requested in this app session.
+// The manifest's settings.pages ids, one shell page each (ARCHITECTURE §2.1).
+const settingsPageIds = ['accounts', 'agents', 'profiles', 'global-rules', 'capabilities', 'ecc'];
+const programName = agent => sessionKind(agent) === 'claude' ? 'Claude Code' : 'Codex CLI';
+import { openSharedMcp } from './components/agents.js';
 
-
-// One Settings dialog for agents, reachable with or without an open project.
-
-
-// The New thread menu and its Manage dialog. Mixed into the Agents view, which provides
+// The New thread menu and the Agents settings pages. Mixed into the Agents view, which provides
 // cachedAgents, startThread and the account actions (addAccount, renameAccount, confirmRemoveAccount).
 export const sessionMenu = {
   availableAgents,
@@ -35,9 +33,12 @@ export const sessionMenu = {
     if ((props() || {}).view && !['manage-launchers', 'agent-profile-editor'].includes((props() || {}).view)) return;
     this.loadCodexModels(cx);
     const page = (props() || {}).page;
-    this.settingsPage = ['accounts', 'agents', 'agent-profiles', 'global-rules', 'shared-mcp', 'ecc'].includes(page) ? page : 'agents';
+    this.settingsPage = settingsPageIds.includes(page) ? page : 'agents';
+    // Only the Agents page is available for remote projects; the other pages are for this computer.
+    const remote = Boolean(spaces().find(space => space.id === (props() || {}).space)?.machine);
+    if (remote && this.settingsPage !== 'agents') this.settingsPage = 'remote-unavailable';
     if (this.settingsPage === 'global-rules') this.initGlobalRules(cx);
-    if (this.settingsPage === 'shared-mcp') { this.initDevkits(cx); this.capTab = 'mcp'; }
+    if (this.settingsPage === 'capabilities') { this.initDevkits(cx); this.capTab = 'mcp'; }
     if (this.settingsPage === 'ecc') this.initEcc(cx);
     this.defaultSelects = { permissions: new SelectState(cx), model: new SelectState(cx), effort: new SelectState(cx), profile: new SelectState(cx) };
     if ((props() || {}).view === 'agent-profile-editor') { this.initAgentProfileEditor(cx); return; }
@@ -121,7 +122,7 @@ export const sessionMenu = {
               .child(h_flex().h(28).flex_none().gap(8).items_center()
                 .child(DropdownMenuLabel(t).px(0).flex_1().child(group.name.toUpperCase()))
                 .when(installed, el => el.child(Button(`add-${group.kind}-account`, t, { variant: 'ghost', size: 'icon' })
-                  .accessibility_label(`Add a ${group.name} account`).on_click(() => this.addAccount(group.kind)).child(glyph('plus')))))
+                  .accessibility_label(`Add a ${group.name} account`).tooltip(`Add a ${group.name} account`).on_click(() => this.addAccount(group.kind)).child(glyph('plus')))))
               .when(!group.accounts.length, el => el.child(div().py(4).text_size(12).text_color(t.muted)
                 .child(this.loading ? 'Loading agents…' : `${group.kind === 'claude' ? 'Claude Code' : 'Codex CLI'} is not installed.`)))
               .children(group.accounts.flatMap((item, index) => [
@@ -136,7 +137,6 @@ export const sessionMenu = {
                 })
                 .child(AgentIcon(item, t).flex_none())
                 .child(div().id(`account-list-name-${item.key}`).flex_1().min_w(0).truncate().text_size(13)
-                  .when(this.accountName(item, launcherLabel(item.name || group.kind)) === noAccount, el => el.text_color(t.muted))
                   .child(this.accountName(item, launcherLabel(item.name || group.kind))))]));
           })))
         .child(agent ? this.accountDetail(agent, usage, t, cx)
@@ -159,7 +159,7 @@ export const sessionMenu = {
         .child(AgentIcon(agent, t).flex_none())
         // One centered line: name · address · plan, the details muted.
         .child(h_flex().flex_1().min_w(0).gap(6).items_center()
-          .child(div().flex_none().max_w_full().truncate().text_size(15).font_medium().when(label === noAccount, el => el.text_color(t.muted)).child(label))
+          .child(div().flex_none().max_w_full().truncate().text_size(15).font_medium().child(label))
           .when(Boolean(about), el => el.child(div().flex_none().text_size(13).text_color(t.muted).child('·'))
             .child(div().id(`account-email-${agent.key}`).flex_1().min_w(0).truncate().text_size(13).text_color(t.muted).child(about))))
         .when(isAccountLauncher(agent), el => el
@@ -311,7 +311,7 @@ export const sessionMenu = {
               this.modelDrag = null; this.modelDrop = null; cx.stop_propagation(); cx.notify();
             })
             .child(Button(`drag-session-${kind}-${model.key}`, t, { variant: 'ghost', size: 'icon' }).cursor_grab()
-              .accessibility_label(`Reorder ${model.label}`)
+              .accessibility_label(`Reorder ${model.label}`).tooltip(`Reorder ${model.label}`)
               .on_mouse_down('left', (_event, cx) => {
                 cx.stop_propagation(); this.handle?.focus();
                 this.modelDrag = { kind, key: model.key }; this.modelDrop = model.key; cx.notify();
@@ -361,11 +361,18 @@ export const sessionMenu = {
     return { email: reading?.email || saved?.email || null, plan: reading?.plan || saved?.plan || null };
   },
 
-  // A Default account is named by its signed-in address, or a muted No account when none is known;
-  // named accounts keep their own name. Every account list uses this one rule.
+  // A Default account is named by its signed-in address, or by its program when no address is known; named accounts
+  // keep their own name. Every account list uses this one rule, so "No account" never shows.
   accountName(agent, label) {
     if (label !== 'Default account' || !agent || agent.profileKey || !['claude', 'codex'].includes(sessionKind(agent))) return label;
-    return launcherOption(agent, accountAddresses(shared)).label;
+    return accountAddresses(shared)(agent.key) || programName(agent);
+  },
+
+  // New thread and the Agents list name a row by its program and account: "Claude Code", "Claude Code · work@example.test".
+  pickerName(agent, label) {
+    if (!agent || agent.profileKey || !['claude', 'codex'].includes(sessionKind(agent))) return label;
+    const program = programName(agent), name = this.accountName(agent, label);
+    return name === program ? name : `${program} · ${name}`;
   },
 
   // Usage reads only the accounts it shows, so read every other local account's address once per app session
@@ -389,16 +396,16 @@ export const sessionMenu = {
     });
   },
 
+  // The Agents page of the shell's Settings dialog. The shell mounts one page per manifest `settings.pages` id, with
+  // `page` in its props, and draws the frame, the header title and the page list, so this draws none of them.
   manageLaunchers(t, cx) {
     const hidden = shared('herdr-zed.hidden-launchers') || [];
     const choices = launcherChoices(this.availableAgents(this.launchers, spaces().find(space => space.id === (props() || {}).space)?.machine), shared('herdr-zed.launcher-order') || []);
-    const local = !spaces().find(space => space.id === (props() || {}).space)?.machine;
     const toggle = (key, cx) => {
       const current = shared('herdr-zed.hidden-launchers') || [];
       setShared('herdr-zed.hidden-launchers', current.includes(key) ? current.filter(item => item !== key) : [...current, key]);
       cx.notify();
     };
-    const done = () => closeOverlay((props() || {}).overlay);
     const move = (index, target, cx) => {
       if (!choices[index] || !choices[target] || choices[index].group !== choices[target].group || index === target) return;
       const order = [...new Set([...(shared('herdr-zed.launcher-order') || []), ...choices.map(choice => choice.key)])];
@@ -414,25 +421,15 @@ export const sessionMenu = {
       this.dragKey = null; this.dropKey = null; this.modelDrag = null; this.modelDrop = null;
       cx.notify();
     };
-    // Like Zed's settings, one page per subject in a left list, ordered as a new user sets things up:
-    // accounts first, then what New thread shows, then the optional extras.
-    const pages = [...(local ? [{ id: 'accounts', label: 'Accounts', icon: glyph('user-round') }] : []),
-      { id: 'agents', label: 'Agents', icon: glyph('square-plus') },
-      ...(local ? [{ id: 'agent-profiles', label: 'Profiles', icon: glyph('agent') },
-        { id: 'global-rules', label: 'Global Rules', icon: glyph('book-open') },
-        { id: 'shared-mcp', label: 'Capabilities', icon: glyph('folder') },
-        { id: 'ecc', label: 'ECC', icon: glyph('agent') }] : [])];
-    const page = pages.some(item => item.id === this.settingsPage) ? this.settingsPage : 'agents';
-    // Embedded in the shell's Settings dialog, the shell owns the frame, the close control and Escape.
-    const embedded = Boolean((props() || {}).embedded);
-    const frame = embedded ? v_flex().id('manage-launchers').size_full().min_h(0).gap(20).text_color(t.foreground) : DialogContent('manage-launchers', t);
-    return frame.accessibility_label('Settings')
+    const page = this.settingsPage;
+    return v_flex().id('manage-launchers').size_full().min_h(0).p(24).gap(12).text_color(t.foreground)
+      .accessibility_label('Settings')
       .on_mouse_up('left', (_event, cx) => cancelDrag(cx))
       .on_hover((inside, cx) => { if (!inside) cancelDrag(cx); })
       .track_focus(this.handle).on_key_down((event, cx) => {
+        // Escape cancels a drag; otherwise it is left to the shell, which closes Settings.
         if (event.key === 'escape') {
           if (this.dragKey || this.modelDrag) { cancelDrag(cx); cx.stop_propagation(); }
-          else if (!embedded) { done(); cx.stop_propagation(); }
           return;
         }
         if (page !== 'agents') return;
@@ -444,24 +441,28 @@ export const sessionMenu = {
         else return;
         cx.stop_propagation(); cx.notify();
       })
-      .when(!embedded, el => el.child(DialogHeader(t, 'Settings', { id: 'manage-launchers-close', label: 'Close settings', onClose: done })))
-      .child(h_flex().flex_1().min_h(0).gap(16).items_start()
-        .child(v_flex().id('settings-pages').w(140).flex_none().gap(2)
-          .children(pages.map(item => v_flex().id(`settings-section-${item.id}`).gap(2).child(Button(`settings-page-${item.id}`, t, { variant: 'ghost' }).h(32).px(8).gap(8).justify_start()
-            .bg(item.id === page ? t.selected : t.popover).text_color(item.id === page ? t.foreground : t.muted)
-            .accessibility_label(`${item.label} settings${item.id === page ? ', selected' : ''}`)
-            .on_click((_event, cx) => { this.settingsPage = item.id; if (item.id === 'global-rules') this.initGlobalRules(cx); if (item.id === 'shared-mcp') this.initDevkits(cx); if (item.id === 'ecc' && !this.eccSource) this.initEcc(cx); cancelDrag(cx); cx.notify(); })
-            .child(div().size(16).flex_none().flex().items_center().justify_center().child(item.icon)).child(item.label))
-            .when(item.id === 'shared-mcp' && page === 'shared-mcp', el => el.child(this.devkitsNavigation(t)))
-            .when(item.id === 'ecc' && page === 'ecc', el => el.child(this.eccNavigation(t))))))
-        .child(v_flex().h_full().flex_1().min_w(0).min_h(0).gap(8)
-          .when(page === 'accounts', el => el.child(this.accountsPage(t, cx)))
-          .when(page === 'agents', el => el.child(DialogDescription(t).flex_none().child('Choose what New thread and Usage show, in one order. Drag to reorder; changes save automatically. Agents using the same account share its quota.'))
-            .child(this.agentsPage(choices, hidden, toggle, move, cancelDrag, t)))
-          .when(page === 'agent-profiles', el => el.child(this.agentProfilesPage(t)))
-          .when(page === 'global-rules', el => el.child(this.globalRulesPage(t)))
-          .when(page === 'shared-mcp', el => el.child(this.devkitsPage(t)))
-          .when(page === 'ecc', el => el.child(this.eccPage(t)))));
+      .child(this.settingsPageBody(page, { choices, hidden, toggle, move, cancelDrag }, t, cx));
+  },
+
+  // One shell page of the Agents extension. Projects on a remote machine only get Agents: the other pages read this computer.
+  settingsPageBody(page, { choices, hidden, toggle, move, cancelDrag }, t, cx) {
+    if (page === 'remote-unavailable') return DialogDescription(t).flex_none()
+      .child('Accounts, profiles, rules, capabilities and ECC are set up on this computer. This project is on another machine.');
+    if (page === 'accounts') return this.accountsPage(t, cx);
+    if (page === 'profiles') return this.agentProfilesPage(t);
+    if (page === 'global-rules') return this.globalRulesPage(t);
+    if (page === 'capabilities') return this.withSideNav(this.devkitsNavigation(t), this.devkitsPage(t));
+    if (page === 'ecc') return this.withSideNav(this.eccNavigation(t), this.eccPage(t));
+    return v_flex().flex_1().min_w(0).min_h(0).gap(8)
+      .child(DialogDescription(t).flex_none().child('Choose what New thread and Usage show, in one order. Drag to reorder; changes save automatically. Agents using the same account share its quota.'))
+      .child(this.agentsPage(choices, hidden, toggle, move, cancelDrag, t));
+  },
+
+  // A page with its own sub-navigation on the left (Capabilities, ECC): the navigation column, then the page.
+  withSideNav(side, body) {
+    return h_flex().flex_1().min_h(0).gap(16).items_start()
+      .child(v_flex().w(140).flex_none().gap(2).child(side))
+      .child(v_flex().flex_1().min_w(0).min_h(0).h_full().child(body));
   },
 
   // Auto in New thread starts one of these accounts, chosen by quota at each launch.
@@ -495,7 +496,7 @@ export const sessionMenu = {
         .child(DropdownMenuLabel(t).px(0).flex_1().child('AUTO'))
         .child(Button('auto-rules-toggle', t, { variant: 'ghost' }).h(24).px(6).gap(4).text_size(12)
           .on_click((_event, cx) => { this.autoRulesOpen = !this.autoRulesOpen; cx.notify(); })
-          .child('How Auto chooses').child(glyph(this.autoRulesOpen ? 'chevron-up' : 'chevron-down', 12))))
+          .child('How Auto chooses').child(glyph(this.autoRulesOpen ? 'chevron-up' : 'chevron-down', 14))))
       .when(Boolean(this.autoRulesOpen), el => el.child(v_flex().id('auto-account-rules').flex_none().gap(2)
         .children(rules.map(rule => DialogDescription(t).flex_none().child(rule)))))
       .child(v_flex().flex_none().mt(4).border(1).border_color(t.border)
@@ -512,7 +513,7 @@ export const sessionMenu = {
                 setShared('herdr-zed.auto-accounts', checked ? [...saved, key] : saved);
                 cx.notify();
               }).child(AgentIcon(choice.agent, t).flex_none()).child(div().truncate().text_size(13)
-                  .when(this.accountName(choice.agent, choice.name) === noAccount, el => el.text_color(t.muted)).child(this.accountName(choice.agent, choice.name)))
+                  .child(this.accountName(choice.agent, choice.name)))
               .when(Boolean(plan), el => el.child(div().id(`auto-plan-${key}`).flex_none().text_size(12).text_color(t.muted).child(plan))))
             .when(selected && key === next, el => el.child(div().id(`auto-next-${key}`).flex_none()
               .text_size(12).font_medium().text_color(t.foreground).child('Next')))
@@ -550,9 +551,9 @@ export const sessionMenu = {
             .children(choices.map((choice, index) => [choice, index]).filter(([choice]) => choice.group === group).map(([choice, index], position) =>
               v_flex().id(`manage-${choice.key}`).flex_none()
                 .when(position > 0, el => el.border_t(1).border_color(t.border))
-                .bg(this.manageIndex === index ? t.selected : t.popover)
+                // Hover uses t.hover; t.selected marks the keyboard row only, so the two never look alike.
+                .bg(this.manageIndex === index ? t.selected : t.popover).hover(el => el.bg(this.manageIndex === index ? t.selected : t.hover))
                 .opacity(this.dragKey === choice.key ? 0.5 : 1)
-                .on_hover((inside, cx) => { if (inside) { this.manageIndex = index; cx.notify(); } })
                 .on_mouse_move((_event, cx) => {
                   if (this.dragKey && this.dropKey !== choice.key) { this.dropKey = choice.key; cx.notify(); }
                 })
@@ -563,16 +564,14 @@ export const sessionMenu = {
                 })
                 .child(h_flex().h(44).px(8).gap(8).items_center()
                   .when(choice.group !== 0, el => el.child(Button(`drag-${choice.key}`, t, { variant: 'row', size: 'icon' }).cursor_grab()
-                    .accessibility_label(`Reorder ${choice.name}. Use Alt + Up or Down.`)
+                    .accessibility_label(`Reorder ${choice.name}. Use Alt + Up or Down.`).tooltip(`Reorder ${choice.name}. Use Alt + Up or Down.`)
                     .on_mouse_down('left', (_event, cx) => {
                       cx.stop_propagation(); this.handle?.focus();
                       this.dragKey = choice.key; this.dropKey = choice.key; this.manageIndex = index; cx.notify();
                     }).child(glyph('grip-vertical'))))
                   .when(choice.group === 0, el => el.child(div().size(28).flex_none()))
                   .child(AgentIcon(choice.agent, t).flex_none())
-                  .child(div().flex_1().min_w(0).truncate().text_size(13)
-                    .when(this.accountName(choice.agent, choice.name) === noAccount, el => el.text_color(t.muted))
-                    .child(this.accountName(choice.agent, choice.name)))
+                  .child(div().flex_1().min_w(0).truncate().text_size(13).child(this.pickerName(choice.agent, choice.name)))
                   .child(column(`manage-session-${choice.key}`, Checkbox(`show-${choice.key}`, !hidden.includes(choice.key), t)
                     .accessibility_label(`Show ${choice.name} in New thread`).on_change((_checked, cx) => toggle(choice.key, cx))))
                   .when(local, el => el.child(column(`manage-usage-${choice.key}`, usageEligible(choice)
@@ -602,7 +601,7 @@ export const sessionMenu = {
     const shortcutLabel = this.newThreadShortcut();
     const row = (id, name, icon, action) => DropdownMenuItem(id, t).on_click(action)
       .child(div().size(16).flex_none().flex().items_center().justify_center().text_color(t.muted).child(icon))
-      .child(div().flex_1().min_w(0).truncate().when(name === noAccount, el => el.text_color(t.muted)).child(name));
+      .child(div().flex_1().min_w(0).truncate().child(name));
     return DropdownMenuContent('thread-launcher', undefined, t)
       .track_focus(this.handle).on_key_down(event => {
         if (event.modifiers.control || event.modifiers.platform || event.modifiers.alt) return;
@@ -616,12 +615,12 @@ export const sessionMenu = {
             ...(i > 0 && choices[i - 1].group !== choice.group ? [DropdownMenuSeparator(t)] : []),
             ...(choice.group !== 0 && (i === 0 || choices[i - 1].group !== choice.group)
               ? [DropdownMenuLabel(t).id(`launcher-section-${choice.group}`).child(launcherSections[choice.group])] : []),
-            row(agent ? `start-${agent.key}` : 'new-terminal', this.accountName(agent, choice.name), AgentIcon(agent, t),
+            row(agent ? `start-${agent.key}` : 'new-terminal', this.pickerName(agent, choice.name), AgentIcon(agent, t),
               () => this.startThread(agent))
               .when(Boolean(agent && agent.key === last && shortcutLabel), el => el
                 .child(div().text_size(11).text_color(t.muted).child(shortcutLabel))),
             // Preview the current pick; resolve again on click as quotas may change.
-            ...(choice.group === 0 && auto ? [row('start-auto', `Auto · ${launcherLabel(auto.name)}`, AgentIcon(auto, t),
+            ...(choice.group === 0 && auto ? [row('start-auto', `Auto · ${this.pickerName(auto, launcherLabel(auto.name))}`, AgentIcon(auto, t),
               () => this.startThread(this.autoThreadAgent(this.launchers, machine), props(), { auto: true }))
               .accessibility_label(`Auto: next account ${launcherLabel(auto.name)}`)
               .when(Boolean(last === 'auto' && shortcutLabel), el => el

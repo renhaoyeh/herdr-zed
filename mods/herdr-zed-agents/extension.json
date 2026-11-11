@@ -2,7 +2,18 @@
   "version": 1,
   "id": "agents",
   "title": "Agents",
-  "settings": { "view": "manage-launchers", "title": "Agents" },
+  "settings": {
+    "view": "manage-launchers",
+    "title": "Agents",
+    "pages": [
+      { "id": "accounts", "title": "Accounts" },
+      { "id": "agents", "title": "Agents" },
+      { "id": "profiles", "title": "Profiles" },
+      { "id": "global-rules", "title": "Global Rules" },
+      { "id": "capabilities", "title": "Capabilities" },
+      { "id": "ecc", "title": "ECC" }
+    ]
+  },
   "services": [{ "view": "service" }],
   "surfaces": [
     { "id": "usage", "location": "sidebar.bottom", "view": "usage-sidebar", "title": "Usage", "icon": "chart-column" },

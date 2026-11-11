@@ -2,6 +2,7 @@
   "version": 1,
   "id": "simulator",
   "title": "iOS Simulator",
+  "platforms": ["macos"],
   "dependencies": ["herdr-zed-sim-frames"],
   "actions": [
     {
