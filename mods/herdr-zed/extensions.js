@@ -2,8 +2,9 @@ import { h_flex } from 'gpui-base';
 import { shared, setShared, appHome, readTextFile, openOverlay, notify, layout, run } from 'herdr';
 import { ToolbarButton } from './components/button.js';
 import { glyph } from './components/icon.js';
+import { DropdownMenu } from './components/dropdown-menu.js';
 import { parseExtensionRegistry, parseExtensionManifest, extensionPopup, extensionMetadata, extensionServiceLayout, gitActionPopup, resolveProviders, launcherAvailable } from './extension-model.js';
-import { extensionSurfaceLayout, extensionSurfaceNodeId } from './extension-surfaces.js';
+import { extensionSurfaceLayout, extensionSurfaceNodeId, STATUS_ACTION_LIMIT } from './extension-surfaces.js';
 
 const DISABLED = 'herdr-zed.extensions.disabled';
 export const extensionEnabled = mod => !(shared(DISABLED) || []).includes(mod);
@@ -37,7 +38,8 @@ function syncExtensionServices() {
 function applyExtensionLayout(root, packages, disabled, previous) {
   try {
     const services = extensionServiceLayout(root, packages, disabled) || root;
-    const next = extensionSurfaceLayout(services, packages, disabled, previous) || services;
+    const status = { actions: extensionActions('status.right').length, dock: activeSurfaces('dock.right').length };
+    const next = extensionSurfaceLayout(services, packages, disabled, previous, status) || services;
     if (next !== root) run('layout.set', { layout: next });
   } catch (error) {
     notify({ title: 'Could not mount extension surfaces', body: error.message, level: 'error' });
@@ -117,6 +119,10 @@ export function extensionActions(location) {
   return (catalog.ready ? catalog.actions : []).filter(action => action.location === location && extensionActive(action.mod));
 }
 
+// Surfaces declared at a location by active extensions only.
+const activeSurfaces = location => (extensionCatalog().packages || []).filter(entry => !entry.error && extensionActive(entry.mod))
+  .flatMap(entry => entry.surfaces || []).filter(surface => surface.location === location);
+
 // Git actions open with the selected repository as context, not the workspace project captured by status actions.
 export function openGitAction(id, repository) {
   const action = extensionCatalog().actions.find(action => action.id === id);
@@ -125,18 +131,27 @@ export function openGitAction(id, repository) {
   catch (error) { notify({ title: 'Could not open extension', body: error.message, level: 'error' }); }
 }
 
-export function ExtensionSlot(location, t, project) {
+// Status bar actions are icon-only (title is the tooltip and label). The first STATUS_ACTION_LIMIT show as buttons;
+// the rest sit in one overflow menu with icon and title rows. `menu` is the overflow DropdownMenuState.
+export function ExtensionSlot(location, t, project, menu) {
   const entries = extensionActions(location);
   if (!entries.length) return null;
+  const shown = entries.slice(0, STATUS_ACTION_LIMIT), overflow = entries.slice(STATUS_ACTION_LIMIT);
+  const choose = id => openExtension(id, project);
   return h_flex().h_full().flex_none().items_center()
-    .children(entries.map(action => ToolbarButton(`extension-${action.id}`, t).accessibility_label(action.title)
-      .on_click(() => openExtension(action.id, project))
-      .child(glyph(action.icon).text_color(action.iconColor || t.muted)).child(action.title)));
+    .children(shown.map(action => ToolbarButton(`extension-${action.id}`, t, { icon: true })
+      .accessibility_label(action.title).tooltip(action.title)
+      .on_click(() => choose(action.id))
+      .child(glyph(action.icon).text_color(action.iconColor || t.muted))))
+    .when(overflow.length > 0, el => el.child(DropdownMenu('extension-overflow', menu,
+      ToolbarButton('extension-overflow', t, { icon: true }).accessibility_label('More extensions').tooltip('More extensions')
+        .child(glyph('ellipsis')),
+      overflow.map(action => ({ key: action.id, label: action.title, icon: action.icon })),
+      id => choose(id), t, { align: 'end', offset: { x: 0, y: 8 } })));
 }
 
 export function ExtensionSurfaceSlot(location, t) {
-  const entries = (extensionCatalog().packages || []).filter(entry => !entry.error && extensionActive(entry.mod))
-    .flatMap(entry => entry.surfaces || []).filter(surface => surface.location === location && location === 'dock.right');
+  const entries = activeSurfaces(location).filter(surface => location === 'dock.right');
   if (!entries.length) return null;
   return h_flex().h_full().flex_none().items_center()
     .children(entries.map(surface => {

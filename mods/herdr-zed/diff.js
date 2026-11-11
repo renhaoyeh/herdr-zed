@@ -1137,15 +1137,15 @@ export default class DiffViewer {
         .items_center().border_b(1).border_color(t.border)
         .child(Button('diff-view', t, { variant: 'ghost' }).h_full().px(8).gap(4).text_size(12).text_color(t.muted)
           .on_click((_event, cx) => this.showChanges(cx))
-          .accessibility_label('Uncommitted diff')
-          .child(icon('git-compare')).child('View Diff')
+          .accessibility_label('View uncommitted changes')
+          .child(icon('git-compare')).child('View changes')
           .when(files.length > 0, el => el
             .child(div().text_size(11).text_color(GitStatusColor.added).child(`+${added}`))
             .child(div().text_size(11).text_color(GitStatusColor.deleted).child(`−${removed}`))))
         .child(div().flex_1())
         .child(DropdownMenu('diff-file-view', this.fileViewMenu,
           Button('diff-file-view-trigger', t, { variant: 'ghost', size: 'icon' }).h_full().w(32)
-            .accessibility_label('Git panel settings').child(icon('settings')),
+            .accessibility_label('Changes settings').child(icon('settings')),
           this.panelSettingsItems(), (key, cx) => this.choosePanelSetting(key, cx), t,
           { offset: { x: 0, y: 9 }, fullHeight: true })))) // 8px below the toolbar's bottom border
       .when(this.panelTab !== 'history' && this.files.length > files.length, el => el.child(h_flex().h(24).flex_none().px(8)
@@ -1377,7 +1377,7 @@ export default class DiffViewer {
           .when(Boolean(!this.managedTabs && this.graphReturn && this.previewMode), el => el.child(Button('diff-back-to-graph', t, { variant: 'ghost', size: 'icon' })
             .h_full().w(32).accessibility_label('Back to Git Graph').child(icon('chevron-left'))
             .on_click((_event, cx) => this.openGraph(cx))))
-          .child(div().flex_1().min_w(0).truncate().font_medium().child(preview ? `Commit ${preview.commit.shortSha}` : 'Uncommitted changes'))
+          .child(div().flex_1().min_w(0).truncate().font_medium().child(preview ? `Commit ${preview.commit.shortSha}` : 'Changes'))
           .when(rows.length > 0, el => el
             .child(choice('diff-unified', 'Unified', 'unified'))
             .child(choice('diff-split', 'Split', 'split')))

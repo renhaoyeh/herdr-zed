@@ -24,7 +24,7 @@ async function load(options = {}) {
     setShared: (key, value) => { memory[key] = value; }, run: (...args) => commands.push(args), notify: value => options.notices?.push(value),
     exec: options.exec || (async () => ({ code: 0, stdout: '' })),
     readTextFile: options.readTextFile || (async () => JSON.stringify({ sessionId: '11111111-1111-4111-8111-111111111111' })),
-    home: () => '/home/user', terminals: () => live, window: () => ({ platform: options.platform || 'macos' }),
+    home: () => '/home/user', appHome: () => '/appdata', terminals: () => live, window: () => ({ platform: options.platform || 'macos' }),
     agents: () => options.agents || [], spaces: () => options.spaces || [], Button: ui, SidebarContent: ui, SidebarGroup: ui, SidebarMenuButton: ui, glyph: ui };
   return { ...(await evaluateNative('../mods/herdr-zed/thread-archive.js', host,
     'threadArchive, historyEligible, historyRestoreCandidate')), host, memory, commands };
@@ -64,6 +64,47 @@ test('archive preserves the exact safe launch command and keeps Zed history inde
   assert.match(entry.id, /accounts\/work/);
   assert.deepEqual(memory['herdr-zed.archived-threads'], [{ id: 'task-owned' }]);
   assert.ok(commands.some(([name]) => name === 'tab.close'));
+});
+
+test('archive on Windows resolves identity through the Node helper and archives the local thread', async () => {
+  const live = [terminal()], reads = [], id = '11111111-1111-4111-8111-111111111111';
+  const { threadArchive, memory, commands } = await load({ live, platform: 'windows',
+    exec: async (...call) => { reads.push(call); return { code: 0, stdout: JSON.stringify({ file: `C:\\Users\\me\\.claude\\projects\\w\\${id}.jsonl` }) }; } });
+  const owner = Object.assign({ projects: () => [project] }, threadArchive);
+  await owner.archiveThread(thread());
+  assert.deepEqual(reads, [['node', ['/appdata/mods/herdr-zed/components/agent-session-windows.js', '44', 'claude', '/accounts/work']]]);
+  assert.equal(memory['herdr-zed.thread-history'][0].sessionId, id);
+  assert.deepEqual(memory['herdr-zed.thread-history'][0].argv, model.resumeArgv(command, id));
+  assert.ok(commands.some(([name]) => name === 'tab.close'));
+});
+
+test('archive on Windows keeps only the unidentified thread open, with History unavailable', async () => {
+  const notices = [], live = [terminal()], { threadArchive, memory, commands } = await load({ live, notices, platform: 'windows',
+    exec: async () => ({ code: 1, stdout: '' }) });
+  const owner = Object.assign({ projects: () => [project] }, threadArchive);
+  await owner.archiveThread(thread());
+  assert.deepEqual(notices.map(notice => notice.title), ['History unavailable']);
+  assert.equal(memory['herdr-zed.thread-history'], undefined);
+  assert.equal(commands.some(([name]) => name === 'tab.close'), false);
+});
+
+test('remote threads stay unsupported for history on Windows and never run the identity helper', async () => {
+  const reads = [], live = [terminal()], { threadArchive, memory } = await load({ live, platform: 'windows',
+    exec: async (...call) => { reads.push(call); return { code: 0, stdout: '{}' }; } });
+  const owner = Object.assign({ projects: () => [project] }, threadArchive);
+  await owner.archiveThread({ ...thread(), space: 'remote/space-1' });
+  assert.deepEqual(reads, []);
+  assert.equal(memory['herdr-zed.thread-history'], undefined);
+});
+
+test('restore on Windows starts the saved launch without a platform refusal', async () => {
+  const notices = [], commands = [], entry = archiveEntry(), memory = { 'herdr-zed.thread-history': [entry] };
+  const { threadArchive } = await load({ memory, commands, notices, platform: 'windows', live: [] });
+  const owner = Object.assign({ projects: () => [project] }, threadArchive);
+  owner.restoreThread(entry);
+  assert.deepEqual(notices, []);
+  assert.deepEqual(commands.map(([name]) => name), ['tab.new']);
+  assert.deepEqual(commands[0][1].argv, entry.argv);
 });
 
 test('archive also forgets the conversation for auto-resume, leaving other tabs recorded', async () => {

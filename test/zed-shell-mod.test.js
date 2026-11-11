@@ -114,7 +114,9 @@ test('native sidebar, pane menu, dock controls and empty editor render without e
   for (status of ['working', 'done', 'idle']) assert.doesNotThrow(() => view.render(cx));
   target = { view: 'pane', pane: 'p' }; view.init(null, cx); const pane = view.render(cx);
   target = { view: 'header' }; const header = view.render(cx);
-  target = { view: 'status' }; const bottom = view.render(cx);
+  target = { view: 'status' }; const left = view.render(cx);
+  assert.ok(!elements(left).some(element => element.attributes.id === 'open-files'), 'Changes and Files live in the status-tools block');
+  target = { view: 'status-tools' }; const bottom = view.render(cx);
   assert.ok(elements(bottom).some(element => element.attributes.id === 'open-files'));
   assert.ok(!elements(bottom).some(element => element.attributes.id === 'manage-extensions'), 'The status bar has no Extensions icon; Settings owns extensions');
   assert.ok(!elements(sidebar).some(element => element.attributes.id === 'manage-extensions'));

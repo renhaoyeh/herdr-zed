@@ -143,7 +143,10 @@ test('registry removal unmounts old service and surfaces while retaining shell l
     { id: 'sidebar', type: 'column', children: [{ id: 'agents', type: 'block', content: { mod: 'herdr-zed' } }] },
     { id: 'workspace-row', type: 'row', children: [{ id: 'editor', type: 'block', content: { mod: 'herdr-zed' } }] },
     { id: 'status-separator', type: 'row', children: [] },
-    { id: 'status', type: 'column', children: [{ id: 'status-content', type: 'block', content: { mod: 'herdr-zed', props: { view: 'status' } } }] },
+    { id: 'status', type: 'column', children: [{ id: 'status-content', type: 'row', children: [
+      { id: 'status-main', type: 'block', size: { weight: 1 }, content: { mod: 'herdr-zed', props: { view: 'status' } } },
+      { id: 'status-tools', type: 'block', size: { px: 68 }, content: { mod: 'herdr-zed', props: { view: 'status-tools' } } },
+    ] }] },
   ] };
   const r = await runtime(async path => path.endsWith('extensions.json') ? registry : systemText, root);
   await r.refreshExtensions();
@@ -153,7 +156,67 @@ test('registry removal unmounts old service and surfaces while retaining shell l
   assert.equal(findLayout(r.layoutUpdates.at(-1), 'zed-extension-service-herdr-zed-system-service'), null);
   assert.equal(findLayout(r.layoutUpdates.at(-1), 'zed-extension-surface-herdr-zed-system-widgets'), null);
   assert.equal(findLayout(r.layoutUpdates.at(-1), 'zed-extension-surface-herdr-zed-system-inline'), null);
-  assert.equal(findLayout(r.layoutUpdates.at(-1), 'status-content').content.props.view, 'status');
+  assert.equal(findLayout(r.layoutUpdates.at(-1), 'status-main').content.props.view, 'status');
+  assert.equal(findLayout(r.layoutUpdates.at(-1), 'status-tools').content.props.view, 'status-tools');
+});
+
+// A plain-object stand-in for gpui elements: records method calls and children so the slot's tree can be inspected.
+function ui(name) {
+  const node = { name, kids: [], calls: {} };
+  const proxy = new Proxy(node, { get(target, key) {
+    if (key in target) return target[key];
+    return (...args) => {
+      target.calls[key] = args;
+      if (key === 'child') target.kids.push(args[0]);
+      else if (key === 'children') target.kids.push(...args[0]);
+      else if (key === 'when' && args[0]) args[1](proxy);
+      return proxy;
+    };
+  } });
+  return proxy;
+}
+
+test('status bar actions are icon-only: four buttons with title tooltips, the rest in one overflow menu', async () => {
+  const memory = {}, opened = [];
+  const action = n => ({ id: `x.a${n}`, extensionId: 'x', extensionTitle: 'X', mod: 'herdr-zed-x', title: `Action ${n}`, icon: 'globe',
+    iconColor: n === 1 ? '#ff0000' : null, location: 'status.right', popup: { view: 'details', width: 400, height: 300, modal: false } });
+  const publish = count => { memory['herdr-zed.extensions.catalog'] = { ready: true, loading: false, errors: [],
+    actions: Array.from({ length: count }, (_, index) => action(index + 1)),
+    packages: [{ mod: 'herdr-zed-x', id: 'x', title: 'X', enabled: true, provides: {}, requires: [], services: [], surfaces: [] }],
+    resolved: resolveProviders([]) }; };
+  const host = { shared: key => memory[key], setShared: (key, value) => { memory[key] = structuredClone(value); },
+    openOverlay: value => { opened.push(value); return 'overlay'; }, notify: () => {}, layout: () => null, run: () => {},
+    appHome: () => '/herdr', readTextFile: null,
+    h_flex: () => ui('h_flex'), ToolbarButton: (id, t, options) => Object.assign(ui('button'), { id, options }),
+    glyph: name => Object.assign(ui('glyph'), { glyph: name }),
+    DropdownMenu: (id, state, trigger, items, onSelect, t, options) => ({ id, items, onSelect, trigger, options, state }),
+    STATUS_ACTION_LIMIT: 4, extensionSurfaceLayout, extensionSurfaceNodeId, extensionServiceLayout, extensionPopup, gitActionPopup,
+    parseExtensionRegistry, parseExtensionManifest, extensionMetadata, resolveProviders };
+  const { ExtensionSlot } = await evaluateNative('../mods/herdr-zed/extensions.js', host, 'ExtensionSlot, openExtension');
+
+  publish(6);
+  const slot = ExtensionSlot('status.right', { muted: 'muted' }, null, 'menu-state');
+  const buttons = slot.kids.filter(child => child.id?.startsWith('extension-') && child.id !== 'extension-overflow');
+  assert.deepEqual(buttons.map(button => button.id), ['extension-x.a1', 'extension-x.a2', 'extension-x.a3', 'extension-x.a4']);
+  for (const [index, button] of buttons.entries()) {
+    assert.equal(button.options.icon, true, 'icon-only button');
+    assert.deepEqual(button.calls.tooltip, [`Action ${index + 1}`]);
+    assert.deepEqual(button.calls.accessibility_label, [`Action ${index + 1}`]);
+    assert.equal(button.kids.length, 1, 'no title text child');
+  }
+  const colored = buttons[0].kids[0];
+  assert.equal(colored.glyph, 'globe'); assert.deepEqual(colored.calls.text_color, ['#ff0000'], 'iconColor is kept');
+
+  const overflow = slot.kids.find(child => child.id === 'extension-overflow');
+  assert.deepEqual(overflow.items, [{ key: 'x.a5', label: 'Action 5', icon: 'globe' }, { key: 'x.a6', label: 'Action 6', icon: 'globe' }]);
+  assert.equal(overflow.state, 'menu-state');
+  overflow.onSelect('x.a6', {});
+  assert.equal(opened.length, 1, 'an overflow row opens the same popup as an icon');
+
+  publish(4);
+  const fits = ExtensionSlot('status.right', { muted: 'muted' }, null, 'menu-state');
+  assert.equal(fits.kids.some(child => child.id === 'extension-overflow'), false, 'no overflow menu at four actions');
+  assert.equal(fits.kids.length, 4);
 });
 
 function findLayout(node, id) {
@@ -163,7 +226,7 @@ function findLayout(node, id) {
 // Launcher and dependency states as the catalog publishes them. Two launchers conflict and neither is used; a package
 // that requires a missing extension is unavailable and contributes no actions; disabling clears shared envelopes.
 const launcherManifest = id => JSON.stringify({ version: 1, id, title: id, actions: [],
-  provides: { launcher: { picker: { view: 'launcher', width: 280 }, settings: { view: 'settings', width: 1040, height: 0.86 } } } });
+  provides: { launcher: { picker: { view: 'launcher', width: 280 } } } });
 const dependentManifest = JSON.stringify({ version: 1, id: 'calendar', title: 'Calendar', requires: ['tasks'],
   actions: [{ id: 'open', title: 'Calendar', icon: 'calendar', location: 'status.right', popup: { view: 'calendar', width: 1000, height: 700, modal: false } }] });
 const gitManifest = JSON.stringify({ version: 1, id: 'github', title: 'GitHub', provides: { gitCredentials: {} },

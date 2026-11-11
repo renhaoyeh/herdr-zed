@@ -60,10 +60,13 @@ the tests change in the same commit. Unknown keys inside `provides`, surfaces an
 
 - Discovery reads declarations only; it never mounts views, initializes provider APIs or reads credentials.
 - `services` mount in the shell's `status-separator` row while the extension is enabled.
-- `surfaces` mount as native blocks at fixed locations; visibility is persisted per surface.
-- `actions` open a popup with the originating project captured at click time. `status.right` places a
-  status-bar entry; `git.actions` (new) places an item in the shell's Git actions menu, with the selected
-  repository (`{ machine, folder }`) as context.
+- `surfaces` mount as native blocks at fixed locations; visibility is persisted per surface. A `status.right` surface
+  mounts in the status row before the shell's `status-tools` block (its icons, dock toggles, Changes and Files), so it
+  sits left of the action icons; `status-tools` is resized to its content by the shell.
+- `actions` open a popup with the originating project captured at click time. `status.right` places an icon-only
+  status-bar button (the title is its tooltip and accessible label, `iconColor` is kept); the first four show as
+  buttons and the rest share one overflow menu with icon and title rows. `git.actions` (new) places an item in the
+  shell's Git actions menu, with the selected repository (`{ machine, folder }`) as context.
 - `requires`: the Extensions manager shows a package as *unavailable* while a required extension is missing,
   failed or disabled; disabling a required extension shows which dependents become unavailable. Calendar
   declares `requires: ["tasks"]`; Asana and MantisBT do **not** require Tasks (import is optional, §2.2.3).
@@ -83,11 +86,13 @@ the tests change in the same commit. Unknown keys inside `provides`, surfaces an
 ```jsonc
 "provides": {
   "launcher": {
-    "picker":   { "view": "launcher", "width": 280 },                 // popup anchored at the + button
-    "settings": { "view": "settings", "width": 1040, "height": 0.86 } // dialog
+    "picker": { "view": "launcher", "width": 280 }   // popup anchored at the + button; exactly these keys
   }
 }
 ```
+
+The launcher's settings page is not a launcher key: it is the manifest `settings` declaration (§2.1), e.g.
+`"settings": { "view": "manage-launchers", "title": "Agents" }`. Any other key under `launcher` is invalid.
 
 - If more than one enabled package declares a launcher, the catalog records an error for each and **none**
   is used (no silent priority). The Extensions dialog shows the conflict.
@@ -172,8 +177,8 @@ user clicks + / New Thread
   only on the native knownAgents path, as today.
 - **Terminal**: a launcher's picker opens a plain terminal with the shell command `herdr-zed.new-terminal`
   (target encoded in the command name, validated with `validateLaunchTarget`); it never opens tabs itself.
-- **Settings**: the shell no longer opens `launcher.settings` (its thread ⋯ entry is removed). A launcher's settings page
-  is its `settings` declaration (§2.1), shown in the Settings dialog.
+- **Settings**: the shell does not open a launcher settings page (the thread ⋯ entry is removed). A launcher's settings
+  page is its `settings` declaration (§2.1), shown in the Settings dialog.
 - Closing or failing the picker never leaves a request behind; requests older than `expiresAt` are dropped
   by the shell on its next poll, so a crashed provider cannot start a thread later.
 

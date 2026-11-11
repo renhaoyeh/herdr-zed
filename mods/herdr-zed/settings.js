@@ -15,7 +15,7 @@ import { ExtensionsManager } from './extensions-manager.js';
 export const SETTINGS_OVERLAY = 'herdr-zed.settings.overlay';
 const SHELL_PAGES = [
   { key: 'general', title: 'General', description: 'Herdr-zed behavior. Changes apply immediately.' },
-  { key: 'git', title: 'Git', description: 'Git panel filters, and the commit author of the repository in view.' },
+  { key: 'git', title: 'Git', description: 'Changes filters, and the commit author of the repository in view.' },
   { key: 'extensions', title: 'Extensions', description: 'Manage installed workspace extensions. Changes apply immediately.' },
 ];
 
@@ -154,7 +154,7 @@ export class SettingsPage {
 
   git(t) {
     return v_flex().flex_1().min_h(0).gap(24)
-      .child(section(t, 'Filter rules', 'Hide matching untracked files in the Git panel; tracked changes always stay visible. Custom applies last, so !exceptions override templates.',
+      .child(section(t, 'Filter rules', 'Hide matching untracked files in Changes; tracked changes always stay visible. Custom applies last, so !exceptions override templates.',
         this.rules.render(t)).flex_1())
       .child(section(t, 'Commit author', 'Set the name and email for future commits in this repository. Existing commits stay unchanged.',
         this.author ? this.author.render(t)

@@ -57,7 +57,7 @@ export default class HerdrZed extends View {
     if (view === 'launcher') { this.launcher = new NativeLauncher(); this.launcher.init(cx); return; }
     if (view === 'settings-nav') { this.settingsNav = new SettingsNav(); return; }
     if (view === 'settings-page') { this.settingsPage = new SettingsPage(); this.settingsPage.init(cx); return; }
-    if (view === 'status') { clearGitToast(); setShared('herdr-zed.git-output-request', null); }
+    if (view === 'status-tools') { clearGitToast(); setShared('herdr-zed.git-output-request', null); this.extensionMenu = new DropdownMenuState(cx); return; }
     if (view === 'pane') { this.threadMenu = new DropdownMenuState(cx); return; }
     if (view === 'file-menu') { this.fileMenu = new FileMenu(); this.fileMenu.init(cx); return; }
     if (view === 'branch-menu') { this.branchMenu = new BranchMenu(); this.branchMenu.init(cx); return; }
@@ -443,28 +443,38 @@ export default class HerdrZed extends View {
 
 
 
+  // The status row is three layout blocks (layouts/herdr-zed.json, extension-surfaces.js): `status` (left: thread
+  // toggle and machine), the status.right surfaces, and `status-tools` (right: extension actions, dock toggles,
+  // then Changes and Files). statusTools is sized to its content by the layout transform.
   statusBar(t) {
-    const space = this.projects().find(project => project.active), editor = layoutNode(layout(), 'editor');
-    const conversation = layoutNode(layout(), 'workspace-view');
-    const showing = name => Boolean(editor) && shared('herdr-zed.right-panel') === name;
-    return h_flex().id('herdr-zed-status').relative().size_full().pr(4).gap(8).items_center().bg(t.background)
+    const space = this.projects().find(project => project.active), conversation = layoutNode(layout(), 'workspace-view');
+    return h_flex().id('herdr-zed-status').relative().size_full().gap(8).items_center().bg(t.background)
       .text_size(11).text_color(t.muted)
       .when(Boolean(space && conversation), el => el.child(ToolbarButton('open-conversation', t,
         { icon: true, disabled: !hasConversation(space), selected: conversationVisible(space) })
-        .accessibility_label(conversationVisible(space) ? 'Hide conversation' : 'Show conversation')
+        .accessibility_label(conversationVisible(space) ? 'Hide thread' : 'Show thread')
         .on_click(() => this.showConversation(!conversationVisible(space))).child(glyph('agent'))))
-      .when(Boolean(space?.machine), el => el.child(h_flex().flex_none().gap(8).items_center().child(glyph('terminal', 12)).child(space.machine)))
-      .child(div().flex_1())
-      .children([ExtensionSlot('status.right', t, space)].filter(Boolean))
-      .children([ExtensionSurfaceSlot('dock.right', t)].filter(Boolean))
-      .when(Boolean(space), el => el.child(h_flex().id('status-panel-actions').flex_none().h_full().gap(0)
-        .child(ToolbarButton('open-diff', t, { icon: true, selected: showing('diff') })
+      .when(Boolean(space?.machine), el => el.child(h_flex().flex_none().gap(8).items_center().child(glyph('terminal', 12)).child(space.machine)));
+  }
+
+  statusTools(t) {
+    const space = this.projects().find(project => project.active), editor = layoutNode(layout(), 'editor');
+    const showing = name => Boolean(editor) && shared('herdr-zed.right-panel') === name;
+    this.extensionMenu ??= new DropdownMenuState();
+    const actions = ExtensionSlot('status.right', t, space, this.extensionMenu), dock = ExtensionSurfaceSlot('dock.right', t);
+    return h_flex().id('herdr-zed-status-tools').relative().h_full().flex_none().pr(4).gap(8).items_center().bg(t.background)
+      .text_size(11).text_color(t.muted)
+      .children([actions, dock].filter(Boolean))
+      .when(Boolean(actions || dock), el => el.child(div().w(1).h(16).flex_none().bg(t.border)))
+      // The toast is an absolute layer anchored to this block; it sits in the zero-gap group so it adds no spacing.
+      .child(h_flex().id('status-panel-actions').flex_none().h_full().gap(0)
+        .child(ToolbarButton('open-diff', t, { icon: true, selected: showing('diff'), disabled: !space })
           .accessibility_label(showing('diff') ? 'Hide changes' : 'Show changes')
           .on_click(() => toggleEditor(editor, 'diff')).child(glyph('git-compare')))
-        .child(ToolbarButton('open-files', t, { icon: true, selected: showing('files') })
+        .child(ToolbarButton('open-files', t, { icon: true, selected: showing('files'), disabled: !space })
           .accessibility_label(showing('files') ? 'Hide files' : 'Show files')
-          .on_click(() => toggleEditor(editor, 'files')).child(glyph('folder')))))
-      .child(GitResultToast(t, space));
+          .on_click(() => toggleEditor(editor, 'files')).child(glyph('folder')))
+        .child(GitResultToast(t, space)));
   }
 
   threadRow(thread, t, trunk = null) {
@@ -624,6 +634,7 @@ export default class HerdrZed extends View {
     if (props()?.view === 'brand') return this.brand(t);
     if (props()?.view === 'pane') return this.paneHeader(t, cx);
     if (props()?.view === 'status') return this.statusBar(t);
+    if (props()?.view === 'status-tools') return this.statusTools(t);
     if (props()?.view === 'project-empty') return div().size_full().bg(t.canvas);
     if (props()?.view === 'close-project') return this.closePrompt(t);
     if (props()?.view === 'project-menu') return this.projectMenu(t);
@@ -703,7 +714,7 @@ export default class HerdrZed extends View {
               .child(glyph('ellipsis')).opacity(this.hoveredProject === space.id ? 1 : 0)))
           .when(!this.folded.has(space.id), el => el
             .children(this.groupedThreads(space, threads, t, live))
-            .when(!threads.length, el => el.child(h_flex().h(32).flex_none().px(12).items_center().text_size(12).text_color(t.muted).child(threads.length ? 'No active threads' : 'No threads yet')))))))
+            .when(!threads.length, el => el.child(h_flex().h(32).flex_none().px(12).items_center().text_size(12).text_color(t.muted).child('No threads yet')))))))
       .child(SidebarFooter(t)
         .child(Button('zed-thread-history', t, { variant: 'ghost', size: 'icon' })
           .accessibility_label(this.archiveOpen ? 'Show threads' : 'Show thread history')

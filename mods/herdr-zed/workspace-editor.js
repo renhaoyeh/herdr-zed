@@ -197,7 +197,7 @@ export default class WorkspaceEditor {
     }
     const extra = this.session.git.map(item => {
       const key = editorItemKey(item);
-      return { key, active: key === active, label: item.kind === 'graph' ? 'Git Graph' : item.kind === 'changes' ? 'Uncommitted changes' : `Commit ${item.commit.shortSha || item.commit.sha.slice(0, 7)}`,
+      return { key, active: key === active, label: item.kind === 'graph' ? 'Git Graph' : item.kind === 'changes' ? 'Changes' : `Commit ${item.commit.shortSha || item.commit.sha.slice(0, 7)}`,
         icon: item.kind === 'graph' ? 'git-graph' : 'git-compare', activate: cx => this.activate(key, cx), close: cx => this.closeItem(key, cx) };
     });
     const content = v_flex().size_full().min_w(0).min_h(0)

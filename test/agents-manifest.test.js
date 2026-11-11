@@ -23,12 +23,15 @@ test('the shell mounts both Usage surfaces at their locations and removes them w
   const root = { id: 'root', type: 'row', children: [
     { id: 'sidebar', type: 'column', size: { px: 280 }, children: [{ id: 'agents', type: 'block', content: { mod: 'herdr-zed' } }] },
     { id: 'workspace-row', type: 'row', children: [{ id: 'editor', type: 'block', size: { weight: 1 }, content: { mod: 'herdr-zed', props: { view: 'editor' } } }] },
-    { id: 'status', type: 'column', size: { px: 32 }, children: [{ id: 'status-content', type: 'block', content: { mod: 'herdr-zed', props: { view: 'status' } } }] },
+    { id: 'status', type: 'column', size: { px: 32 }, children: [{ id: 'status-content', type: 'row', children: [
+      { id: 'status-main', type: 'block', size: { weight: 1 }, content: { mod: 'herdr-zed', props: { view: 'status' } } },
+      { id: 'status-tools', type: 'block', size: { px: 68 }, content: { mod: 'herdr-zed', props: { view: 'status-tools' } } },
+    ] }] },
   ] };
   const mounted = extensionSurfaceLayout(root, [pkg]);
   assert.deepEqual(find(mounted, 'zed-extension-surface-herdr-zed-agents-usage').content, { mod: 'herdr-zed-agents', props: { view: 'usage-sidebar' } });
   assert.equal(find(mounted, 'status-content').children[1].content.props.view, 'usage-status');
   const unmounted = extensionSurfaceLayout(mounted, [pkg], ['herdr-zed-agents'], [pkg]);
   assert.equal(find(unmounted, 'zed-extension-surface-herdr-zed-agents-usage'), null);
-  assert.equal(find(unmounted, 'status-content').content.props.view, 'status');
+  assert.deepEqual(find(unmounted, 'status-content').children.map(child => child.id), ['status-main', 'status-tools']);
 });

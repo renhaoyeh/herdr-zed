@@ -89,10 +89,9 @@ function validateProvides(provides) {
     throw new Error('Invalid extension git credentials provider.');
 }
 
-const validLauncher = launcher => hasExactKeys(launcher, ['picker', 'settings'])
-  && hasExactKeys(launcher.picker, ['view', 'width']) && name(launcher.picker.view) && dimension(launcher.picker.width)
-  && hasExactKeys(launcher.settings, ['view', 'width', 'height']) && name(launcher.settings.view)
-  && dimension(launcher.settings.width) && dimension(launcher.settings.height);
+// ARCHITECTURE §2.2.1: the launcher provides its picker only; its settings page is the manifest `settings` key (§2.1).
+const validLauncher = launcher => hasExactKeys(launcher, ['picker'])
+  && hasExactKeys(launcher.picker, ['view', 'width']) && name(launcher.picker.view) && dimension(launcher.picker.width);
 
 const validThreadDecorator = decorator => hasExactKeys(decorator, ['fields'])
   && Array.isArray(decorator.fields) && decorator.fields.length > 0 && decorator.fields.length <= decorationFields.length

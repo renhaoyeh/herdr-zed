@@ -175,13 +175,35 @@
             },
             {
               "id": "status-content",
-              "type": "block",
-              "content": {
-                "mod": "herdr-zed",
-                "props": {
-                  "view": "status"
+              "type": "row",
+              "children": [
+                {
+                  "id": "status-main",
+                  "type": "block",
+                  "size": {
+                    "weight": 1
+                  },
+                  "content": {
+                    "mod": "herdr-zed",
+                    "props": {
+                      "view": "status"
+                    }
+                  }
+                },
+                {
+                  "id": "status-tools",
+                  "type": "block",
+                  "size": {
+                    "px": 68
+                  },
+                  "content": {
+                    "mod": "herdr-zed",
+                    "props": {
+                      "view": "status-tools"
+                    }
+                  }
                 }
-              }
+              ]
             }
           ]
         }

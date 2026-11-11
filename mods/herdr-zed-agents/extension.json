@@ -11,8 +11,7 @@
   "actions": [],
   "provides": {
     "launcher": {
-      "picker": { "view": "launcher", "width": 280 },
-      "settings": { "view": "manage-launchers", "width": 1040, "height": 0.86 }
+      "picker": { "view": "launcher", "width": 280 }
     },
     "threadDecorator": { "fields": ["badge", "tone"] }
   }

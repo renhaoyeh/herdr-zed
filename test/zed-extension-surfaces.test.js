@@ -1,14 +1,19 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { extensionMetadata, parseExtensionManifest } from '../mods/herdr-zed/extension-model.js';
-import { extensionSurfaceLayout, extensionSurfaceNodeId } from '../mods/herdr-zed/extension-surfaces.js';
+import { extensionSurfaceLayout, extensionSurfaceNodeId, statusToolsWidth } from '../mods/herdr-zed/extension-surfaces.js';
 import { systemManifest as systemText, simulatorManifest as simulatorText } from './extension-fixtures.js';
 
 const packageFor = (mod, text) => ({ mod, ...extensionMetadata(mod, text) });
+// The shipped status row: the status (left) block, then the status-tools block sized for no extensions.
+const statusRow = () => ({ id: 'status-content', type: 'row', children: [
+  { id: 'status-main', type: 'block', size: { weight: 1 }, content: { mod: 'herdr-zed', props: { view: 'status' } } },
+  { id: 'status-tools', type: 'block', size: { px: 68 }, content: { mod: 'herdr-zed', props: { view: 'status-tools' } } },
+] });
 const rootLayout = () => ({ id: 'root', type: 'row', children: [
   { id: 'sidebar', type: 'column', size: { px: 280 }, children: [{ id: 'agents', type: 'block', content: { mod: 'herdr-zed' } }] },
   { id: 'workspace-row', type: 'row', children: [{ id: 'editor', type: 'block', size: { weight: 1 }, content: { mod: 'herdr-zed', props: { view: 'editor' } } }] },
-  { id: 'status', type: 'column', size: { px: 32 }, children: [{ id: 'status-content', type: 'block', content: { mod: 'herdr-zed', props: { view: 'status' } } }] },
+  { id: 'status', type: 'column', size: { px: 32 }, children: [statusRow()] },
 ] });
 const find = (node, id) => node?.id === id ? node : (node?.children || []).map(child => find(child, id)).find(Boolean) || null;
 
@@ -34,7 +39,8 @@ test('reconcile mounts provider views, preserves native geometry and visibility,
   assert.deepEqual(widgets.content, { mod: 'herdr-zed-system', props: { view: 'widgets' } });
   assert.deepEqual(widgets.size, { px: 260 }); assert.equal(widgets.min, 96); assert.equal(widgets.max, 420);
   const status = find(first, 'status-content');
-  assert.equal(status.type, 'row'); assert.equal(status.children[0].content.props.view, 'status');
+  assert.equal(status.type, 'row');
+  assert.deepEqual(status.children.map(child => child.id), ['status-main', 'zed-extension-surface-herdr-zed-system-inline', 'status-tools']);
   assert.equal(status.children[1].content.props.view, 'inline'); assert.deepEqual(find(first, 'status').size, { px: 32 });
   const dock = find(first, 'simulator');
   assert.deepEqual(dock.size, { px: 380 }); assert.equal(dock.hidden, true); assert.equal(dock.min, 300); assert.equal(dock.max, 900);
@@ -49,16 +55,30 @@ test('reconcile mounts provider views, preserves native geometry and visibility,
 
   const disabled = extensionSurfaceLayout(refreshed, packages, ['herdr-zed-system'], packages);
   assert.equal(find(disabled, 'zed-extension-surface-herdr-zed-system-widgets'), null);
-  const unwrappedStatus = find(disabled, 'status-content');
-  assert.equal(unwrappedStatus.type, 'block'); assert.equal(unwrappedStatus.content.props.view, 'status');
+  assert.deepEqual(find(disabled, 'status-content').children.map(child => child.id), ['status-main', 'status-tools'],
+    'the status row keeps its shell blocks once the status.right surface is removed');
   assert.deepEqual(find(disabled, 'simulator'), resizedDock, 'Other extension mount and layout state are preserved');
+});
+
+test('status tools are sized to their icons, and a status.right surface mounts before them', () => {
+  assert.equal(statusToolsWidth(), 68, 'Changes and Files only');
+  assert.equal(statusToolsWidth({ actions: 1 }), 117, 'one action, divider, then Changes and Files');
+  assert.equal(statusToolsWidth({ actions: 6, dock: 1 }), 285, 'four actions plus overflow, one dock toggle');
+  const system = packageFor('herdr-zed-system', systemText);
+  const withOne = extensionSurfaceLayout(rootLayout(), [system], [], [], { actions: 2, dock: 0 });
+  assert.equal(find(withOne, 'status-tools').size.px, 149);
+  assert.equal(extensionSurfaceLayout(withOne, [system], [], [system], { actions: 2, dock: 0 }), null, 'unchanged counts do not rewrite the layout');
+  const grown = extensionSurfaceLayout(withOne, [system], [], [system], { actions: 6, dock: 1 });
+  assert.equal(find(grown, 'status-tools').size.px, 285);
+  assert.deepEqual(find(grown, 'status-content').children.map(child => child.id),
+    ['status-main', 'zed-extension-surface-herdr-zed-system-inline', 'status-tools']);
 });
 
 test('surface removal keeps base status and unrelated nodes; native ID collisions fail without mutation', () => {
   const system = packageFor('herdr-zed-system', systemText), simulator = packageFor('herdr-zed-simulator', simulatorText);
   const both = extensionSurfaceLayout(rootLayout(), [system, simulator]);
   const remaining = extensionSurfaceLayout(both, [simulator], [], [system, simulator]);
-  assert.equal(find(remaining, 'status-content').content.props.view, 'status');
+  assert.deepEqual(find(remaining, 'status-content').children.map(child => child.id), ['status-main', 'status-tools']);
   assert.equal(find(remaining, 'simulator').content.mod, 'herdr-zed-simulator');
 
   const collision = rootLayout();

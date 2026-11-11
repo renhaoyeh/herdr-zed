@@ -12,7 +12,7 @@ const base = (overrides = {}) => ({ version: 1, id: 'tasks', title: 'Tasks', act
 const parse = (value, mod = 'herdr-zed-tasks') => parseExtensionManifest(mod, JSON.stringify(value));
 const rejects = (value, mod) => assert.throws(() => parse(value, mod));
 
-const launcher = { picker: { view: 'launcher', width: 280 }, settings: { view: 'settings', width: 1040, height: 0.86 } };
+const launcher = { picker: { view: 'launcher', width: 280 } };
 const provides = patch => ({ launcher, ...patch });
 
 // ---- manifest: actions, requires, provides ----
@@ -51,12 +51,12 @@ test('provides rejects unknown provider keys and non-object provides', () => {
   for (const value of [null, [], 'launcher', true]) rejects(base({ provides: value }));
 });
 
-test('launcher requires exactly picker {view,width} and settings {view,width,height}', () => {
-  rejects(base({ provides: { launcher: { picker: launcher.picker } } }));
-  rejects(base({ provides: { launcher: { settings: launcher.settings } } }));
+test('launcher provides exactly picker {view,width}; a launcher settings key is rejected (settings live in the manifest)', () => {
+  rejects(base({ provides: { launcher: {} } }));
+  rejects(base({ provides: { launcher: { settings: { view: 'settings', width: 1040, height: 0.86 } } } }));
+  rejects(base({ provides: { launcher: { ...launcher, settings: { view: 'settings', width: 1040, height: 0.86 } } } }));
   rejects(base({ provides: { launcher: { ...launcher, extra: true } } }));
   rejects(base({ provides: { launcher: { ...launcher, picker: { ...launcher.picker, height: 1 } } } }));
-  rejects(base({ provides: { launcher: { ...launcher, settings: { view: 'settings', width: 1040 } } } }));
   rejects(base({ provides: { launcher: { ...launcher, picker: { view: 'Launcher', width: 280 } } } }));
   rejects(base({ provides: { launcher: null } }));
 });

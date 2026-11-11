@@ -7,7 +7,6 @@ export interface PopupDimensions { view: string; width: number; height: number; 
 
 export interface LauncherProvider {
   picker: { view: string; width: number };
-  settings: PopupDimensions;
 }
 export type DecorationField = 'badge' | 'subtitle' | 'tone';
 export interface ThreadDecoratorProvider { fields: DecorationField[]; }

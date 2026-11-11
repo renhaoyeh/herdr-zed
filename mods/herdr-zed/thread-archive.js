@@ -1,8 +1,8 @@
 import { div, image } from 'gpui-kit';
 import { h_flex } from 'gpui-base';
-import { agents, spaces, shared, setShared, run, notify, exec, readTextFile, home, terminals, window } from 'herdr';
+import { agents, spaces, shared, setShared, run, notify, exec, readTextFile, home, appHome, terminals, window } from 'herdr';
 import { agentCommand, commandKind, archivedAge, folderKey, projectGroups, threadTitle } from './components/session-model.js';
-import { RESUME_RECORDS_KEY, recordsWithout, sessionIdentity, resumeCommand, accountEnv, executable, hasCredential } from './thread-identity.js';
+import { RESUME_RECORDS_KEY, recordsWithout, sessionIdentity, windowsSessionIdentity, resumeCommand, accountEnv, executable, hasCredential } from './thread-identity.js';
 import { Button } from './components/button.js';
 import { SidebarContent, SidebarGroup, SidebarMenuButton } from './components/sidebar.js';
 import { glyph } from './components/icon.js';
@@ -36,11 +36,15 @@ export function historyRestoreCandidate(entry, threads, live = terminals(), proj
   }));
 }
 
-// Archive keeps its own Windows gate; only the Unix lookup is used here (auto-resume has the Windows path).
+// The same identity lookups auto-resume uses: the process-tree reader on Unix, the Node helper on Windows.
 async function sessionId(kind, command, pid) {
-  if (window()?.platform === 'windows') return null;
-  return sessionIdentity(kind, command, pid, { exec, readTextFile, home });
+  const options = { exec, readTextFile, home, appHome };
+  return window()?.platform === 'windows' ? windowsSessionIdentity(kind, command, pid, options)
+    : sessionIdentity(kind, command, pid, options);
 }
+
+// The thread's identity cannot be determined: only this thread stays open; other threads are unaffected.
+class HistoryUnavailable extends Error {}
 
 export const threadArchive = {
   threadBusy(thread, live = terminals()) {
@@ -52,9 +56,6 @@ export const threadArchive = {
   async archiveThread(thread) {
     const live = terminals();
     if (this.threadBusy(thread, live) || !historyEligible(thread, live)) return;
-    if (window()?.platform === 'windows') {
-      notify({ title: 'History unavailable', body: 'Resumable conversation identity is not available on Windows yet.' }); return;
-    }
     const tab = thread.tab.id;
     if (archiving.has(tab)) return;
     archiving.add(tab);
@@ -76,7 +77,7 @@ export const threadArchive = {
       if (terminal.created_ms == null) throw new Error('The terminal identity is unavailable; the thread remains open.');
       const captured = { created: terminal.created_ms, pid: terminal.foreground.pid };
       const id = await sessionId(kind, command, terminal.foreground?.pid);
-      if (!id) throw new Error('No resumable conversation identity was found; the thread remains open.');
+      if (!id) throw new HistoryUnavailable('No resumable conversation identity was found for this thread; it remains open.');
       const argv = resumeCommand(command, id);
       if (!argv) throw new Error('This launch includes a positional prompt that cannot be safely resumed; the thread remains open.');
       const current = terminals().find(item => item.address === agent.address);
@@ -95,7 +96,8 @@ export const threadArchive = {
       setShared(RESUME_RECORDS_KEY, recordsWithout(shared(RESUME_RECORDS_KEY), tab));
       run('tab.close', { id: tab });
     } catch (error) {
-      notify({ title: 'Could not archive thread', body: error.message, level: 'error' });
+      notify(error instanceof HistoryUnavailable ? { title: 'History unavailable', body: error.message }
+        : { title: 'Could not archive thread', body: error.message, level: 'error' });
     } finally { archiving.delete(tab); }
   },
 
@@ -106,9 +108,6 @@ export const threadArchive = {
       notify({ title: 'Cannot resume conversation', body: 'The saved launch command is unavailable. History was preserved.', level: 'error' }); return;
     }
     if (restoring.has(current.id) && Date.now() - restoring.get(current.id).at < 60000) return;
-    if (window()?.platform === 'windows') {
-      notify({ title: 'History unavailable', body: 'Conversation identity verification is not available on Windows yet.' }); return;
-    }
     timedOutRestores.delete(current.id);
     restoring.set(current.id, { at: Date.now() });
     restoring.get(current.id).addresses = new Set(terminals().map(item => item.address));

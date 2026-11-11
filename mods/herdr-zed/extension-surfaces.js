@@ -7,9 +7,25 @@ const block = surface => ({ id: nodeId(surface), type: 'block', hidden: surface.
   content: { mod: surface.mod, props: { view: surface.view } } });
 const find = (node, id) => node?.id === id ? node : (node?.children || []).map(child => find(child, id)).find(Boolean) || null;
 const copyChildren = (node, children) => JSON.stringify(node.children || []) === JSON.stringify(children) ? node : { ...node, children };
+const update = (node, id, change) => node.id === id ? change(node)
+  : node.children ? copyChildren(node, node.children.map(child => update(child, id, change))) : node;
+
+// The status row is [status (conversation toggle, machine), status.right surfaces..., status-tools]. Herdr sizes
+// blocks only in px or weight, so status-tools is sized to its content: icon buttons (32px each), 8px gaps between
+// groups, and a 1px divider before Changes and Files. ExtensionSlot shows at most STATUS_ACTION_LIMIT icons plus
+// one overflow button.
+export const STATUS_ACTION_LIMIT = 4;
+const ICON_PX = 32, GAP_PX = 8, DIVIDER_PX = 1, PAD_PX = 4;
+export function statusToolsWidth({ actions = 0, dock = 0 } = {}) {
+  const actionButtons = actions > 0 ? Math.min(actions, STATUS_ACTION_LIMIT) + (actions > STATUS_ACTION_LIMIT ? 1 : 0) : 0;
+  const leading = Number(actionButtons > 0) + Number(dock > 0);
+  const groups = leading + (leading ? 1 : 0) + 1; // leading groups, divider, Changes and Files
+  return (actionButtons + dock + 2) * ICON_PX + (groups - 1) * GAP_PX + (leading ? DIVIDER_PX : 0) + PAD_PX;
+}
 
 // Native blocks keep provider contexts and subscriptions owned by their mounted view lifecycle.
-export function extensionSurfaceLayout(root, packages, disabled = [], previous = []) {
+// `status` (optional) = { actions, dock }: the counts status-tools is sized for.
+export function extensionSurfaceLayout(root, packages, disabled = [], previous = [], status = null) {
   if (!root) return null;
   const old = previous.flatMap(entry => entry.surfaces || []);
   const enabled = packages.filter(entry => !entry.error && !disabled.includes(entry.mod)).flatMap(entry => entry.surfaces || []);
@@ -47,29 +63,23 @@ export function extensionSurfaceLayout(root, packages, disabled = [], previous =
     if (surface.location === 'sidebar.bottom') {
       if (find(next, 'sidebar')) next = addAt(next, 'sidebar', (node, item) => copyChildren(node, [...(node.children || []), item]));
     } else if (surface.location === 'status.right') {
+      // Mounted in the status row, before the tools block: the surface sits between the status and the action icons.
       next = addAt(next, 'status-content', (node, item) => {
-        if (node.type === 'row' && node.id === 'status-content') return copyChildren(node, [...(node.children || []), item]);
-        return { id: 'status-content', type: 'row', size: node.size, children: [
-          { ...node, id: 'zed-extension-status-content', size: { weight: 1 } }, item,
-        ] };
+        const at = (node.children || []).findIndex(child => child.id === 'status-tools');
+        return at < 0 ? node : copyChildren(node, [...node.children.slice(0, at), item, ...node.children.slice(at)]);
       });
     } else if (surface.location === 'dock.right') {
       if (find(next, 'workspace-row')) next = addAt(next, 'workspace-row', (node, item) => copyChildren(node, [...(node.children || []), item]));
     }
   }
-  // Unwrap the status row after its final owned metric view is removed.
-  const unwrap = node => {
-    if (node.id === 'status-content' && node.type === 'row') {
-      const children = node.children || [];
-      if (children.length === 1 && children[0].id === 'zed-extension-status-content' && children[0].content?.mod === 'herdr-zed') {
-        changed = true;
-        return { ...children[0], id: 'status-content', size: node.size };
-      }
-      return copyChildren(node, children);
-    }
-    return node.children ? copyChildren(node, node.children.map(unwrap)) : node;
-  };
-  next = unwrap(next);
+  if (status) {
+    const size = { px: statusToolsWidth(status) };
+    next = update(next, 'status-tools', node => {
+      if (JSON.stringify(node.size) === JSON.stringify(size)) return node;
+      changed = true;
+      return { ...node, size };
+    });
+  }
   return changed ? next : null;
 }
 
