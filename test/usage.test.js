@@ -206,3 +206,14 @@ test('Auto uses detected account plans before Usage loads while manual overrides
   data['herdr-zed.usage.snapshot'].contexts.null.usage[0].plan = 'pro';
   assert.equal(autoMultiplier('lite', autoUsage(key => data[key]).find(account => account.key === 'lite')), 20);
 });
+
+test('Usage support matches the actual quota readers rather than every installed agent', async () => {
+  const { usageProvider } = await import('../components/session-model.js');
+  assert.equal(usageProvider({ key: 'codex', run: ['codex'] }), 'codex');
+  assert.equal(usageProvider({ key: 'custom', run: ['/opt/tools/codex'] }), 'codex');
+  assert.equal(usageProvider({ key: 'claude', run: ['claude'] }), 'claude');
+  assert.equal(usageProvider({ key: 'devkits-claude-account', run: ['env', 'CLAUDE_CONFIG_DIR=/account', 'claude'] }), 'claude');
+  for (const agent of [null, { key: 'other', run: ['other'] }, { key: 'fake', run: ['env', 'SOME=codex', 'other'] },
+    { key: 'profile', profileKey: 'codex', run: ['codex'] }, { key: 'codex', installed: false, run: ['codex'] }])
+    assert.equal(usageProvider(agent), null);
+});

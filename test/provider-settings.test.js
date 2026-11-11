@@ -463,3 +463,30 @@ test('adding either provider opens a visible login viewport above Accounts', asy
     assert.ok(spec.height > 0, 'size_full login content needs a bounded viewport');
   }
 });
+
+test('Usage controls and Auto exclude unsupported programs and derived profiles', async () => {
+  let autoChoices; const checkboxStates = new Map();
+  const { host, log, factory } = shell({ ...sessions, availableAgents: () => [], shared: () => undefined, spaces: () => [], props: () => ({}) });
+  host.Checkbox = (id, checked, _t, options) => { checkboxStates.set(id, { checked, ...options }); return factory('Checkbox')(id); };
+  for (const name of ['DropdownMenuLabel', 'DropdownMenuSeparator', 'AgentIcon']) host[name] = factory(name);
+  const { sessionMenu } = await evaluateNative('../mods/herdr-zed-agents/session-menu.js', host, 'sessionMenu');
+  const choices = [
+    { key: 'terminal', name: 'Terminal', group: 0 },
+    { key: 'agent:codex', name: 'Codex', group: 1, agent: { key: 'codex', run: ['codex'] } },
+    { key: 'agent:claude', name: 'Claude', group: 1, agent: { key: 'claude', run: ['claude'] } },
+    { key: 'agent:other', name: 'Other', group: 1, agent: { key: 'other', run: ['other'] } },
+    { key: 'agent:config', name: 'Profile', group: 3, agent: { key: 'config', profileKey: 'codex', run: ['codex'] } },
+    { key: 'agent:missing', name: 'Missing', group: 1, agent: { key: 'missing', installed: false, run: ['codex'] } },
+  ];
+  sessionMenu.agentsPage.call({ pickerName: (_agent, name) => name,
+    autoAccountsSection: choices => { autoChoices = choices; return factory('auto')(); },
+  }, choices, [], () => {}, () => {}, () => {}, theme());
+  assert.ok(names(log).includes('Checkbox#usage-profile-codex'));
+  assert.ok(names(log).includes('Checkbox#usage-profile-claude'));
+  for (const key of ['terminal', 'other', 'config', 'missing']) {
+    assert.ok(names(log).includes(`Checkbox#usage-profile-${key}`));
+    assert.deepEqual(checkboxStates.get(`usage-profile-${key}`), { checked: false, indeterminate: true, disabled: true });
+  }
+  assert.deepEqual(autoChoices.map(choice => choice.agent.key), ['codex', 'claude']);
+  assert.ok(names(log).includes('Checkbox#show-agent:other'), 'New thread availability is independent of quota support');
+});

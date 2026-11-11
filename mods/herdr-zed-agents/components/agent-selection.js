@@ -1,6 +1,6 @@
 // Shared: edit components/agent-selection.js, then npm run sync:shared.
 import { shared, keys, window } from 'herdr';
-import { folderKey, launcherChoices, autoLauncherKey, isAccountLauncher, autoAgent, autoUsage } from './session-model.js';
+import { folderKey, launcherChoices, autoLauncherKey, isAccountLauncher, autoAgent, autoUsage, usageProvider } from './session-model.js';
 export const agentSelection = {
   defaultThreadAgent(project, agents) { return this.defaultThreadChoice(project, agents).agent; },
 
@@ -25,7 +25,7 @@ export const agentSelection = {
     // Accounts hidden from Usage have no readings, so Auto leaves them out too.
     const hidden = shared('herdr-zed.hidden-usage-profiles') || [];
     const members = (shared('herdr-zed.auto-accounts') || []).filter(key => !hidden.includes(key));
-    const choices = launcherChoices(agents.filter(agent => isAccountLauncher(agent) && !agent.profileKey && agent.installed !== false && members.includes(agent.key)),
+    const choices = launcherChoices(agents.filter(agent => isAccountLauncher(agent) && usageProvider(agent) && agent.installed !== false && members.includes(agent.key)),
       shared('herdr-zed.launcher-order') || []).map(choice => choice.agent).filter(Boolean);
     return autoAgent(choices, autoUsage(shared), Date.now(),
       shared('herdr-zed.auto-multipliers') || {});

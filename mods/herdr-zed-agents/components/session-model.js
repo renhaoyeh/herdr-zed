@@ -125,6 +125,15 @@ export function codexModels(source) {
 }
 
 export const sessionKind = agent => isClaudeLauncher(agent) ? 'claude' : isCodexLauncher(agent) ? 'codex' : null;
+// The readers support Codex commands and Claude profiles with a managed recorder.
+// Derived agent configurations share their parent account's quota.
+export function usageProvider(agent) {
+  if (!Array.isArray(agent?.run) || agent.profileKey || agent.installed === false) return null;
+  if (agent.run.some(arg => !arg.includes('=') && /(?:^|[/\\])codex(?:\.exe)?$/i.test(arg))) return 'codex';
+  return agent.key === 'claude' || (agent.key?.startsWith('devkits-claude-')
+    && agent.run.some(arg => arg.startsWith('CLAUDE_CONFIG_DIR='))) ? 'claude' : null;
+}
+
 
 // Each profile's default agent and each named agent configuration have independent settings.
 export const settingsKey = agent => agent?.key;

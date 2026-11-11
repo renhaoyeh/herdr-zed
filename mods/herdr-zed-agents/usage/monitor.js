@@ -1,14 +1,9 @@
 import { AgentClient } from '../components/agents.js';
 import { shared, setShared, exec, appHome, home } from 'herdr';
-import { launcherChoices, isAccountLauncher, configuredAgents } from '../components/session-model.js';
+import { launcherChoices, isAccountLauncher, configuredAgents, usageProvider } from '../components/session-model.js';
 import { ensureClaudeStatusLine } from '../components/claude-usage-hook.js';
 import { UsageClient } from '../components/usage.js';
 const usageCacheMs = 5 * 60000;
-const usageProvider = agent => !Array.isArray(agent?.run) ? null
-  : agent.run.some(arg => !arg.includes('=') && /(?:^|[/\\])codex(?:\.exe)?$/i.test(arg)) ? 'codex'
-    // Claude usage comes from the status line Devkits configures: its own accounts and the built-in profile.
-    : agent.key === 'claude' || (agent.key?.startsWith('devkits-claude-') && agent.run.some(arg => arg.startsWith('CLAUDE_CONFIG_DIR=')))
-      ? 'claude' : null;
 const claudeDirectory = agent => agent.run.find(arg => arg.startsWith('CLAUDE_CONFIG_DIR='))?.slice(18) || `${home()}/.claude`;
 
 export class UsageMonitor extends UsageClient {
@@ -23,7 +18,7 @@ export class UsageMonitor extends UsageClient {
   snapshot() {
     const machine = this.projects().find(project => project.active)?.machine || null;
     const choices = launcherChoices(this.usageMachine === machine ? this.usageAgents || [] : [], shared('herdr-zed.launcher-order') || [])
-      .filter(choice => choice.agent && !choice.agent.profileKey && !(shared('herdr-zed.hidden-usage-profiles') || []).includes(choice.agent.key))
+      .filter(choice => choice.agent && usageProvider(choice.agent) && !(shared('herdr-zed.hidden-usage-profiles') || []).includes(choice.agent.key))
       .map(choice => ({ key: choice.key, name: choice.name,
         agent: { key: choice.agent.key, name: choice.agent.name, icon: choice.agent.icon, tint: choice.agent.tint },
         provider: machine ? null : usageProvider(choice.agent) }));

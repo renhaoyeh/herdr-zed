@@ -2,7 +2,7 @@ import { availableAgents, loadAccountIdentities } from './discovery.js';
 import { div } from 'gpui-kit';
 import { v_flex, h_flex } from 'gpui-base';
 import { shared, setShared, props, spaces, openOverlay, closeOverlay, home, readTextFile, keys, window, exec, appHome } from 'herdr';
-import { launcherChoices, launcherLabel, launcherOption, accountAddresses, programName, permissionModes, sessionKind, isAccountLauncher, claudeModels, claudeEfforts, codexHome, codexModels, mergeModels, orderedOptions, moveOption, effortLabel, sessionChoices, settingsKey, configuredAgents, autoUsage, autoRank, autoMultipliers, autoMultiplier, planMultiplier, planLabel, quotaResetLabel } from './components/session-model.js';
+import { launcherChoices, launcherLabel, launcherOption, accountAddresses, programName, permissionModes, sessionKind, isAccountLauncher, claudeModels, claudeEfforts, codexHome, codexModels, mergeModels, orderedOptions, moveOption, effortLabel, sessionChoices, settingsKey, configuredAgents, usageProvider, autoUsage, autoRank, autoMultipliers, autoMultiplier, planMultiplier, planLabel, quotaResetLabel } from './components/session-model.js';
 import { DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from './components/dropdown-menu.js';
 import { Button } from './components/button.js';
 import { Checkbox } from './components/checkbox.js';
@@ -529,13 +529,15 @@ export const sessionMenu = {
   // One list for what New thread and Usage show, in their shared order, with Auto below.
   agentsPage(choices, hidden, toggle, move, cancelDrag, t) {
     const usageHidden = shared('herdr-zed.hidden-usage-profiles') || [];
-    const toggleUsage = (key, checked, cx) => {
+    const toggleUsage = (agent, checked, cx) => {
+      if (!usageProvider(agent)) return;
+      const key = agent.key;
       const saved = shared('herdr-zed.hidden-usage-profiles') || [];
       setShared('herdr-zed.hidden-usage-profiles', checked ? saved.filter(item => item !== key) : [...new Set([...saved, key])]);
       cx.notify();
     };
     // Usage lists native agents and accounts; Terminal and profiles share their account's quota.
-    const usageEligible = choice => Boolean(choice.agent && !choice.agent.profileKey);
+    const usageEligible = choice => Boolean(usageProvider(choice.agent));
     // Remote projects have no local quota readings, so they show only New thread.
     const local = !spaces().find(space => space.id === (props() || {}).space)?.machine;
     const column = (id, child) => div().id(id).w(96).flex_none().flex().items_center().justify_center().child(child);
@@ -575,8 +577,10 @@ export const sessionMenu = {
                     .accessibility_label(`Show ${choice.name} in New thread`).on_change((_checked, cx) => toggle(choice.key, cx))))
                   .when(local, el => el.child(column(`manage-usage-${choice.key}`, usageEligible(choice)
                     ? Checkbox(`usage-profile-${choice.agent.key}`, !usageHidden.includes(choice.agent.key), t)
-                      .accessibility_label(`Show ${choice.name} in Usage`).on_change((checked, cx) => toggleUsage(choice.agent.key, checked, cx))
-                    : div().text_size(12).text_color(t.muted).child('–'))))))))))
+                      .accessibility_label(`Show ${choice.name} in Usage`).on_change((checked, cx) => toggleUsage(choice.agent, checked, cx))
+                    : div().tooltip('Usage is unavailable for this program or shared with its account')
+                      .child(Checkbox(`usage-profile-${choice.agent?.key || choice.key}`, false, t, { indeterminate: true, disabled: true })
+                        .accessibility_label(`Usage unavailable for ${choice.name}`)))))))))))
         .when(local, el => el.child(this.autoAccountsSection(choices.filter(usageEligible), t)))
         .when(this.loading, el => el.child(div().p(8).text_size(12).text_color(t.muted).child('Loading agents…')))
         .when(this.launchError, el => el.child(Button('manage-retry-agents', t, { variant: 'secondary' })

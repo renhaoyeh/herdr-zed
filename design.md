@@ -119,3 +119,5 @@ Account sign-in starts with browser authorization. After authentication, show th
 Codex sign-in offers local browser and copy-link-to-another-computer actions. The copy-link flow never opens a local browser automatically. Pasted callbacks follow only the same-origin local /success page to complete the login server; remote redirects are never fetched.
 
 Auto plan size uses the latest quota plan, falling back to the detected account identity plan when Usage has no plan yet. A known ×5 plan must not display ×1 merely because the Usage surface is hidden or quota readings are unavailable. Explicit manual multipliers remain authoritative.
+
+Usage visibility controls are available only for programs supported by the quota reader. Unsupported programs, unavailable installations and derived profiles show a disabled indeterminate checkbox, and cannot join Auto. Starting a thread remains independent of Usage support.
