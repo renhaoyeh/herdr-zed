@@ -481,8 +481,8 @@ export default class HerdrZed extends View {
     const space = this.projects().find(project => project.active), conversation = layoutNode(layout(), 'workspace-view');
     // The context group (left) is divided from what follows it (design.md, Separators).
     const context = Boolean((space && conversation) || space?.machine);
-    return h_flex().id('herdr-zed-status').relative().size_full().gap(8).items_center().bg(t.background)
-      .text_size(11).text_color(t.muted)
+    // The divider closes the context group itself, not the whole status block (which stretches to the readings).
+    const group = h_flex().id('herdr-zed-status-context').flex_none().h_full().gap(8).items_center()
       .when(Boolean(space && conversation), el => el.child(ToolbarButton('open-conversation', t,
         { icon: true, disabled: !hasConversation(space), selected: conversationVisible(space) })
         .tooltip(conversationVisible(space) ? 'Hide thread' : 'Show thread')
@@ -490,6 +490,8 @@ export default class HerdrZed extends View {
         .on_click(() => this.showConversation(!conversationVisible(space))).child(glyph('agent', TOOLBAR_GLYPH))))
       .when(Boolean(space?.machine), el => el.child(h_flex().flex_none().gap(8).items_center().child(glyph('terminal', 12)).child(space.machine)))
       .when(context, el => el.pr(8).border_r(1).border_color(t.border));
+    return h_flex().id('herdr-zed-status').relative().size_full().gap(8).items_center().bg(t.background)
+      .text_size(11).text_color(t.muted).child(group);
   }
 
   statusTools(t) {
