@@ -81,5 +81,6 @@ One save semantic per page: autosave, or explicit Save — never both on one pag
 ## Visual exceptions
 
 - Tasks and Calendar use the rounded Linear board theme (inherited from devkits).
+- Switches use a pill track and knob (accent when on) so their state reads at a glance.
 - Asana and MantisBT browsers imitate their products' look (fixed palettes and fonts), by decision. Their
   Settings pages use Sera.
