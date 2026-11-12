@@ -209,7 +209,7 @@ export default class HerdrZed extends View {
     const close = () => { closeOverlay(target.overlay); this.closeProject(target.project); };
     const workflow = workflowSettings();
     const actions = [
-      ...(workflow ? [{ id: 'menu-agent-settings', icon: 'agent', label: `${workflow.title}…`, enabled: true,
+      ...(workflow ? [{ id: 'menu-agent-settings', icon: 'settings', label: `${workflow.title}…`, enabled: true,
         action: () => openSettings(settingsPageKey(workflow.id), target.project) }] : []),
       { id: 'menu-project-up', icon: 'arrow-up', label: 'Move up', enabled: index > 0, separated: Boolean(workflow), action: () => this.moveProject(target.project.id, -1) },
       { id: 'menu-project-down', icon: 'arrow-down', label: 'Move down', enabled: index >= 0 && index < projects.length - 1, action: () => this.moveProject(target.project.id, 1) },
@@ -547,7 +547,7 @@ export default class HerdrZed extends View {
     return [
       ...(sidebar ? [action('composer-show-usage', sidebar.icon || 'chart-column', `${shown ? 'Hide' : 'Show'} ${sidebar.title}`,
         () => setExtensionSurfaceVisible(sidebar, !shown), shown)] : []),
-      ...(workflow ? [action('composer-agent-settings', 'agent', `${workflow.title}…`, () => openSettings(settingsPageKey(workflow.id), project))] : []),
+      ...(workflow ? [action('composer-agent-settings', 'settings', `${workflow.title}…`, () => openSettings(settingsPageKey(workflow.id), project))] : []),
       ...(tab ? [action('composer-close-thread', 'close', `Close thread “${tab.name}”`, () => closeThreadTab(tab.id))] : []),
     ];
   }
