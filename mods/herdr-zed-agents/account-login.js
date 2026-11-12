@@ -266,7 +266,7 @@ export default class AccountLogin {
     cx.spawn(async cx => {
       try {
         if (this.provider === 'claude') {
-          try { await ensureClaudeStatusLine(this.profile.directory); } catch {}
+          try { await ensureClaudeStatusLine(this.profile.directory, { owned: true }); } catch {}
         }
         if (this.closed) return;
         await registerAccount(this.profile);

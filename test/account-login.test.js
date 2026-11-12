@@ -445,6 +445,22 @@ test('the usage status line is added to Devkits Claude profiles without replacin
   assert.equal(JSON.parse(files['/profile/settings.json']).statusLine.command, 'node "C:/App/mods/herdr-zed-agents/usage/claude-statusline.js"');
 });
 
+test('owned profiles and Devkits usage status lines are replaced, never kept or chained', async () => {
+  const command = 'node "/app/mods/herdr-zed-agents/usage/claude-statusline.js"';
+  const devkits = { type: 'command', command: 'node "C:/Users/x/.config/herdr-app/mods/devkits-usage/claude-statusline.js"', padding: 3 };
+  const files = { '/owned/settings.json': JSON.stringify({ model: 'opus', statusLine: { type: 'command', command: 'mine', padding: 2 } }),
+    '/old/settings.json': JSON.stringify({ statusLine: devkits }) };
+  const { ensureClaudeStatusLine } = await load({ appHome: () => '/app',
+    readTextFile: async path => files[path] ?? null,
+    writeTextFile: async (path, next, expected) => { assert.equal(expected, files[path] ?? null); files[path] = next; } });
+  assert.equal(await ensureClaudeStatusLine('/owned', { owned: true }), true);
+  assert.deepEqual(JSON.parse(files['/owned/settings.json']), { model: 'opus', statusLine: { padding: 0, type: 'command', command } });
+  assert.equal(await ensureClaudeStatusLine('/old', { chain: true }), true);
+  assert.deepEqual(JSON.parse(files['/old/settings.json']).statusLine, { padding: 0, type: 'command', command });
+  assert.equal(files['/old/herdr-zed-statusline-chain.json'], undefined);
+  assert.equal(files['/old/settings.json.herdr-zed-backup'], undefined);
+});
+
 test('Claude sign-in that exits without credentials never registers; existing credentials skip the browser', async () => {
   const failed = await claudeScenario({ reads: [prompt, null] });
   assert.equal(failed.view.phase, 'error');

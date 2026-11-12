@@ -63,7 +63,8 @@ export class UsageMonitor extends UsageClient {
         for (const account of accounts.filter(account => usageProvider(account) === 'claude' && !this.statusLines.has(account.key))) {
           if (!this.active()) return;
           this.statusLines.add(account.key);
-          try { await ensureClaudeStatusLine(claudeDirectory(account), { chain: account.key === 'claude' }); } catch {}
+          const directory = claudeDirectory(account);
+          try { await ensureClaudeStatusLine(directory, { chain: account.key === 'claude', owned: directory.startsWith(`${appHome()}/data/herdr-zed/`) }); } catch {}
         }
         // Claude usage is a local file, so only provider queries are rate-limited by the cache.
         const stale = accounts.filter(account => manual || usageProvider(account) === 'claude'
@@ -77,7 +78,9 @@ export class UsageMonitor extends UsageClient {
           const result = await exec('node', [`${appHome()}/mods/herdr-zed-agents/usage/usage-reader.js`,
             JSON.stringify(stale.map(account => ({ ...account, provider: usageProvider(account) })))]);
           if (result.code !== 0) throw new Error('Could not read usage');
-          const next = { ...cached() };
+          // Only current accounts are kept, so readings of removed or Devkits accounts are dropped.
+          const known = new Set(accounts.map(account => account.key));
+          const next = Object.fromEntries(Object.entries(cached()).filter(([key]) => known.has(key)));
           for (const entry of JSON.parse(result.stdout)) {
             const previous = next[entry.key];
             // Keep the last good windows when a later request fails.
