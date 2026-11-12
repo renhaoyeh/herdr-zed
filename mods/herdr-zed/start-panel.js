@@ -7,8 +7,9 @@ import { DropdownMenuContent } from './components/dropdown-menu.js';
 import { Empty, EmptyTitle, EmptyDescription } from './components/empty.js';
 import { glyph, AgentIcon } from './components/icon.js';
 import { activeLauncher } from './extensions.js';
-import { composerChoices, composerOptionShown, launchIntent } from './components/extension-contract.js';
-import { decorationTone } from './decorations.js';
+import { composerChoices, composerUsage, composerOptionShown, launchIntent } from './components/extension-contract.js';
+import { Progress } from './components/progress.js';
+import { quotaElapsedPercent, quotaResetLabel } from './components/session-model.js';
 
 // The program chosen last in each project, so the composer opens on it.
 export const START_AGENT_KEY = 'herdr-zed.start-agent';
@@ -173,7 +174,7 @@ export const startPanel = {
       // A launcher that has not published this machine yet: its picker chooses instead.
       if (!choices) return { launcher: launcher.id, picker: true };
       const choice = choices.find(item => item.key === key) || choices[0] || null;
-      return { launcher: launcher.id, choices, choice, values: choice ? this.startValues(choice) : {}, ready: true };
+      return { launcher: launcher.id, choices, usage: composerUsage(shared(`herdr-zed.composer.${launcher.id}`), project.machine), choice, values: choice ? this.startValues(choice) : {}, ready: true };
     }
     const programs = this.startAgents(project.machine, cx), items = programs.items || [];
     const agent = startChoice(items, project, remembered);
@@ -200,7 +201,6 @@ export const startPanel = {
       .on_click((_event, cx) => { cx.stop_propagation(); choose(item.key, cx); this.closeStartMenu(cx); })
       .when(Boolean(item.icon), el => el.child(item.icon))
       .child(div().flex_1().min_w(0).truncate().text_size(13).child(item.label))
-      .when(Boolean(item.detail), el => el.child(item.detail))
       .child(Button(`${id}-star-${item.key}`, t, { variant: 'ghost', size: 'icon-sm' })
         .accessibility_label(starred.includes(item.key) ? `Unstar ${item.label}` : `Star ${item.label}`)
         .on_click((_event, cx) => { cx.stop_propagation(); this.toggleStartFavorite(launcher, menu, item.key, cx); })
@@ -229,8 +229,7 @@ export const startPanel = {
     const { choice, values, launcher } = session;
     const icon = item => div().size(14).flex_none().flex().items_center().justify_center()
       .child(item ? AgentIcon({ icon: item.icon, tint: item.tint }, t).size(14) : glyph('terminal', 14).text_color(t.muted));
-    const reading = item => item?.detail ? div().flex_none().text_size(11).text_color(decorationTone(t, item.tone)).child(item.detail) : null;
-    const programs = session.choices.map(item => ({ key: item.key, label: item.label, icon: icon(item), detail: reading(item) }));
+    const programs = session.choices.map(item => ({ key: item.key, label: item.label, icon: icon(item) }));
     const controls = [this.startControl('project-start-program', 0, { icon: icon(choice), text: choice?.label || 'No agents available', label: `Program: ${choice?.label || 'No agents available'}` },
       { launcher, menu: 'program', label: 'Program', items: programs, value: choice?.key || 'terminal',
         choose: (key, cx) => this.chooseStartAgent(project, key, cx) }, t)];
@@ -251,7 +250,45 @@ export const startPanel = {
         { launcher, menu: `${choice.key}:${field.id}`, label: field.label, items: shown, value: values[field.id],
           choose: (key, cx) => this.pickStartValue(choice, field.id, key, cx) }, t));
     });
-    return { controls, warning: ['warning', 'error'].includes(choice?.tone) ? reading(choice) : null };
+    return { controls, usage: this.startUsageView(project, session, t) };
+  },
+  // Every account's quota below the composer, side by side, drawn like the Usage sidebar's meters (design.md, Start a thread).
+  // A card starts its account's first program in the menu; an account the menu does not offer stays inert.
+  startUsageView(project, session, t) {
+    const accounts = session.usage || [];
+    if (!accounts.length) return null;
+    const current = session.choice?.key.split('#')[0];
+    // Equal cards: a fixed number of columns, the last row padded, and one line per window any account has.
+    const columns = Math.min(3, accounts.length);
+    const slots = [...new Map(accounts.flatMap(account => account.windows).map(window => [window.minutes, window])).values()]
+      .sort((a, b) => a.minutes - b.minutes);
+    const line = (account, slot) => {
+      const window = account.windows.find(item => item.minutes === slot.minutes);
+      const row = h_flex().w_full().h(12).gap(4).items_center().text_size(10).whitespace_nowrap().text_color(t.muted)
+        .child(div().w(30).flex_none().child(slot.label));
+      if (!window) return row.child(div().flex_1().child('—'));
+      const elapsed = quotaElapsedPercent(window), reset = quotaResetLabel(window);
+      const time = reset === 'Reset time unavailable' ? '—' : reset.startsWith('Reset due') ? 'Reset due' : reset.replace(/^Resets (?:in )?/, '');
+      return row
+        .child(Progress(`project-start-usage-${account.key}-${window.minutes}`, window.usedPercent, t, elapsed, window.minutes === 300 ? 5 : window.minutes === 10080 ? 7 : 0)
+          .flex_1().w_auto().min_w(0).accessibility_label(`${account.label} ${window.label} used`))
+        .child(div().w(28).flex_none().font_family('Geist Mono').text_right().child(`${Math.round(window.usedPercent)}%`))
+        .child(div().w(54).flex_none().font_family('Geist Mono').text_right().accessibility_label(reset).child(time.replace(/\b(\d)([dhm])\b/g, '0$1$2')));
+    };
+    const program = account => (session.choices || []).find(item => item.key.split('#')[0] === account.key);
+    const card = account => v_flex().id(`project-start-usage-${account.key}`).flex_1().min_w(0).gap(4).px(10).py(6).border(1)
+      .border_color(account.key === current ? t.accent : t.border)
+      .when(Boolean(program(account)) && account.key !== current, el => el.cursor_pointer().hover(el => el.bg(t.hover))
+        .accessibility_label(`Use ${program(account).label}`)
+        .on_click((_event, cx) => this.chooseStartAgent(project, program(account).key, cx)))
+      .child(h_flex().h(14).gap(6).items_center()
+        .child(AgentIcon({ icon: account.icon, tint: account.tint }, t).size(12))
+        .child(div().min_w(0).truncate().text_size(12).font_semibold().text_color(account.muted ? t.muted : t.foreground).child(account.label)))
+      .children(slots.map(slot => line(account, slot)));
+    const rows = Array.from({ length: Math.ceil(accounts.length / columns) }, (_, i) => accounts.slice(i * columns, i * columns + columns));
+    return v_flex().id('project-start-usage').w_full().gap(8).children(rows.map((row, i) =>
+      h_flex().id(`project-start-usage-row-${i}`).w_full().gap(8).children([...row.map(card),
+        ...Array.from({ length: columns - row.length }, (_, j) => div().id(`project-start-usage-pad-${i}-${j}`).flex_1().min_w(0))])));
   },
   projectStartView(project, t, cx) {
     if (!project) return div().size_full().bg(t.background);
@@ -291,7 +328,7 @@ export const startPanel = {
               .tooltip(this.startPending ? 'Starting…' : action).accessibility_label(this.startPending ? 'Starting…' : action)
               .on_click((_event, cx) => this.submitStart(cx))
               .child(glyph(this.startPending ? 'loader' : 'arrow-up', 16)))))
-        .when(Boolean(session.warning), el => el.child(session.warning))
+        .when(Boolean(session.usage), el => el.child(session.usage))
         .when(Boolean(status), el => el.child(div().text_size(12).text_color(t.muted).child(status))))
       .child(div().flex_1().min_h(0));
   },

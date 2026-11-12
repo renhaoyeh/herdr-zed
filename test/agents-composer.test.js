@@ -45,15 +45,22 @@ test('an intent launches the chosen program with its task and options, then beco
   assert.deepEqual(memory['herdr-zed.profile-sessions'].codex, { model: 'mini', effort: 'low', serviceTier: 'fast' });
 });
 
-test('the quota reading names each window and warns from 70% and errs from 90%', async () => {
-  const { quotaDetail } = await evaluateNative('../mods/herdr-zed-agents/composer.js', { ...model, LAUNCHER_ID: 'agents' }, 'quotaDetail');
-  const windows = (a, b) => ({ windows: [{ slot: 'five_hour', minutes: 300, usedPercent: a }, { slot: 'seven_day', minutes: 10080, usedPercent: b }] });
-  assert.deepEqual(quotaDetail(windows(37, 27)), { detail: '5h 37% · Week 27%', tone: 'muted' });
-  assert.equal(quotaDetail(windows(75, 27)).tone, 'warning');
-  assert.equal(quotaDetail(windows(10, 91)).tone, 'error');
-  assert.equal(quotaDetail({ windows: [] }), null);
+test('the composer usage lists the Usage sidebar\'s accounts, names and windows, and the shell accepts it', async () => {
+  const { UsageClient } = await evaluateNative('../components/usage.js', { ...model, div: () => null, v_flex: () => null, h_flex: () => null,
+    shared: () => null, openOverlay() {}, run() {}, layout: () => null, Button: () => null, Progress: () => null, glyph: () => null, AgentIcon: () => null }, 'UsageClient');
+  const { composerUsage } = await evaluateNative('../mods/herdr-zed-agents/composer.js', { ...model, UsageClient, LAUNCHER_ID: 'agents' }, 'composerUsage');
+  const snapshot = { machine: null, loading: false, error: null,
+    choices: [{ key: 'work', name: 'Claude Code · Work', agent: { key: 'work', icon: 'icons/claude.svg' }, provider: 'claude' },
+      { key: 'idle', name: 'Codex', agent: { key: 'idle' }, provider: 'codex' }],
+    usage: [{ key: 'work', windows: [{ bucket: 'claude', minutes: 300, usedPercent: 37, resetsAt: 1 }, { bucket: 'claude', minutes: 10080, usedPercent: 91, resetsAt: null }] }] };
+  const usage = composerUsage(snapshot);
+  assert.deepEqual(usage, [{ key: 'work', label: 'Work', icon: 'icons/claude.svg', windows: [
+    { label: '5h', minutes: 300, usedPercent: 37, resetsAt: 1 }, { label: 'Week', minutes: 10080, usedPercent: 91, resetsAt: null }] }],
+    'only readable accounts, named as Usage names them');
+  const { composerUsage: read } = await import('../components/extension-contract.js');
+  assert.deepEqual(read({ machines: { '': { choices: [], usage } } }, null), usage);
+  assert.deepEqual(read({ machines: { '': { choices: [], usage: [{ ...usage[0], windows: [] }] } } }, null), []);
 });
-
 
 test('composer fields always select explicit available options and reuse saved choices', async () => {
   const { composerChoice, composerEnvelope } = await composer();

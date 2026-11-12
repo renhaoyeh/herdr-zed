@@ -1,7 +1,7 @@
 // Shared: edit components/extension-contract.js, then npm run sync:shared.
 // Pure validators for provider messages (ARCHITECTURE.md §3). No imports, no native APIs.
 // @ts-check
-/** @import { LaunchRequest, LaunchTarget, LaunchOrigin, Validation, ThreadDecoration, GitCredentialBinding, ComposerChoice, ComposerField, LaunchIntent } from './contract-types.js' */
+/** @import { LaunchRequest, LaunchTarget, LaunchOrigin, Validation, ThreadDecoration, GitCredentialBinding, ComposerChoice, ComposerField, ComposerUsage, ComposerUsageWindow, LaunchIntent } from './contract-types.js' */
 
 const MAX_LAUNCH_LEAD_MS = 60_000;
 const MAX_NAME_LENGTH = 120;
@@ -102,13 +102,27 @@ const validField = field => plain(field) && typeof field.id === 'string' && KEY_
 export function composerChoices(envelope, machine) {
   const entry = plain(envelope) && plain(envelope.machines) ? envelope.machines[machine || ''] : null;
   if (!plain(entry) || !Array.isArray(entry.choices)) return null;
-  return entry.choices.filter(choice => plain(choice) && hasOnlyKeys(choice, ['key', 'label', 'icon', 'tint', 'detail', 'tone', 'fields'])
-    && (choice.detail === undefined || typeof choice.detail === 'string' && choice.detail.length > 0 && choice.detail.length <= MAX_LABEL)
-    && (choice.tone === undefined || DECORATION_TONES.includes(choice.tone))
+  return entry.choices.filter(choice => plain(choice) && hasOnlyKeys(choice, ['key', 'label', 'icon', 'tint', 'fields'])
     && typeof choice.key === 'string' && KEY_PATTERN.test(choice.key) && choice.key !== 'terminal'
     && typeof choice.label === 'string' && choice.label.length > 0 && choice.label.length <= MAX_LABEL
     && (choice.icon === undefined || typeof choice.icon === 'string') && (choice.tint === undefined || typeof choice.tint === 'boolean')
     && Array.isArray(choice.fields) && choice.fields.every(validField));
+}
+/** @param {unknown} window @returns {window is ComposerUsageWindow} */
+const validWindow = window => plain(window) && hasOnlyKeys(window, ['label', 'minutes', 'usedPercent', 'resetsAt'])
+  && typeof window.label === 'string' && window.label.length > 0 && window.label.length <= MAX_LABEL
+  && Number.isFinite(window.minutes) && /** @type {number} */ (window.minutes) > 0
+  && Number.isFinite(window.usedPercent) && (window.resetsAt === null || Number.isFinite(window.resetsAt));
+/** The machine's quota readings in display order; a malformed account is dropped. @param {unknown} envelope @param {string | null | undefined} machine @returns {ComposerUsage[]} */
+export function composerUsage(envelope, machine) {
+  const entry = plain(envelope) && plain(envelope.machines) ? envelope.machines[machine || ''] : null;
+  if (!plain(entry) || !Array.isArray(entry.usage)) return [];
+  return entry.usage.filter(account => plain(account) && hasOnlyKeys(account, ['key', 'label', 'icon', 'tint', 'muted', 'windows'])
+    && typeof account.key === 'string' && KEY_PATTERN.test(account.key)
+    && typeof account.label === 'string' && account.label.length > 0 && account.label.length <= MAX_LABEL
+    && (account.icon === undefined || typeof account.icon === 'string') && (account.tint === undefined || typeof account.tint === 'boolean')
+    && (account.muted === undefined || typeof account.muted === 'boolean')
+    && Array.isArray(account.windows) && account.windows.length > 0 && account.windows.every(validWindow));
 }
 /** A select option is offered while every field it names holds one of its keys. @param {{ only?: Record<string, string[]> }} option @param {Record<string, unknown>} values */
 export const composerOptionShown = (option, values) => !option.only

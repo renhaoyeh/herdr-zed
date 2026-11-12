@@ -4,6 +4,7 @@ import { shared, setShared, home, readTextFile, notify } from 'herdr';
 import { availableAgents, discoverAgents } from './discovery.js';
 import { launcherChoices, launcherLabel, isAccountLauncher, sessionKind, settingsKey, sessionChoices, effortLabel, codexHome, codexModels } from './components/session-model.js';
 import { emitLaunch, LAUNCHER_ID } from './launch.js';
+import { UsageClient } from './components/usage.js';
 
 export const COMPOSER_KEY = `herdr-zed.composer.${LAUNCHER_ID}`;
 export const LAUNCH_INTENTS = 'herdr-zed.launch.intents';
@@ -11,18 +12,18 @@ const DEFAULT = 'default';
 // Saved profiles share their account's key, so a choice adds the profile key.
 export const choiceKey = agent => agent.profileKey ? `${agent.key}#${agent.profileKey}` : agent.key;
 
-// The account's quota as a short reading: each window's used share, warning from 70% and error from 90% (the Usage meter's thresholds).
-export function quotaDetail(usage) {
-  const windows = (usage?.windows || []).filter(window => Number.isFinite(window?.usedPercent));
-  if (!windows.length) return null;
-  const name = window => window.slot === 'five_hour' || window.minutes === 300 ? '5h' : window.slot === 'seven_day' || window.minutes === 10080 ? 'Week' : window.name;
-  const worst = Math.max(...windows.map(window => window.usedPercent));
-  return { detail: windows.map(window => `${name(window)} ${Math.round(window.usedPercent)}%`).join(' · ').slice(0, 80),
-    tone: worst >= 90 ? 'error' : worst >= 70 ? 'warning' : 'muted' };
+// The machine's Usage list for the composer: the same accounts, names and windows the Usage sidebar shows.
+export function composerUsage(snapshot, machine = null) {
+  if (!snapshot) return [];
+  return new UsageClient({ context: () => ({ machine }) }).readableEntries(snapshot).map(({ choice, name, unknown, windows }) => ({
+    key: choice.agent.key, label: name.slice(0, 80), ...(choice.agent.icon ? { icon: choice.agent.icon } : {}),
+    ...(choice.agent.tint ? { tint: true } : {}), ...(unknown ? { muted: true } : {}),
+    windows: windows.map(window => ({ label: window.minutes === 300 ? '5h' : 'Week', minutes: window.minutes,
+      usedPercent: window.usedPercent, resetsAt: Number.isFinite(window.resetsAt) ? window.resetsAt : null })) }));
 }
 
 /** One composer choice per visible program: its fields and the account's saved session defaults. */
-export function composerChoice(agent, codexList, { sessions = {}, options = {}, usage = [] } = {}) {
+export function composerChoice(agent, codexList, { sessions = {}, options = {} } = {}) {
   const kind = sessionKind(agent), settings = options[kind] || {}, saved = sessions[settingsKey(agent)] || {};
   const { models } = sessionChoices(kind, codexList, settings, null);
   const fields = [];
@@ -41,9 +42,8 @@ export function composerChoice(agent, codexList, { sessions = {}, options = {}, 
       }) });
     if (kind === 'codex') fields.push({ id: 'fast', label: 'Fast', type: 'toggle', value: saved.serviceTier === 'fast' });
   }
-  const quota = quotaDetail(usage.find(item => item?.key === agent.key));
   return { key: choiceKey(agent), label: (agent.profileKey || isAccountLauncher(agent)) && launcherLabel(agent.name) || agent.name, ...(agent.icon ? { icon: agent.icon } : {}),
-    ...(agent.tint ? { tint: true } : {}), ...(quota || {}), fields };
+    ...(agent.tint ? { tint: true } : {}), fields };
 }
 
 /** The envelope for every discovered machine ('' is this computer), in the picker's order without hidden programs. */
@@ -54,9 +54,9 @@ export function composerEnvelope(cache, codexModelsByHome, userHome, state = {})
     const machine = JSON.parse(key) || null;
     const agents = launcherChoices(availableAgents(profiles, machine), state.order || [])
       .filter(choice => choice.agent && !hidden.includes(choice.key)).map(choice => choice.agent);
-    const usage = state.usage?.contexts?.[JSON.stringify(machine)]?.usage || [];
     machines[machine || ''] = { choices: agents.map(agent => composerChoice(agent,
-      machine ? [] : codexModelsByHome.get(codexHome(agent, userHome)) || [], { ...state, usage })).filter(Boolean) };
+      machine ? [] : codexModelsByHome.get(codexHome(agent, userHome)) || [], state)).filter(Boolean),
+      usage: composerUsage(state.usage?.contexts?.[JSON.stringify(machine)], machine) };
   }
   return { machines };
 }

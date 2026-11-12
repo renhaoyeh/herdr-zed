@@ -279,13 +279,12 @@ test('the panel reads the branch, changes and push state from git status', async
   assert.equal(parseGitStatus('').branch, null);
 });
 
-test('a composer choice may carry a toned detail; a bad one drops the choice', async () => {
+test('a composer choice carries no reading; one with extra keys is dropped', async () => {
   const { composerChoices } = await import('../components/extension-contract.js');
   const choice = extra => ({ key: 'c', label: 'C', fields: [], ...extra });
   const read = c => composerChoices({ machines: { '': { choices: [c] } } }, null);
-  assert.equal(read(choice({ detail: '5h 37% · Week 27%', tone: 'warning' })).length, 1);
-  assert.equal(read(choice({ tone: 'loud' })).length, 0);
-  assert.equal(read(choice({ detail: '' })).length, 0);
+  assert.equal(read(choice()).length, 1);
+  assert.equal(read(choice({ detail: '5h 37%', tone: 'warning' })).length, 0);
 });
 
 test('each control keeps its own starred options, listed first in its menu', async () => {

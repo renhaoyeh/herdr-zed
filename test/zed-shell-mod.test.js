@@ -107,7 +107,7 @@ test('native sidebar, pane menu, dock controls and empty editor render without e
   for (const name of ['Button', 'ToolbarButton', 'Sidebar', 'SidebarContent', 'SidebarGroup', 'SidebarGroupLabel', 'SidebarMenuButton', 'SidebarTreeMenuButton', 'SidebarFooter',
     'DropdownMenu', 'DropdownMenuTrigger', 'DropdownMenuContent', 'DropdownMenuItem', 'DropdownMenuLabel', 'DropdownMenuSeparator',
     'AlertDialogContent', 'AlertDialogTitle', 'AlertDialogDescription', 'AlertDialogFooter', 'AlertDialogCancel', 'AlertDialogAction',
-    'Empty', 'EmptyTitle', 'EmptyDescription', 'AgentIcon', 'glyph', 'GitResultToast']) host[name] = (...args) => ui(typeof args[0] === 'string' ? args[0] : null);
+    'Empty', 'EmptyTitle', 'EmptyDescription', 'AgentIcon', 'glyph', 'GitResultToast', 'Progress']) host[name] = (...args) => ui(typeof args[0] === 'string' ? args[0] : null);
   const triggerAnchor = { x: 252, y: 80 };
   host.DropdownMenuTrigger = (trigger, _width, open) => trigger.on_click((_event, context) => open(context, triggerAnchor));
   host.DropdownMenu = (id, _state, trigger, items, choose) => Object.assign(ui(id).child(trigger), { items, choose });
@@ -173,11 +173,13 @@ test('native sidebar, pane menu, dock controls and empty editor render without e
   target = { view: 'editor' }; view.init(null, cx); const editor = view.render(cx);
   assert.match(text(editor), /New thread/);
   assert.doesNotMatch(text(editor), /RECENT|View all/, 'history stays in the sidebar');
-  const choice = { key: 'codex', label: 'Codex', detail: '5h 20%', tone: 'muted', fields: [
+  const choice = { key: 'codex', label: 'Codex', fields: [
     { id: 'model', label: 'Model', type: 'select', value: 'default', options: [{ key: 'default', label: 'Default model' }] },
     { id: 'effort', label: 'Effort', type: 'select', value: 'high', options: [{ key: 'default', label: 'Default effort' }, { key: 'high', label: 'High' }] },
     { id: 'fast', label: 'Fast', type: 'toggle', value: true }] };
-  view.startSession = () => ({ launcher: 'agents', choices: [choice], choice, values: view.startValues(choice), ready: true });
+  const usage = [{ key: 'codex', label: 'Codex', windows: [{ label: '5h', minutes: 300, usedPercent: 20, resetsAt: null }] },
+    { key: 'claude', label: 'Work', windows: [{ label: 'Week', minutes: 10080, usedPercent: 91, resetsAt: null }] }];
+  view.startSession = () => ({ launcher: 'agents', choices: [choice], usage, choice, values: view.startValues(choice), ready: true });
   let composer = view.projectStartView(nativeSpaces[0], {}, cx);
   view.startGitView = () => ui('branch-context').child('main');
   composer = view.projectStartView(nativeSpaces[0], {}, cx);
@@ -191,12 +193,20 @@ test('native sidebar, pane menu, dock controls and empty editor render without e
   assert.ok(has(composer, 'project-start-effort-popup'), 'Effort is directly accessible');
   assert.ok(has(composer, 'project-start-fast'), 'Fast is directly accessible');
   assert.equal(has(composer, 'project-start-options'), false, 'no extra options menu');
-  assert.doesNotMatch(text(composer), /5h 20%|Ctrl\+Enter|⌘ Enter|Start task/, 'quota, keyboard hints and button text stay out of the composer');
+  assert.doesNotMatch(text(composer), /Ctrl\+Enter|⌘ Enter|Start task/, 'keyboard hints and button text stay out of the composer');
+  const usageRow = elements(composer).find(element => element.attributes.id === 'project-start-usage');
+  assert.deepEqual(usageRow.nodes[0].nodes.map(element => element.attributes.id), ['project-start-usage-codex', 'project-start-usage-claude'], 'every account sits side by side below the composer');
+  assert.match(text(usageRow), /Codex.*5h.*Week.*Work.*5h.*Week/, 'every card has the same window lines');
+  assert.match(text(usageRow), /Codex.*5h.*20%.*Work.*Week.*91%/);
+  assert.ok(has(composer, 'project-start-usage-claude-10080'), 'each window has a meter');
+  assert.equal(/20%/.test(text(toolbar)), false, 'program control carries no reading');
+  const chosen = []; view.chooseStartAgent = (_project, key) => chosen.push(key);
+  view.startSession = () => ({ launcher: 'agents', choices: [choice, { ...choice, key: 'claude#fast', label: 'Work · fast' }], usage, choice, values: view.startValues(choice), ready: true });
+  elements(view.projectStartView(nativeSpaces[0], {}, cx)).find(element => element.attributes.id === 'project-start-usage-claude').click({}, cx);
+  assert.deepEqual(chosen, ['claude#fast'], 'a card switches to its account\'s program');
   const submit = elements(composer).find(element => element.attributes.id === 'project-start-submit');
   assert.equal(submit.attributes.accessibility_label, 'Start task');
   assert.equal(submit.attributes.tooltip, 'Start task');
-  choice.tone = 'warning';
-  assert.match(text(view.projectStartView(nativeSpaces[0], {}, cx)), /5h 20%/, 'quota warnings remain visible');
   assert.doesNotMatch([sidebar, pane, header, bottom, editor].map(text).join(' '), /Agent settings|Calendar|MantisBT|Asana|SYSTEM|USAGE|Interface settings/);
   assert.equal(commands.some(([name, args]) => name === 'space.new' || name === 'tab.new' && args?.props?.view !== 'project-empty'), false, 'Rendering never starts a thread');
 });

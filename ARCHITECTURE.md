@@ -213,9 +213,10 @@ user clicks + / invokes New Thread (New terminal opens directly from the project
 ```
 
 - **Composer** (`composerChoices`, `launchIntent` in `extension-contract.js`): the launcher publishes
-  `herdr-zed.composer.<id>` = `{ updatedAt, machines: { [machine | '']: { choices } } }`; a choice is
-  `{ key, label, icon?, tint?, detail?, tone?, fields }` (`detail` ≤ 80 chars, a reading shown beside the choice such as
-  its account's quota, coloured by `tone`: muted, accent, warning or error) and a field is a `select` (`{ id, label, value, options: [{ key, label, only? }] }`,
+  `herdr-zed.composer.<id>` = `{ updatedAt, machines: { [machine | '']: { choices, usage? } } }`; a choice is
+  `{ key, label, icon?, tint?, fields }`, and `usage` (`composerUsage`) lists the accounts the Usage sidebar shows, in its
+  order and names: `{ key, label, icon?, tint?, muted?, windows: [{ label, minutes, usedPercent, resetsAt }] }`
+  (`resetsAt` in epoch seconds or null; the shell derives reset time and elapsed share). A field is a `select` (`{ id, label, value, options: [{ key, label, only? }] }`,
   `only` = `{ [field id]: keys }` it is offered with) or a `toggle` (`{ id, label, value: boolean }`). The shell draws
   them without knowing what they mean and drops malformed choices. It only appends intents; the launcher takes its own
   off the queue, prepares the session from `values` and emits a launch request as above, notifying its own errors.

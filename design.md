@@ -65,8 +65,11 @@ titles). Where they conflict, this file wins.
 - Each select keeps its own menu and favorites. Starred options come first; every menu row has a star. Favorites use
   `herdr-zed.start-favorites`, `{ [launcher or '']: { [menu]: [option keys] } }`, with `program` or `<choice>:<field>`.
   Options ruled out by another field are hidden and fall back to the first available value. Model and Effort
-  offer explicit values only, without Default; selections persist immediately and reopen on the last choice. Program menus retain account quota readings;
-  the main composer shows a quota reading only when its tone is warning or error. Usage retains full readings.
+  offer explicit values only, without Default; selections persist immediately and reopen on the last choice. Program menus show no quota readings;
+  below the composer, the Usage sidebar's accounts sit side by side with the same names, meters, percentages and reset
+  times, as equal cards (up to three per row, one line per window).
+  In both places every account shows each window any account has; a missing one is a blank “—” line, so rows align. The selected program's account has an accent
+  border; clicking another card selects its account's first program.
 - The task becomes the agent's first message. A launcher that has not listed the machine yet uses Start… to open its
   picker. Without an available agent, Start task and keyboard submission are disabled; Terminal remains in the project menu.
 - Starting locks the task and Start task until a new thread appears in the target project. Success closes the originating

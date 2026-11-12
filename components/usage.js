@@ -90,6 +90,7 @@ export class UsageClient {
     if (this.started) this.sync();
     if (!this.active()) return div().h(0).flex_none();
     const snapshot = this.snapshot(), entries = this.readableEntries(snapshot);
+    const slots = [300, 10080].filter(minutes => entries.some(entry => entry.windows.some(window => window.minutes === minutes)));
     return v_flex().id('account-usage').w_full().flex_none().h_auto().min_h(0)
       .when(Boolean(openMenu), el => el.on_mouse_down('right', (event, cx) => { cx.stop_propagation(); openMenu(event.position); }))
       .child(h_flex().h(32).flex_none().pl(12).items_center()
@@ -123,7 +124,11 @@ export class UsageClient {
               .child(AgentIcon(choice.agent, t).self_center())
               .child(v_flex().flex_1().min_w(0).gap(3).line_height('12px')
                 .child(div().id(`usage-name-${choice.key}`).truncate().text_size(12).font_semibold().text_color(nameColor).child(name))
-                .children(windows.map(window => {
+                .children(slots.map(minutes => {
+                  const window = windows.find(item => item.minutes === minutes);
+                  // A window another account has but this one lacks keeps its line, blank, so rows align.
+                  if (!window) return h_flex().w_full().gap(4).items_center().text_size(10).whitespace_nowrap().text_color(t.muted)
+                    .child(div().w(30).flex_none().child(minutes === 300 ? '5h' : 'Week')).child(div().flex_1().child('—'));
                   const elapsed = quotaElapsedPercent(window);
                   const label = window.minutes === 300 ? '5h' : 'Week';
                   const reset = quotaResetLabel(window);
