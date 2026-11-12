@@ -23,7 +23,7 @@ import { readNewTerminalCommand } from './components/extension-contract.js';
 import { workspaceTopAnchor } from './extension-model.js';
 import { usableWorkspaceRect, WORKSPACE_RECT_KEY } from './components/workspace-overlay.js';
 import { threadDecorations, decorationTone } from './decorations.js';
-import { DropdownMenu, DropdownMenuState, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from './components/dropdown-menu.js';
+import { DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from './components/dropdown-menu.js';
 import { Button, ToolbarButton, TOOLBAR_GLYPH, ROW_GLYPH } from './components/button.js';
 import { AlertDialogContent, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel } from './components/alert-dialog.js';
 import { Sidebar, SidebarContent, SidebarGroup, SidebarGroupLabel, SidebarTreeMenuButton, SidebarFooter } from './components/sidebar.js';
@@ -91,7 +91,7 @@ export default class HerdrZed extends View {
     if (view === 'settings-page') { this.settingsPage = new SettingsPage(); this.settingsPage.init(cx); return; }
     if (view === 'commit-author') { this.authorDialog = new GitAuthorDialog(); this.authorDialog.init(cx); return; }
     if (view === 'status-tools') { clearGitToast(); setShared('herdr-zed.git-output-request', null); return; }
-    if (view === 'pane') { this.threadMenu = new DropdownMenuState(cx); return; }
+    if (view === 'pane') return;
     if (view === 'file-menu') { this.fileMenu = new FileMenu(); this.fileMenu.init(cx); return; }
     if (view === 'branch-menu') { this.branchMenu = new BranchMenu(); this.branchMenu.init(cx); return; }
     if (view === 'header') {
@@ -503,20 +503,7 @@ export default class HerdrZed extends View {
     const title = secondary ? p.title || 'Terminal' : thread?.tab.name === '__herdr_zed_default_terminal__' && !thread.agent ? 'Terminal' : thread?.title || p.title || 'Terminal';
     const project = this.projects().find(project => project.id === thread?.space);
     const maximized = conversationMaximized(project);
-    this.threadMenu ??= new DropdownMenuState();
     const decoration = this.decorationsNow().get(thread?.tab.id);
-    const workflow = workflowSettings();
-    const sidebar = workflowSidebar();
-    const actions = [
-      ...(sidebar ? [{ key: 'show-usage', label: `Show ${sidebar.title}`, icon: sidebar.icon, checked: extensionSurfaceVisible(sidebar) }] : []),
-      ...(workflow ? [{ key: 'agent-settings', label: `${workflow.title}…`, icon: 'agent' }] : []),
-      { key: 'close', label: secondary ? 'Close terminal' : 'Close thread', icon: 'close', separator: Boolean(workflow) },
-    ];
-    const choose = key => {
-      if (key === 'show-usage') setExtensionSurfaceVisible(sidebar, !extensionSurfaceVisible(sidebar));
-      else if (key === 'agent-settings') openSettings(settingsPageKey(workflow.id), project);
-      else if (key === 'close') closeThreadPane(p.pane);
-    };
     const terminal = terminals().find(terminal => terminal.address === p.terminal);
     const working = agentReportedWorking(terminal, p.status || terminal?.status);
     const icon = working ? glyph('loader', 14).text_color(t.working).spin(900).accessibility_label('Working')
@@ -542,11 +529,23 @@ export default class HerdrZed extends View {
               cx.stop_propagation();
               maximizeConversation(project, !conversationMaximized(project));
               run('pane.focus', { pane: p.pane });
-            }).child(glyph(maximized ? 'minimize' : 'maximize', TOOLBAR_GLYPH))))
-        .child(DropdownMenu(`thread-actions-${p.pane}`, this.threadMenu,
-          ToolbarButton(`thread-menu-${p.pane}`, t, { icon: true }).h_full()
-            .tooltip('Thread options').accessibility_label('Thread options').child(glyph('ellipsis', TOOLBAR_GLYPH)),
-          actions, choose, t, { offset: { x: 8, y: 9 }, fullHeight: true })));
+            }).child(glyph(maximized ? 'minimize' : 'maximize', TOOLBAR_GLYPH)))));
+  }
+
+  // design.md, Start a thread: the thread options live in the New thread panel's header, beside where threads start:
+  // the launcher's sidebar surface (Show Usage), its settings, and closing the project's current thread.
+  composerActions(project, t) {
+    const workflow = workflowSettings(), sidebar = workflowSidebar();
+    const tab = spaces().find(space => space.id === project.id)?.tabs?.find(tab => tab.active && !isProjectPlaceholder(tab));
+    const shown = sidebar && extensionSurfaceVisible(sidebar);
+    const action = (id, icon, label, onClick, selected = false) => ToolbarButton(id, t, { icon: true, selected })
+      .tooltip(label).accessibility_label(label).on_click((_event, cx) => { onClick(); cx.notify(); }).child(glyph(icon, TOOLBAR_GLYPH));
+    return [
+      ...(sidebar ? [action('composer-show-usage', sidebar.icon || 'chart-column', `${shown ? 'Hide' : 'Show'} ${sidebar.title}`,
+        () => setExtensionSurfaceVisible(sidebar, !shown), shown)] : []),
+      ...(workflow ? [action('composer-agent-settings', 'agent', `${workflow.title}…`, () => openSettings(settingsPageKey(workflow.id), project))] : []),
+      ...(tab ? [action('composer-close-thread', 'close', `Close thread “${tab.name}”`, () => closeThreadTab(tab.id))] : []),
+    ];
   }
 
 

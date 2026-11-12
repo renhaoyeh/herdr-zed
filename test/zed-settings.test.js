@@ -282,7 +282,7 @@ test('header destinations are independent; Changes opens its own repository auth
   const diff = await readFile(new URL('../mods/herdr-zed/diff.js', import.meta.url), 'utf8');
   assert.match(main, /accessibility_label\('Settings'\)\s*\.on_click\(\(\) => openSettings\('general'/);
   assert.doesNotMatch(main, /ToolbarButton\('header-agents'/);
-  assert.match(main, /key: 'agent-settings'/);
+  assert.match(main, /'composer-agent-settings'/);
   assert.match(main, /ToolbarButton\('header-extensions'/);
   assert.doesNotMatch(main, /manage-extensions|Manage extensions|openLauncherSettings|openExtensions|Herdr settings|diff-ignore-settings/);
   assert.match(diff, /if \(key === 'filter-rules'\) openSettings\('git', this\.context\);/);

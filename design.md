@@ -50,8 +50,11 @@ titles). Where they conflict, this file wins.
 ## Start a thread
 
 - Every new thread starts in the composer: an empty project shows it, and + / New thread opens it as the editor's
-  New thread tab (one per project, focused) beside files and Git views; switching tabs keeps the draft. Starting closes
-  the tab; closing it cancels. Enter adds a line; Ctrl+Enter (Cmd+Enter on macOS) or Start continues. Nothing is
+  New thread tab (one per project, focused) beside files and Git views; switching tabs keeps the draft. The tab stays
+  open after Start: the task and Start lock ("Starting…") until the new thread's tab appears, which clears the task;
+  if none appears within 30 s, the task is given back to edit. Closing the tab cancels.
+- The thread options sit in the panel's header, as icon buttons: Show/Hide the launcher's sidebar surface (Usage), its
+  settings, and Close thread for the project's current thread. A thread's own header keeps + and maximize only. Enter adds a line; Ctrl+Enter (Cmd+Enter on macOS) or Start continues. Nothing is
   sent on plain Enter. The task becomes the agent's first message; a Terminal starts without one.
 - Under the task: the program (Terminal and the programs, opening on the one last chosen in that project), then the
   program's fields from the launcher extension: Model and Effort selects and a Fast toggle (zap icon, selected

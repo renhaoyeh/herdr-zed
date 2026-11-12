@@ -1,12 +1,11 @@
 import { div } from 'gpui-kit';
 import { v_flex, h_flex, TextareaState, Textarea } from 'gpui-base';
-import { shared, setShared, window } from 'herdr';
+import { shared, setShared, window, spaces } from 'herdr';
 import { Button } from './components/button.js';
 import { Select, SelectState } from './components/select.js';
 import { Empty, EmptyTitle, EmptyDescription } from './components/empty.js';
 import { glyph, AgentIcon } from './components/icon.js';
 import { activeLauncher } from './extensions.js';
-import { COMPOSE_TAB } from './workspace-editor.js';
 import { composerChoices, composerOptionShown, launchIntent } from './components/extension-contract.js';
 
 // The program chosen last in each project, so the composer opens on it.
@@ -17,6 +16,9 @@ export const COMPOSE_KEY = 'herdr-zed.compose';
 export const LAUNCH_INTENTS = 'herdr-zed.launch.intents';
 // The most fields a launcher choice shows; later ones are not drawn.
 const START_FIELDS = 6;
+// How long Start waits for the new thread's tab before it gives the task back to edit.
+export const START_WAIT_MS = 30000;
+const tabIds = () => new Set(spaces().flatMap(space => (space.tabs || []).map(tab => tab.id)));
 export const startProjectKey = project => JSON.stringify([project.machine || '', (project.folder || '').replace(/\\/g, '/').replace(/\/+$/, '') || project.id]);
 export function startChoice(programs, project, remembered = {}) {
   const key = remembered[startProjectKey(project)];
@@ -40,6 +42,7 @@ export const startPanel = {
     cx.timer?.every(500, cx => {
       const launcher = activeLauncher(), seen = launcher ? shared(`herdr-zed.composer.${launcher.id}`)?.updatedAt ?? null : null;
       if (seen !== this.startSeen) { this.startSeen = seen; cx.notify(); }
+      this.settleStart(cx);
     });
   },
   startAgents(machine, cx) {
@@ -69,7 +72,7 @@ export const startPanel = {
   },
   submitStart(cx) {
     const start = this.startTarget;
-    if (!start) return;
+    if (!start || this.startPending) return;
     const task = start.takesTask ? this.startTask.value().trim() : '';
     if (start.intent) {
       // ARCHITECTURE §3.1 Composer: the launcher prepares the account and emits the launch request.
@@ -77,9 +80,17 @@ export const startPanel = {
         launchIntent({ ...start.intent, target: start.target, ...(task ? { task } : {}), now: Date.now() })]);
     } else if (start.picker) this.openLauncher(start.project, task || null);
     else this.startThread(start.agent, { ...start.target, ...(task ? { task } : {}) });
-    this.startTask.set_value('');
-    // Starting closes the New thread tab; the new thread takes the view.
-    if (this.editor?.session?.compose) this.editor.closeItem(COMPOSE_TAB, cx);
+    // The panel stays. Its task is kept until the new thread's tab appears, so a launch that fails loses nothing.
+    this.startPending = { known: tabIds(), until: Date.now() + START_WAIT_MS };
+    cx.notify();
+  },
+  // A tab that was not there at Start means the thread started: clear the task. Past the wait, give it back to edit.
+  settleStart(cx, now = Date.now()) {
+    const pending = this.startPending;
+    if (!pending) return;
+    if ([...tabIds()].some(id => !pending.known.has(id))) this.startTask.set_value('');
+    else if (now < pending.until) return;
+    this.startPending = null;
     cx.notify();
   },
   // The values of one launcher choice: its fields' published defaults, then what was picked here. A select whose value
@@ -148,20 +159,21 @@ export const startPanel = {
     const shortcut = window()?.platform === 'macos' ? '⌘ Enter' : 'Ctrl+Enter';
     return div().id('project-start').size_full().bg(t.background).text_color(t.foreground).flex().items_center().justify_center().p(24)
       .child(v_flex().w_full().max_w(680).gap(12)
-        .child(h_flex().gap(8).items_baseline().child(div().text_size(15).font_medium().child('Start a thread'))
-          .child(div().flex_1().min_w(0).truncate().text_size(12).text_color(t.muted).child(project.name)))
+        .child(h_flex().gap(8).items_center().child(div().text_size(15).font_medium().child('Start a thread'))
+          .child(div().flex_1().min_w(0).truncate().text_size(12).text_color(t.muted).child(project.name))
+          .children(this.composerActions?.(project, t) || []))
         .child(v_flex().border(1).border_color(t.border).bg(t.popover)
           .child(Textarea.new(this.startTask).id('project-start-task').w_full().px(12).py(10).border(0).text_size(13)
-            .disabled(!takesTask).accessibility_label('Task for the new thread'))
+            .disabled(!takesTask || Boolean(this.startPending)).accessibility_label('Task for the new thread'))
           .child(h_flex().px(8).py(6).gap(6).items_center().flex_wrap().border_t(1).border_color(t.border)
             .children(controls)
             .child(div().flex_1())
             .child(div().text_size(11).text_color(t.dim).child(takesTask ? `${shortcut} ${hint}` : 'A terminal starts without a task'))
-            .child(Button('project-start-submit', t).h(28).gap(6).disabled(!ready)
+            .child(Button('project-start-submit', t).h(28).gap(6).disabled(!ready || Boolean(this.startPending))
               .accessibility_label(action === 'Start' ? `Start ${icon?.label || icon?.name || 'Terminal'}` : 'Choose the program and start')
               .on_click((_event, cx) => this.submitStart(cx))
               .when(action === 'Start', el => el.child(div().size(14).flex().items_center().justify_center().child(AgentIcon(icon, t))))
-              .child(action))))
+              .child(this.startPending ? 'Starting…' : action))))
         .when(Boolean(status), el => el.child(div().text_size(12).text_color(t.muted).child(status))));
   },
 };

@@ -189,7 +189,7 @@ test('with a launcher, the composer shows its published fields and hands it a la
   const memory = {};
   const contract = await import('../components/extension-contract.js');
   const { startPanel, LAUNCH_INTENTS } = await evaluateNative('../mods/herdr-zed/start-panel.js', {
-    shared: key => memory[key], setShared: (key, value) => { memory[key] = value; }, window: () => ({ platform: 'windows' }),
+    shared: key => memory[key], setShared: (key, value) => { memory[key] = value; }, window: () => ({ platform: 'windows' }), spaces: () => [],
     Button() {}, Select() {}, SelectState: class {}, Empty() {}, EmptyTitle() {}, EmptyDescription() {}, glyph() {}, AgentIcon() {},
     div() {}, v_flex() {}, h_flex() {}, Textarea: {}, activeLauncher: () => ({ id: 'agents' }), COMPOSE_TAB: 'compose', ...contract,
     TextareaState: { new: () => ({ handlers: {}, text: 'Task', on(event, fn) { this.handlers[event] = fn; }, set_auto_grow() {}, value() { return this.text; }, set_value(text) { this.text = text; } }) },
@@ -199,7 +199,7 @@ test('with a launcher, the composer shows its published fields and hands it a la
     { id: 'effort', label: 'Effort', type: 'select', value: 'xhigh', options: [{ key: 'default', label: 'Default' },
       { key: 'xhigh', label: 'XHigh', only: { model: ['default', 'gpt'] } }] },
     { id: 'fast', label: 'Fast', type: 'toggle', value: false }] };
-  const closed = [], view = { ...startPanel, editor: { session: { compose: true }, closeItem: key => closed.push(key) } };
+  const view = { ...startPanel };
   view.initStartPanel({});
   assert.deepEqual(view.startValues(choice), { model: 'default', effort: 'xhigh', fast: false });
   view.pickStartValue(choice, 'model', 'mini', { notify() {} });
@@ -210,7 +210,7 @@ test('with a launcher, the composer shows its published fields and hands it a la
   const [intent] = memory[LAUNCH_INTENTS];
   assert.deepEqual({ ...intent, id: null, expiresAt: null }, { id: null, expiresAt: null, launcher: 'agents', choice: 'codex',
     target: { space: 's', folder: '/repo' }, values: { model: 'mini', effort: 'default', fast: true }, task: 'Task' });
-  assert.deepEqual(closed, ['compose'], 'starting closes the New thread tab');
+  assert.ok(view.startPending, 'the panel stays and waits for the thread');
 });
 
 test('composer choices keep valid entries per machine and drop malformed ones', async () => {
@@ -226,8 +226,9 @@ test('composer choices keep valid entries per machine and drop malformed ones', 
 });
 
 test('Start a thread opens on the program last chosen in the project and starts only on Ctrl/Cmd+Enter', async () => {
+  const tabs = [];
   const { startChoice, startProjectKey, startPanel } = await evaluateNative('../mods/herdr-zed/start-panel.js', {
-    shared: () => ({}), setShared() {}, window: () => ({ platform: 'windows' }), Button() {}, Select() {}, SelectState: class {},
+    shared: () => ({}), setShared() {}, window: () => ({ platform: 'windows' }), spaces: () => tabs, Button() {}, Select() {}, SelectState: class {},
     Empty() {}, EmptyTitle() {}, EmptyDescription() {}, glyph() {}, AgentIcon() {}, div() {}, v_flex() {}, h_flex() {}, Textarea: {},
     TextareaState: { new: () => ({ handlers: {}, text: 'Task', on(event, fn) { this.handlers[event] = fn; }, set_auto_grow() {}, value() { return this.text; }, set_value(text) { this.text = text; } }) },
   }, 'startChoice, startProjectKey, startPanel');
@@ -242,5 +243,14 @@ test('Start a thread opens on the program last chosen in the project and starts 
   assert.deepEqual(started, [], 'plain Enter only adds a line');
   view.startTask.handlers.submit({ secondary: true }, { notify() {} });
   assert.deepEqual(started, [['claude', 'Task']]);
-  assert.equal(view.startTask.value(), '', 'the composer clears after starting');
+  assert.equal(view.startTask.value(), 'Task', 'the task stays until the thread appears');
+  view.startTask.handlers.submit({ secondary: true }, { notify() {} });
+  assert.equal(started.length, 1, 'Start is disabled while waiting');
+  view.settleStart({ notify() {} }, Date.now() + 60000);
+  assert.equal(view.startPending, null);
+  assert.equal(view.startTask.value(), 'Task', 'a launch that never shows keeps the task to retry');
+  view.startTask.handlers.submit({ secondary: true }, { notify() {} });
+  tabs.push({ tabs: [{ id: 'new' }] });
+  view.settleStart({ notify() {} });
+  assert.equal(view.startTask.value(), '', 'the new thread clears the task');
 });
