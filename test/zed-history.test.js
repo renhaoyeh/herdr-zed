@@ -165,7 +165,7 @@ test('archive uses the single native root and leaves child-only tabs ineligible'
   assert.equal(commands.some(([name]) => name === 'tab.close'), false);
 });
 
-test('archive retains Codex flags when re-archiving and refuses an initial positional prompt', async () => {
+test('archive retains Codex flags when re-archiving and drops the task a thread started with', async () => {
   const id = '22222222-2222-4222-8222-222222222222';
   const codex = ['env', 'CODEX_HOME=/accounts/codex', 'codex', 'resume', '--no-daemon', '--profile', 'work', id];
   const live = [{ ...terminal(), argv: codex }];
@@ -181,8 +181,9 @@ test('archive retains Codex flags when re-archiving and refuses an initial posit
   live[0] = { ...terminal(), argv: ['env', 'CLAUDE_CONFIG_DIR=/accounts/work', 'claude', 'Please fix the login bug'] };
   commands.length = 0;
   await owner.archiveThread(thread());
-  assert.equal(commands.some(([name]) => name === 'tab.close'), false);
-  assert.ok(memory['herdr-zed.thread-history'].every(entry => !entry.argv.includes('Please fix the login bug')));
+  assert.ok(commands.some(([name]) => name === 'tab.close'), 'a thread started with a task can be archived');
+  assert.ok(memory['herdr-zed.thread-history'].every(entry => !entry.argv.includes('Please fix the login bug')),
+    'restoring never sends the task again');
 });
 
 test('restore suppresses duplicate starts, observes startup grace and removes history only for a new verified session', async () => {

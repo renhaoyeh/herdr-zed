@@ -140,8 +140,8 @@ test('threads closed, archived, exited in place, or with unknown or prompt-beari
   assert.equal(made.notices.length, 1, 'listed once');
   assert.match(made.notices[0].body, /Fix login: session not identified/);
 
-  // A positional prompt would be sent again on resume: refused and listed.
-  const prompted = ['env', 'CLAUDE_CONFIG_DIR=/accounts/work', 'claude', 'Please fix the login bug'];
+  // A positional argument before other options is not a task prompt: refused and listed.
+  const prompted = ['env', 'CLAUDE_CONFIG_DIR=/accounts/work', 'claude', 'unknown', '--verbose'];
   world = makeWorld({ agents: [], terminals: [shellTerminal()] });
   made = makeApi(world, { memory: { [KEY]: { 'tab-1': record({ command: prompted }) } } });
   await createThreadResume(made.api).tick(6000);
@@ -231,4 +231,12 @@ test('archived conversations are removed from the resume records by the identity
   const kept = { 'tab-2': record({ tabId: 'tab-2' }) };
   assert.deepEqual(identity.recordsWithout({ 'tab-1': record(), ...kept }, 'tab-1'), kept);
   assert.deepEqual(identity.recordsWithout(undefined, 'tab-1'), {});
+});
+
+test('a launch started with a task resumes without sending the task again', () => {
+  const claude = ['env', 'CLAUDE_CONFIG_DIR=/work', 'claude', '--model', 'opus', 'Fix the login bug'];
+  assert.deepEqual(identity.resumeCommand(claude, ID), ['env', 'CLAUDE_CONFIG_DIR=/work', 'claude', '--model', 'opus', '--resume', ID]);
+  const codex = ['codex', '-c', 'x=1', '--no-daemon', 'Work on this task: Fix login'];
+  assert.deepEqual(identity.resumeCommand(codex, ID), ['codex', 'resume', '-c', 'x=1', '--no-daemon', ID]);
+  assert.equal(identity.resumeCommand(['claude', 'one', 'two'], ID), null, 'two positional arguments are not a task');
 });

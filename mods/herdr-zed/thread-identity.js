@@ -15,13 +15,16 @@ export const hasCredential = command => command.some(arg => /^[A-Z_][A-Z0-9_]*=/
 
 const valuedOptions = new Set(['-m', '--model', '-s', '--sandbox', '-a', '--ask-for-approval', '--profile', '--permission-mode', '-c', '--config']);
 
-// The launch's argv reopening `id`, or null when the launch carries a positional prompt (it would be sent again).
+// The launch's argv reopening `id`. A launch started with a task (New thread, Tasks) carries it as the last argument
+// (`claude [options] [prompt]`, `codex [options] [prompt]`): it is dropped, so resuming never sends it again. Any other
+// positional argument is unknown, so the launch is not resumed (null).
 export const resumeCommand = (command, id) => {
   const executable = command.findIndex(arg => !arg.includes('=') && commandKind([arg]));
   const args = command.slice(executable + 1);
-  if (args.some((arg, index) => !arg.startsWith('-') && !valuedOptions.has(args[index - 1])
-      && arg !== 'resume' && arg !== id && !/^[a-f0-9-]{36}$/i.test(arg))) return null;
-  return resumeArgv(command, id);
+  const positional = args.flatMap((arg, index) => !arg.startsWith('-') && !valuedOptions.has(args[index - 1])
+      && arg !== 'resume' && arg !== id && !/^[a-f0-9-]{36}$/i.test(arg) ? [index] : []);
+  if (positional.length > 1 || positional.length === 1 && positional[0] !== args.length - 1) return null;
+  return resumeArgv(command, id, positional.length === 1);
 };
 
 // Unix-like lookup: Claude reads its session file for the PID; Codex lists the rollout files its process holds open.
