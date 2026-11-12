@@ -204,6 +204,8 @@ user clicks + / New Thread
          space, if given, exists; machine matches the space's machine
        - name: non-empty string ≤ 120 chars; argv: non-empty array of strings; profile: string or null
        - task, if given: non-empty string ≤ 20 000 chars, passed as tab.new / space.new `task` (first message)
+         (Herdr does not deliver `task` to a wrapped launch command, so Agents puts a Claude Code or Codex task in
+          argv as the prompt argument instead and sends `task` only for other programs)
      invalid / expired → dropped, notify error once, picker left open
      valid → tab.new / space.new with argv **as given** (no terminalArgv rewrite, no quoting, no
              injection), record { profile, source } for the new tab, close target.overlay, focus main

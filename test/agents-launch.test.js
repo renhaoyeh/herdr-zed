@@ -11,7 +11,7 @@ const clone = value => value === undefined ? undefined : JSON.parse(JSON.stringi
 
 async function launcher({ platform = 'macos', spaces = [{ id: 'one', machine: null }], prepare, queued } = {}) {
   const memory = queued ? { 'herdr-zed.launch.requests': queued } : {};
-  const host = { ...contract, terminalArgv, window: () => ({ platform }), spaces: () => spaces,
+  const host = { ...contract, terminalArgv, sessionKind: sessions.sessionKind, window: () => ({ platform }), spaces: () => spaces,
     shared: key => clone(memory[key]), setShared: (key, value) => { memory[key] = clone(value); },
     prepareSession: prepare || (async () => ({ argv: ['codex', '--model', 'gpt'], session: { model: 'gpt', effort: 'high' } })) };
   const { emitLaunch } = await evaluateNative('../mods/herdr-zed-agents/launch.js', host, 'emitLaunch');
@@ -145,4 +145,16 @@ test('the Agents manifest parses with the shell parser and the separate Usage ma
   assert.deepEqual(meta.provides.launcher.picker, { view: 'launcher', width: 280 });
   await assert.rejects(access(new URL('../mods/herdr-zed-agents/usage/main.js', import.meta.url)), { code: 'ENOENT' });
   await assert.rejects(access(new URL('../mods/herdr-zed-agents/usage/mod.json', import.meta.url)), { code: 'ENOENT' });
+});
+
+test('a composer task is the prompt argument for Claude Code and Codex, and a task field for other programs', async () => {
+  const codex = await launcher({ platform: 'windows' });
+  await codex.emitLaunch(agent, { ...target, task: 'Fix the login\nbug' }, {});
+  const [request] = codex.memory['herdr-zed.launch.requests'];
+  assert.deepEqual(request.argv, terminalArgv(['codex', '--model', 'gpt', 'Fix the login\nbug'], 'windows'));
+  assert.equal(Object.hasOwn(request, 'task'), false, 'not sent twice');
+  const other = await launcher({ prepare: async () => ({ argv: ['copilot'], session: {} }) });
+  await other.emitLaunch({ key: 'copilot', name: 'Copilot' }, { ...target, task: 'Hi' }, {});
+  assert.deepEqual(other.memory['herdr-zed.launch.requests'][0].argv, ['copilot']);
+  assert.equal(other.memory['herdr-zed.launch.requests'][0].task, 'Hi');
 });

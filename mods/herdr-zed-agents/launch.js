@@ -4,6 +4,7 @@ import { spaces, shared, setShared, window } from 'herdr';
 import { validateLaunchRequest } from './components/extension-contract.js';
 import { terminalArgv } from './components/session-shell.js';
 import { prepareSession } from './session-preparation.js';
+import { sessionKind } from './components/session-model.js';
 
 export const LAUNCH_REQUESTS = 'herdr-zed.launch.requests';
 export const LAUNCHER_ID = 'agents';
@@ -26,8 +27,14 @@ export async function emitLaunch(agent, target = {}, options = {}, origin = null
   const { argv: prepared, session = {} } = await prepareSession(agent, target, options);
   if (!Array.isArray(prepared) || !prepared.length || prepared.some(arg => typeof arg !== 'string'))
     throw new Error('This program has no launch command.');
+  // The composer's text becomes the agent's first message. Herdr's tab.new `task` is not delivered to a wrapped launch
+  // command, so Claude Code and Codex take it as their prompt argument (`claude [options] [prompt]`,
+  // `codex [options] [prompt]`); other programs still get it as `task`.
+  const task = typeof target.task === 'string' && target.task.trim() ? target.task : null;
+  const prompted = Boolean(task) && ['claude', 'codex'].includes(sessionKind(agent));
+  const command = prompted ? [...prepared, task] : prepared;
   // Local shells need the platform wrapper; remote launches run as given.
-  const argv = machine ? prepared : terminalArgv(prepared, window()?.platform);
+  const argv = machine ? command : terminalArgv(command, window()?.platform);
   const location = Object.fromEntries(Object.entries({
     space: target.space, folder: target.folder, projectName: target.projectName, machine: machine || undefined, overlay: target.overlay,
   }).filter(([, value]) => value !== undefined));
@@ -35,8 +42,7 @@ export async function emitLaunch(agent, target = {}, options = {}, origin = null
     id: `launch:${Date.now()}:${Math.random().toString(36).slice(2)}`, source: LAUNCHER_ID, target: location,
     name: agent.name || agent.key, argv, profile: agent.key ?? null, expiresAt: Date.now() + LAUNCH_LIFETIME,
     ...(launchOriginValue ? { origin: launchOriginValue } : {}),
-    // The composer's text becomes the agent's first message.
-    ...(typeof target.task === 'string' && target.task.trim() ? { task: target.task } : {}),
+    ...(task && !prompted ? { task } : {}),
   };
   const checked = validateLaunchRequest(request, { now: Date.now(), launcherId: LAUNCHER_ID, spaces: spaces() });
   if (!checked.ok) throw new Error(checked.error);
