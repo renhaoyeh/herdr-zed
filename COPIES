@@ -8,7 +8,7 @@ button.js: herdr-zed herdr-zed-agents herdr-zed-asana herdr-zed-calendar herdr-z
 checkbox.js: herdr-zed herdr-zed-agents herdr-zed-asana herdr-zed-calendar herdr-zed-mantisbt herdr-zed-simulator herdr-zed-system
 claude-usage-hook.js: herdr-zed-agents
 contract-types.d.ts: herdr-zed herdr-zed-agents herdr-zed-github
-dialog.js: herdr-zed herdr-zed-agents herdr-zed-asana herdr-zed-github herdr-zed-simulator herdr-zed-system herdr-zed-mantisbt
+dialog.js: herdr-zed herdr-zed-agents herdr-zed-calendar herdr-zed-asana herdr-zed-github herdr-zed-simulator herdr-zed-system herdr-zed-mantisbt
 dropdown-menu.js: herdr-zed herdr-zed-agents herdr-zed-asana herdr-zed-github herdr-zed-mantisbt herdr-zed-simulator herdr-zed-tasks
 empty.js: herdr-zed
 extension-contract.js: herdr-zed herdr-zed-agents herdr-zed-github
@@ -39,3 +39,4 @@ agent-process-windows.js: herdr-zed herdr-zed-tasks
 agent-session-windows.js: herdr-zed herdr-zed-tasks
 workspace-overlay.js: herdr-zed herdr-zed-asana herdr-zed-calendar herdr-zed-mantisbt herdr-zed-system herdr-zed-tasks
 image-attachments.js: herdr-zed herdr-zed-tasks
+autosave.js: herdr-zed herdr-zed-agents herdr-zed-asana herdr-zed-calendar herdr-zed-github herdr-zed-mantisbt

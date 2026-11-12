@@ -3,6 +3,8 @@
   "dataReset": { "helper": "reset-provider.js" },
   "id": "system",
   "title": "System Monitor",
+  "description": "CPU, memory, GPU and disk readings for this computer.",
+  "category": "tools",
   "settings": { "view": "settings", "title": "System Monitor" },
   "services": [
     { "view": "service" }

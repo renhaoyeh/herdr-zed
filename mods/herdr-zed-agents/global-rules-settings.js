@@ -6,7 +6,8 @@ import { defaultRules } from './global-rules-model.js';
 import { providerDevkits } from './devkits.js';
 import { Button } from './components/button.js';
 import { glyph, AgentIcon } from './components/icon.js';
-import { DialogDescription, DialogFooter } from './components/dialog.js';
+import { DialogDescription } from './components/dialog.js';
+import { Autosave } from './components/autosave.js';
 
 const previewProviders = [{ id: 'claude', label: 'Claude Code' }, { id: 'codex', label: 'Codex' }];
 // Parts added when a session starts, in injection order after the selected Capabilities.
@@ -15,41 +16,29 @@ const launchParts = [
   { id: 'profile', name: 'Profile instructions', source: 'Profiles', description: 'Added at launch for the chosen Profile.' },
 ];
 
-// Global Rules lists, in order, what a new local session receives, and edits the Custom section that comes last.
+// Global Rules lists, in order, what a new local session receives, and edits the Custom section that comes last. Custom
+// saves itself shortly after the last edit (design.md, Saving); closing the page writes an edit still waiting.
 export const globalRulesSettings = {
   initGlobalRules(cx) {
     if (this.rulesCustom) return;
     this.rulesLoading = true; this.rulesProvider = 'claude'; this.rulesKits = {}; this.rulesOpen = null;
     this.rulesCustom = EditorState.new({ value: '', soft_wrap: true });
-    this.rulesCustom.on('change', (_event, cx) => { this.rulesSaved = false; cx.notify(); });
+    this.rulesCustom.on('change', (_event, cx) => cx.notify());
+    this.rulesAuto = new Autosave({ snapshot: () => this.rulesCustom.value(), save: async () => {
+      const source = this.rulesCustom.value();
+      await writeTextFile(rulesPath(), source, this.rulesOriginal);
+      this.rulesOriginal = source;
+    } });
+    this.rulesAuto.attach(cx);
     cx.spawn(async cx => {
       try {
         const [source, claude, codex] = await Promise.all([readTextFile(rulesPath()), providerDevkits('claude'), providerDevkits('codex')]);
         this.rulesOriginal = source; this.rulesKits = { claude, codex };
         this.rulesCustom.set_value(source ?? defaultRules);
-        this.rulesLoaded = true;
+        this.rulesLoaded = true; this.rulesAuto.reset();
       } catch (error) { this.rulesError = error.message; }
       finally { this.rulesLoading = false; cx.notify(); }
     });
-  },
-
-  saveGlobalRules(cx) {
-    if (this.rulesLoading || this.rulesSaving || !this.rulesLoaded) return;
-    const source = this.rulesCustom.value();
-    this.rulesSaving = true; this.rulesError = null; cx.notify();
-    cx.spawn(async cx => {
-      try {
-        await writeTextFile(rulesPath(), source, this.rulesOriginal);
-        this.rulesOriginal = source; this.rulesSaved = true;
-      } catch (error) { this.rulesError = error.message; }
-      finally { this.rulesSaving = false; cx.notify(); }
-    });
-  },
-
-  discardGlobalRules(cx) {
-    if (this.rulesSaving || !this.rulesLoaded) return;
-    this.rulesCustom.set_value(this.rulesOriginal ?? defaultRules);
-    this.rulesSaved = false; this.rulesError = null; cx.notify();
   },
 
   globalRulesNavigation(t) {
@@ -76,12 +65,9 @@ export const globalRulesSettings = {
         .child(TextView.markdown(`global-rules-body-${row.id}`, row.body).text_size(12).selectable(true).scrollable(false))));
   },
 
-  globalRulesDirty() { return Boolean(this.rulesLoaded && this.rulesCustom) && this.rulesCustom.value() !== (this.rulesOriginal ?? defaultRules); },
-
   globalRulesPage(t) {
     if (!this.rulesCustom || this.rulesLoading) return DialogDescription(t).child('Loading global rules…');
-    const busy = Boolean(this.rulesSaving), provider = this.rulesProvider || 'claude';
-    const dirty = this.globalRulesDirty();
+    const provider = this.rulesProvider || 'claude', auto = this.rulesAuto;
     const rows = [
       ...(this.rulesKits?.[provider]?.items || []).map(item => ({ ...item,
         source: `Capabilities · ${item.kind === 'rule' ? 'Rule' : 'Skill'}${item.source === 'mine' ? ' · Mine' : ''}` })),
@@ -96,13 +82,10 @@ export const globalRulesSettings = {
             .child(div().w(18).flex_none().text_size(11).text_color(t.dim).child(String(rows.length + 1)))
             .child(div().text_size(13).child('Custom'))
             .child(div().text_size(11).text_color(t.muted).child('Global Rules · yours')))
-          .child(Editor.new(this.rulesCustom).h(220).border(1).border_color(t.border).disabled(busy || !this.rulesLoaded))))
-      .when(Boolean(this.rulesError), el => el.child(div().text_size(12).text_color(t.ansi1).child(this.rulesError)))
-      .child(DialogFooter().flex_none()
-        .child(div().flex_1().text_size(12).text_color(t.muted).child(this.rulesSaved ? 'Saved. Applies to new sessions.' : dirty ? 'Unsaved Custom changes.' : ''))
-        .child(Button('discard-global-rules', t, { variant: 'secondary' }).disabled(busy || !dirty)
-          .on_click((_event, cx) => this.discardGlobalRules(cx)).child('Discard changes'))
-        .child(Button('save-global-rules', t).disabled(busy || !dirty)
-          .on_click((_event, cx) => this.saveGlobalRules(cx)).child(busy ? 'Saving…' : 'Save changes')));
+          .child(Editor.new(this.rulesCustom).h(220).border(1).border_color(t.border).disabled(!this.rulesLoaded))))
+      // One fixed status line: saving, saved (applies to new sessions) or the error.
+      .child(div().id('global-rules-status').h(20).flex_none().truncate().text_size(12)
+        .text_color(this.rulesError || auto.error ? t.ansi1 : t.muted)
+        .child(this.rulesError || (auto.status() === 'Saved' ? 'Saved. Applies to new sessions.' : auto.status())));
   },
 };

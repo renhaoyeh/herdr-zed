@@ -33,6 +33,21 @@ export async function readAccountAuthor(account, on) {
     email: typeof profile.email === 'string' ? profile.email.trim() : '' };
 }
 
+/** The commit author remembered for an account on a machine, or null. */
+export function rememberedAuthor(account, on) {
+  const saved = validAccount(account) ? shared(authorKey)?.[accountAuthorKey(account, on)] : null;
+  return typeof saved?.name === 'string' && saved.name && typeof saved?.email === 'string' && saved.email ? { name: saved.name, email: saved.email } : null;
+}
+
+/** Every repository bound to an account: `{ machine, folder, account }`, ordered by folder. */
+export function gitBindings() {
+  return Object.entries(shared(key) || {}).flatMap(([scope, account]) => {
+    let parsed; try { parsed = JSON.parse(scope); } catch { return []; }
+    if (!Array.isArray(parsed) || typeof parsed[1] !== 'string' || !validAccount(account)) return [];
+    return [{ machine: parsed[0] || null, folder: parsed[1], account: { host: account.host, login: account.login } }];
+  }).sort((a, b) => a.folder.localeCompare(b.folder));
+}
+
 export function gitAccount(project) {
   const account = shared(key)?.[projectKey(project?.machine, project?.folder)];
   return validAccount(account) ? { host: account.host, login: account.login } : null;

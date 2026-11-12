@@ -5,6 +5,8 @@ import MantisPanel from './ui.js';
 import { mantisSource } from './source.js';
 import { sourceModuleOptions } from './components/source-channel.js';
 import { Button } from './components/button.js';
+import { Autosave } from './components/autosave.js';
+import { connectionStatus } from './components/task-source.js';
 import { DialogContent, DialogHeader, DialogDescription } from './components/dialog.js';
 
 // MantisBT's My Account page: the server URL and API token. The panel owns the connection state
@@ -17,9 +19,13 @@ export class MantisSettings {
     this.panel = new MantisPanel(sourceModuleOptions(mantisSource, this.target));
     this.panel.init(cx);
     this.panel.open(this.target.context, cx);
+    // The connection saves itself shortly after the last edit, once its check passes (design.md, Saving).
+    this.auto = new Autosave({ snapshot: () => JSON.stringify([this.panel.tokenInput.value().trim(), this.panel.serverInput?.value().trim() || '']),
+      valid: () => Boolean(this.panel.tokenInput.value().trim()), save: () => this.panel.writeConnection() });
+    this.auto.attach(cx);
   }
 
-  close() { this.panel?.dispose(); }
+  close() { this.auto?.flush().finally(() => this.panel?.dispose()); }
 
   render(cx) {
     const t = theme(), panel = this.panel;
@@ -27,7 +33,7 @@ export class MantisSettings {
     // The form shows the saved connection once it is known, and again after a save or clear changes the token.
     if (loaded) {
       const key = String(panel.token);
-      if (this.seeded !== key) { this.seeded = key; panel.seedSettings(); }
+      if (this.seeded !== key) { this.seeded = key; panel.seedSettings(); this.auto.reset(); }
       panel.syncFields(cx);
     }
     const label = text => div().text_size(13).font_medium().child(text);
@@ -44,13 +50,10 @@ export class MantisSettings {
           .child(Button('mantis-copy-token', t, { variant: 'outline' }).h(32).disabled(!panel.tokenInput.value().trim())
             .accessibility_label('Copy personal access token').on_click((_event, cx) => panel.copyToken(cx))
             .child(panel.tokenCopied ? 'Copied' : 'Copy')))
-        .child(DialogDescription(t).child('Create an API Token in MantisBT → My Account → API Tokens. Save keeps your settings even if the connection fails.'))
-        .when(Boolean(panel.error), el => el.child(div().id('mantis-error').text_size(12).text_color(t.destructive).child(panel.error)))
-        .child(h_flex().gap(8)
-          .child(Button('mantis-save-token', t).disabled(busy).on_click((_event, cx) => panel.saveToken(cx)).child(busy ? 'Saving…' : 'Save'))
-          .child(Button('mantis-cancel-token', t, { variant: 'outline' }).disabled(busy).on_click((_event, cx) => panel.openSettings(cx)).child('Cancel'))
-          .when(Boolean(panel.token), el => el.child(Button('mantis-clear-token', t, { variant: 'outline' }).disabled(busy)
-            .on_click((_event, cx) => panel.clearToken(cx)).child('Clear saved token'))))
+        .child(DialogDescription(t).child('Create an API Token in MantisBT → My Account → API Tokens. Changes are checked and saved automatically.'))
+        .child(connectionStatus('mantis', t, this.auto, panel))
+        .when(Boolean(panel.token), el => el.child(h_flex().child(Button('mantis-clear-token', t, { variant: 'outline' }).disabled(busy || this.auto.saving)
+          .on_click((_event, cx) => panel.clearToken(cx)).child('Clear saved token'))))
         .child(panel.fieldSettings()));
     if (this.embedded) return v_flex().id('mantis-settings').size_full().min_h(0).p(24).overflow_y_scroll().child(body);
     const close = () => closeOverlay(this.target.overlay);

@@ -3,6 +3,8 @@
   "dataReset": null,
   "id": "github",
   "title": "GitHub",
+  "description": "Push, pull and commit as a chosen GitHub account in each repository.",
+  "category": "git",
   "settings": { "view": "settings", "title": "GitHub" },
   "services": [
     { "view": "service" }

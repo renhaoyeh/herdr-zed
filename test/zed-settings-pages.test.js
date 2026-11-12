@@ -58,8 +58,9 @@ async function settingsHost(settings, { page = null } = {}) {
   let current = { page, context: null };
   const host = { div: element, v_flex: element, h_flex: element, Button: id => element(id), DialogTitle: () => element(), DialogDescription: () => element(),
     Switch: (id, checked) => element(id, { checked }), ToggleGroup: id => element(id), ToggleGroupItem: id => element(id), ToolbarButton: id => element(id),
-    glyph: () => element(), AUTO_RESUME_KEY: 'herdr-zed.auto-resume', extensionCatalog: () => ({ resolved: { settings } }),
-    BuildRulesSettings: class {}, GitAuthorSettings: class {}, ExtensionsManager: class {}, props: () => current,
+    glyph: () => element(), AUTO_RESUME_KEY: 'herdr-zed.auto-resume', unsavedKey: overlay => `herdr-zed.unsaved.${overlay}`, AlertDialogContent: () => element(), AlertDialogTitle: () => element(), AlertDialogDescription: () => element(), AlertDialogFooter: () => element(), AlertDialogCancel: id => element(id), extensionCatalog: () => ({ resolved: { settings } }),
+    BuildRulesSettings: class {}, GitAuthorSettings: class {}, props: () => current,
+    managedExtensions: () => [], extensionKeyOf: entry => entry.id, packageStatus: () => null, packageAbout: () => '', placeSwitches: () => null, placeSurfaces: () => [], ExtensionsNav: class {},
     openOverlay: () => 'overlay', closeOverlay() {}, run() {}, notify() {}, shared: () => undefined, setShared() {} };
   const exported = await evaluateNative('../mods/herdr-zed/settings.js', host,
     'settingsPageKey, extensionSettingsPages, settingsOverlay, SettingsNav');
@@ -75,7 +76,7 @@ test('a sub-page is keyed <extension>:<page> and deep-linkable, and the nav list
   assert.deepEqual(s.extensionSettingsPages().map(page => [page.key, page.indent, page.page]), [
     ['extension:agents', false, null], ['extension:agents:accounts', true, 'accounts'], ['extension:agents:profiles', true, 'profiles']]);
   const overlay = s.settingsOverlay('extension:agents:profiles', null);
-  assert.deepEqual(overlay.layout.children[0].children[1].content, { mod: 'herdr-zed-agents',
+  assert.deepEqual(overlay.layout.children[1].children[1].content, { mod: 'herdr-zed-agents',
     props: { view: 'manage', embedded: true, page: 'profiles', context: null } });
 });
 
@@ -98,83 +99,122 @@ test('without Settings pages the nav keeps Workspace and Herdr settings, divided
   assert.equal(all(nav).filter(node => node.__id?.startsWith('settings-nav-extension-')).length, 0);
 });
 
-// ---- Manage extensions (L9) ----
+// ---- Extensions dialog: nav on the left, the selected extension on the right ----
 
-async function managerHost(catalog, { enabled = () => true, active = () => true, visible = () => true } = {}) {
+async function managerHost(catalog, { enabled = () => true, active = () => true, visible = () => true, page = null, overlay = null } = {}) {
   const changes = [];
   const host = { div: element, h_flex: element, v_flex: element, Button: id => element(id), Switch: (id, checked) => element(id, { checked }),
+    props: () => ({ page, context: null, overlay }),
     extensionCatalog: () => catalog, refreshExtensions: async () => {}, extensionEnabled: enabled, extensionActive: active,
-    setExtensionEnabled: (mod, value) => changes.push(['enabled', mod, value]), extensionSurfaceVisible: visible,
-    setExtensionSurfaceVisible: (surface, value) => changes.push(['surface', surface.id, value]) };
-  const { ExtensionsManager, packageStatus } = await evaluateNative('../mods/herdr-zed/extensions-manager.js', host,
-    'ExtensionsManager, packageStatus');
-  return { ExtensionsManager, packageStatus, changes };
+    extensionSurfaceVisible: visible, setExtensionSurfaceVisible: (surface, value) => changes.push(['surface', surface.id, value]),
+    extensionCategories: ['work', 'sources', 'git', 'tools'] };
+  const exported = await evaluateNative('../mods/herdr-zed/extensions-manager.js', host,
+    'ExtensionsNav, packageStatus, packagePlaces, packageAbout, placeSwitches, managedExtensions');
+  return { ...exported, changes };
 }
 
-const catalogWith = (packages, resolved = { unavailable: [], conflicts: [] }, errors = []) => ({ ready: true, loading: false, packages, resolved, errors });
+const catalogWith = (packages, resolved = { unavailable: [], conflicts: [] }, errors = [], actions = []) => ({ ready: true, loading: false, packages, resolved, errors, actions });
 
-test('Manage extensions: plain status lines, an On/Off switch per package, and a switch per surface labelled by where it shows', async () => {
+test('an installed extension that is off keeps its settings page; one that failed to load or is for another platform has none', async () => {
+  const off = { mod: 'herdr-zed-asana', id: 'asana', title: 'Asana', surfaces: [], settings: { view: 'settings', title: 'Asana', pages: [] } };
+  const host = { div: element, v_flex: element, h_flex: element, Button: id => element(id), DialogTitle: () => element(), DialogDescription: () => element(),
+    Switch: (id, checked) => element(id, { checked }), ToolbarButton: id => element(id), glyph: () => element(), AUTO_RESUME_KEY: 'x', unsavedKey: overlay => `herdr-zed.unsaved.${overlay}`, AlertDialogContent: () => element(), AlertDialogTitle: () => element(), AlertDialogDescription: () => element(), AlertDialogFooter: () => element(), AlertDialogCancel: id => element(id),
+    BuildRulesSettings: class {}, GitAuthorSettings: class {}, ExtensionsNav: class {}, extensionKeyOf: entry => entry.id || entry.mod,
+    managedExtensions: () => [off, { ...off, mod: 'herdr-zed-mac', id: 'mac', unsupported: true }, { ...off, mod: 'herdr-zed-bad', id: 'bad', error: 'x' }],
+    extensionCatalog: () => ({ resolved: { settings: [] } }), packageStatus: () => null, packageAbout: () => '', placeSwitches: () => null, placeSurfaces: () => [],
+    extensionEnabled: () => false, setExtensionEnabled() {}, props: () => ({}), openOverlay: () => 'o', closeOverlay() {}, run() {}, notify() {},
+    shared: () => undefined, setShared() {} };
+  const { extensionSettingsPages } = await evaluateNative('../mods/herdr-zed/settings.js', host, 'extensionSettingsPages');
+  assert.deepEqual(extensionSettingsPages().map(page => [page.key, page.view]), [['extension:asana', 'settings']]);
+});
+
+test('extension helpers: problems only, fixed places, and the launcher stays out of the list', async () => {
   const packages = [
-    { mod: 'herdr-zed-tasks', id: 'tasks', title: 'Tasks', surfaces: [] },
-    { mod: 'herdr-zed-calendar', id: 'calendar', title: 'Calendar', requires: ['tasks'], surfaces: [] },
+    { mod: 'herdr-zed-tasks', id: 'tasks', title: 'Tasks', category: 'work', description: 'A task board.', surfaces: [] },
+    { mod: 'herdr-zed-calendar', id: 'calendar', title: 'Calendar', category: 'work', requires: ['tasks'], surfaces: [] },
     { mod: 'herdr-zed-mac', id: 'mac', title: 'Mac only', unsupported: true, surfaces: [] },
-    { mod: 'herdr-zed-system', id: 'system', title: 'System', surfaces: [
-      { id: 'widgets', location: 'sidebar.bottom', view: 'widgets', title: 'Widgets', icon: 'globe', mod: 'herdr-zed-system' },
-      { id: 'inline', location: 'status.right', view: 'inline', title: 'Inline', icon: 'globe', mod: 'herdr-zed-system' },
-      { id: 'dock', location: 'dock.right', view: 'dock', title: 'Dock', icon: 'globe', mod: 'herdr-zed-system' }] },
+    { mod: 'herdr-zed-workflow', id: 'workflow', title: 'Workflows', provides: { launcher: {} }, surfaces: [] },
   ];
   const resolved = { unavailable: [{ mod: 'herdr-zed-calendar', id: 'calendar', missing: ['tasks'] }], conflicts: [] };
-  const m = await managerHost(catalogWith(packages, resolved), { enabled: mod => mod !== 'herdr-zed-tasks',
-    active: mod => mod !== 'herdr-zed-tasks', visible: surface => surface.id !== 'dock' });
-  assert.equal(m.packageStatus(packages[0], catalogWith(packages, resolved)), 'Off');
-  assert.equal(m.packageStatus(packages[1], catalogWith(packages, resolved)), 'Needs Tasks');
-  assert.equal(m.packageStatus(packages[2], catalogWith(packages, resolved)), 'Not available on this platform');
-  assert.equal(m.packageStatus(packages[3], catalogWith(packages, resolved)), 'On');
-  assert.equal(m.packageStatus({ ...packages[0], error: 'Invalid manifest.' }, catalogWith(packages, resolved)), 'Invalid manifest.');
-
-  const page = new m.ExtensionsManager().render(theme);
-  assert.ok(byId(page, 'extensions-refresh'), 'Refresh is in the page header area');
-  assert.equal(byId(page, 'extension-toggle-herdr-zed-tasks').checked, false);
-  assert.equal(byId(page, 'extension-toggle-herdr-zed-system').checked, true);
-  assert.equal(byId(page, 'extension-toggle-herdr-zed-mac'), null, 'a package for another platform has no enable switch');
-  const text = strings(page).join(' ');
-  assert.ok(text.includes('Show Widgets in sidebar') && text.includes('Show Inline in status bar') && text.includes('Show Dock in right dock'));
-  assert.equal(/Popup|surfaces|Hide Sidebar|Disable/.test(text), false, 'no internal terms and no text toggles');
-  assert.equal(byId(page, 'extension-surface-toggle-widgets').checked, true);
-  assert.equal(byId(page, 'extension-surface-toggle-dock').checked, false);
-  assert.equal(byId(page, 'extension-surface-toggle-widgets').__handlers.on_change !== undefined, true);
+  const catalog = catalogWith(packages, resolved, [], [{ mod: 'herdr-zed-tasks', location: 'status.right' }, { mod: 'herdr-zed-github', location: 'git.actions' }]);
+  const m = await managerHost(catalog);
+  assert.equal(m.packageStatus(packages[0], catalog), null, 'On/Off is the switch, not a status line');
+  assert.equal(m.packageStatus(packages[1], catalog), 'Turn on Tasks to use it');
+  assert.equal(m.packageStatus(packages[2], catalog), 'Not available on this platform');
+  assert.equal(m.packageStatus({ ...packages[0], error: 'Invalid manifest.' }, catalog), 'Invalid manifest.');
+  assert.deepEqual(m.packagePlaces(packages[0], catalog), ['Status bar button']);
+  assert.deepEqual(m.packagePlaces({ mod: 'herdr-zed-github', provides: { gitCredentials: {} } }, catalog), ['Changes and Git commands']);
+  assert.equal(m.packageAbout(packages[0], catalog), 'A task board. Status bar button.');
+  assert.deepEqual(m.managedExtensions(catalog).map(entry => entry.id), ['tasks', 'calendar', 'mac'], 'category order, no launcher');
 });
 
-test('a switch change goes through the shell, and an unsupported package has no surface rows', async () => {
-  const packages = [{ mod: 'herdr-zed-system', id: 'system', title: 'System', surfaces: [
-    { id: 'widgets', location: 'sidebar.bottom', view: 'widgets', title: 'Widgets', icon: 'globe', mod: 'herdr-zed-system' }] }];
-  const m = await managerHost(catalogWith(packages));
-  const page = new m.ExtensionsManager().render(theme);
-  byId(page, 'extension-toggle-herdr-zed-system').__handlers.on_change(false, { notify() {} });
-  byId(page, 'extension-surface-toggle-widgets').__handlers.on_change(false, { notify() {} });
-  assert.deepEqual(m.changes, [['enabled', 'herdr-zed-system', false], ['surface', 'widgets', false]]);
+test('the Extensions nav groups extensions, marks the open one, and opens another on click', async () => {
+  const packages = [
+    { mod: 'herdr-zed-system', id: 'system', title: 'System', surfaces: [] },
+    { mod: 'herdr-zed-tasks', id: 'tasks', title: 'Tasks', category: 'work', surfaces: [] },
+    { mod: 'herdr-zed-asana', id: 'asana', title: 'Asana', category: 'sources', surfaces: [] }];
+  const m = await managerHost(catalogWith(packages), { page: 'extension:tasks', overlay: 'o1', active: mod => mod !== 'herdr-zed-asana' });
+  const opened = [];
+  const nav = new m.ExtensionsNav({ openSettings: (key, context) => opened.push([key, context]), pageKey: id => `extension:${id}`, closeOnEscape: el => el }).render(theme);
+  const text = strings(nav);
+  assert.ok(['WORK', 'TASK SOURCES', 'TOOLS'].every(label => text.includes(label)), 'category labels');
+  assert.ok(text.indexOf('Tasks') < text.indexOf('Asana') && text.indexOf('Asana') < text.indexOf('System'), 'category order');
+  assert.equal(byId(nav, 'extensions-nav-o1-herdr-zed-tasks').__attrs.bg, theme.selected, 'the open extension is selected');
+  assert.equal(byId(nav, 'extensions-nav-o1-herdr-zed-asana').__attrs.accessibility_label, 'Asana, off');
+  byId(nav, 'extensions-nav-o1-herdr-zed-tasks').__handlers.on_click();
+  assert.deepEqual(opened, [], 'the open one does not reopen');
+  byId(nav, 'extensions-nav-o1-herdr-zed-asana').__handlers.on_click();
+  assert.deepEqual(opened, [['extension:asana', null]]);
+  assert.ok(byId(nav, 'extensions-refresh'));
 });
 
-test('the extension overview opens configuration only for an available settings contribution', async () => {
-  const packages = [{ mod: 'herdr-zed-demo', id: 'demo', title: 'Demo', surfaces: [] },
-    { mod: 'herdr-zed-plain', id: 'plain', title: 'Plain', surfaces: [] }];
-  const catalog = catalogWith(packages, { settings: [{ mod: 'herdr-zed-demo', id: 'demo' }] });
-  const m = await managerHost(catalog), opened = [];
-  const page = new m.ExtensionsManager({ openSettings: id => opened.push(id) }).render(theme);
-  byId(page, 'extension-settings-demo').__handlers.on_click();
-  assert.deepEqual(opened, ['demo']);
-  assert.equal(byId(page, 'extension-settings-plain'), null);
+test('place switches stay while an extension is off, and go through the shell while it is on', async () => {
+  const system = { mod: 'herdr-zed-system', id: 'system', title: 'System', surfaces: [
+    { id: 'widgets', location: 'sidebar.bottom', view: 'widgets', title: 'Widgets', icon: 'globe', mod: 'herdr-zed-system' },
+    { id: 'inline', location: 'status.right', view: 'inline', title: 'Inline', icon: 'globe', mod: 'herdr-zed-system' }] };
+  const on = await managerHost(catalogWith([system]), { visible: surface => surface.id === 'widgets' });
+  const card = on.placeSwitches(system, theme);
+  assert.ok(strings(card).includes('Show Widgets in sidebar') && strings(card).includes('Show Inline in status bar'));
+  assert.equal(byId(card, 'extension-surface-toggle-widgets').checked, true);
+  byId(card, 'extension-surface-toggle-inline').__handlers.on_change(true, { notify() {} });
+  assert.deepEqual(on.changes, [['surface', 'inline', true]]);
+  const off = await managerHost(catalogWith([system]), { active: () => false });
+  const dimmed = off.placeSwitches(system, theme);
+  assert.ok(byId(dimmed, 'extension-surface-toggle-widgets'), 'rows stay while off');
+  byId(dimmed, 'extension-surface-toggle-widgets').__handlers.on_change(true, { notify() {} });
+  assert.deepEqual(off.changes, [], 'and are inert');
+  assert.equal(on.placeSwitches({ ...system, surfaces: [] }, theme), null);
 });
 
-test('launcher workflows are managed separately from the optional extensions list', async () => {
-  const packages = [{ mod: 'herdr-zed-workflow', id: 'workflow', title: 'Workflows', provides: { launcher: {} }, surfaces: [] },
-    { mod: 'herdr-zed-calendar', id: 'calendar', title: 'Calendar', surfaces: [] }];
-  const m = await managerHost(catalogWith(packages));
-  const page = new m.ExtensionsManager().render(theme);
-  assert.equal(byId(page, 'extension-toggle-herdr-zed-workflow'), null);
-  assert.ok(byId(page, 'extension-toggle-herdr-zed-calendar'));
-  assert.ok(strings(page).some(text => text.startsWith('1 installed')));
-  assert.ok(!strings(page).includes('Workflows'));
+test('an extension page: a plain title bar, then a card with description and On/Off, its problem, and a toggle that keeps the page in place', async () => {
+  const packages = [{ mod: 'herdr-zed-calendar', id: 'calendar', title: 'Calendar', category: 'work', requires: ['tasks'], description: 'Schedules.', surfaces: [] },
+    { mod: 'herdr-zed-tasks', id: 'tasks', title: 'Tasks', surfaces: [] }];
+  const catalog = catalogWith(packages, { unavailable: [{ mod: 'herdr-zed-calendar', missing: ['tasks'] }], conflicts: [] });
+  const m = await managerHost(catalog);
+  const opened = [], toggled = [];
+  const host = { div: element, v_flex: element, h_flex: element, Button: id => element(id), DialogTitle: () => element(), DialogDescription: () => element(),
+    Switch: (id, checked) => element(id, { checked }), ToggleGroup: id => element(id), ToggleGroupItem: id => element(id), ToolbarButton: id => element(id),
+    glyph: () => element(), AUTO_RESUME_KEY: 'herdr-zed.auto-resume', unsavedKey: overlay => `herdr-zed.unsaved.${overlay}`, AlertDialogContent: () => element(), AlertDialogTitle: () => element(), AlertDialogDescription: () => element(), AlertDialogFooter: () => element(), AlertDialogCancel: id => element(id), BuildRulesSettings: class {}, GitAuthorSettings: class {}, ExtensionsNav: class {},
+    extensionCatalog: () => catalog, extensionEnabled: () => true, extensionActive: () => false,
+    setExtensionEnabled: (mod, value) => toggled.push([mod, value]),
+    managedExtensions: m.managedExtensions, extensionKeyOf: entry => entry.id || entry.mod, packageStatus: m.packageStatus,
+    packageAbout: m.packageAbout, placeSwitches: () => null, placeSurfaces: () => [],
+    props: () => current,
+    openOverlay: spec => { opened.push(spec); return 'overlay'; }, closeOverlay() {}, run() {}, notify() {}, closeWorkspacePanel() {},
+    shared: () => undefined, setShared() {} };
+  let current = { page: 'extension:calendar', overlay: 'o', context: null };
+  const { SettingsHeader } = await evaluateNative('../mods/herdr-zed/settings.js', host, 'SettingsHeader');
+  const header = new SettingsHeader().render(theme);
+  assert.deepEqual(strings(header).filter(Boolean), ['Calendar'], 'the title bar holds only the title (and the close control)');
+  assert.equal(byId(header, 'settings-enable-herdr-zed-calendar'), null);
+  current = { ...current, part: 'about' };
+  const about = new SettingsHeader().render(theme);
+  const text = strings(about);
+  assert.ok(text.includes('Schedules.') && text.includes('Turn on Tasks to use it'), 'the card: description, then the problem');
+  assert.equal(byId(about, 'settings-back'), null, 'no back button: the nav is beside it');
+  byId(about, 'settings-enable-herdr-zed-calendar').__handlers.on_change(false, { notify() {} });
+  assert.deepEqual(toggled, [['herdr-zed-calendar', false]]);
+  assert.equal(opened.length, 0, 'toggling leaves the page in place');
 });
 
 test('only the open page is selected in the nav, whichever sub-page or extension is open', async () => {
@@ -201,13 +241,3 @@ test('a nav row is drawn in the overlay it belongs to, so a reopened nav starts 
   assert.ok(first.every(id => !id.includes('overlay-')));
 });
 
-test('Manage extensions: a package that is not available on this platform says so in the muted colour, not as an error', async () => {
-  const packages = [{ mod: 'herdr-zed-mac', id: 'mac', title: 'Mac only', unsupported: true, surfaces: [] },
-    { mod: 'herdr-zed-tasks', id: 'tasks', title: 'Tasks', error: 'Invalid manifest.', surfaces: [] }];
-  const m = await managerHost(catalogWith(packages));
-  const colours = { ...theme, ansi1: 'ERROR' };
-  const page = new m.ExtensionsManager().render(colours);
-  const statusNode = text => all(page).find(node => (node.__nodes || []).includes(text));
-  assert.equal(statusNode('Not available on this platform').__attrs.text_color, colours.muted, 'not an error');
-  assert.equal(statusNode('Invalid manifest.').__attrs.text_color, 'ERROR', 'a real error stays in the error colour');
-});

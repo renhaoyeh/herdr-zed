@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { evaluateNative } from './source-harness.js';
 import { gitCredentialArgs, projectKey } from '../components/extension-contract.js';
+import { Autosave } from '../components/autosave.js';
 
 const github = file => new URL(`../mods/herdr-zed-github/${file}`, import.meta.url);
 const shell = file => new URL(`../mods/herdr-zed/${file}`, import.meta.url);
@@ -11,20 +12,20 @@ async function settle(tasks) { while (tasks.length) await tasks.shift()({ notify
 
 // Loads the account dialog class from the GitHub mod with native and provider bindings supplied explicitly.
 const ACCOUNT_NAMES = ['Input', 'div', 'InputState', 'v_flex', 'props', 'closeOverlay', 'Button', 'Select', 'SelectState',
-  'DialogContent', 'DialogTitle', 'DialogDescription', 'DialogFooter', 'readGitAuthor', 'saveGitAuthor', 'gitAccount',
+  'DialogContent', 'DialogHeader', 'DialogDescription', 'Autosave', 'readGitAuthor', 'saveGitAuthor', 'gitAccount',
   'setGitAccount', 'readAccountAuthor', 'rememberGitAuthor', 'readGitAccounts', 'theme'];
 async function accountFor(target, host) {
   const source = await readFile(github('account.js'), 'utf8');
   const clean = source.replace(/^import .*;\r?\n/gm, '').replace(/^export /gm, '');
   const values = { Input: {}, div() {}, InputState: { new: input }, v_flex() {}, props: () => target, closeOverlay() {},
     Button() {}, Select() {}, SelectState: class { constructor() { this.search = { release() {} }; } },
-    DialogContent() {}, DialogTitle() {}, DialogDescription() {}, DialogFooter() {}, gitAccount: () => null,
+    DialogContent() {}, DialogHeader() {}, DialogDescription() {}, Autosave, gitAccount: () => null,
     theme: () => ({}), ...host };
   const { GitHubAccount } = new Function(...ACCOUNT_NAMES, clean + '\nreturn { GitHubAccount };')(...ACCOUNT_NAMES.map(name => values[name]));
   return new GitHubAccount();
 }
 
-test('GitHub account keeps the old account and draft after a failed repository author write', async () => {
+test('GitHub account keeps the old account and the edit after a failed repository author write', async () => {
   const events = [], tasks = [], project = { folder: '/repo', machine: 'box' };
   const old = { host: 'github.com', login: 'old' }, chosen = { host: 'github.com', login: 'alice', available: true };
   const view = await accountFor({ context: project, overlay: 'dialog' }, {
@@ -36,16 +37,17 @@ test('GitHub account keeps the old account and draft after a failed repository a
     rememberGitAuthor: () => events.push(['remember']), setGitAccount: () => events.push(['account']),
     closeOverlay: () => events.push(['close']),
   });
-  const cx = { notify() {}, spawn(fn) { tasks.push(fn); } };
+  const cx = { notify() {}, spawn(fn) { tasks.push(fn); }, timer: { every() {} } };
   view.init(cx); await settle(tasks);
   view.chooseAccount('0', cx); await settle(tasks);
   assert.equal(view.name.value(), 'Alice'); assert.equal(view.email.value(), '');
   view.email.set_value('alice@example.test');
-  view.save(cx); await settle(tasks);
+  await view.auto.flush(cx);
   assert.deepEqual(events.map(event => event[0]), ['write']);
   assert.deepEqual(events[0].slice(1), ['/repo', 'box', { name: 'Alice', email: 'alice@example.test' }]);
   assert.equal(view.account, chosen); assert.equal(view.name.value(), 'Alice');
-  assert.equal(view.email.value(), 'alice@example.test'); assert.equal(view.error, 'config locked');
+  assert.equal(view.email.value(), 'alice@example.test'); assert.equal(view.auto.error, 'config locked');
+  assert.equal(view.auto.dirty(), true, 'the failed edit stays to retry');
 });
 
 test('GitHub account draft loads without applying it, and Default restores the repository author', async () => {
@@ -64,28 +66,31 @@ test('GitHub account draft loads without applying it, and Default restores the r
   assert.equal(view.account, null); assert.equal(view.email.value(), 'repo@example.test');
 });
 
-test('GitHub Cancel discards the draft without writing Git config or account state', async () => {
+test('GitHub account closes with its X or Esc after writing an edit still waiting; it has no Save or Cancel', async () => {
   const events = [], tasks = [], target = { context: { folder: '/repo', machine: '' }, overlay: 'dialog' };
   const view = await accountFor(target, { readGitAuthor: async () => ({ name: 'Saved', email: 'saved@example.test' }),
-    readGitAccounts: async () => [], saveGitAuthor: async () => events.push('write'),
-    setGitAccount: () => events.push('account'), rememberGitAuthor: () => events.push('remember'),
+    readGitAccounts: async () => [], saveGitAuthor: async (...args) => events.push(['write', args[2].name]),
+    setGitAccount: () => events.push(['account']), rememberGitAuthor: () => events.push(['remember']),
     closeOverlay: id => events.push(['close', id]) });
-  const cx = { notify() {}, spawn(fn) { tasks.push(fn); } };
+  const cx = { notify() {}, spawn(fn) { tasks.push(fn); }, timer: { every() {} } };
   view.init(cx); await settle(tasks);
-  view.name.set_value('Unsaved');
-  // Render with the same element stub as the shell tests and invoke the Cancel handler it produced.
-  const nodes = new Map(), element = () => { const data = {}; const el = new Proxy(data, { get(obj, key) { if (key === 'when') return (condition, fn) => { if (condition) fn(el); return el; }; return (...args) => { if (key === 'id') nodes.set(args[0], data); if (key === 'on_click') data.click = args[0]; return el; }; } }); return el; };
+  view.name.set_value('Edited');
+  const nodes = new Map(), handlers = {};
+  const element = () => { const data = {}; const el = new Proxy(data, { get(obj, key) { if (key === 'when') return (condition, fn) => { if (condition) fn(el); return el; }; return (...args) => { if (key === 'id') nodes.set(args[0], data); if (key === 'on_key_down') handlers.key = args[0]; return el; }; } }); return el; };
   const source = await readFile(github('account.js'), 'utf8');
-  const render = new Function('div', 'v_flex', 'h_flex', 'glyph', 'Input', 'Button', 'Select', 'DialogContent', 'DialogTitle', 'DialogDescription', 'DialogFooter', 'props', 'closeOverlay', 'theme', 'settings',
+  const render = new Function('div', 'v_flex', 'h_flex', 'glyph', 'Input', 'Button', 'Select', 'DialogContent', 'DialogHeader', 'DialogDescription', 'props', 'closeOverlay', 'theme',
     source.replace(/^import .*;\r?\n/gm, '').replace(/^export /gm, '') + '\nreturn GitHubAccount.prototype.render;');
-  const renderFn = render(element, element, element, element, { new: element }, (id) => element().id(id), () => element(), element, element, element, element, () => target, id => events.push(['close', id]), () => ({}), {});
+  const renderFn = render(element, element, element, element, { new: element }, id => element().id(id), () => element(), element,
+    (_t, _title, { id }) => element().id(id), element, () => target, id => events.push(['close', id]), () => ({}));
   renderFn.call(view, {});
-  for (const id of ['github-account-header', 'github-account-body', 'git-accounts-refresh']) assert.ok(nodes.has(id), `${id}: header, body, footer`);
-  nodes.get('git-author-cancel').click({}, { notify() {} });
-  assert.deepEqual(events, [['close', 'dialog']]);
+  for (const id of ['github-account-header', 'github-account-body', 'github-account-status']) assert.ok(nodes.has(id), id);
+  assert.ok(!nodes.has('git-author-save') && !nodes.has('git-author-cancel'), 'no Save or Cancel');
+  handlers.key({ key: 'escape' }, { stop_propagation() {} });
+  await new Promise(resolve => setTimeout(resolve));
+  assert.deepEqual(events, [['write', 'Edited'], ['account'], ['close', 'dialog']]);
 });
 
-test('GitHub Save writes repository-local author before remembering and binding the account', async () => {
+test('GitHub saves the repository-local author before remembering and binding the account', async () => {
   const events = [], tasks = [], project = { folder: '/repo', machine: 'box' }, target = { context: project, overlay: 'dialog' };
   const account = { host: 'github.com', login: 'alice', available: true };
   const view = await accountFor(target, { gitAccount: () => null,
@@ -94,15 +99,15 @@ test('GitHub Save writes repository-local author before remembering and binding 
     saveGitAuthor: async (...args) => events.push(['write', ...args]),
     rememberGitAuthor: (...args) => events.push(['remember', ...args]),
     setGitAccount: (...args) => events.push(['account', ...args]), closeOverlay: id => events.push(['close', id]) });
-  const cx = { notify() {}, spawn(fn) { tasks.push(fn); } };
+  const cx = { notify() {}, spawn(fn) { tasks.push(fn); }, timer: { every() {} } };
   view.init(cx); await settle(tasks); view.chooseAccount('0', cx); await settle(tasks);
-  view.email.set_value('alice@example.test'); view.save(cx); await settle(tasks);
-  assert.deepEqual(events.map(event => event[0]), ['write', 'remember', 'account', 'close']);
+  view.email.set_value('alice@example.test'); await view.auto.flush(cx);
+  assert.deepEqual(events.map(event => event[0]), ['write', 'remember', 'account']);
   assert.deepEqual(events[0], ['write', '/repo', 'box', { name: 'Alice', email: 'alice@example.test' }]);
   assert.deepEqual(events[2], ['account', project, account]);
 });
 
-test('GitHub account choice waits for Save, asks for a missing email and commits only after successful writes', async () => {
+test('GitHub account choice saves itself once complete, never with a missing email, and only binds after successful writes', async () => {
   const account = { host: 'github.com', login: 'alice', available: true };
   for (const email of ['alice@example.test', '', null]) {
     const project = { folder: '/repo', machine: 'remote' }, target = { context: project, overlay: 'dialog' };
@@ -117,20 +122,22 @@ test('GitHub account choice waits for Save, asks for a missing email and commits
       setGitAccount: (...args) => events.push(['account', ...args]),
       closeOverlay: id => events.push(['close', id]),
     });
-    const cx = { notify() {}, spawn(fn) { tasks.push(fn); } };
+    const cx = { notify() {}, spawn(fn) { tasks.push(fn); }, timer: { every() {} } };
     view.init(cx); await settle(tasks);
     view.chooseAccount('0', cx); await settle(tasks);
     assert.equal(view.email.value(), email || '', 'Never prefill another account email');
     assert.deepEqual(events, []);
     if (!email) {
+      await view.auto.flush(cx);
+      assert.deepEqual(events, [], 'a missing email is never written');
       view.email.set_value('manual@example.test'); fail = true;
-      view.save(cx); await settle(tasks);
+      await view.auto.flush(cx);
       assert.deepEqual(events.map(event => event[0]), ['write']);
-      assert.equal(view.error, 'Locked'); events.length = 0;
-      fail = false; view.save(cx);
-    } else view.save(cx);
-    await settle(tasks);
-    assert.deepEqual(events.map(event => event[0]), ['write', 'remember', 'account', 'close']);
+      assert.equal(view.auto.error, 'Locked'); events.length = 0;
+      fail = false;
+    }
+    await view.auto.flush(cx);
+    assert.deepEqual(events.map(event => event[0]), ['write', 'remember', 'account']);
     assert.deepEqual(events[2], ['account', project, account]);
     view.close();
   }

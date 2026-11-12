@@ -5,6 +5,8 @@ import { boardTheme } from './components/task-theme.js';
 import { Button } from './components/button.js';
 import { Checkbox } from './components/checkbox.js';
 import { glyph } from './components/icon.js';
+import { DiscardPrompt } from './components/dialog.js';
+import { Autosave } from './components/autosave.js';
 import { mentionTrigger, calendarEntries, taskLinkState } from './calendar-tasks.js';
 import { dayKey, nextDay, localDate, monthDays, weekDays, timelineEvents, timelineMinute, rangeDraft, eventsOnDay, eventTime, eventFromDraft, eventDraft, saveEvent, deleteEvent } from './calendar-model.js';
 
@@ -28,6 +30,10 @@ export default class LocalCalendar {
     const now = new Date(); this.month = new Date(now.getFullYear(), now.getMonth(), 1); this.selected = dayKey(now);
     const savedView = shared('herdr-zed.calendar-view'); this.view = ['day', 'week', 'month'].includes(savedView) ? savedView : 'month';
     this.handle = cx.focus_handle(); this.handle.focus(); this.inputs = {};
+    // An existing event saves itself shortly after the last edit (design.md, Saving); a new one waits for Create event.
+    this.auto = new Autosave({ snapshot: () => this.formSnapshot(), save: async () => this.writeEvent(),
+      valid: () => Boolean(this.editing && this.composing && this.inputs.title.value().trim()) });
+    this.auto.attach(cx);
     for (const [key, placeholder] of Object.entries({ title: 'Event title', startDate: 'YYYY-MM-DD', endDate: 'YYYY-MM-DD', startTime: '09:00', endTime: '10:00' })) {
       const input = InputState.new({ placeholder });
       input.on('change', (_event, cx) => {
@@ -124,10 +130,41 @@ export default class LocalCalendar {
     for (const [key, input] of Object.entries(this.inputs)) input.set_value(key === 'title' ? draft.titleContent || draft.title : draft[key]);
     this.notes.set_value(draft.notesContent || draft.notes || ''); this.allDay = draft.allDay;
     this.previousText = { title: this.inputs.title.value(), notes: this.notes.value() };
+    this.baseline = this.formSnapshot(); this.asking = false;
+    if (this.editing) this.auto.reset(); else this.auto.saved = null;
     this.inputs.title.focus(); cx.notify();
   }
 
+  // What Save would write, to tell whether the event form has unsaved edits.
+  formSnapshot() {
+    return JSON.stringify([Object.fromEntries(Object.entries(this.inputs).map(([key, input]) => [key, input.value()])),
+      this.notes.value(), this.allDay, this.taskLink]);
+  }
+  // Only a new event can hold unsaved edits; an existing one saves itself.
+  dirty() { return Boolean(this.composing && !this.editing && this.baseline) && this.formSnapshot() !== this.baseline; }
+  // Esc on a new event asks first when it has edits (design.md, Unsaved changes); Cancel discards on purpose. On an
+  // existing event Esc writes an edit still waiting, then returns.
+  escapeForm(cx) {
+    if (this.editing) { this.closeEditing(cx); return; }
+    if (this.dirty() && !this.asking) { this.asking = true; cx.notify(); return; }
+    this.cancel(cx);
+  }
+  closeEditing(cx) {
+    if (!this.auto.dirty() || !this.auto.valid()) { this.cancel(cx); return; }
+    this.auto.flush(cx).finally(() => { if (!this.auto.error) this.cancel(cx); });
+  }
+
+  // Writes the existing event being edited, keeping the form open; the next write expects the revision it made.
+  writeEvent() {
+    const event = eventFromDraft({ ...Object.fromEntries(Object.entries(this.inputs).map(([key, input]) => [key, input.value().trim()])),
+      titleContent: this.inputs.title.content(), notes: this.notes.value(), notesContent: this.notes.content(), allDay: this.allDay,
+      taskLink: this.taskLink }, this.editing, uid());
+    setShared(storageKey, saveEvent(this.records(), event, this.revision));
+    this.revision = event.revision;
+  }
+
   cancel(cx) {
+    this.asking = false;
     if (this.mention) this.dismissMention(cx, false);
     if (this.creating) { this.composing = false; clearPreview(this.previewId); closeOverlay(props().overlay); return; }
     this.composing = false; this.editing = null; this.error = null; this.handle.focus(); cx.notify();
@@ -348,12 +385,19 @@ export default class LocalCalendar {
         .child(this.mentionField('notes', Textarea.new(this.notes).id('calendar-input-notes').accessibility_label('Event notes').w_full().text_size(13).bg(t.background).border(0), t))
         .child(div().text_size(11).text_color(t.muted).child('Type @ in the title or notes to link a task.'))
         .when(Boolean(this.error && !this.titleError), el => el.child(div().text_size(12).text_color(t.destructive).child(this.error))))
-      .child(h_flex().flex_none().gap(8).items_center().flex_wrap()
-        .when(Boolean(this.editing), el => el.child(Button('calendar-delete', t, { variant: 'ghost' }).text_color(t.destructive).child('Delete event').on_click((_event, cx) => this.remove(cx))))
-        .child(div().flex_1())
+      .child(this.asking && this.dirty()
+        ? DiscardPrompt('calendar-discard', t, { keep: (_event, cx) => { this.asking = false; cx.notify(); }, discard: (_event, cx) => this.cancel(cx) })
+        : this.editing
+        // An existing event: Delete, the save status, and Close back to the day; no Save or Cancel.
+        ? h_flex().flex_none().gap(8).items_center()
+          .child(Button('calendar-delete', t, { variant: 'ghost' }).text_color(t.destructive).child('Delete event').on_click((_event, cx) => this.remove(cx)))
+          .child(div().id('calendar-status').flex_1().min_w(0).truncate().text_size(12).text_color(this.auto.error ? t.destructive || t.ansi1 : t.muted)
+            .child(this.auto.error || this.auto.status()))
+          .child(Button('calendar-close', t, { variant: 'outline' }).child('Close').on_click((_event, cx) => this.closeEditing(cx)))
+        : h_flex().flex_none().gap(8).items_center().flex_wrap()
+        .child(div().id('calendar-unsaved').flex_1().text_size(12).text_color(t.destructive || t.ansi1).child(this.dirty() ? 'Unsaved changes' : ''))
         .child(Button('calendar-cancel', t, { variant: 'outline' }).child('Cancel').on_click((_event, cx) => this.cancel(cx)))
-        .child(Button('calendar-save', t).disabled(titleBlank)
-          .child(this.editing ? 'Save' : 'Create event').on_click((_event, cx) => this.save(cx))));
+        .child(Button('calendar-save', t).disabled(titleBlank).child('Create event').on_click((_event, cx) => this.save(cx))));
   }
 
   agenda(t, events) {
@@ -493,13 +537,13 @@ export default class LocalCalendar {
     if (this.creating) return this.mentionKeyboard(v_flex().id('calendar-create-dialog').size_full().min_h(0).p(24).rounded(12).border(1).border_color(t.border)
       .bg(t.popover).font_family(t.fontFamily).text_color(t.foreground).role('dialog').accessibility_label('New event').track_focus(this.handle)
       .on_key_down((event, cx) => {
-        if (event.key === 'escape') { cx.stop_propagation(); this.cancel(cx); }
+        if (event.key === 'escape') { cx.stop_propagation(); this.escapeForm(cx); }
         else if (event.key === 'enter' && (event.modifiers?.platform || event.modifiers?.control)) { cx.stop_propagation(); this.save(cx); }
       }).child(this.editor({ ...t, background: t.popover })));
     return this.mentionKeyboard(v_flex().id('local-calendar').size_full().min_h(0).overflow_hidden().when(!props()?.docked, el => el.rounded(12).border(1).border_color(t.border))
       .bg(t.background).font_family(t.fontFamily).text_color(t.foreground).role('dialog').accessibility_label('Calendar').track_focus(this.handle)
       .on_key_down((event, cx) => {
-        if (event.key === 'escape') { cx.stop_propagation(); if (this.drag) this.cancelRange(cx); else this.composing ? this.cancel(cx) : close(); }
+        if (event.key === 'escape') { cx.stop_propagation(); if (this.drag) this.cancelRange(cx); else this.composing ? this.escapeForm(cx) : close(); }
         else if (this.composing && event.key === 'enter' && (event.modifiers?.platform || event.modifiers?.control)) { cx.stop_propagation(); this.save(cx); }
       })
       .on_mouse_up('left', (_event, cx) => this.cancelRange(cx))

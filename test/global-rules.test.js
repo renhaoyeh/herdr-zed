@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as model from '../mods/herdr-zed-agents/global-rules-model.js';
 import { rulesArgv } from '../components/session-model.js';
+import { Autosave } from '../components/autosave.js';
 import { evaluateNative } from './source-harness.js';
 
 test('both providers receive custom global text without built-in instructions', async () => {
@@ -26,12 +27,12 @@ test('intentionally empty Guides inject no global instructions', async () => {
   }
 });
 
-test('settings keep text edits as drafts and preserve them after a concurrent Guide write fails', async () => {
+test('Custom saves itself after the last edit, never on load, and keeps the text after a concurrent Guide write fails', async () => {
   const memory = {}, jobs = [], states = [];
   let source = model.defaultRules, conflict = false;
   const { globalRulesSettings } = await evaluateNative('../mods/herdr-zed-agents/global-rules-settings.js', {
     ...model, rulesPath: () => '/guide', shared: key => memory[key], setShared: (key, value) => { memory[key] = value; },
-    readTextFile: async () => source, providerDevkits: async provider => ({ summary: `- **Core** (${provider})` }),
+    Autosave, readTextFile: async () => source, providerDevkits: async provider => ({ summary: `- **Core** (${provider})` }),
     writeTextFile: async (_path, next, expected) => {
       if (conflict || source !== expected) throw new Error('File changed. Reopen Global Rules to load the latest version.');
       source = next;
@@ -41,22 +42,23 @@ test('settings keep text edits as drafts and preserve them after a concurrent Gu
       states.push(state); return state;
     } },
   }, 'globalRulesSettings');
-  const view = { ...globalRulesSettings }, cx = { notify() {}, spawn: fn => jobs.push(fn(cx)) };
+  const view = { ...globalRulesSettings }, cx = { notify() {}, spawn: fn => jobs.push(fn(cx)), timer: { every() {} } };
   view.initGlobalRules(cx); await Promise.all(jobs.splice(0));
+  view.rulesAuto.tick(cx, 0); await view.rulesAuto.tick(cx, 1000);
+  assert.equal(source, model.defaultRules, 'loading is not written back');
   view.rulesCustom.set_value('My policy');
-  assert.deepEqual(memory, {}, 'Drafts do not change active injection');
+  assert.deepEqual(memory, {}, 'Edits do not change active injection');
   const before = source;
   conflict = true;
-  view.saveGlobalRules(cx); await Promise.all(jobs.splice(0));
+  view.rulesAuto.tick(cx, 2000); await view.rulesAuto.tick(cx, 2600);
   assert.equal(source, before);
   assert.equal(view.rulesCustom.value(), 'My policy');
   assert.deepEqual(memory, {});
-  assert.match(view.rulesError, /File changed/);
+  assert.match(view.rulesAuto.error, /File changed/);
   conflict = false;
-  view.saveGlobalRules(cx); await Promise.all(jobs.splice(0));
-  assert.equal(source, 'My policy', 'Save preserves the exact editor text');
-  assert.match(source, /My policy/);
-  assert.equal(view.rulesSaved, true);
+  await view.rulesAuto.flush(cx);
+  assert.equal(source, 'My policy', 'saving preserves the exact editor text');
+  assert.equal(view.rulesAuto.status(), 'Saved');
 });
 
 test('session injection preserves the exact Guide including Markdown headings', async () => {

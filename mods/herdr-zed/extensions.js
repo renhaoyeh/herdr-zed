@@ -130,13 +130,14 @@ export async function refreshExtensions() {
         const entries = parseExtensionManifest(mod, text), metadata = extensionMetadata(mod, text);
         // ARCHITECTURE §2.1 platforms: a package for another platform contributes nothing and shows as unavailable.
         if (!platformSupported(metadata.platforms, window()?.platform)) {
-          packages.push({ mod, id: metadata.id, title: metadata.title, provides: {}, requires: [], platforms: metadata.platforms,
+          packages.push({ mod, id: metadata.id, title: metadata.title, description: metadata.description, category: metadata.category, provides: {}, requires: [], platforms: metadata.platforms,
             unsupported: true, services: [], surfaces: [] });
           continue;
         }
         if (entries.some(action => ids.has(action.id))) throw new Error('Duplicate contribution ID.');
         if (metadata.surfaces.some(surface => surfaceIds.has(extensionSurfaceNodeId(surface)))) throw new Error('Duplicate surface ID.');
-        packages.push({ mod, id: metadata.id, title: metadata.title, provides: metadata.provides, requires: metadata.requires,
+        packages.push({ mod, id: metadata.id, title: metadata.title, description: metadata.description, category: metadata.category,
+          provides: metadata.provides, requires: metadata.requires,
           settings: metadata.settings, services: metadata.services, surfaces: metadata.surfaces });
         for (const action of entries) { ids.add(action.id); actions.push(action); }
         for (const surface of metadata.surfaces) surfaceIds.add(extensionSurfaceNodeId(surface));

@@ -203,3 +203,11 @@ export function gitCredentialArgs(binding) {
     return ['-c', `${key}=${value}`];
   });
 }
+
+// Unsaved changes (ARCHITECTURE §3.9): a page in a Settings, Extensions or Agents dialog with edits it has not saved
+// sets `herdr-zed.unsaved.<overlay id>` to true, from a timer or state change and never during render, and back to null.
+// The shell asks before closing or leaving that dialog. A page closes it through the shell, never with closeOverlay:
+// run('herdr-zed.' + SETTINGS_CLOSE_COMMAND).
+/** @param {string} overlay @returns {string} */
+export const unsavedKey = overlay => `herdr-zed.unsaved.${overlay}`;
+export const SETTINGS_CLOSE_COMMAND = 'settings-close';

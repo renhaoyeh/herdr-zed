@@ -3,6 +3,8 @@
   "dataReset": null,
   "id": "asana",
   "title": "Asana",
+  "description": "Browse Asana projects and import their tasks into Tasks.",
+  "category": "sources",
   "settings": { "view": "settings", "title": "Asana" },
   "actions": [
     {

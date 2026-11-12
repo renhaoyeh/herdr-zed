@@ -46,6 +46,8 @@ the tests change in the same commit. Unknown keys inside `provides`, surfaces an
   "dataReset": { "helper": "reset-provider.js" }, // optional finite lifecycle helper, §5.1
   "id": "system",                 // extension ID, [a-z][a-z0-9-]*
   "title": "System Monitor",
+  "description": "CPU, memory, GPU and disk readings for this computer.", // optional, ≤ 160 chars, Extensions manager
+  "category": "tools",            // optional: work | sources | git | tools (default); Extensions manager group
   "dependencies": ["…"],          // sibling packages installed with it (not registered)
   "requires": ["tasks"],          // NEW: extension IDs that must be registered and enabled
   "services": [{ "view": "service" }],
@@ -108,8 +110,8 @@ the tests change in the same commit. Unknown keys inside `provides`, surfaces an
   sidebar's flexible body (`herdr-zed.sidebar-height`) with `on_size_change`; `windowHeightFromSidebar` adds the fixed brand
   and history rows back to get the window height. Herdr's `window()` reports no size.
 - Surfaces: `sidebar.bottom` surfaces mount above the history row and start hidden; `dock.right` surfaces start hidden;
-  `status.right` surfaces start visible. Manage extensions offers a switch per active surface: "Show in sidebar", "Show
-  in status bar", "Show in right dock".
+  `status.right` surfaces start visible. The Extensions dialog offers a switch per surface on the extension's page:
+  "Show <title> in sidebar", "… in status bar", "… in right dock".
 
 ### 2.2 Provider contracts (new, typed, closed set)
 
@@ -317,6 +319,19 @@ when the key clears. Hidden readings take no space in the row.
 - The shell reads the keys on each status layout sync; the status-tools view re-renders after every shared write and
   triggers that sync. Disabling the extension clears its keys.
 - Only `status.right` surfaces are governed; the shell never hides a sidebar or dock surface through this key.
+
+### 3.9 Unsaved changes (page → shell)
+
+`herdr-zed.unsaved.<overlay id>` = `true` while a page in a Settings, Extensions or Agents dialog (`props().overlay`)
+holds edits it has not saved; `null` otherwise. `unsavedKey` and `SETTINGS_CLOSE_COMMAND` live in `extension-contract.js`.
+
+- The page writes the key from a timer or a state change, only when the value changes, never during render.
+- The shell checks it before closing (Esc in any shell block, the X, `herdr-zed.settings-close`) or leaving for another
+  page (nav, sub-page tabs). Set, it opens the shell's "Discard unsaved changes?" confirm instead; Discard clears the key
+  and continues, Keep editing returns. Closing or replacing the dialog clears its key.
+- A page never closes the dialog with `closeOverlay`; Esc inside it runs `herdr-zed.settings-close`.
+- The shell draws the reminder (design.md, Unsaved changes). Single-mod dialogs keep their own draft state and ask in
+  their own footer (`DiscardPrompt` in `components/dialog.js`); they use no key.
 
 ## 4. Mods and move order
 

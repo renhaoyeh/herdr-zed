@@ -5,21 +5,27 @@ import { props, closeOverlay } from 'herdr';
 import { Button } from './components/button.js';
 import { glyph } from './components/icon.js';
 import { Select, SelectState } from './components/select.js';
-import { DialogContent, DialogTitle, DialogDescription, DialogFooter } from './components/dialog.js';
+import { DialogContent, DialogHeader, DialogDescription } from './components/dialog.js';
+import { Autosave } from './components/autosave.js';
 import { readGitAuthor, saveGitAuthor } from './git-author.js';
 import { gitAccount, setGitAccount, readAccountAuthor, rememberGitAuthor, readGitAccounts } from './git-auth.js';
 
-// The GitHub account of one repository. Save writes the account binding, the remembered author and the
-// repository-local commit author, in that order; Cancel discards the draft.
-// Standalone (the git.actions popup) it is a dialog that closes on Save and Cancel. Embedded in the shell's
-// Settings it is the page body: the shell owns the frame and closing, and Cancel only discards the draft.
+// The GitHub account of one repository (the git.actions dialog, opened from Changes' identity row). It saves itself
+// shortly after the last change (design.md, Saving): the account binding, the remembered author and the repository-local
+// commit author, in that order. An empty name or email is never written; closing writes an edit still waiting.
 export class GitHubAccount {
   init(cx) {
-    this.target = props(); this.project = this.target.context || {}; this.embedded = Boolean(this.target.embedded);
+    this.target = props(); this.project = this.target.context || {};
     this.accountSelect = new SelectState(cx);
     this.name = InputState.new({ placeholder: 'Name' });
     this.email = InputState.new({ placeholder: 'Email' });
     for (const input of [this.name, this.email]) input.on('change', (_event, cx) => cx.notify());
+    this.auto = new Autosave({
+      snapshot: () => JSON.stringify([this.account, this.name.value(), this.email.value()]),
+      valid: () => this.loaded && !this.loading && Boolean(this.name.value().trim() && this.email.value().trim()),
+      save: () => this.write(),
+    });
+    this.auto.attach(cx);
     this.reload(cx);
   }
 
@@ -33,6 +39,7 @@ export class GitHubAccount {
         const author = await readGitAuthor(this.project.folder, this.project.machine);
         if (this.closed) return;
         this.name.set_value(author.name); this.email.set_value(author.email); this.loaded = true;
+        this.auto.reset();
       } catch (error) { this.error = error.message; }
       finally { this.loading = false; if (!this.closed) cx.notify(); }
     });
@@ -48,7 +55,7 @@ export class GitHubAccount {
   }
 
   chooseAccount(key, cx) {
-    if (this.loading || this.saving) return;
+    if (this.loading) return;
     const account = key === 'default' ? null : this.accounts?.[Number(key)];
     if (key !== 'default' && !account?.available) return;
     this.account = account; this.loading = true; this.loaded = false; this.error = null; cx.notify();
@@ -77,19 +84,11 @@ export class GitHubAccount {
 
   close() { this.closed = true; this.name?.release(); this.email?.release(); this.accountSelect?.search?.release(); }
 
-  save(cx) {
-    if (!this.loaded || this.saving || !this.name.value().trim() || !this.email.value().trim()) return;
+  async write() {
     const author = { name: this.name.value(), email: this.email.value() };
-    this.saving = true; this.error = null; cx.notify();
-    cx.spawn(async cx => {
-      try {
-        await saveGitAuthor(this.project.folder, this.project.machine, author);
-        if (this.account) rememberGitAuthor(this.account, this.project.machine, author);
-        setGitAccount(this.project, this.account);
-        if (!this.closed && !this.embedded) closeOverlay(this.target.overlay);
-      } catch (error) { this.error = error.message; }
-      finally { this.saving = false; if (!this.closed) cx.notify(); }
-    });
+    await saveGitAuthor(this.project.folder, this.project.machine, author);
+    if (this.account) rememberGitAuthor(this.account, this.project.machine, author);
+    setGitAccount(this.project, this.account);
   }
 
   // The account choices: Default, each signed-in gh account, and the saved account when gh no longer lists it.
@@ -104,66 +103,39 @@ export class GitHubAccount {
   }
 
   render(t) {
-    const embedded = this.embedded;
-    if (embedded && !this.project.folder) return v_flex().size_full().p(24)
-      .child(DialogDescription(t).child('Open a project to manage its GitHub account and commit author.'));
-    const cancel = cx => {
-      if (this.saving) return;
-      if (embedded) this.reload(cx); else closeOverlay(this.target.overlay);
-    };
+    const close = () => { this.auto.flush().finally(() => closeOverlay(this.target.overlay)); };
     const field = (key, label, state) => v_flex().gap(6)
       .child(div().text_size(12).child(label))
       .child(Input.new(state, t).id(`git-author-${key}`).h(32).px(8).text_size(13)
         .bg(t.background).border_b(1).border_color(t.input).text_color(t.foreground)
-        .disabled(this.loading || this.saving || !this.loaded).accessibility_label(label));
+        .disabled(this.loading || !this.loaded).accessibility_label(label));
     const { choices, selected } = this.choices();
-    // One radio-style row per account: a circle, with a check when it is the saved account. Disabled rows fade and never hover.
-    const accountList = () => v_flex().id('git-account-list').gap(4)
-      .children(choices.map(choice => {
-        const current = choice.key === selected, disabled = this.loading || this.saving || !(choice.key === 'default' || choice.available);
-        return Button(`git-account-${choice.key}`, t, { variant: 'ghost' }).w_full().h(32).px(10).gap(8).justify_start()
-          .bg(current ? t.selected : t.popover).border(1).border_color(t.border).text_color(t.foreground).opacity(disabled ? 0.45 : 1)
-          .hover(el => el.bg(disabled ? t.popover : t.hover))
-          .disabled(disabled)
-          .accessibility_label(`${choice.label}${choice.status ? `, ${choice.status}` : ''}${current ? ', selected' : ''}`)
-          .on_click((_event, cx) => this.chooseAccount(choice.key, cx))
-          .child(div().flex_none().size(16).flex().items_center().justify_center().text_color(current ? t.foreground : t.muted)
-            .child(glyph(current ? 'circle-check' : 'circle', 16)))
-          .child(div().flex_1().min_w(0).truncate().text_size(13).child(choice.label))
-          .when(choice.key === 'default', el => el.child(div().flex_none().text_size(11).text_color(t.muted).child('Use the machine\'s git credentials')))
-          .when(Boolean(choice.status), el => el.child(div().flex_none().text_size(11).text_color(t.muted).child(choice.status)));
-      }));
-    // One fixed text: switching accounts must not change the header's height.
-    const description = DialogDescription(t).child('The account this repository uses for Git operations, and the author of future commits. An author entered for an account is remembered for it; existing commits stay unchanged.');
-    const refresh = Button('git-accounts-refresh', t, { variant: 'ghost', size: 'icon' }).disabled(this.accountsLoading || this.saving)
+    const description = DialogDescription(t).child('The account this repository uses for Git operations, and the author of future commits. Changes save automatically; an author entered for an account is remembered for it.');
+    const refresh = Button('git-accounts-refresh', t, { variant: 'ghost', size: 'icon' }).disabled(this.accountsLoading)
       .accessibility_label(this.accountsError ? 'Retry accounts' : 'Refresh accounts').tooltip(this.accountsError ? 'Retry accounts' : 'Refresh accounts')
       .on_click((_event, cx) => this.loadAccounts(cx)).child(glyph('refresh-cw', 14));
-    // shadcn Dialog: header (title, description), a body that scrolls, and a footer pinned to the bottom.
+    // shadcn Dialog: header (title with close, description), a body that scrolls, and one status line at the bottom.
     const body = v_flex().id('github-account-body').flex_1().min_h(0).gap(12).overflow_y_scroll()
       .child(div().text_size(12).text_color(t.muted).truncate().child(`Repository: ${this.repositoryName()}`))
-      // Controls stay mounted while loading or saving (dimmed, and chooseAccount ignores them), so nothing jumps.
-      .when(!embedded, el => el.child(h_flex().gap(4).items_center()
-        .child(div().flex_1().min_w(0).opacity(this.loading || this.saving ? 0.45 : 1).child(Select('git-account', this.accountSelect, selected,
+      // Controls stay mounted while loading (dimmed, and chooseAccount ignores them), so nothing jumps.
+      .child(h_flex().gap(4).items_center()
+        .child(div().flex_1().min_w(0).opacity(this.loading ? 0.45 : 1).child(Select('git-account', this.accountSelect, selected,
           choices.map(choice => ({ key: choice.key, label: choice.status ? `${choice.label} · ${choice.status}` : choice.label, color: t.foreground })),
           'GitHub account', (key, cx) => this.chooseAccount(key, cx), t, { fullWidth: true })))
-        .child(refresh)))
-      .when(embedded, el => el.child(accountList()).child(h_flex().child(refresh)))
+        .child(refresh))
       .child(field('name', 'Name', this.name)).child(field('email', 'Email', this.email));
-    // One fixed status slot at the footer's left: progress or the latest error, never a line inserted into the body.
-    const error = this.error || this.accountsError;
-    const status = error ? this.visibleError(error) : this.saving ? 'Saving…' : this.loading ? 'Loading commit author…' : this.accountsLoading ? 'Loading accounts…' : '';
-    const footer = DialogFooter().flex_none().items_center()
-      .child(div().id('github-account-status').flex_1().min_w(0).truncate().text_size(12).text_color(error ? t.ansi1 : t.muted)
-        .when(Boolean(error), el => el.tooltip(this.visibleError(error))).child(status))
-      .child(Button('git-author-cancel', t, { variant: 'secondary' }).disabled(Boolean(this.saving)).on_click((_event, cx) => cancel(cx)).child('Cancel'))
-      .child(Button('git-author-save', t).disabled(!this.loaded || this.saving || !this.name.value().trim() || !this.email.value().trim())
-        .on_click((_event, cx) => this.save(cx)).child(this.saving ? 'Saving…' : 'Save'));
-    // Embedded in the shell's Settings dialog the page has no title of its own: the shell's header names it.
-    if (embedded) return v_flex().id('github-account').size_full().min_h(0).p(24).gap(16).text_color(t.foreground)
-      .child(description).child(body).child(footer);
+    const error = this.error || this.auto.error || this.accountsError;
+    const incomplete = this.loaded && !this.loading && !(this.name.value().trim() && this.email.value().trim());
+    const status = error ? this.visibleError(error) : this.loading ? 'Loading commit author…' : this.accountsLoading ? 'Loading accounts…'
+      : incomplete ? 'Name and email are required' : this.auto.status();
+    const footer = h_flex().flex_none().h(20).items_center()
+      .child(div().id('github-account-status').flex_1().min_w(0).truncate().text_size(12).text_color(error || incomplete ? t.ansi1 : t.muted)
+        .when(Boolean(error), el => el.tooltip(this.visibleError(error))).child(status));
     return DialogContent('github-account', t).min_h(0).on_key_down((event, cx) => {
-      if (event.key === 'escape') { cx.stop_propagation(); cancel(cx); }
-    }).child(v_flex().id('github-account-header').flex_none().gap(6).child(DialogTitle().child('GitHub account')).child(description))
+      if (event.key === 'escape') { cx.stop_propagation(); close(); }
+    }).child(v_flex().id('github-account-header').flex_none().gap(6)
+        .child(DialogHeader(t, 'GitHub account', { id: 'github-account-close', label: 'Close GitHub account', onClose: () => close() }))
+        .child(description))
       .child(body).child(footer);
   }
 }

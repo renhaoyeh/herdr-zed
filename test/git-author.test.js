@@ -22,30 +22,6 @@ test('Changes opens an author editor bound to the selected repository, excluding
   assert.equal(openGitAuthor(null), null);
   assert.equal(opened.length, 1);
 });
-test('author dialog preserves failed drafts for retry and saves to its original repository', async () => {
-  const target = { folder: '/repo', machine: 'remote', overlay: 'author-dialog' };
-  const source = await readFile(new URL('../mods/herdr-zed/git-author-settings.js', import.meta.url), 'utf8');
-  const pending = [], writes = [], closed = [];
-  let fail = true;
-  const { GitAuthorSettings } = new Function('InputState', 'readGitAuthor', 'saveGitAuthor', 'closeOverlay', 'gitAccount',
-    source.replace(/^import .*;\r?\n/gm, '').replace(/^export /gm, '') + '\nreturn { GitAuthorSettings };')(
-    { new: () => ({ text: '', on() {}, value() { return this.text; }, set_value(text) { this.text = text; }, release() {} }) },
-    async () => ({ name: 'Initial', email: 'initial@example.test' }),
-    async (...args) => { writes.push(args); if (fail) throw new Error('Config locked'); }, id => closed.push(id), () => null);
-  const cx = { notify() {}, spawn(fn) { pending.push(fn); } };
-  const view = new GitAuthorSettings(target); view.init(cx);
-  view.save(cx); assert.equal(writes.length, 0);
-  await pending.shift()(cx);
-  view.name.set_value('Edited'); view.save(cx); view.save(cx);
-  assert.equal(pending.length, 1);
-  await pending.shift()(cx);
-  assert.equal(view.error, 'Config locked'); assert.equal(view.name.value(), 'Edited');
-  assert.deepEqual(closed, []);
-  fail = false; view.save(cx); await pending.shift()(cx);
-  assert.deepEqual(writes.at(-1), ['/repo', 'remote', { name: 'Edited', email: 'initial@example.test' }]);
-  assert.equal(view.saved, true); assert.deepEqual(closed, []); view.close();
-});
-
 test('commit author inherits defaults, saves only repository config and applies to future commits', async t => {
   const folder = await mkdtemp(join(tmpdir(), "devkits-author ' $(unused)-"));
   t.after(() => rm(folder, { recursive: true, force: true }));
@@ -78,4 +54,51 @@ test('commit author inherits defaults, saves only repository config and applies 
   await git('-C', repo, 'config', '--local', '--unset-all', 'user.name');
   await git('-C', repo, 'config', '--local', '--unset-all', 'user.email');
   assert.deepEqual(await readGitAuthor(path, 'fixture-machine'), { name: '', email: '' });
+});
+
+
+async function authorDialog({ write }) {
+  const source = await readFile(new URL('../mods/herdr-zed/git-author-settings.js', import.meta.url), 'utf8');
+  const autosave = await readFile(new URL('../components/autosave.js', import.meta.url), 'utf8');
+  const { Autosave } = new Function(autosave.replace(/^export /gm, '') + '\nreturn { Autosave };')();
+  const pending = [], closed = [], handlers = {}, timers = [];
+  const el = () => new Proxy({}, { get: (_t, key) => key === 'when' ? (c, f) => (c ? f(el()) : el())
+    : (...args) => { if (key === 'on_key_down') handlers.key = args[0]; return el(); } });
+  const input = () => ({ text: '', on() {}, value() { return this.text; }, set_value(text) { this.text = text; }, release() {} });
+  const names = ['InputState', 'readGitAuthor', 'saveGitAuthor', 'closeOverlay', 'props', 'DialogContent', 'DialogHeader', 'DialogDescription',
+    'Autosave', 'v_flex', 'h_flex', 'div', 'Input', 'openOverlay'];
+  const { GitAuthorDialog } = new Function(...names, source.replace(/^import .*;\r?\n/gm, '').replace(/^export /gm, '') + '\nreturn { GitAuthorDialog };')(
+    { new: input }, async () => ({ name: 'Ann', email: 'ann@example.test' }), write, id => closed.push(id),
+    () => ({ overlay: 'author', context: { folder: '/repo', machine: 'remote' } }), el, (_t, _title, { onClose }) => { handlers.close = onClose; return el(); }, el,
+    Autosave, el, el, el, { new: el }, () => 'x');
+  const cx = { notify() {}, spawn(fn) { pending.push(fn); }, focus_handle: () => ({ focus() {} }), stop_propagation() {}, timer: { every(_ms, fn) { timers.push(fn); } } };
+  const dialog = new GitAuthorDialog(); dialog.init(cx); await pending.shift()(cx);
+  return { dialog, closed, handlers, cx };
+}
+
+test('the author form saves itself after the last edit to its own repository, never empty, and keeps a failed edit for retry', async () => {
+  const writes = []; let fail = true;
+  const { dialog, cx } = await authorDialog({ write: async (...args) => { writes.push(args); if (fail) throw new Error('Config locked'); } });
+  const form = dialog.form;
+  form.auto.tick(cx, 0); form.auto.tick(cx, 1000);
+  assert.deepEqual(writes, [], 'loading is not written back');
+  form.email.set_value(''); form.auto.tick(cx, 2000); await form.auto.tick(cx, 3000);
+  assert.deepEqual(writes, [], 'an empty email is never written');
+  form.email.set_value('ann@example.test'); form.name.set_value('Edited');
+  form.auto.tick(cx, 4000); await form.auto.tick(cx, 4600);
+  assert.equal(form.auto.error, 'Config locked'); assert.equal(form.name.value(), 'Edited'); assert.equal(form.auto.dirty(), true);
+  fail = false; await form.auto.flush(cx);
+  assert.deepEqual(writes.at(-1), ['/repo', 'remote', { name: 'Edited', email: 'ann@example.test' }]);
+  assert.equal(form.auto.status(), 'Saved');
+});
+
+test('closing the author dialog writes an edit still waiting for the delay, then closes, without asking', async () => {
+  const writes = [];
+  const { dialog, closed, handlers, cx } = await authorDialog({ write: async (...args) => { writes.push(args); } });
+  dialog.form.name.set_value('Bea');
+  dialog.render({});
+  handlers.key({ key: 'escape' }, cx);
+  await new Promise(resolve => setTimeout(resolve));
+  assert.deepEqual(writes.map(args => args[2].name), ['Bea'], 'flushed before closing');
+  assert.deepEqual(closed, ['author']);
 });

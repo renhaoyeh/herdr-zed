@@ -5,7 +5,7 @@ import { shared, setShared, props, openOverlay, closeOverlay } from 'herdr';
 import { sessionKind, permissionModes, launcherChoices, launcherLabel, launcherOption, sessionChoices, effortLabel, claudeModels } from './components/session-model.js';
 import { Button } from './components/button.js';
 import { Select } from './components/select.js';
-import { DialogContent, DialogTitle, DialogDescription, DialogFooter } from './components/dialog.js';
+import { DialogContent, DialogTitle, DialogDescription, DialogFooter, DiscardPrompt } from './components/dialog.js';
 import { DropdownMenuLabel } from './components/dropdown-menu.js';
 import { AgentIcon, glyph } from './components/icon.js';
 import { noAccount } from './components/agents.js';
@@ -47,7 +47,14 @@ export const agentProfiles = {
     this.configInstructions.set_value(config?.instructions || '');
     this.configInstructions.on('change', (_event, cx) => { this.profileError = null; cx.notify(); });
     if (key && !config) this.profileError = 'This agent profile no longer exists.';
+    this.profileBaseline = this.profileSnapshot();
   },
+
+  // What Save would write, to tell whether the editor has unsaved edits.
+  profileSnapshot() {
+    return JSON.stringify([this.profileDraft, this.configName?.value() || '', this.configInstructions?.value() || '']);
+  },
+  profileDirty() { return Boolean(this.profileBaseline) && this.profileSnapshot() !== this.profileBaseline; },
 
   chooseProfileAccount(key) {
     const account = this.profileEditorAccounts().find(item => item.key === key);
@@ -107,7 +114,8 @@ export const agentProfiles = {
     return DialogContent('agent-profile-editor', t).track_focus(this.handle)
       .accessibility_label(creating ? 'New agent profile' : 'Edit agent profile')
       .on_key_down((event, cx) => {
-        if (event.key === 'escape') this.finishAgentProfileEditor();
+        // Esc asks first when there are unsaved edits (design.md, Unsaved changes); Cancel discards on purpose.
+        if (event.key === 'escape') { if (this.profileDirty() && !this.profileAsking) { this.profileAsking = true; cx.notify(); } else this.finishAgentProfileEditor(); }
         else if (event.key === 'enter' && (event.modifiers?.platform || event.modifiers?.control)) this.saveAgentProfile(cx);
         else return;
         cx.stop_propagation();
@@ -135,7 +143,10 @@ export const agentProfiles = {
         .when(!accounts.length, el => el.child(div().text_size(12).text_color(t.muted).child('Install Claude Code or Codex CLI first.')))
         .when(Boolean(this.profileError), el => el.child(div().id('agent-profile-error').text_size(12)
           .text_color(t.destructive || t.ansi1).child(this.profileError))))
-      .child(DialogFooter().flex_none().children([
+      .child(this.profileAsking && this.profileDirty()
+        ? DiscardPrompt('agent-profile-discard', t, { keep: (_event, cx) => { this.profileAsking = false; cx.notify(); }, discard: () => this.finishAgentProfileEditor() })
+        : DialogFooter().flex_none().items_center().children([
+        div().id('agent-profile-unsaved').flex_1().min_w(0).text_size(12).text_color(t.ansi1).child(this.profileDirty() ? 'Unsaved changes' : ''),
         Button('cancel-agent-profile', t, { variant: 'secondary' }).on_click(() => this.finishAgentProfileEditor()).child('Cancel'),
         Button('save-agent-profile', t).disabled(!account || !this.configName.value().trim())
           .on_click((_event, cx) => this.saveAgentProfile(cx)).child(creating ? 'Create' : 'Save'),

@@ -4,16 +4,20 @@ import { writeTextFile, shared, setShared } from 'herdr';
 import { readBuildFilters, serializeBuildFilters } from './diff-ignore.js';
 import { Button } from './components/button.js';
 import { Checkbox } from './components/checkbox.js';
+import { Autosave } from './components/autosave.js';
 
 const CUSTOM = 'custom';
 
 /** Every Git panel display filter: checked github/gitignore templates with a read-only preview, and Custom rules
-    applied last. The Settings dialog's Git page embeds this body (settings.js). */
+    applied last. The Settings dialog's Git page embeds this body (settings.js). It saves itself shortly after the last
+    change (design.md, Saving); closing the page writes a change still waiting. */
 export class BuildRulesSettings {
   init(cx) {
     this.loading = true; this.templates = []; this.checked = new Set(); this.page = CUSTOM;
     this.custom = EditorState.new({ value: '' });
     this.preview = EditorState.new({ value: '', readonly: true });
+    this.auto = new Autosave({ snapshot: () => this.text(), save: () => this.write() });
+    this.auto.attach(cx);
     cx.spawn(async cx => {
       try {
         const saved = await readBuildFilters();
@@ -21,12 +25,13 @@ export class BuildRulesSettings {
         this.checked = new Set(saved.filters.templates);
         this.custom.set_value(saved.filters.custom);
         this.show(saved.filters.templates[0] || this.templates[0]?.file || CUSTOM);
+        this.auto.reset();
       } catch (error) { this.error = error.message; }
       finally { this.loading = false; cx.notify(); }
     });
   }
 
-  close() { this.custom?.release(); this.preview?.release(); }
+  close() { this.auto?.flush().finally(() => { this.custom?.release(); this.preview?.release(); }); }
 
   show(page) {
     this.page = page;
@@ -34,19 +39,17 @@ export class BuildRulesSettings {
     if (template) this.preview.set_value(template.text);
   }
 
-  save(cx) {
-    if (this.loading || this.saving || this.original === undefined) return;
-    this.saving = true; this.saved = false; this.error = null; cx.notify();
-    const text = serializeBuildFilters({ templates: this.templates.map(entry => entry.file).filter(file => this.checked.has(file)),
+  // The rules file as the current choices would write it.
+  text() {
+    return serializeBuildFilters({ templates: this.templates.map(entry => entry.file).filter(file => this.checked.has(file)),
       custom: this.custom.value() });
-    cx.spawn(async cx => {
-      try {
-        await writeTextFile(this.path, text, this.original);
-        setShared('herdr-zed.diff-build-rules-revision', (shared('herdr-zed.diff-build-rules-revision') || 0) + 1);
-        this.original = text; this.saved = true;
-      } catch (error) { this.error = error.message; }
-      finally { this.saving = false; cx.notify(); }
-    });
+  }
+
+  async write() {
+    const text = this.text();
+    await writeTextFile(this.path, text, this.original);
+    setShared('herdr-zed.diff-build-rules-revision', (shared('herdr-zed.diff-build-rules-revision') || 0) + 1);
+    this.original = text;
   }
 
   render(t) {
@@ -75,11 +78,9 @@ export class BuildRulesSettings {
             ? `${template.label}: ${lines(template.text)} rules from github/gitignore, read-only. ${included(this.checked.has(template.file))}`
             : 'Your own gitignore patterns and !exceptions, applied after the checked templates.'))
           .child(Editor.new(this.page === CUSTOM ? this.custom : this.preview).flex_1().min_h(0).border(1).border_color(t.border))))
-      .when(this.loading, el => el.child(div().flex_none().text_size(12).text_color(t.muted).child('Loading rules…')))
-      .when(Boolean(this.error), el => el.child(div().flex_none().text_size(12).text_color(t.ansi1).child(this.error)))
-      .child(h_flex().flex_none().gap(8).justify_end().items_center()
-        .when(this.saved && !this.saving, el => el.child(div().text_size(12).text_color(t.muted).child('Saved.')))
-        .child(Button('diff-rules-save', t).disabled(this.loading || this.saving || this.original === undefined)
-          .on_click((_event, cx) => this.save(cx)).child(this.saving ? 'Saving…' : 'Save')));
+      // One fixed status line: loading, saving, saved or the error.
+      .child(div().id('diff-rules-status').h(20).flex_none().truncate().text_size(12)
+        .text_color(this.error || this.auto.error ? t.ansi1 : t.muted)
+        .child(this.error || (this.loading ? 'Loading rules…' : this.auto.status())));
   }
 }

@@ -1,4 +1,5 @@
 // Shared: edit components/task-source.js, then npm run sync:shared.
+import { div } from 'gpui-kit';
 import { InputState } from 'gpui-base';
 import { filterTasks, sourceTaskSnapshot } from './task-source-model.js';
 
@@ -318,6 +319,19 @@ export class TaskSourceController {
     });
   }
 
+  // Settings save the connection themselves (design.md, Saving): this checks and writes the fields as they are,
+  // keeping the form open and filled. It throws when the connection check fails, so nothing unverified is saved.
+  async writeConnection() {
+    const token = this.tokenInput.value().trim(), url = this.serverInput?.value().trim() || '';
+    if (!token) throw new Error('Enter a personal access token.');
+    if (token === this.token && (!this.source.server || url === this.server) && this.needsToken === false) return;
+    const connection = this.source.server ? { url: this.source.normalizeUrl(url), token } : { token };
+    if (this.source.validateConnection) await this.source.validateConnection(connection);
+    await this.source.saveConnection(connection);
+    this.server = connection.url; this.token = token; this.needsToken = false; this.error = null;
+    this.states?.clear(); this.reset();
+  }
+
   copyToken(cx) {
     const token = this.tokenInput.value().trim();
     if (!token) return;
@@ -436,4 +450,13 @@ export class TaskSourceController {
     cx.stop_propagation(); cx.notify();
   }
 
+}
+
+// The connection form's one status line (design.md, Saving): checking and saving, the failure in red, or the result.
+export function connectionStatus(id, t, auto, panel) {
+  const error = auto.error || panel.error;
+  const text = error || (auto.saving ? 'Checking and saving…' : auto.done && !auto.dirty() ? 'Connected and saved'
+    : !panel.tokenInput.value().trim() ? 'Enter a personal access token.' : '');
+  return div().id(`${id}-status`).h(20).flex_none().truncate().text_size(12)
+    .text_color(error ? t.destructive || t.ansi1 : t.muted).when(Boolean(error), el => el.tooltip(error)).child(text);
 }

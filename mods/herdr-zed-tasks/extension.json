@@ -3,6 +3,8 @@
   "dataReset": null,
   "id": "tasks",
   "title": "Tasks",
+  "description": "A board of agent tasks: plan them, start them in threads and follow their progress.",
+  "category": "work",
   "services": [
     { "view": "service" }
   ],

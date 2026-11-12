@@ -38,6 +38,10 @@ export interface ExtensionSettingsPage { id: string; title: string; }
 export interface ExtensionSettings { view: string; title: string; pages?: ExtensionSettingsPage[]; }
 export interface ExtensionManifest {
   version: 1; id: ExtensionId; title: string;
+  /** One sentence on what it does, shown in the Extensions manager (≤ 160 chars). */
+  description?: string;
+  /** Extensions manager group; default 'tools'. */
+  category?: 'work' | 'sources' | 'git' | 'tools';
   dataReset?: { helper: string } | null;
   platforms?: Platform[];
   dependencies?: string[]; requires?: ExtensionId[];

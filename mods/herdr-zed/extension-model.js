@@ -12,6 +12,9 @@ const providerKeys = ['launcher', 'threadDecorator', 'importer', 'gitCredentials
 const decorationFields = ['badge', 'subtitle', 'tone'];
 const platformNames = ['macos', 'windows', 'linux'];
 const placements = ['center', 'workspace'];
+// ARCHITECTURE §2.1: the Extensions manager groups packages by `category`, in this order.
+export const extensionCategories = ['work', 'sources', 'git', 'tools'];
+const MAX_DESCRIPTION = 160;
 // ARCHITECTURE §2.1 popup.placement "workspace": the work area between the header and the status bar.
 export const WORKSPACE_HEADER = 32, WORKSPACE_STATUS = 32;
 
@@ -71,6 +74,9 @@ function validateMetadata(mod, value) {
   validateProvides(value.provides);
   validateSettings(value.settings);
   validatePlatforms(value.platforms);
+  if (value.description !== undefined && (typeof value.description !== 'string' || !value.description.trim() || value.description.length > MAX_DESCRIPTION))
+    throw new Error('Invalid extension description.');
+  if (value.category !== undefined && !extensionCategories.includes(value.category)) throw new Error('Invalid extension category.');
   if (value.dataReset !== undefined && value.dataReset !== null
     && (!hasExactKeys(value.dataReset, ['helper']) || typeof value.dataReset.helper !== 'string' || !/^[a-z][a-z0-9-]*\.js$/.test(value.dataReset.helper)))
     throw new Error('Invalid extension data reset helper.');
@@ -173,7 +179,7 @@ function settingsMetadata(settings) {
 export function extensionMetadata(mod, text) {
   parseExtensionManifest(mod, text);
   const value = JSON.parse(text);
-  return { id: value.id, title: value.title, dependencies: value.dependencies || [], requires: value.requires || [],
+  return { id: value.id, title: value.title, description: value.description || null, category: value.category || 'tools', dependencies: value.dependencies || [], requires: value.requires || [],
     dataReset: value.dataReset || null, provides: value.provides || {}, platforms: value.platforms || null, settings: settingsMetadata(value.settings),
     services: (value.services || []).map(({ view }) => ({ view })),
     surfaces: (value.surfaces || []).map(surface => ({ ...surface, extensionId: value.id, mod })) };

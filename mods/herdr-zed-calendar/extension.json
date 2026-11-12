@@ -3,6 +3,8 @@
   "dataReset": null,
   "id": "calendar",
   "title": "Calendar",
+  "description": "Schedule tasks on a calendar and see what is due.",
+  "category": "work",
   "requires": ["tasks"],
   "actions": [
     {

@@ -3,6 +3,8 @@
   "dataReset": null,
   "id": "mantisbt",
   "title": "MantisBT",
+  "description": "Browse MantisBT issues and import them into Tasks.",
+  "category": "sources",
   "settings": { "view": "settings", "title": "MantisBT" },
   "actions": [
     {

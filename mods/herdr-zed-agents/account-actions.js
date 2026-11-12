@@ -4,18 +4,30 @@ import { InputState } from 'gpui-base';
 import { shared, setShared, props, openOverlay, closeOverlay } from 'herdr';
 import { accountLabel, removeAccountProfile, renameAccountProfile } from './account-login.js';
 import { Button } from './components/button.js';
-import { DialogContent, DialogTitle, DialogDescription, DialogFooter } from './components/dialog.js';
+import { DialogContent, DialogHeader, DialogDescription } from './components/dialog.js';
+import { Autosave } from './components/autosave.js';
 import { AlertDialogContent, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from './components/alert-dialog.js';
 
 // Account actions opened from Settings: add, rename and remove. Each stacks a modal above Settings and closes
 // only itself, like the profile editor; Settings reloads its accounts when profile-revision changes. Mixed into the Devkits view.
 export const accountActions = {
-  initRenameAccount() {
+  // Rename saves itself shortly after the last edit (design.md, Saving); Enter or closing writes it at once.
+  initRenameAccount(cx) {
     this.renameInput = InputState.new({ placeholder: 'Account name' });
     this.renameInput.set_value(accountLabel((props() || {}).account.name));
-    this.renameInput.on('submit', (_event, cx) => this.saveAccountName(cx));
+    this.renameInput.on('change', (_event, cx) => cx.notify());
+    this.renameAuto = new Autosave({ snapshot: () => this.renameInput.value(), valid: () => Boolean(this.renameInput.value().trim()),
+      save: async () => {
+        await renameAccountProfile((props() || {}).account.key, this.renameInput.value());
+        setShared('herdr-zed.agent-cache', {});
+        setShared('herdr-zed.profile-revision', (shared('herdr-zed.profile-revision') || 0) + 1);
+      } });
+    this.renameAuto.reset(); this.renameAuto.attach(cx);
+    this.renameInput.on('submit', (_event, cx) => this.closeRename(cx));
     this.renameInput.focus();
   },
+
+  closeRename(cx) { this.renameAuto.flush(cx).finally(() => this.finishRename()); },
 
   addAccount(provider) {
     openOverlay({ mod: 'herdr-zed-agents', kind: 'dialog', frame: 'none', modal: true, width: 560, height: 520,
@@ -33,36 +45,19 @@ export const accountActions = {
     closeOverlay((props() || {}).overlay);
   },
 
-  saveAccountName(cx) {
-    if (this.renaming) return;
-    this.renaming = true; this.renameError = null; cx.notify();
-    const name = this.renameInput.value();
-    cx.spawn(async cx => {
-      try {
-        await renameAccountProfile((props() || {}).account.key, name);
-        setShared('herdr-zed.agent-cache', {});
-        setShared('herdr-zed.profile-revision', (shared('herdr-zed.profile-revision') || 0) + 1);
-        this.renaming = false; this.finishRename();
-      } catch (error) { this.renaming = false; this.renameError = error.message; cx.notify(); }
-    });
-  },
-
   renameAccountPrompt(t) {
+    const auto = this.renameAuto, empty = !this.renameInput.value().trim();
     return DialogContent('rename-account-dialog', t).accessibility_label('Rename account')
       .track_focus(this.handle).on_key_down((event, cx) => {
-        if (event.key === 'escape') { cx.stop_propagation(); this.finishRename(); }
+        if (event.key !== 'escape') return;
+        cx.stop_propagation(); this.closeRename(cx);
       })
-      .child(DialogTitle().child('Rename account'))
-      .child(DialogDescription(t).child('Choose a display name for this account.'))
-      .child(Input.new(this.renameInput, t).id('rename-account-name').accessibility_label('Account name')
-        )
-      // The error takes a fixed slot left of the buttons: this dialog sizes to its content and must not grow.
-      .child(DialogFooter().items_center().children([
-        div().id('rename-account-error').flex_1().min_w(0).truncate().text_size(12).text_color(t.destructive || t.foreground)
-          .when(Boolean(this.renameError), el => el.tooltip(this.renameError)).child(this.renameError || ''),
-        Button('cancel-rename-account', t, { variant: 'secondary' }).disabled(Boolean(this.renaming)).on_click(() => this.finishRename()).child('Cancel'),
-        Button('save-rename-account', t).disabled(Boolean(this.renaming)).on_click((_event, cx) => this.saveAccountName(cx)).child(this.renaming ? 'Saving…' : 'Save'),
-      ]));
+      .child(DialogHeader(t, 'Rename account', { id: 'close-rename-account', label: 'Close', onClose: (_event, cx) => this.closeRename(cx) }))
+      .child(DialogDescription(t).child('Choose a display name for this account. It saves as you type.'))
+      .child(Input.new(this.renameInput, t).id('rename-account-name').accessibility_label('Account name'))
+      // One fixed status line: this dialog sizes to its content and must not grow.
+      .child(div().id('rename-account-status').h(20).truncate().text_size(12).text_color(auto.error || empty ? t.destructive || t.ansi1 : t.muted)
+        .when(Boolean(auto.error), el => el.tooltip(auto.error)).child(empty ? 'A name is required' : auto.status()));
   },
 
   confirmRemoveAccount(account) {

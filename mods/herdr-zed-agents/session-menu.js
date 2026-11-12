@@ -1,7 +1,8 @@
 import { availableAgents, loadAccountIdentities } from './discovery.js';
 import { div } from 'gpui-kit';
 import { v_flex, h_flex } from 'gpui-base';
-import { shared, setShared, props, spaces, openOverlay, closeOverlay, home, readTextFile, keys, window, exec, appHome } from 'herdr';
+import { shared, setShared, props, spaces, openOverlay, closeOverlay, home, readTextFile, keys, window, exec, appHome, run } from 'herdr';
+import { unsavedKey, SETTINGS_CLOSE_COMMAND } from './components/extension-contract.js';
 import { launcherChoices, launcherLabel, launcherOption, accountAddresses, programName, permissionModes, sessionKind, isAccountLauncher, claudeModels, claudeEfforts, codexHome, codexModels, mergeModels, orderedOptions, moveOption, effortLabel, sessionChoices, settingsKey, configuredAgents, usageProvider, autoUsage, autoRank, autoMultipliers, autoMultiplier, planMultiplier, planLabel, quotaResetLabel } from './components/session-model.js';
 import { DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from './components/dropdown-menu.js';
 import { Button } from './components/button.js';
@@ -40,6 +41,12 @@ export const sessionMenu = {
     if (this.settingsPage === 'ecc') this.initEcc(cx);
     this.defaultSelects = { permissions: new SelectState(cx), model: new SelectState(cx), effort: new SelectState(cx), profile: new SelectState(cx) };
     if ((props() || {}).view === 'agent-profile-editor') { this.initAgentProfileEditor(cx); return; }
+    // ARCHITECTURE §3.9: report the page's unsaved edits to the shell from a timer, only when that changes.
+    const overlay = (props() || {}).overlay;
+    if (overlay) cx.timer.every(250, () => {
+      const dirty = this.settingsUnsaved() || null;
+      if ((shared(unsavedKey(overlay)) || null) !== dirty) setShared(unsavedKey(overlay), dirty);
+    });
   },
 
   // Manage lists the models every local Codex profile knows.
@@ -425,16 +432,14 @@ export const sessionMenu = {
       .on_mouse_up('left', (_event, cx) => cancelDrag(cx))
       .on_hover((inside, cx) => { if (!inside) cancelDrag(cx); })
       .track_focus(this.handle).on_key_down((event, cx) => {
-        // Escape cancels a drag; otherwise it closes Settings, unless the page has edits to Save or Discard first.
+        // Escape cancels a drag; otherwise the shell closes the dialog, asking first if this page has unsaved edits.
         // The dialog is a layout overlay, so Esc reaches this page instead of closing the dialog natively.
         if (event.key === 'escape') {
           cx.stop_propagation();
           if (this.dragKey || this.modelDrag) { cancelDrag(cx); return; }
-          if (this.settingsUnsaved()) { this.settingsEscBlocked = true; cx.notify(); return; }
-          closeOverlay((props() || {}).overlay);
+          run(`herdr-zed.${SETTINGS_CLOSE_COMMAND}`);
           return;
         }
-        this.settingsEscBlocked = false;
         if (page !== 'agents') return;
         if (event.modifiers?.alt && ['up', 'down'].includes(event.key)) {
           move(this.manageIndex, this.manageIndex + (event.key === 'up' ? -1 : 1), cx);
@@ -444,14 +449,12 @@ export const sessionMenu = {
         else return;
         cx.stop_propagation(); cx.notify();
       })
-      .when(Boolean(this.settingsEscBlocked) && this.settingsUnsaved(), el => el.child(div().id('settings-unsaved-hint').flex_none()
-        .text_size(12).text_color(t.blocked).child('Unsaved changes. Save or discard them, then press Esc to close.')))
       .child(this.settingsPageBody(page, { choices, hidden, toggle, move, cancelDrag }, t, cx));
   },
 
   // Edits on the open Settings page that Esc would lose: each page with Save/Discard reports its own draft.
   settingsUnsaved() {
-    return Boolean(this.capDirty || this.mcpDirty || this.eccDirty || this.globalRulesDirty?.());
+    return Boolean(this.capDirty || this.mcpDirty || this.eccDirty);
   },
 
   // One shell page of the Agents extension. Projects on a remote machine only get Agents: the other pages read this computer.

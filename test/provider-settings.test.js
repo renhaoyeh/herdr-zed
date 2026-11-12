@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { evaluateNative } from './source-harness.js';
 import { parseExtensionManifest, extensionMetadata } from '../mods/herdr-zed/extension-model.js';
 import * as sessions from '../components/session-model.js';
+import { Autosave } from '../components/autosave.js';
 
 // Provider Settings pages the shell embeds: each view mounts with props { view, embedded, context, overlay }.
 // Elements are recording stand-ins, so a test reads what was drawn: frames, titles, buttons and handlers.
@@ -38,7 +39,7 @@ const fakeInput = () => ({ text: '', on() {}, value() { return this.text; }, set
 const theme = () => ({ foreground: '#f5f5f5', muted: '#999', border: '#222', input: '#333', background: '#000', popover: '#111',
   destructive: '#f00', selected: '#222', ansi1: '#f00', solid: '#fff', solid_foreground: '#000', hover: '#181818', skeleton: '#333' });
 const names = log => log.map(([name]) => name);
-const ctx = pending => ({ notify() {}, spawn(fn) { pending.push(fn(ctx(pending))); }, stop_propagation() {} });
+const ctx = pending => ({ notify() {}, spawn(fn) { pending.push(fn(ctx(pending))); }, stop_propagation() {}, timer: { every() {} } });
 async function settle(pending) { while (pending.length) await Promise.all(pending.splice(0)); }
 
 // Default stand-ins for the gpui-kit and gpui-base names every view uses. Overrides spread over them.
@@ -47,6 +48,7 @@ function shell(overrides = {}) {
   const { make, factory } = kit(log, events);
   const host = {
     props: () => ({}), theme, closeOverlay: id => closed.push(id), run() {}, shared: () => null, setShared() {},
+    unsavedKey: overlay => `herdr-zed.unsaved.${overlay}`, SETTINGS_CLOSE_COMMAND: 'settings-close', Autosave,
     div: factory('div'), v_flex: factory('v_flex'), h_flex: factory('h_flex'), svg: factory('svg'), glyph: factory('glyph'),
     DialogContent: factory('DialogContent'), DialogTitle: factory('DialogTitle'), DialogDescription: factory('DialogDescription'),
     DialogFooter: factory('DialogFooter'), Button: (id, ...rest) => make('Button', [id, ...rest]), Checkbox: factory('Checkbox'),
@@ -86,9 +88,10 @@ function agentsView(sessionMenu, overrides = {}) {
     withSideNav: sessionMenu.withSideNav, accountName: sessionMenu.accountName, pickerName: sessionMenu.pickerName, ...overrides };
 }
 
-test('Agents Settings embedded draws only its page: padded, with no frame, title, page list or close control, and closes on Escape unless a draft is unsaved', async () => {
+test('Agents Settings embedded draws only its page: padded, with no frame, title, page list or close control, and Esc asks the shell to close', async () => {
+  const runs = [];
   const { host, log, events, closed, factory } = shell({ props: () => ({ view: 'manage-launchers', embedded: true, overlay: 'shell', page: 'agents' }),
-    ...sessions, availableAgents: () => [], spaces: () => [] });
+    ...sessions, availableAgents: () => [], spaces: () => [], run: (...args) => runs.push(args) });
   const { sessionMenu } = await evaluateNative('../mods/herdr-zed-agents/session-menu.js', host, 'sessionMenu');
   const page = factory('page')();
   const view = agentsView(sessionMenu, { settingsPage: 'agents', agentsPage: () => page, settingsUnsaved: sessionMenu.settingsUnsaved });
@@ -101,10 +104,8 @@ test('Agents Settings embedded draws only its page: padded, with no frame, title
   assert.ok(!names(log).some(name => name.startsWith('Button#manage-launchers-close')), 'no close control of its own');
   const escape = () => events['v_flex#manage-launchers'].on_key_down({ key: 'escape' }, { stop_propagation() {}, notify() {} });
   view.capDirty = true; escape();
-  assert.deepEqual(closed, [], 'Escape keeps Settings open while a draft is unsaved');
-  assert.equal(view.settingsEscBlocked, true, 'and says why');
-  view.capDirty = false; escape();
-  assert.deepEqual(closed, ['shell'], 'Escape closes the Settings dialog it is embedded in');
+  assert.deepEqual(closed, [], 'the page never closes the dialog itself');
+  assert.deepEqual(runs, [['herdr-zed.settings-close']], 'it asks the shell, which asks about unsaved edits first');
 });
 
 test('Agents Settings mounts exactly the page its props name, and remote projects only get Agents', async () => {
@@ -156,55 +157,7 @@ test('New thread and Agents rows name the program and account, and never show a 
   assert.equal(view.pickerName(claude, 'Default account'), 'Claude Code');
 });
 
-test('GitHub Settings without a project explains the requirement without reading accounts or Git config', async () => {
-  const pending = [];
-  const unexpectedRead = () => { throw new Error('No repository is selected'); };
-  const { host, log } = shell({ props: () => ({ view: 'settings', embedded: true, context: null }),
-    readGitAuthor: unexpectedRead, readGitAccounts: unexpectedRead, gitAccount: unexpectedRead });
-  const { GitHubAccount } = await evaluateNative('../mods/herdr-zed-github/account.js', host, 'GitHubAccount');
-  const view = new GitHubAccount(); view.init(ctx(pending)); await settle(pending);
-  view.render(theme());
-  assert.ok(log.some(([, method, text]) => method === 'child' && String(text).includes('Open a project')));
-  assert.ok(!names(log).some(name => name.startsWith('Button#git-author-save')));
-  view.close();
-});
-
-test('GitHub account Settings embedded lists signed-in accounts, keeps Save and Cancel, and never closes the shell', async () => {
-  const { host, log, events, closed } = shell({ props: () => ({ view: 'settings', embedded: true, overlay: 'shell',
-    context: { folder: '/repo', machine: '', name: 'repo' } }) });
-  const saved = [], reads = [], pending = [];
-  Object.assign(host, {
-    readGitAuthor: async (...args) => { reads.push(args); return { name: 'Ann', email: 'ann@example.test' }; },
-    readAccountAuthor: async () => ({ name: 'Amy', email: 'amy@example.test' }),
-    saveGitAuthor: async (...args) => saved.push(args), setGitAccount() {}, rememberGitAuthor() {},
-    gitAccount: () => ({ host: 'github.com', login: 'amy' }),
-    readGitAccounts: async () => [{ host: 'github.com', login: 'amy', available: true }, { host: 'github.com', login: 'bob', available: false }],
-  });
-  const { GitHubAccount } = await evaluateNative('../mods/herdr-zed-github/account.js', host, 'GitHubAccount');
-  const view = new GitHubAccount(); view.init(ctx(pending)); await settle(pending);
-  view.render(theme());
-  assert.ok(!names(log).some(name => name.startsWith('DialogContent')), 'no dialog frame');
-  assert.ok(!names(log).some(name => name.startsWith('Select')), 'signed-in accounts are listed, not a popup');
-  assert.ok(!log.some(([, method, arg]) => method === 'child' && arg === '"GitHub"'), 'no page title of its own');
-  assert.ok(log.some(([name, method, arg]) => name === 'v_flex#github-account' && method === 'p' && arg === '24'), 'the page has 24px padding');
-  assert.ok(log.some(([, method, arg]) => method === 'child' && arg === '"Repository: repo"'), 'the repository is named by its folder');
-  assert.ok(!log.some(([, method, arg]) => method === 'child' && arg === '"/repo"'), 'no raw path');
-  assert.ok(log.some(([, method, arg]) => method === 'child' && arg === '"Use the machine\x27s git credentials"'), 'Default is explained');
-  for (const id of ['default', '0', '1']) assert.ok(events[`Button#git-account-${id}`], `account row ${id}`);
-  assert.ok(log.some(([name, method, arg]) => name === 'Button#git-account-1' && method === 'disabled' && arg === 'true'),
-    'a row that needs sign-in is disabled');
-  assert.ok(events['Button#git-author-save'] && events['Button#git-author-cancel'], 'Save and Cancel stay');
-  view.name.set_value('Amy'); view.email.set_value('amy@example.test');
-  events['Button#git-author-save'].on_click({}, ctx(pending)); await settle(pending);
-  assert.equal(saved.length, 1, 'Save writes the author');
-  assert.deepEqual(closed, [], 'the shell owns closing');
-  const before = reads.length;
-  events['Button#git-author-cancel'].on_click({}, ctx(pending)); await settle(pending);
-  assert.equal(reads.length, before + 1, 'Cancel reloads the saved author');
-  assert.deepEqual(closed, []);
-});
-
-test('GitHub account standalone keeps its popup dialog and closes on Cancel', async () => {
+test('GitHub account is a dialog with the account choice that closes from its X', async () => {
   const { host, log, events, closed } = shell({ props: () => ({ overlay: 'popup', context: { folder: '/repo', machine: '' } }) });
   const pending = [];
   Object.assign(host, { readGitAuthor: async () => ({ name: 'Ann', email: 'a@example.test' }), readGitAccounts: async () => [],
@@ -214,7 +167,9 @@ test('GitHub account standalone keeps its popup dialog and closes on Cancel', as
   view.render(theme());
   assert.ok(names(log).includes('DialogContent#github-account'));
   assert.ok(names(log).includes('Select#git-account'), 'standalone keeps the account choice');
-  events['Button#git-author-cancel'].on_click({}, ctx(pending));
+  assert.ok(!events['Button#git-author-cancel'] && !events['Button#git-author-save'], 'no Cancel or Save: it saves itself');
+  events['Button#github-account-close'].on_click({}, ctx(pending));
+  await new Promise(resolve => setTimeout(resolve));
   assert.deepEqual(closed, ['popup']);
 });
 
@@ -228,7 +183,7 @@ function fakePanel() {
     openSettings() { this.calls.push(['openSettings']); }
     seedSettings() { this.calls.push(['seedSettings']); }
     syncFields() { this.calls.push(['syncFields']); }
-    saveToken() { this.calls.push(['saveToken']); }
+    writeConnection() { this.calls.push(['writeConnection']); }
     clearToken() { this.calls.push(['clearToken']); }
     copyToken() { this.calls.push(['copyToken']); }
     fieldSettings() { return { fields: true }; }
@@ -243,6 +198,7 @@ for (const { id, file, cls, panel, source, title, prefix } of [
   async function load(props, { host, log, events, closed }) {
     const panels = [], Base = fakePanel();
     Object.assign(host, { props: () => props, sourceModuleOptions: () => ({}), asanaSource: source, mantisSource: source,
+      connectionStatus: id => host.div().id(`${id}-status`),
       [panel]: class extends Base { constructor(options) { super(options); panels.push(this); } } });
     const { [cls]: Settings } = await evaluateNative(`../mods/${file}`, host, cls);
     return { view: new Settings(), panel: () => panels[0], log, events, closed };
@@ -261,12 +217,12 @@ for (const { id, file, cls, panel, source, title, prefix } of [
     assert.ok(!log.some(([, method, arg]) => method === 'child' && arg === `"${title}"`), 'no page title of its own');
     assert.ok(!log.some(([name]) => name.includes(`${prefix}-settings-close`)), 'no close control of its own');
     assert.deepEqual(closed, []);
-    events[`Button#${prefix}-save-token`].on_click({}, ctx([]));
-    assert.deepEqual(panel().calls.at(-1), ['saveToken']);
-    events[`Button#${prefix}-cancel-token`].on_click({}, ctx([]));
-    assert.deepEqual(panel().calls.at(-1), ['openSettings'], 'Cancel discards the draft instead of closing');
-    assert.deepEqual(closed, [], 'Cancel does not close the shell');
-    view.close(); assert.equal(panel().disposed, true);
+    assert.ok(!events[`Button#${prefix}-save-token`] && !events[`Button#${prefix}-cancel-token`], 'no Save or Cancel: it saves itself');
+    panel().tokenInput.set_value('new-token');
+    await view.auto.flush(ctx([]));
+    assert.deepEqual(panel().calls.at(-1), ['writeConnection'], 'an edited token is checked and saved');
+    assert.deepEqual(closed, []);
+    view.close(); await new Promise(resolve => setTimeout(resolve)); assert.equal(panel().disposed, true);
   });
 
   test(`${title} Settings standalone keeps its frame, its title and a header X in place of Done`, async () => {
@@ -346,7 +302,7 @@ function renderContext() {
   return { cx, notified };
 }
 // Work the views start (connection reads, field loads) runs to completion on a normal context, as the host would run it.
-const asyncContext = () => ({ focus_handle: () => ({ focus() {} }), notify() {}, spawn(work) { return work(asyncContext()); }, stop_propagation() {} });
+const asyncContext = () => ({ focus_handle: () => ({ focus() {} }), notify() {}, spawn(work) { return work(asyncContext()); }, stop_propagation() {}, timer: { every() {} } });
 const flush = () => new Promise(done => setImmediate(done));
 const stateInput = () => ({ text: '', on() {}, value() { return this.text; }, set_value(text) { this.text = String(text); }, set_masked() {}, focus() {}, release() {} });
 const sourceFor = (id, token) => {
@@ -365,7 +321,7 @@ async function loadPanel(id, host) {
     DropdownMenuLabel: host.factory('DropdownMenuLabel'), DropdownMenuSeparator: host.factory('DropdownMenuSeparator'), TextView: host.factory('TextView') });
   Object.assign(host, await evaluateNative(`../mods/${dir}/components/task-source-model.js`, host,
     'filterTasks, sourceTaskSnapshot, relativeTime, previewWidthAt, statusKind, avatarColor, initials, dueLabel, sourcePathKey'));
-  Object.assign(host, await evaluateNative(`../mods/${dir}/components/task-source.js`, host, 'TaskSourceController, TaskSourceProjectPicker'));
+  Object.assign(host, await evaluateNative(`../mods/${dir}/components/task-source.js`, host, 'TaskSourceController, TaskSourceProjectPicker, connectionStatus'));
   return (await evaluateNative(`../mods/${dir}/ui.js`, host, id === 'asana' ? 'AsanaPanel' : 'MantisPanel'))[id === 'asana' ? 'AsanaPanel' : 'MantisPanel'];
 }
 
@@ -420,33 +376,12 @@ for (const { id, token } of [{ id: 'asana', token: false }, { id: 'mantisbt', to
   });
 }
 
-test('GitHub embedded Settings renders without calling cx.notify', async () => {
-  // GitHubAccount.render takes no context, so the notify count is taken from the context its state was created with.
-  const counter = { armed: false, notified: 0 };
-  const cx = { focus_handle: () => ({ focus() {} }), notify() { if (counter.armed) counter.notified++; },
-    spawn(work) { return work(cx); }, stop_propagation() {}, timer: { every() {} } };
-  const { host, log } = shell({ props: () => ({ view: 'settings', embedded: true, overlay: 'shell', context: { folder: '/repo', machine: '', name: 'repo' } }) });
-  Object.assign(host, { readGitAuthor: async () => ({ name: 'Ann', email: 'ann@example.test' }), readAccountAuthor: async () => ({ name: 'Amy', email: '' }),
-    saveGitAuthor: async () => {}, setGitAccount() {}, rememberGitAuthor() {}, gitAccount: () => ({ host: 'github.com', login: 'amy' }),
-    readGitAccounts: async () => [{ host: 'github.com', login: 'amy', available: true }] });
-  const { GitHubAccount } = await evaluateNative('../mods/herdr-zed-github/account.js', host, 'GitHubAccount');
-  const view = new GitHubAccount();
-  view.init(cx);
-  await flush();
-  counter.armed = true;
-  view.render(theme());
-  counter.armed = false;
-  assert.equal(counter.notified, 0, 'render never requests a re-render');
-  assert.ok(names(log).includes('v_flex#github-account'), 'the page is drawn');
-});
-
-
 test('Global Rules lists the injected sections in order per provider and ends with the Custom editor', async () => {
   const { host, log, factory } = shell({ Editor: { new: () => factory('editor')() }, TextView: { markdown: (id, text) => factory('markdown')(id, text) },
     AgentIcon: (...args) => factory('AgentIcon')(...args) });
   const { globalRulesSettings } = await evaluateNative('../mods/herdr-zed-agents/global-rules-settings.js',
     { ...host, rulesPath: () => '/guide', providerDevkits: async () => null, defaultRules: '' }, 'globalRulesSettings');
-  const view = { ...globalRulesSettings, rulesCustom: { value: () => 'Mine' }, rulesLoaded: true, rulesOriginal: '', rulesProvider: 'codex', rulesOpen: 'core',
+  const view = { ...globalRulesSettings, rulesCustom: { value: () => 'Mine' }, rulesAuto: { status: () => '', error: null }, rulesLoaded: true, rulesOriginal: '', rulesProvider: 'codex', rulesOpen: 'core',
     rulesKits: { codex: { items: [{ id: 'core', name: 'Herdr Core', kind: 'rule', source: 'built-in', description: 'Use hc.', body: 'Read hc.' },
       { id: 'mine:rules:team', name: 'Team', kind: 'rule', source: 'mine', description: 'Ours.', body: 'Be kind.' }] } } };
   view.globalRulesNavigation(theme());
@@ -456,7 +391,7 @@ test('Global Rules lists the injected sections in order per provider and ends wi
   const rows = drawn.filter(name => name.startsWith('v_flex#global-rules-row-'));
   assert.deepEqual([...new Set(rows)], ['v_flex#global-rules-row-core', 'v_flex#global-rules-row-mine:rules:team', 'v_flex#global-rules-row-ecc', 'v_flex#global-rules-row-profile']);
   assert.ok(drawn.includes('markdown#global-rules-body-core'), 'the open section shows its text');
-  assert.ok(drawn.includes('editor') && drawn.includes('Button#save-global-rules') && drawn.includes('Button#discard-global-rules'));
+  assert.ok(drawn.includes('editor') && !drawn.includes('Button#save-global-rules') && !drawn.includes('Button#discard-global-rules'), 'Custom saves itself');
   assert.ok(!drawn.some(name => name.startsWith('Checkbox') || name.startsWith('Switch')));
 });
 
@@ -501,4 +436,28 @@ test('Usage controls and Auto exclude unsupported programs and derived profiles'
   }
   assert.deepEqual(autoChoices.map(choice => choice.agent.key), ['codex', 'claude']);
   assert.ok(names(log).includes('Checkbox#show-agent:other'), 'New thread availability is independent of quota support');
+});
+
+test('GitHub Settings is global: signed-in accounts with their remembered author and use, and every bound repository', async () => {
+  const pending = [], unbound = [];
+  const { host, log, events } = shell({ props: () => ({ view: 'settings', embedded: true, context: { folder: '/somewhere', machine: '' } }) });
+  Object.assign(host, {
+    readGitAccounts: async on => { assert.equal(on, null, 'this computer'); return [{ host: 'github.com', login: 'amy', available: true }, { host: 'github.com', login: 'bob', available: true }]; },
+    gitBindings: () => [{ machine: null, folder: '/code/app', account: { host: 'github.com', login: 'amy' } },
+      { machine: null, folder: '/code/site', account: { host: 'github.com', login: 'cat' } }],
+    rememberedAuthor: account => account.login === 'amy' ? { name: 'Amy', email: 'amy@example.test' } : null,
+    setGitAccount: (project, account) => unbound.push([project, account]),
+  });
+  const { GitHubSettings } = await evaluateNative('../mods/herdr-zed-github/settings-page.js', host, 'GitHubSettings');
+  const view = new GitHubSettings(); view.init(ctx(pending)); await settle(pending);
+  view.render(theme());
+  const shown = log.filter(([, method]) => method === 'child').map(([, , text]) => text);
+  assert.ok(shown.includes('"Commits as Amy <amy@example.test>"') && shown.includes('"No commit author saved yet"'));
+  assert.ok(shown.includes('"1 repository"') && shown.includes('"0 repositories"'), 'how many repositories use each account');
+  assert.ok(shown.includes('"Sign in with gh auth login"'), 'a bound account gh no longer lists still appears');
+  assert.ok(shown.includes('"app"') && shown.includes('"/code/app"'), 'repositories by folder name and path');
+  assert.ok(!shown.some(text => String(text).includes('/somewhere')), 'never about the project it was opened from');
+  assert.ok(!names(log).some(name => name.startsWith('Input') || name.includes('git-author-save')), 'no per-repository author form');
+  events['Button#github-unbind-/code/app'].on_click({}, ctx(pending));
+  assert.deepEqual(unbound, [[{ machine: null, folder: '/code/app' }, null]]);
 });

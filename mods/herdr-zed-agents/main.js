@@ -41,7 +41,7 @@ export default class AgentsMod extends View {
     if (target.view === 'account-login') { this.login = new AccountLogin(); this.login.init(target, cx); return; }
     if (target.view === 'shared-mcp') { this.initSharedMcp(cx); return; }
     if (target.view === 'launcher') { this.agentClient = new AgentClient(); this.agentClient.init(cx); }
-    if (target.view === 'rename-account') this.initRenameAccount();
+    if (target.view === 'rename-account') this.initRenameAccount(cx);
     if (['remove-account', 'rename-account'].includes(target.view)) {
       this.handle = cx.focus_handle();
       if (target.view !== 'rename-account') this.handle.focus();
@@ -74,7 +74,9 @@ export default class AgentsMod extends View {
     setShared('herdr-zed.last-thread-agents', { ...(shared('herdr-zed.last-thread-agents') || {}), [key]: value });
   }
   async close() {
-    this.storageClosed = true; this.eccClosed = true; this.capClosed = true; this.rulesCustom?.release();
+    this.storageClosed = true; this.eccClosed = true; this.capClosed = true;
+    // Global Rules saves itself; an edit still waiting for the delay is written before the editor goes.
+    this.rulesAuto?.flush().finally(() => this.rulesCustom?.release());
     this.usageClient?.close(); this.agentClient?.close();
     for (const monitor of this.usageService?.monitors.values() || []) monitor.agentClient.close();
     await this.login?.close();

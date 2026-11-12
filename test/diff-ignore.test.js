@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { Autosave } from '../components/autosave.js';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
@@ -79,7 +80,7 @@ test('remote rules preserve literal Unicode and shell punctuation and remove tem
   }
 });
 
-test('rules editor saves checked templates and custom rules with revision checks, publishing only successful saves', async () => {
+test('rules editor saves itself with checked templates and custom rules, with revision checks, publishing only successful saves', async () => {
   const source = await readFile(new URL('../mods/herdr-zed/diff-ignore-settings.js', import.meta.url), 'utf8');
   const tasks = [], closed = [], memory = {}, writes = []; let conflict = true;
   const editor = ({ value = '' }) => ({ set_value(text) { value = text; }, value: () => value, release() {} });
@@ -91,17 +92,19 @@ test('rules editor saves checked templates and custom rules with revision checks
     serializeBuildFilters: value => JSON.stringify(value),
     writeTextFile: async (path, text, expected) => { writes.push([path, JSON.parse(text), expected]); if (conflict) throw new Error('Changed on disk'); },
     shared: key => memory[key], setShared: (key, next) => { memory[key] = next; },
-    props: () => ({ overlay: 'dialog' }), closeOverlay: id => closed.push(id),
+    props: () => ({ overlay: 'dialog' }), closeOverlay: id => closed.push(id), Autosave,
   };
   const { BuildRulesSettings } = new Function(...Object.keys(host), source.replace(/^import .*;\r?\n/gm, '').replace(/^export /gm, '')
     + '\nreturn { BuildRulesSettings };')(...Object.values(host));
-  const cx = { notify() {}, spawn(fn) { tasks.push(fn(cx)); } };
+  const cx = { notify() {}, spawn(fn) { tasks.push(fn(cx)); }, timer: { every() {} } };
   const view = new BuildRulesSettings(); view.init(cx); await Promise.all(tasks.splice(0));
   assert.equal(view.page, 'B.gitignore'); assert.equal(view.preview.value(), 'b');
   view.checked.add('A.gitignore'); view.custom.set_value('mine\n!keep');
-  view.save(cx); await Promise.all(tasks.splice(0));
-  assert.match(view.error, /Changed on disk/); assert.deepEqual(closed, []); assert.deepEqual(memory, {});
+  view.auto.tick(cx, 0); await view.auto.tick(cx, 1000);
+  assert.match(view.auto.error, /Changed on disk/); assert.deepEqual(closed, []); assert.deepEqual(memory, {});
   assert.deepEqual(writes[0], ['/filters.json', { templates: ['A.gitignore', 'B.gitignore'], custom: 'mine\n!keep' }, 'original']);
-  conflict = false; view.save(cx); await Promise.all(tasks.splice(0));
-  assert.deepEqual(closed, []); assert.equal(view.saved, true); assert.equal(memory['herdr-zed.diff-build-rules-revision'], 1);
+  view.auto.tick(cx, 1500); assert.equal(writes.length, 1, 'a failed value waits for the next edit');
+  conflict = false; await view.auto.flush(cx);
+  assert.deepEqual(closed, []); assert.equal(view.auto.status(), 'Saved'); assert.equal(memory['herdr-zed.diff-build-rules-revision'], 1);
+  assert.equal(writes.length, 2, 'loading was never written back');
 });

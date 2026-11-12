@@ -19,6 +19,15 @@ test('platforms: optional, non-empty, unique, from macos, windows and linux; abs
   assert.equal(platformSupported(['windows', 'linux'], 'linux'), true);
 });
 
+test('description and category: optional; category defaults to tools, anything malformed is rejected', () => {
+  assert.deepEqual([extensionMetadata('herdr-zed-demo', text()).description, extensionMetadata('herdr-zed-demo', text()).category], [null, 'tools']);
+  const meta = extensionMetadata('herdr-zed-demo', text({ description: 'Does a thing.', category: 'work' }));
+  assert.deepEqual([meta.description, meta.category], ['Does a thing.', 'work']);
+  for (const bad of ['', '  ', 7, 'x'.repeat(161)])
+    assert.throws(() => parseExtensionManifest('herdr-zed-demo', text({ description: bad })), /Invalid extension description/, JSON.stringify(bad));
+  for (const bad of ['misc', '', 3]) assert.throws(() => parseExtensionManifest('herdr-zed-demo', text({ category: bad })), /Invalid extension category/);
+});
+
 test('popup.placement: center by default, workspace when declared, anything else is rejected', () => {
   assert.equal(parseExtensionManifest('herdr-zed-demo', text())[0].popup.placement, 'center');
   const [work] = parseExtensionManifest('herdr-zed-demo', text({ actions: [action({ placement: 'workspace' })] }));

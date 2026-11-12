@@ -3,6 +3,8 @@
   "dataReset": { "helper": "reset-provider.js" },
   "id": "simulator",
   "title": "iOS Simulator",
+  "description": "Run and view the iOS Simulator beside your work.",
+  "category": "tools",
   "platforms": ["macos"],
   "dependencies": ["herdr-zed-sim-frames"],
   "actions": [],

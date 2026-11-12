@@ -9,6 +9,7 @@ import { calendarContent, taskTokenId, taskTokenRef, mentionTrigger, calendarEnt
 import { taskIndex } from '../components/tasks-model.js';
 import { boardTasks } from '../mods/herdr-zed-tasks/agent-board-model.js';
 import { evaluateNative } from './source-harness.js';
+import { Autosave } from '../components/autosave.js';
 
 const draft = { title: 'Plan the next task', notes: 'Details', startDate: '2026-11-08', endDate: '2026-11-08', startTime: '09:00', endTime: '10:00', allDay: false };
 
@@ -170,9 +171,9 @@ async function ui(memory = {}, target = {}, options = {}) {
   const inputElement = state => { const el = element(); controls.push({ state, data: elements.get(el) }); return el; };
   const host = { div: element, h_flex: element, v_flex: element, InputState: inputs, TextareaState: inputs, Input: { new: inputElement }, Textarea: { new: inputElement }, Popup: { new: (id, trigger) => element().id(id).child(trigger) }, mentionTrigger, calendarEntries, taskLinkState,
     shared: key => memory[key], setShared: (key, data) => { memory[key] = data; writes.push(key); }, props: () => ({ overlay: 'calendar', ...target }), openOverlay: options => { overlays.push(options); }, closeOverlay: () => { closed = true; }, boardTheme: () => ({}),
-    Button: id => element().id(id), Checkbox: id => element().id(id), glyph: element, dayKey, nextDay, localDate, monthDays, weekDays, timelineEvents, timelineMinute, rangeDraft, eventsOnDay, eventTime, eventFromDraft, eventDraft, saveEvent, deleteEvent };
+    Button: id => element().id(id), Checkbox: id => element().id(id), glyph: element, Autosave, DiscardPrompt: id => element().id(id), dayKey, nextDay, localDate, monthDays, weekDays, timelineEvents, timelineMinute, rangeDraft, eventsOnDay, eventTime, eventFromDraft, eventDraft, saveEvent, deleteEvent };
   const Type = new Function(...Object.keys(host), source.replace(/^import .*;\r?\n/gm, '').replace('export default class', 'return class'))(...Object.values(host));
-  const cx = { focus_handle: () => ({ focus() {} }), notify() {}, stop_propagation() {}, bind_keys: entries => bindings.push(...entries) };
+  const cx = { focus_handle: () => ({ focus() {} }), notify() {}, stop_propagation() {}, bind_keys: entries => bindings.push(...entries), timer: { every() {} } };
   const view = new Type(options); view.init(cx);
   const render = () => {
     controls.length = 0; rendering = true;
@@ -624,4 +625,24 @@ test('the search receives focus after its inline popup mounts, once per opening,
   assert.equal(h.view.mentionSearch.focusCount, nextFocus);
   h.nodes.get(`calendar-task-search-host-${nextAnchor}`).sizeChange({ width: 292, height: 36 }, h.cx);
   assert.equal(h.view.mentionSearch.focusCount, nextFocus + 1);
+});
+
+test('an existing event saves itself after the last edit and keeps its form; a new event waits for Create event', async () => {
+  const h = await ui();
+  const event = eventFromDraft(draft, 'one', 'r1'); h.memory['herdr-zed.calendar-events'] = { one: event };
+  h.view.edit(event, h.cx);
+  h.view.auto.tick(h.cx, 0); await h.view.auto.tick(h.cx, 1000);
+  assert.equal(h.view.records().one.revision, 'r1', 'opening the form writes nothing');
+  h.view.inputs.title.set_value('Renamed');
+  h.view.auto.tick(h.cx, 2000); await h.view.auto.tick(h.cx, 2600);
+  assert.equal(h.view.records().one.title, 'Renamed'); assert.equal(h.view.composing, true, 'the form stays open');
+  h.view.inputs.title.set_value('Renamed again');
+  h.view.auto.tick(h.cx, 3000); await h.view.auto.tick(h.cx, 3600);
+  assert.equal(h.view.records().one.title, 'Renamed again', 'the next write expects the revision the last one made');
+  h.render();
+  assert.ok(h.nodes.has('calendar-close') && !h.nodes.has('calendar-save') && !h.nodes.has('calendar-cancel'), 'no Save or Cancel');
+  const form = await ui({}, { calendarCreate: true });
+  form.view.inputs.title.set_value('New');
+  form.view.auto.tick(form.cx, 0); await form.view.auto.tick(form.cx, 1000);
+  assert.deepEqual(form.view.records(), {}, 'a new event is created only by Create event');
 });

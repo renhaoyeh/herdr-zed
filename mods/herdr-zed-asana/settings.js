@@ -5,6 +5,8 @@ import AsanaPanel from './ui.js';
 import { asanaSource } from './source.js';
 import { sourceModuleOptions } from './components/source-channel.js';
 import { Button } from './components/button.js';
+import { Autosave } from './components/autosave.js';
+import { connectionStatus } from './components/task-source.js';
 import { DialogContent, DialogHeader, DialogDescription } from './components/dialog.js';
 
 // Asana's Settings page: the personal access token and field display. The panel owns the token state
@@ -17,9 +19,13 @@ export class AsanaSettings {
     this.panel = new AsanaPanel(sourceModuleOptions(asanaSource, this.target));
     this.panel.init(cx);
     this.panel.open(this.target.context, cx);
+    // The connection saves itself shortly after the last edit, once its check passes (design.md, Saving).
+    this.auto = new Autosave({ snapshot: () => JSON.stringify([this.panel.tokenInput.value().trim(), this.panel.serverInput?.value().trim() || '']),
+      valid: () => Boolean(this.panel.tokenInput.value().trim()), save: () => this.panel.writeConnection() });
+    this.auto.attach(cx);
   }
 
-  close() { this.panel?.dispose(); }
+  close() { this.auto?.flush().finally(() => this.panel?.dispose()); }
 
   render(cx) {
     const t = theme(), panel = this.panel;
@@ -27,7 +33,7 @@ export class AsanaSettings {
     // The form shows the saved token once it is known, and again after a save or clear changes it.
     if (panel.needsToken !== null && panel.needsToken !== undefined) {
       const key = String(panel.token);
-      if (this.seeded !== key) { this.seeded = key; panel.seedSettings(); }
+      if (this.seeded !== key) { this.seeded = key; panel.seedSettings(); this.auto.reset(); }
       panel.syncFields(cx);
     }
     const body = v_flex().gap(16).text_color(t.foreground)
@@ -41,12 +47,9 @@ export class AsanaSettings {
           .child(Button('asana-copy-token', t, { variant: 'outline' }).h(32).disabled(!panel.tokenInput.value().trim())
             .accessibility_label('Copy personal access token').on_click((_event, cx) => panel.copyToken(cx))
             .child(panel.tokenCopied ? 'Copied' : 'Copy')))
-        .when(Boolean(panel.error), el => el.child(div().id('asana-error').text_size(12).text_color(t.destructive).child(panel.error)))
-        .child(h_flex().gap(8)
-          .child(Button('asana-save-token', t).disabled(busy).on_click((_event, cx) => panel.saveToken(cx)).child(busy ? 'Saving…' : panel.token ? 'Save token' : 'Connect'))
-          .child(Button('asana-cancel-token', t, { variant: 'outline' }).disabled(busy).on_click((_event, cx) => panel.openSettings(cx)).child('Cancel'))
-          .when(Boolean(panel.token), el => el.child(Button('asana-clear-token', t, { variant: 'outline' }).disabled(busy)
-            .on_click((_event, cx) => panel.clearToken(cx)).child('Clear saved token'))))
+        .child(connectionStatus('asana', t, this.auto, panel))
+        .when(Boolean(panel.token), el => el.child(h_flex().child(Button('asana-clear-token', t, { variant: 'outline' }).disabled(busy || this.auto.saving)
+          .on_click((_event, cx) => panel.clearToken(cx)).child('Clear saved token'))))
         .child(panel.fieldSettings(t)));
     if (this.embedded) return v_flex().id('asana-settings').size_full().min_h(0).p(24).overflow_y_scroll().child(body);
     const close = () => closeOverlay(this.target.overlay);

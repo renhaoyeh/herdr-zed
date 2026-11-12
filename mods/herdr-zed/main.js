@@ -16,7 +16,8 @@ import { startPanel, COMPOSE_KEY, startProjectKey } from './start-panel.js';
 import { COMPOSE_TAB } from './workspace-editor.js';
 import { threadArchive, historyEligible } from './thread-archive.js';
 import { startThreadResume } from './thread-resume.js';
-import { SettingsNav, SettingsPage, SettingsHeader, openSettings, settingsPageKey } from './settings.js';
+import { SettingsNav, SettingsPage, SettingsHeader, DiscardChanges, openSettings, settingsPageKey, closeOnEscape, navigateSettings, requestSettingsClose, settingsUnsaved } from './settings.js';
+import { ExtensionsNav } from './extensions-manager.js';
 import { GitAuthorDialog } from './git-author-settings.js';
 import { ExtensionSlot, ExtensionSurfaceSlot, refreshExtensions, openExtension, extensionCatalog, openGitAction, activeLauncher, publishWorkspaceRect, recordSize, WORK_WIDTH_KEY, SIDEBAR_HEIGHT_KEY, closeWorkspacePanel, visibleSurfaceCount, syncExtensionLayout } from './extensions.js';
 import { pollLaunchIntake } from './launch-intake.js';
@@ -87,8 +88,10 @@ export default class HerdrZed extends View {
     if (view === 'reset-data') { this.resetData = new ResetData(); this.resetData.init(cx); return; }
     if (view === 'launcher') { this.launcher = new NativeLauncher(); this.launcher.init(cx); return; }
     if (view === IMAGE_PREVIEW_VIEW) return;
-    if (view === 'settings-nav') { this.settingsNav = new SettingsNav(); return; }
-    if (view === 'settings-header') { this.settingsHeader = new SettingsHeader(); return; }
+    if (view === 'discard-changes') { this.discardChanges = new DiscardChanges(); this.discardChanges.init(cx); return; }
+    if (view === 'settings-nav') { this.settingsNav = new SettingsNav(); this.settingsNav.init(cx); return; }
+    if (view === 'extensions-nav') { this.extensionsNav = new ExtensionsNav({ openSettings: (key, context) => navigateSettings(key, context, props()?.overlay), pageKey: settingsPageKey, closeOnEscape, unsaved: settingsUnsaved }); this.extensionsNav.init(cx); return; }
+    if (view === 'settings-header') { this.settingsHeader = new SettingsHeader(); this.settingsHeader.init(cx); return; }
     if (view === 'settings-page') { this.settingsPage = new SettingsPage(); this.settingsPage.init(cx); return; }
     if (view === 'commit-author') { this.authorDialog = new GitAuthorDialog(); this.authorDialog.init(cx); return; }
     if (view === 'status-tools') { clearGitToast(); setShared('herdr-zed.git-output-request', null); return; }
@@ -108,6 +111,7 @@ export default class HerdrZed extends View {
         // herdr-zed.settings opens the General page; herdr-zed.settings:<key> a shell page (general, git, extensions)
         // or an extension's page (ARCHITECTURE §2.1).
         if (command === 'settings') openSettings('general', this.projects().find(project => project.active));
+        if (command === 'settings-close') requestSettingsClose();
         if (command === 'extensions') openSettings('extensions', this.projects().find(project => project.active));
         if (command.startsWith('settings:')) openSettings(settingsPageKey(command.slice('settings:'.length)), this.projects().find(project => project.active));
         if (command === 'extensions-refresh') { await refreshExtensions(); cx.notify(); }
@@ -733,7 +737,9 @@ export default class HerdrZed extends View {
 
   renderView(cx) {
     const t = theme();
+    if (props()?.view === 'discard-changes') return this.discardChanges.render(t);
     if (props()?.view === 'settings-nav') return this.settingsNav.render(t);
+    if (props()?.view === 'extensions-nav') return this.extensionsNav.render(t);
     if (props()?.view === 'settings-header') return this.settingsHeader.render(t);
     if (props()?.view === 'settings-page') return this.settingsPage.render(t);
     if (props()?.view === 'commit-author') return this.authorDialog.render(t);

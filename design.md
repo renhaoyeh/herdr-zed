@@ -13,17 +13,28 @@ titles). Where they conflict, this file wins.
   "App settings…" opens Herdr's appearance, keyboard and terminal settings. One management dialog is open
   at a time: navigating replaces it, rather than stacking another modal.
 - Management dialogs are 1040×0.86 and modal, with one shell-owned 1px outer border, a 64px title bar and an X. No Done buttons.
-- Extensions manages optional tools: enable switches, display location switches and Configure links. The launcher workflow
+- Extensions follows macOS System Settings: a 220px left nav lists the optional extensions under small category labels
+  (Work, Task sources, Git, Tools; manifest `category`), each row with a state dot (on, off, red for a problem), and
+  "Reload extensions" at its foot. Opening Extensions lands on the extension viewed last, else the first. The right side
+  is the selected extension: the standard 64px title bar (title, aligned with the nav's "Extensions", and the close X);
+  then, as on a macOS Settings page, one card whose first row is the description (manifest description, then fixed
+  places: Status bar button; Changes and Git commands) with the On/Off switch on the right, a row for "Needs X" or a
+  problem, and "Show <content> in <place>" rows that stay (dimmed, inert) while it is off; then its sub-page tabs.
+  Below is its own settings view, shown whether the extension is on or off (as macOS keeps a page's options in place);
+  without one, nothing. Turning it on or off changes only the switch, the dimmed place rows and the nav dot. There is no list page, Configure button or back button.
+  The launcher workflow
   is excluded: Agents has its own dialog with account/launch/rules tabs and no enable or Usage display switches.
   Its tabbed header is 104px high. Agents pages follow the setup flow: Accounts, Launch menu, Profiles, Capabilities, ECC, MCP Connections, Global Rules. Capabilities, ECC and Global Rules share one side navigation (Overview where present, then Claude Code and Codex). Capabilities lists built-in and your own ("Mine", from data/herdr-zed/capabilities) Rules and Skills per provider, each with a switch, and names required connections; it does not configure or enable MCP servers. MCP Connections manages existing built-in, recommended and user-added shared servers for Codex and Claude Code without a search field or arbitrary add action; built-in servers show no editable fields, connection actions stay above the scrolling details, and it saves its own draft. Global Rules lists, in injection order, each section a new session receives (name, source, text on demand) and ends with the editable Custom section; it has no selection controls. Each page keeps its own Save/Discard, disabled until something changed. Launch menu has no duplicate connection dialog entry. Usage has no
   visibility toggle and no status-bar contribution.
   The shell identifies launcher workflows by their declared capability, without provider-specific branches.
-- Tools themselves open from the main window's status bar, sidebar or dock. An extension's configuration has a back button
-  to the Extensions manager, enable/display controls and contextual tabs. Its header is 96px, or 144px with tabs. The first
-  declared sub-page is selected on entry. Git preferences contain all-project display filters; Changes shows the repository's
+- Tools themselves open from the main window's status bar, sidebar or dock. An extension's configuration opens in the
+  Extensions dialog beside its nav; its header height follows its content. The first declared sub-page is selected on entry. Git preferences contain all-project display filters; Changes shows the repository's
   commit identity (author name · bound account login) in its own row directly above the branch/Push row, divided by a
   border; clicking it opens the credential provider's account dialog, or without one the repository-scoped 760×400
   Commit author form with its own Save and close control. The Git menu holds only Git operations.
+  GitHub's Extensions page is global, never about one repository: the gh accounts signed in on this computer (each with
+  its remembered commit author and how many repositories use it) and every repository bound to an account, which can be
+  unbound there. A repository's account is chosen only from its Changes identity row.
 - Providers never create the management dialogs themselves. They declare `settings: { view, title }` and deep-link
   with `run('herdr-zed.settings:<extension id>')`. A page may declare sub-pages (`pages`), listed as tabs inside
   its detail page and deep-linked with `herdr-zed.settings:<extension id>:<page id>`. An embedded settings view draws no frame, close button
@@ -35,7 +46,7 @@ titles). Where they conflict, this file wins.
 
 - Top to bottom: the thread list, the sidebar surfaces (Usage; optional tools via Extensions), and the
   thread history row. The history row is always the last row (its own layout block `sidebar-history`).
-- Sidebar surfaces start hidden the first time they mount; Manage extensions turns them on.
+- Sidebar surfaces start hidden the first time they mount; their switch in Extensions turns them on.
 - Project rows: the current project has a 2px accent left edge; a project without threads has a dim name and no
   placeholder row. A project row shows how many of its threads are blocked (circle-alert, `blocked`), and while folded
   also how many are done (circle-check, `done`), so what needs you is visible without opening it.
@@ -121,6 +132,34 @@ titles). Where they conflict, this file wins.
 ## Dialogs
 
 Closing is an X in the header (or Cancel/Esc); there are no Done buttons.
+
+### Saving
+
+Settings save themselves: a form writes shortly after the last edit (500ms, `components/autosave.js`), never on load,
+never an incomplete value (an empty required field shows its requirement in red), and closing writes an edit still
+waiting. There is no Save or Cancel; one fixed status line shows Saving…, Saved or the error in red, and a failed write
+keeps the edit and retries on the next change (or when closing). This covers Commit author, the GitHub account dialog,
+Git display filters, Global Rules Custom, Rename account, editing an existing Calendar event, and the Asana and MantisBT
+connection (token, server URL): those are checked first ("Checking and saving…", then "Connected and saved"), and a
+failed check saves nothing and shows why. Copy and Clear saved token stay as actions.
+Explicit buttons stay where pressing them is the action: creating something (New agent profile, Create event) and
+changes that install or run setup (Capabilities, MCP Connections, ECC).
+
+### Unsaved changes
+
+Closing never drops edits silently. A dialog or page with edits it has not saved:
+- shows the reminder in red while they exist: "Unsaved changes" beside the close X (Settings, Extensions, Agents) with a
+  2px red edge on the open nav row and a red underline on the open sub-page tab; in a single dialog, "Unsaved changes"
+  in its footer status slot;
+- asks before Esc or the X close it, and before the nav or a tab leaves the page: a "Discard unsaved changes?" confirm
+  (Keep editing, the default and Esc; Discard, destructive) for Settings, Extensions and Agents; in a single dialog the
+  footer turns into a red-ruled `DiscardPrompt` row with the same two buttons.
+- This applies only to the forms with explicit buttons above. Cancel is an explicit discard and does not ask. Forms that
+  save themselves, and forms that keep a draft when dismissed (Task composer), have nothing to ask.
+
+Every dialog, popup and workspace window closes on Esc, wherever focus is inside it. Herdr closes single-mod overlays on
+Esc itself, but sends Esc in a `layout` dialog (Settings, Extensions, Agents) to its blocks: there the first block takes
+focus on open and every shell block closes the dialog on Esc (`closeOnEscape`).
 
 | Type | Size | Modal | Closing |
 | --- | --- | --- | --- |
