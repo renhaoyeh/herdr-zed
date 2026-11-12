@@ -898,9 +898,10 @@ export default class DiffViewer {
             .accessibility_label(`${operation.label} current branch${ahead == null ? '' : `, ${ahead} commits ahead, ${behind} commits behind upstream`}`)
             .on_click((_event, cx) => this.remoteAction(action, cx)).child(this.pushing ? this.operation.progress : `${counts}${operation.label}`))
           .child(DropdownMenu('diff-git-actions', this.gitMenu,
-            ToolbarButton('diff-git-menu', t, { icon: true }).border_l(1).border_color(t.chrome)
+            // The same filled button as Push, split from it by a divider: one control in two parts.
+            Button('diff-git-menu', t, { size: 'icon' }).h(26).w(26).border_l(1).border_color(t.chrome)
               .disabled(Boolean(this.pushing)).accessibility_label('More Git operations')
-              .child(icon('chevron-down')), items, choose, t, { side: 'top', offset: { x: 0, y: 15 } })))); // 8px above the footer's top border
+              .child(icon('chevron-down').text_color(t.solid_foreground)), items, choose, t, { side: 'top', offset: { x: 0, y: 15 } })))); // 8px above the footer's top border
   }
 
   toggle(path, cx) {
