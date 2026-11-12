@@ -1,5 +1,6 @@
 {
   "version": 1,
+  "dataReset": { "helper": "reset-provider.js" },
   "id": "system",
   "title": "System Monitor",
   "settings": { "view": "settings", "title": "System Monitor" },

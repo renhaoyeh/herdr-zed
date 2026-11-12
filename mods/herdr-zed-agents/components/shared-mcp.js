@@ -4,7 +4,7 @@ import { parseSharedMcp, mcpToml, platformSharedMcp } from './shared-mcp-model.j
 export { parseSharedMcp, mcpToml } from './shared-mcp-model.js';
 import { sessionKind, tasksMcpServer } from './session-model.js';
 
-export const sharedMcpPath = () => `${appHome()}/data/devkits/codex-mcp.json`;
+export const sharedMcpPath = () => `${appHome()}/data/herdr-zed/codex-mcp.json`;
 export function sharedMcpArgv(agent, argv, config) {
   if (sessionKind(agent) !== 'codex' || !argv) return argv;
   const flags = Object.entries(config.servers).flatMap(([name, server]) =>

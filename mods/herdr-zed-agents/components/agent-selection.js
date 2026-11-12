@@ -32,10 +32,10 @@ export const agentSelection = {
   },
   newThreadShortcut() {
     const bindings = new Map();
-    for (const section of ['global', 'layout:devkits', 'mod:devkits']) {
+    for (const section of ['global', 'layout:herdr-zed', 'mod:herdr-zed']) {
       for (const binding of keys().filter(binding => binding.section === section)) bindings.set(binding.keys, binding.action);
     }
-    const shortcut = [...bindings].find(([, action]) => action === 'devkits.new-thread')?.[0];
+    const shortcut = [...bindings].find(([, action]) => action === 'herdr-zed.new-thread')?.[0];
     const mac = window()?.platform === 'macos';
     return shortcut?.split('-').map(part => ({ cmd: mac ? '⌘' : 'Super', ctrl: mac ? '⌃' : 'Ctrl',
       alt: mac ? '⌥' : 'Alt', shift: mac ? '⇧' : 'Shift' })[part] || part.toUpperCase()).join(mac ? '' : '+');

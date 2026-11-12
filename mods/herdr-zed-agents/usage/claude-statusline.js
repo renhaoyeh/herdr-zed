@@ -18,7 +18,7 @@ export function record(input, directory, now = Date.now()) {
   const limits = session?.rate_limits;
   // Claude Code omits rate_limits until the first response; keep the last recording until then.
   if (directory && limits && (limits.five_hour || limits.seven_day)) {
-    const path = `${directory}/devkits-usage.json`;
+    const path = `${directory}/herdr-zed-usage.json`;
     writeFileSync(`${path}.tmp`, JSON.stringify({ capturedAt: now, rate_limits: limits }));
     renameSync(`${path}.tmp`, path);
   }
@@ -27,7 +27,7 @@ export function record(input, directory, now = Date.now()) {
 
 export function chained(input, directory, run = spawnSync) {
   let saved;
-  try { saved = JSON.parse(readFileSync(`${directory}/devkits-statusline-chain.json`, 'utf8')); } catch { return null; }
+  try { saved = JSON.parse(readFileSync(`${directory}/herdr-zed-statusline-chain.json`, 'utf8')); } catch { return null; }
   if (saved?.type !== 'command' || typeof saved.command !== 'string' || !saved.command) return null;
   const result = run(saved.command, { input, shell: true, encoding: 'utf8', timeout: 10000, windowsHide: true });
   return typeof result.stdout === 'string' ? result.stdout.replace(/\s+$/, '') : '';

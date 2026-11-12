@@ -76,8 +76,8 @@ export const agentProfiles = {
     }
     if (error) { this.profileError = error; cx.notify(); return; }
     this.profileSaving = true;
-    let number = configs.length + 1, key = existing || `devkits-preset-${Date.now().toString(36)}-${number}`;
-    while (!existing && configs.some(item => item.key === key)) key = `devkits-preset-${Date.now().toString(36)}-${++number}`;
+    let number = configs.length + 1, key = existing || `herdr-zed-preset-${Date.now().toString(36)}-${number}`;
+    while (!existing && configs.some(item => item.key === key)) key = `herdr-zed-preset-${Date.now().toString(36)}-${++number}`;
     const config = { key, profileKey: account.key, name, ...(instructions ? { instructions } : {}) };
     const sessions = shared('herdr-zed.profile-sessions') || {};
     setShared('herdr-zed.profile-sessions', { ...sessions, [key]: { ...sessions[key], model: draft.model, effort: draft.effort,

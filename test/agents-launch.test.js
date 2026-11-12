@@ -18,7 +18,7 @@ async function launcher({ platform = 'macos', spaces = [{ id: 'one', machine: nu
   return { emitLaunch, memory };
 }
 
-const agent = { key: 'devkits-codex-work', name: 'Codex · work' };
+const agent = { key: 'herdr-zed-codex-work', name: 'Codex · work' };
 const target = { space: 'one', folder: '/code/api', projectName: 'API', overlay: 'picker-1' };
 
 test('a provider launch appends the prepared argv byte for byte; only local shells get the platform wrapper', async () => {
@@ -26,10 +26,10 @@ test('a provider launch appends the prepared argv byte for byte; only local shel
   const result = await mac.emitLaunch(agent, target, {});
   const [request] = mac.memory['herdr-zed.launch.requests'];
   assert.equal(result.id, request.id);
-  assert.deepEqual({ model: result.model, effort: result.effort, profile: result.profile }, { model: 'gpt', effort: 'high', profile: 'devkits-codex-work' });
+  assert.deepEqual({ model: result.model, effort: result.effort, profile: result.profile }, { model: 'gpt', effort: 'high', profile: 'herdr-zed-codex-work' });
   assert.deepEqual(request.argv, ['codex', '--model', 'gpt']);
   assert.deepEqual(request.target, target);
-  assert.equal(request.source, 'agents'); assert.equal(request.name, 'Codex · work'); assert.equal(request.profile, 'devkits-codex-work');
+  assert.equal(request.source, 'agents'); assert.equal(request.name, 'Codex · work'); assert.equal(request.profile, 'herdr-zed-codex-work');
   assert.ok(request.expiresAt > Date.now() && request.expiresAt <= Date.now() + 30000);
   assert.equal(Object.hasOwn(request, 'origin'), false);
 
@@ -114,11 +114,11 @@ test('thread decorations label each Agents thread with its account and a quota t
   const memory = {}; let writes = 0;
   const host = { ...sessions, shared: key => clone(memory[key]), setShared: (key, value) => { writes++; memory[key] = clone(value); } };
   const { threadDecorations, publishDecorations } = await evaluateNative('../mods/herdr-zed-agents/decorations.js', host, 'threadDecorations, publishDecorations');
-  const agents = [{ key: 'devkits-codex-work', name: 'Codex · work' }, { key: 'devkits-claude-main', name: 'Claude · main' }, { key: 'codex', name: 'Codex' }];
-  const threads = { 11: { profile: 'devkits-codex-work', source: 'agents' }, 12: { profile: 'devkits-claude-main', source: 'agents' },
+  const agents = [{ key: 'herdr-zed-codex-work', name: 'Codex · work' }, { key: 'herdr-zed-claude-main', name: 'Claude · main' }, { key: 'codex', name: 'Codex' }];
+  const threads = { 11: { profile: 'herdr-zed-codex-work', source: 'agents' }, 12: { profile: 'herdr-zed-claude-main', source: 'agents' },
     13: { profile: null, source: 'native' }, 14: { profile: 'removed-account', source: 'agents' }, 15: { profile: 'codex', source: 'agents' } };
-  const usage = [{ key: 'devkits-codex-work', windows: [{ minutes: 300, usedPercent: 75 }] },
-    { key: 'devkits-claude-main', windows: [{ minutes: 10080, usedPercent: 90 }] }, { key: 'codex', email: 'me@example.com', windows: [{ minutes: 300, usedPercent: 12 }] }];
+  const usage = [{ key: 'herdr-zed-codex-work', windows: [{ minutes: 300, usedPercent: 75 }] },
+    { key: 'herdr-zed-claude-main', windows: [{ minutes: 10080, usedPercent: 90 }] }, { key: 'codex', email: 'me@example.com', windows: [{ minutes: 300, usedPercent: 12 }] }];
   assert.deepEqual(threadDecorations(threads, agents, usage), {
     11: { badge: 'work', tone: 'warning' }, 12: { badge: 'main', tone: 'error' }, 15: { badge: 'me@example.com' } });
   assert.deepEqual(threadDecorations(undefined, agents, usage), {});

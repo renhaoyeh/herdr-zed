@@ -71,6 +71,9 @@ function validateMetadata(mod, value) {
   validateProvides(value.provides);
   validateSettings(value.settings);
   validatePlatforms(value.platforms);
+  if (value.dataReset !== undefined && value.dataReset !== null
+    && (!hasExactKeys(value.dataReset, ['helper']) || typeof value.dataReset.helper !== 'string' || !/^[a-z][a-z0-9-]*\.js$/.test(value.dataReset.helper)))
+    throw new Error('Invalid extension data reset helper.');
 }
 
 // ARCHITECTURE §2.1: optional `platforms` (non-empty, unique). Absent means every platform.
@@ -171,7 +174,7 @@ export function extensionMetadata(mod, text) {
   parseExtensionManifest(mod, text);
   const value = JSON.parse(text);
   return { id: value.id, title: value.title, dependencies: value.dependencies || [], requires: value.requires || [],
-    provides: value.provides || {}, platforms: value.platforms || null, settings: settingsMetadata(value.settings),
+    dataReset: value.dataReset || null, provides: value.provides || {}, platforms: value.platforms || null, settings: settingsMetadata(value.settings),
     services: (value.services || []).map(({ view }) => ({ view })),
     surfaces: (value.surfaces || []).map(surface => ({ ...surface, extensionId: value.id, mod })) };
 }

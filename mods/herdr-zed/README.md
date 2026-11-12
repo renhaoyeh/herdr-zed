@@ -28,8 +28,14 @@ leaves existing settings and data untouched.
 
 Shell preferences and layout state use `herdr-zed.<name>` keys (for example
 `herdr-zed.side-panel-width`, `herdr-zed.editor-tabs`, `herdr-zed.project-layouts`).
-Shell data lives under `data/herdr-zed/`. Shared Herdr data under `data/devkits/` is
-not owned by this shell.
+All product data lives under `data/herdr-zed/`, including provider accounts, MCP, ECC
+settings/packages, source connections and caches. Devkits data is separate and never
+migrated automatically. Existing Devkits accounts must be added separately to Zed.
+
+Settings → Data → Clear data… opens a confirmation requiring `HERDR ZED`. Confirming
+closes open projects and owned sessions, signs out dedicated accounts and clears Zed
+data/preferences. Devkits, project files and external default CLI sign-ins/history are
+kept. Installed packages remain installed; Close Herdr completes the reset.
 
 ## Components
 

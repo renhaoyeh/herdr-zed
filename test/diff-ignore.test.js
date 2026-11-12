@@ -23,7 +23,7 @@ const host = files => ({ appHome: () => '/home', readTextFile: async path => fil
     if ((files.get(path) ?? null) !== expected) throw new Error('Changed on disk');
     files.set(path, text);
   } });
-const RULES = '/home/data/devkits/diff-build-output.gitignore', FILTERS = '/home/data/devkits/diff-build-filters.json';
+const RULES = '/home/data/herdr-zed/diff-build-output.gitignore', FILTERS = '/home/data/herdr-zed/diff-build-filters.json';
 
 test('bundled templates match their recorded provenance hashes', async () => {
   const { createHash } = await import('node:crypto');

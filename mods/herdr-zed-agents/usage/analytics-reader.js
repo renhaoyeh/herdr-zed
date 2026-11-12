@@ -66,7 +66,7 @@ export async function discoverSources(appHome, accounts = [], userHome = homedir
   const sources = [{ provider: 'codex', directory: join(userHome, '.codex'), account: 'Codex' },
     { provider: 'claude', directory: join(userHome, '.claude'), account: 'Claude' }];
   for (const provider of ['codex', 'claude']) {
-    const root = join(appHome, 'data', 'devkits', provider);
+    const root = join(appHome, 'data', 'herdr-zed', provider);
     for (const entry of await readdir(root, { withFileTypes: true }).catch(() => [])) {
       if (entry.isDirectory()) sources.push({ provider, directory: join(root, entry.name), account: entry.name });
     }
@@ -143,6 +143,6 @@ export function compactEvents(events) {
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const [appHome, accounts = '[]'] = process.argv.slice(2);
-  const result = await scan(await discoverSources(appHome, JSON.parse(accounts)), join(appHome, 'data', 'devkits', 'analytics-cache.json'));
+  const result = await scan(await discoverSources(appHome, JSON.parse(accounts)), join(appHome, 'data', 'herdr-zed', 'analytics-cache.json'));
   console.log(JSON.stringify({ ...result, events: compactEvents(result.events) }));
 }

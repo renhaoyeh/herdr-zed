@@ -1,7 +1,8 @@
 import { exec, knownAgents, readTextFile, appHome, shared, setShared } from 'herdr';
-import { sessionKind, isAccountLauncher, configuredAgents } from './components/session-model.js';
+import { sessionKind, isAccountLauncher, configuredAgents, programInScope } from './components/session-model.js';
 const agentDiscoveryLoads = new Map();
 export function availableAgents(profiles, machine) {
+    profiles = profiles.filter(agent => programInScope(agent, appHome()));
     if (machine) return profiles;
     return configuredAgents(profiles, shared('herdr-zed.agent-configs') || []);
   }
@@ -19,6 +20,7 @@ export async function discoverAgents(machine, refresh = false) {
     const pending = (async () => {
       let agents = (await knownAgents({ on: machine }))
         .filter(agent => agent.installed && (!machine || !isAccountLauncher(agent)));
+      agents = agents.filter(agent => programInScope(agent, appHome()));
       // Native discovery can lag programs.json after a rename or removal.
       if (!machine) {
         const source = await readTextFile(`${appHome()}/programs.json`);

@@ -29,7 +29,7 @@ async function fixture(t) {
   await install(home);
   return {
     home, root, packagesRoot: dirOf(packages), eccSource: dirOf(vendor), empty: dirOf(join(root, 'nothing')),
-    bundled: join(home, 'data', 'devkits', 'ecc-source'),
+    bundled: join(home, 'mods', 'herdr-zed-agents', 'ecc-source'),
   };
 }
 
@@ -40,13 +40,13 @@ test('agents install copies the vendored ECC source when none exists, without gi
   assert.equal(await readFile(join(bundled, 'SKILL.md'), 'utf8'), 'fixture skill');
   assert.equal(await exists(join(bundled, '.git')), false);
   assert.equal(await exists(join(bundled, 'node_modules')), false);
-  assert.equal(await exists(join(home, 'mods', 'herdr-zed-agents', 'ecc-source')), false);
+  assert.equal(await exists(join(home, 'data', 'devkits', 'ecc-source')), false);
   assert.deepEqual(JSON.parse(await readFile(join(home, 'data', 'herdr-zed', 'extensions.json'), 'utf8')).extensions, ['herdr-zed-agents']);
 });
 
 test('an existing ECC source is never overwritten by the agents install', async t => {
   const { home, packagesRoot: root, eccSource, bundled } = await fixture(t);
-  await mkdir(bundled, { recursive: true });
+  await installExtension(home, 'herdr-zed-agents', { root, eccSource });
   await writeFile(join(bundled, 'SKILL.md'), 'user ECC source');
   const result = await installExtension(home, 'herdr-zed-agents', { root, eccSource });
   assert.equal(result.ecc, null);
@@ -77,16 +77,19 @@ test('a failed agents install removes the ECC copy and package it added', async 
   assert.equal(await exists(bundled), false);
   assert.equal(await exists(join(home, 'mods', 'herdr-zed-agents')), false);
   assert.equal(await exists(join(home, 'data', 'herdr-zed', 'extensions.json')), false);
-  assert.deepEqual((await readdir(join(home, 'data', 'devkits'))).filter(name => name.startsWith('.ecc-source-')), []);
+  assert.deepEqual((await readdir(join(home, 'data', 'herdr-zed'))).filter(name => name.startsWith('.ecc-source-')), []);
 });
 
-test('update keeps the installed ECC source and global ECC settings under data/', async t => {
+test('update refreshes bundled ECC source and preserves Zed settings and Devkits data', async t => {
   const { home, packagesRoot: root, eccSource, bundled } = await fixture(t);
   await installExtension(home, 'herdr-zed-agents', { root, eccSource });
-  await writeFile(join(bundled, 'SKILL.md'), 'user edits');
-  await writeFile(join(home, 'data', 'devkits', 'ecc.json'), 'global ECC settings');
+  await writeFile(join(bundled, '.claude-plugin', 'plugin.json'), 'user edits');
+  await writeFile(join(home, 'data', 'herdr-zed', 'ecc.json'), 'global ECC settings');
+  const devkits = join(home, 'data', 'devkits');
+  await mkdir(devkits, { recursive: true }); await writeFile(join(devkits, 'ecc.json'), 'Devkits settings');
   const result = await update(home);
   assert.ok(result.updated.includes('herdr-zed-agents'));
-  assert.equal(await readFile(join(bundled, 'SKILL.md'), 'utf8'), 'user edits');
-  assert.equal(await readFile(join(home, 'data', 'devkits', 'ecc.json'), 'utf8'), 'global ECC settings');
+  assert.equal(await readFile(join(devkits, 'ecc.json'), 'utf8'), 'Devkits settings');
+  assert.notEqual(await readFile(join(bundled, '.claude-plugin', 'plugin.json'), 'utf8'), 'user edits');
+  assert.equal(await readFile(join(home, 'data', 'herdr-zed', 'ecc.json'), 'utf8'), 'global ECC settings');
 });

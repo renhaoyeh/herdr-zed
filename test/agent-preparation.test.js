@@ -5,7 +5,7 @@ import { configuredAgents } from '../components/session-model.js';
 import { composeSessionRules } from '../mods/herdr-zed-agents/global-rules-model.js';
 
 const profile = { key: 'codex', name: 'Codex', run: ['codex'] };
-const preset = { key: 'devkits-preset-review', profileKey: 'codex', name: 'Review', instructions: 'Use the current profile guide.' };
+const preset = { key: 'herdr-zed-preset-review', profileKey: 'codex', name: 'Review', instructions: 'Use the current profile guide.' };
 
 async function load({ eccInstructions = '', kitInstructions = '', remote = false, rulesError = false, rulesGate = null, config = preset, saved = {}, options = {}, target = { space: 'local' } } = {}) {
   const calls = [], memory = {

@@ -1,5 +1,6 @@
 {
   "version": 1,
+  "dataReset": null,
   "id": "mantisbt",
   "title": "MantisBT",
   "settings": { "view": "settings", "title": "MantisBT" },

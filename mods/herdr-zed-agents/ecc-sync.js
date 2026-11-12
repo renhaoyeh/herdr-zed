@@ -37,26 +37,26 @@ async function readOptional(path) {
 }
 
 export async function syncEcc(provider, directory, rawConfig, { run = runPlugin, configService = openConfig,
-  packageBuilder = buildEccPackage, packagesDirectory = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'data', 'devkits', 'ecc-packages') } = {}) {
+  packageBuilder = buildEccPackage, packagesDirectory = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'data', 'herdr-zed', 'ecc-packages') } = {}) {
   if (!['claude', 'codex'].includes(provider) || !directory) throw new Error('Unsupported ECC account.');
-  const parsed = parseEcc(JSON.stringify(rawConfig)), markerPath = join(directory, 'devkits-ecc.json');
+  const parsed = parseEcc(JSON.stringify(rawConfig)), markerPath = join(directory, 'herdr-zed-ecc.json');
   const config = { ...parsed, enabled: parsed.enabled && parsed.providerEnabled[provider] };
   const previousText = await readOptional(markerPath);
   if (!config.enabled && previousText === null) return { instructionsFile: null };
   const previous = previousText === null ? null : JSON.parse(previousText);
-  if (previous && (previous.version !== 1 || previous.provider !== provider || (previous.pluginId !== null && !/^ecc@devkits-ecc-[a-f0-9]{16}$/.test(previous.pluginId || ''))))
+  if (previous && (previous.version !== 1 || previous.provider !== provider || (previous.pluginId !== null && !/^ecc@herdr-zed-ecc-[a-f0-9]{16}$/.test(previous.pluginId || ''))))
     throw new Error('ECC account setup record is invalid. Its plugins were left unchanged.');
   const bundle = config.enabled ? await packageBuilder(config, provider, packagesDirectory) : null;
   const desired = bundle?.native ? bundle.pluginId : null;
   const revision = config.enabled ? bundle.revision : 'disabled';
   const result = { instructionsFile: bundle?.instructions ? join(bundle.root, 'devkits-guidance.md') : null, pluginId: desired };
   await mkdir(directory, { recursive: true });
-  const lock = join(directory, 'devkits-ecc.lock');
+  const lock = join(directory, 'herdr-zed-ecc.lock');
   try { await writeFile(lock, String(process.pid), { flag: 'wx', mode: 0o600 }); }
   catch (error) {
     if (error.code !== 'EEXIST') throw error;
     const owner = Number(await readOptional(lock));
-    if (!Number.isSafeInteger(owner) || owner <= 0) throw new Error('ECC has an invalid setup lock. Check this account’s devkits-ecc.lock.');
+    if (!Number.isSafeInteger(owner) || owner <= 0) throw new Error('ECC has an invalid setup lock. Check this account’s herdr-zed-ecc.lock.');
     try { process.kill(owner, 0); throw new Error('ECC setup is already running for this account. Retry when it finishes.'); }
     catch (ownerError) {
       if (ownerError.code !== 'ESRCH') throw ownerError;
@@ -81,7 +81,7 @@ export async function syncEcc(provider, directory, rawConfig, { run = runPlugin,
         }));
         if (installed?.enabled === false) await run(provider, directory, ['plugin', 'enable', desired, '--scope', 'user']);
       }
-      for (const item of plugins.filter(item => /^ecc@devkits-ecc-[a-f0-9]{16}$/.test(item.id) && item.id !== desired && item.enabled !== false))
+      for (const item of plugins.filter(item => /^ecc@herdr-zed-ecc-[a-f0-9]{16}$/.test(item.id) && item.id !== desired && item.enabled !== false))
         await run(provider, directory, ['plugin', 'disable', item.id, '--scope', 'user']);
     } else {
       // Read first to reject duplicate externally enabled ECC without changing that account.
@@ -100,7 +100,7 @@ export async function syncEcc(provider, directory, rawConfig, { run = runPlugin,
         const edits = [];
         if (desired && service.config.plugins?.[desired]?.enabled !== true)
           edits.push({ keyPath: `plugins.${JSON.stringify(desired)}.enabled`, value: true, mergeStrategy: 'replace' });
-        for (const [id, item] of Object.entries(service.config.plugins || {})) if (/^ecc@devkits-ecc-[a-f0-9]{16}$/.test(id) && id !== desired && item.enabled !== false)
+        for (const [id, item] of Object.entries(service.config.plugins || {})) if (/^ecc@herdr-zed-ecc-[a-f0-9]{16}$/.test(id) && id !== desired && item.enabled !== false)
           edits.push({ keyPath: `plugins.${JSON.stringify(id)}.enabled`, value: false, mergeStrategy: 'replace' });
         if (edits.length) await service.write(edits);
       } finally { await service.close(); }

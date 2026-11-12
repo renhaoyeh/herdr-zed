@@ -17,8 +17,8 @@ bun.lockb
 
 const templatePath = file => `${appHome()}/mods/herdr-zed/assets/gitignore/${file}`;
 /** Git reads this generated file; the filters file is the editable source. */
-export const buildRulesPath = () => `${appHome()}/data/devkits/diff-build-output.gitignore`;
-export const buildFiltersPath = () => `${appHome()}/data/devkits/diff-build-filters.json`;
+export const buildRulesPath = () => `${appHome()}/data/herdr-zed/diff-build-output.gitignore`;
+export const buildFiltersPath = () => `${appHome()}/data/herdr-zed/diff-build-filters.json`;
 
 /** Bundled github/gitignore templates, in provenance order. */
 export async function readBuildTemplates() {

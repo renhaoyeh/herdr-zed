@@ -26,7 +26,7 @@ export const accountProviders = {
   },
 };
 
-const keyPattern = /^devkits-(codex|claude)-([a-zA-Z0-9][a-zA-Z0-9_-]{0,47})$/;
+const keyPattern = /^herdr-zed-(codex|claude)-([a-zA-Z0-9][a-zA-Z0-9_-]{0,47})$/;
 export const accountLabel = launcherLabel;
 
 function provider(id) {
@@ -46,8 +46,8 @@ export function accountProfile(providerId, name, root, id) {
   const source = provider(providerId);
   name = accountName(name);
   if (!/^account-[a-zA-Z0-9]{12}$/.test(id || '')) throw new Error(`Invalid ${source.label} account ID.`);
-  const directory = `${root}/data/devkits/${providerId}/${id}`;
-  return { provider: providerId, name, directory, key: `devkits-${providerId}-${id}`,
+  const directory = `${root}/data/herdr-zed/${providerId}/${id}`;
+  return { provider: providerId, name, directory, key: `herdr-zed-${providerId}-${id}`,
     run: commandArgv(source.command(directory), window()?.platform) };
 }
 
@@ -107,7 +107,7 @@ export async function removeAccountProfile(key) {
   const match = keyPattern.exec(key || '');
   if (!match) throw new Error('Only Devkits accounts can be removed.');
   const source = provider(match[1]);
-  const directory = `${appHome()}/data/devkits/${match[1]}/${match[2]}`;
+  const directory = `${appHome()}/data/herdr-zed/${match[1]}/${match[2]}`;
   const home = source.home(directory)[0];
   const path = `${appHome()}/programs.json`;
   const data = programs(await readTextFile(path));
@@ -218,7 +218,7 @@ export default class AccountLogin {
         if (this.closed || this.stopped) return;
         if (!this.profile) {
           const root = appHome();
-          const parent = `${root}/data/devkits/${this.provider}`;
+          const parent = `${root}/data/herdr-zed/${this.provider}`;
           // Atomically allocate an ID so even case-insensitive filesystems keep accounts separate.
           const allocated = await exec('node', ['-e', 'const fs = require("node:fs"), path = require("node:path"); '
             + 'const parent = process.argv[1]; fs.mkdirSync(parent, { recursive: true, mode: 0o700 }); '

@@ -30,7 +30,7 @@ export const eccSettings = {
     this.eccLoading = true; this.eccSaving = false; this.eccError = null; this.eccDraft = null; this.eccSaved = false; this.eccDirty = false; this.eccClosed = false;
     this.eccTab = 'overview'; this.eccProvider = 'claude'; this.eccSection = 'skills'; this.eccListPage = 0;
     this.eccCatalog = null; this.eccCatalogError = null; this.eccSelected = null; this.eccShowSource = false;
-    this.eccSource = `${appHome()}/data/devkits/ecc-source`;
+    this.eccSource = `${appHome()}/mods/herdr-zed-agents/ecc-source`;
     this.eccSearch = InputState.new({ placeholder: 'Search names, descriptions, languages or modules…' });
     this.eccSearch.on('change', (_event, cx) => { this.eccListPage = 0; cx.notify(); });
     this.eccSelect = new SelectState(cx);
@@ -102,12 +102,12 @@ export const eccSettings = {
       this.eccError = 'Load the current source before saving your selections.'; cx.notify(); return;
     }
     this.eccSaving = true; this.eccError = null; this.eccSaved = false; cx.notify();
-    const draftPath = `${appHome()}/data/devkits/ecc-drafts/${Date.now()}-${Math.random().toString(36).slice(2)}.json`;
+    const draftPath = `${appHome()}/data/herdr-zed/ecc-drafts/${Date.now()}-${Math.random().toString(36).slice(2)}.json`;
     let draftWritten = false;
     cx.spawn(async cx => {
       try {
         if (config.enabled) {
-          await mkdir(`${appHome()}/data/devkits/ecc-drafts`, { recursive: true });
+          await mkdir(`${appHome()}/data/herdr-zed/ecc-drafts`, { recursive: true });
           await writeTextFile(draftPath, JSON.stringify(config), null);
           draftWritten = true;
           const result = await exec('node', [eccRuntimePath(), 'validate-file', draftPath], { timeout: 240000 });

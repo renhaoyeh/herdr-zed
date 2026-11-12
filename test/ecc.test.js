@@ -13,7 +13,7 @@ import { buildEccPackage } from '../mods/herdr-zed-agents/ecc-package.js';
 import { evaluateNative } from './source-harness.js';
 
 async function fixture(fn) {
-  const root = await mkdtemp(join(tmpdir(), 'devkits-ecc-architecture-'));
+  const root = await mkdtemp(join(tmpdir(), 'herdr-zed-ecc-architecture-'));
   const source = join(root, 'source'), directory = join(root, 'account'), output = join(root, 'packages');
   const put = async (path, text) => { await mkdir(join(source, path, '..'), { recursive: true }); await writeFile(join(source, path), text); };
   for (const host of ['claude', 'codex']) await put(`.${host}-plugin/plugin.json`, JSON.stringify({ name: 'ecc', version: '2.2.3', skills: './skills/' }));
@@ -91,7 +91,7 @@ test('native hook switches remove actual event entries and enabled MCP wrappers 
 
 test('ECC sync uses revision-specific native plugins, disables only its prior package and preserves markers after failure', async () => fixture(async ({ config, directory }) => {
   const calls = [], writes = [], inventory = []; let revision = 'a'.repeat(64), failure = false;
-  const packageBuilder = async () => ({ revision, root: '/built', marketplace: `devkits-ecc-${revision.slice(0, 16)}`, pluginId: `ecc@devkits-ecc-${revision.slice(0, 16)}`, native: true, instructions: 'Selected guidance' });
+  const packageBuilder = async () => ({ revision, root: '/built', marketplace: `herdr-zed-ecc-${revision.slice(0, 16)}`, pluginId: `ecc@herdr-zed-ecc-${revision.slice(0, 16)}`, native: true, instructions: 'Selected guidance' });
   const run = async (provider, dir, args) => {
     calls.push(args); assert.equal(dir, directory);
     if (failure && args[1] === 'configure') throw Error('native failure');
@@ -101,18 +101,18 @@ test('ECC sync uses revision-specific native plugins, disables only its prior pa
     return '';
   };
   assert.equal((await syncEcc('claude', directory, config, { run, packageBuilder })).instructionsFile, join('/built', 'devkits-guidance.md'));
-  const first = JSON.parse(await readFile(join(directory, 'devkits-ecc.json'), 'utf8'));
+  const first = JSON.parse(await readFile(join(directory, 'herdr-zed-ecc.json'), 'utf8'));
   const count = calls.filter(args => args[1] === 'install').length; await syncEcc('claude', directory, config, { run, packageBuilder }); assert.equal(calls.filter(args => args[1] === 'install').length, count);
   revision = 'b'.repeat(64); failure = true;
   await assert.rejects(syncEcc('claude', directory, config, { run, packageBuilder }), /native failure/);
-  assert.deepEqual(JSON.parse(await readFile(join(directory, 'devkits-ecc.json'), 'utf8')), first);
+  assert.deepEqual(JSON.parse(await readFile(join(directory, 'herdr-zed-ecc.json'), 'utf8')), first);
   failure = false; revision = 'a'.repeat(64); await syncEcc('claude', directory, config, { run, packageBuilder });
   assert.equal(inventory.find(item => item.id.endsWith('b'.repeat(16))).enabled, false);
   revision = 'b'.repeat(64); await syncEcc('claude', directory, config, { run, packageBuilder });
   assert.ok(calls.some(args => args[1] === 'disable' && args[2] === first.pluginId));
   const configService = async () => ({ config: { plugins: { unrelated: { enabled: true } } }, write: async edits => writes.push(edits), close: async () => {} });
   await syncEcc('codex', join(directory, 'codex'), config, { run: async () => '', packageBuilder, configService });
-  assert.deepEqual(writes.at(-1), [{ keyPath: 'plugins."ecc@devkits-ecc-bbbbbbbbbbbbbbbb".enabled', value: true, mergeStrategy: 'replace' }]);
+  assert.deepEqual(writes.at(-1), [{ keyPath: 'plugins."ecc@herdr-zed-ecc-bbbbbbbbbbbbbbbb".enabled', value: true, mergeStrategy: 'replace' }]);
 }));
 
 test('never-managed disabled ECC accounts are untouched and preparation returns selected guidance separately from argv', async () => fixture(async ({ directory, config }) => {
@@ -127,7 +127,7 @@ test('never-managed disabled ECC accounts are untouched and preparation returns 
   }, 'prepareEcc');
   const argv = ['env', 'CODEX_HOME=/account', 'codex'];
   const prepared = await prepareEcc({}, argv); assert.deepEqual(prepared.argv, argv); assert.match(prepared.instructions, /selected-guidance\.md/);
-  assert.deepEqual(calls[0][1], ['/herdr/mods/herdr-zed-agents/ecc-sync.js', 'codex', '/account', '/herdr/data/devkits/ecc.json']);
+  assert.deepEqual(calls[0][1], ['/herdr/mods/herdr-zed-agents/ecc-sync.js', 'codex', '/account', '/herdr/data/herdr-zed/ecc.json']);
 }));
 
 test('catalog requests ignore older sources and results arriving after the panel closes', async () => {

@@ -91,7 +91,7 @@ test('bridge rejects expired and unsafe commands and deduplicates deliveries', a
   await assert.rejects(pending, error => error === stop);
   assert.equal(reads, 3); assert.equal(calls.length, 1); assert.equal(writes.length, 2);
   assert.deepEqual(writes[0].result, writes[1].result);
-  assert.equal(writes[0].path, `/herdr/data/devkits/tasks-mcp/${id}.json`);
+  assert.equal(writes[0].path, `/herdr/data/herdr-zed/tasks-mcp/${id}.json`);
 });
 
 test('local launch configuration preserves account environment and existing flags', () => {

@@ -78,9 +78,20 @@ export const claudePermissionModes = [
     args: ['--permission-mode', 'bypassPermissions'] },
 ];
 
-export const isAccountLauncher = agent => /^devkits-(?:codex|claude)-/.test(agent?.key || '');
-export const isCodexLauncher = agent => (agent?.profileKey || agent?.key) === 'codex' || Boolean((agent?.profileKey || agent?.key)?.startsWith('devkits-codex-'));
-export const isClaudeLauncher = agent => (agent?.profileKey || agent?.key) === 'claude' || Boolean((agent?.profileKey || agent?.key)?.startsWith('devkits-claude-'));
+// Native programs.json is global to Herdr. A launcher referencing another product's
+// data directory is not part of this shell; ordinary system programs remain available.
+export function programInScope(agent, root) {
+  const data = `${String(root).replaceAll('\\', '/')}/data/`;
+  return (agent?.run || []).every(arg => {
+    const text = String(arg).replaceAll('\\', '/');
+    const offset = text.indexOf(data);
+    return offset < 0 || text.slice(offset + data.length).startsWith('herdr-zed/');
+  });
+}
+
+export const isAccountLauncher = agent => /^herdr-zed-(?:codex|claude)-/.test(agent?.key || '');
+export const isCodexLauncher = agent => (agent?.profileKey || agent?.key) === 'codex' || Boolean((agent?.profileKey || agent?.key)?.startsWith('herdr-zed-codex-'));
+export const isClaudeLauncher = agent => (agent?.profileKey || agent?.key) === 'claude' || Boolean((agent?.profileKey || agent?.key)?.startsWith('herdr-zed-claude-'));
 export const permissionModes = agent => isCodexLauncher(agent) ? codexPermissionModes
   : isClaudeLauncher(agent) ? claudePermissionModes : null;
 
@@ -130,7 +141,7 @@ export const sessionKind = agent => isClaudeLauncher(agent) ? 'claude' : isCodex
 export function usageProvider(agent) {
   if (!Array.isArray(agent?.run) || agent.profileKey || agent.installed === false) return null;
   if (agent.run.some(arg => !arg.includes('=') && /(?:^|[/\\])codex(?:\.exe)?$/i.test(arg))) return 'codex';
-  return agent.key === 'claude' || (agent.key?.startsWith('devkits-claude-')
+  return agent.key === 'claude' || (agent.key?.startsWith('herdr-zed-claude-')
     && agent.run.some(arg => arg.startsWith('CLAUDE_CONFIG_DIR='))) ? 'claude' : null;
 }
 
@@ -177,7 +188,7 @@ export function configuredAgents(profiles = [], configs = []) {
   const known = new Set(originals.map(agent => agent.key));
   return [...originals, ...configs.flatMap(config => {
     const profile = originals.find(agent => agent.key === config.profileKey);
-    if (!profile || !sessionKind(profile) || !config.key?.startsWith('devkits-preset-') || known.has(config.key)) return [];
+    if (!profile || !sessionKind(profile) || !config.key?.startsWith('herdr-zed-preset-') || known.has(config.key)) return [];
     known.add(config.key);
     const defaultProfile = profile.key === sessionKind(profile) && (!profile.name || providerLabel.test(profile.name.trim()));
     return [{ ...profile, key: config.key, profileKey: profile.key, configName: config.name,

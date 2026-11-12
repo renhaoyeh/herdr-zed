@@ -8,7 +8,7 @@ titles). Where they conflict, this file wins.
 - Switches match Devkits Sera: square 28×16 tracks, 10px square knobs, an outlined off state and a solid on state.
 - The main window header has independent Extensions and Settings buttons. Agents opens from the New thread panel's
   header settings button; the project ⋯ menu provides the same entry. Settings opens from its gear
-  (and `herdr-zed.settings`), with a fixed 220px nav and General/Git preferences. It has no Agents/Extensions links.
+  (and `herdr-zed.settings`), with a fixed 220px nav and General/Git/Data preferences. It has no Agents/Extensions links.
   A switch already on screen (Files' Wrap tabs, Changes' wrap and Unified/Split) is not repeated in Settings.
   "App settings…" opens Herdr's appearance, keyboard and terminal settings. One management dialog is open
   at a time: navigating replaces it, rather than stacking another modal.
@@ -160,3 +160,22 @@ Codex sign-in offers local browser and copy-link-to-another-computer actions. Th
 Auto plan size uses the latest quota plan, falling back to the detected account identity plan when Usage has no plan yet. A known ×5 plan must not display ×1 merely because the Usage surface is hidden or quota readings are unavailable. Explicit manual multipliers remain authoritative.
 
 Usage visibility controls are available only for programs supported by the quota reader. Unsupported programs, unavailable installations and derived profiles show a disabled indeterminate checkbox, and cannot join Auto. Starting a thread remains independent of Usage support.
+
+## Data isolation and reset
+
+- Herdr Zed stores its own accounts, MCP configuration, ECC settings/packages, source credentials,
+  attachments and caches in `data/herdr-zed/`. No Devkits data or keys are read, copied or migrated.
+  Dedicated program keys, Claude recorder files, Codex MCP ownership and ECC marketplace names
+  use distinct Herdr Zed namespaces. External default CLI accounts remain external accounts.
+- Settings → Data offers Clear data…. A separate 440px modal requires the exact text `HERDR ZED`.
+  Opening, typing and Cancel do no destructive work. Confirm unmounts services/dialogs, closes
+  open projects and stops owned account terminals/children and background helpers before sign-out.
+  Failed stops or sign-out preserve remaining data, show incomplete state and offer explicit Retry.
+- Providers declare finite cleanup helpers through `dataReset`; the shell never implements account
+  cleanup. Reset removes `data/herdr-zed/`, clears only `herdr-zed.*` values through native APIs,
+  resets only Zed shortcuts, and restores the installed packages' default registry and layout.
+  Bundled ECC source stays installed with Agents. Remove generated simulator frames and sensor cache;
+  preserve Xcode data, Devkits, project files and external default account sign-ins/history.
+  Restore only unchanged owned integrations in default accounts; native plugin managers retain their
+  caches, with Zed ECC integrations disabled before managed package removal.
+- Close Herdr after a successful reset to discard in-memory caches. Reload/restart never replays reset.

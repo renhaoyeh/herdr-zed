@@ -38,6 +38,7 @@ export interface ExtensionSettingsPage { id: string; title: string; }
 export interface ExtensionSettings { view: string; title: string; pages?: ExtensionSettingsPage[]; }
 export interface ExtensionManifest {
   version: 1; id: ExtensionId; title: string;
+  dataReset?: { helper: string } | null;
   platforms?: Platform[];
   dependencies?: string[]; requires?: ExtensionId[];
   services?: { view: string }[]; surfaces?: ExtensionSurface[];

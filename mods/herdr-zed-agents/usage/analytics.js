@@ -1,3 +1,4 @@
+import { programInScope } from '../components/session-model.js';
 import { div, image } from 'gpui-kit';
 import { h_flex, v_flex } from 'gpui-base';
 import { exec, appHome, knownAgents, closeOverlay, props, theme } from 'herdr';
@@ -22,7 +23,7 @@ export default class Analytics {
     this.loading = true;
     cx.spawn(async cx => {
       try {
-        const accounts = (await knownAgents()).flatMap(agent => {
+        const accounts = (await knownAgents()).filter(agent => programInScope(agent, appHome())).flatMap(agent => {
           const provider = agent.run?.some(arg => /(?:^|[/\\])codex(?:\.exe)?$/i.test(arg)) ? 'codex'
             : agent.key === 'claude' || agent.run?.some(arg => arg.startsWith('CLAUDE_CONFIG_DIR=')) ? 'claude' : null;
           return provider ? [{ ...agent, provider }] : [];

@@ -2,7 +2,7 @@ import { appHome, home, readTextFile, exec } from 'herdr';
 import { parseEcc, eccAccount } from './ecc-model.js';
 import { sessionKind } from './components/session-model.js';
 
-export const eccPath = () => `${appHome()}/data/devkits/ecc.json`;
+export const eccPath = () => `${appHome()}/data/herdr-zed/ecc.json`;
 export async function prepareEcc(agent, argv) {
   const text = await readTextFile(eccPath());
   if (text === null || text === undefined) return { argv, instructions: '' };

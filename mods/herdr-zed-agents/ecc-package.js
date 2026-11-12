@@ -28,7 +28,7 @@ export async function buildEccPackage(config, provider, outputDirectory, supplie
   if (selected.filter(item => item.group === 'contexts').length > 1) throw new Error('Select at most one Context working mode per provider.');
   const revision = eccHash(JSON.stringify({ compiler: 1, source: catalog.source, sourceRevision: catalog.sourceRevision, provider,
     selected: selected.map(item => item.id).sort(), claudeHooks: provider === 'claude' ? config.claudeHooks : null }));
-  const marketplace = `devkits-ecc-${revision.slice(0, 16)}`, pluginId = `ecc@${marketplace}`;
+  const marketplace = `herdr-zed-ecc-${revision.slice(0, 16)}`, pluginId = `ecc@${marketplace}`;
   const root = resolve(outputDirectory, revision);
   const instructions = (await Promise.all(selected.filter(item => ['rules', 'contexts'].includes(item.group))
     .map(async item => `## ${item.path}\n\n${await readFile(join(catalog.source, item.path), 'utf8')}`))).join('\n\n');

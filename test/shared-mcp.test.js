@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFile } from 'node:child_process';
@@ -18,7 +18,7 @@ const load = extra => evaluateNative('../components/shared-mcp.js', { ...host, .
 test('shared MCP accepts only the current schema and preserves explicit CLI precedence', async () => {
   const { parseSharedMcp, sharedMcpArgv } = await load();
   const shared = parseSharedMcp(JSON.stringify(config));
-  const agent = { key: 'review', profileKey: 'devkits-codex-work' };
+  const agent = { key: 'review', profileKey: 'herdr-zed-codex-work' };
   assert.throws(() => parseSharedMcp(JSON.stringify({ ...config, profiles: {} })), /Unsupported shared MCP fields/);
   const original = ['env', 'CODEX_HOME=/account', 'codex', '-c', 'mcp_servers.vs.command="explicit"', '--', 'prompt'];
   const argv = sharedMcpArgv(agent, original, shared);
@@ -33,11 +33,11 @@ test('shared MCP accepts only the current schema and preserves explicit CLI prec
 test('launch preparation synchronizes account defaults before returning argv and skips other providers', async () => {
   const calls = [];
   const reads = [], { sessionMcpArgv } = await load({ exec: async (...args) => { calls.push(args); return { code: 0 }; }, readTextFile: async path => { reads.push(path); return JSON.stringify(config); } });
-  await sessionMcpArgv({ key: 'review', profileKey: 'devkits-codex-work' }, ['env', 'CODEX_HOME=/account', 'codex']);
+  await sessionMcpArgv({ key: 'review', profileKey: 'herdr-zed-codex-work' }, ['env', 'CODEX_HOME=/account', 'codex']);
   assert.equal(calls[0][1][1], '/account');
   assert.deepEqual(JSON.parse(calls[0][1][2]), { ...config.servers, herdr_tasks: tasksMcpServer('/herdr') });
   assert.deepEqual(JSON.parse(calls[0][1][2]).herdr_tasks.env_vars, ['HC_TERMINAL_ID']);
-  assert.deepEqual(reads, ['/herdr/data/devkits/codex-mcp.json']);
+  assert.deepEqual(reads, ['/herdr/data/herdr-zed/codex-mcp.json']);
   await sessionMcpArgv({ key: 'claude' }, ['claude']);
   assert.equal(reads.length, 1);
   const absent = await load({ readTextFile: async () => null });
@@ -69,13 +69,13 @@ test('MCP synchronization replaces transports, cleans owned entries, preserves p
   await writeFile(join(directory, 'config.toml'), '# original\n');
   const old = { command: 'old', args: ['old'] }, changed = { command: 'personal-edit' };
   const state = { model: 'personal', mcp_servers: { update: old, remove: old, edited: changed, personal: old },
-    devkits_shared_mcp: { servers: { update: old, remove: old, edited: old } } };
+    herdr_zed_shared_mcp: { servers: { update: old, remove: old, edited: old } } };
   const desired = { update: { url: 'http://127.0.0.1:18765/mcp', enabled: false } };
   let writes = 0, closes = 0;
   const service = async () => ({ config: state, close: async () => closes++, write: async edits => {
     writes++;
     for (const edit of edits) {
-      if (edit.keyPath === 'devkits_shared_mcp') state.devkits_shared_mcp = edit.value;
+      if (edit.keyPath === 'herdr_zed_shared_mcp') state.herdr_zed_shared_mcp = edit.value;
       else {
         const name = JSON.parse(edit.keyPath.slice('mcp_servers.'.length));
         if (edit.value === null) delete state.mcp_servers[name]; else state.mcp_servers[name] = edit.value;
@@ -85,7 +85,7 @@ test('MCP synchronization replaces transports, cleans owned entries, preserves p
   await syncSharedMcp(directory, desired, service);
   assert.deepEqual(state.mcp_servers, { ...desired, edited: changed, personal: old });
   assert.equal(state.model, 'personal');
-  assert.equal(await readFile(join(directory, 'config.toml.before-mcp-sync.bak'), 'utf8'), '# original\n');
+  assert.equal(await readFile(join(directory, 'config.toml.before-herdr-zed-mcp-sync.bak'), 'utf8'), '# original\n');
   await syncSharedMcp(directory, desired, service);
   assert.equal(writes, 1); assert.equal(closes, 2);
   await syncSharedMcp(directory, {}, service);
@@ -95,7 +95,7 @@ test('MCP synchronization replaces transports, cleans owned entries, preserves p
 test('real Codex config persists complete disabled transports and supports background enabled-only overrides', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'devkits-mcp-persist-'));
   await writeFile(join(directory, 'config.toml'), '# preserve comment\nmodel = "personal"\n[mcp_servers.own]\ncommand = "personal-server"\n[mcp_servers.ic]\nurl = "http://127.0.0.1:18765/mcp"\nenabled = false\n');
-  const servers = { ic: { url: 'http://127.0.0.1:18765/mcp', enabled: false } };
+  const servers = { ic: { url: 'http://127.0.0.1:18765/mcp', enabled: false }, brandNew: { command: 'node', args: ['server.js'] } };
   await syncSharedMcp(directory, servers);
   const run = args => promisify(execFile)('codex', args, { env: { ...process.env, CODEX_HOME: directory }, timeout: 15000, windowsHide: true });
   const result = JSON.parse((await run(['-c', 'mcp_servers.ic.enabled=false', 'mcp', 'list', '--json'])).stdout);
@@ -105,7 +105,7 @@ test('real Codex config persists complete disabled transports and supports backg
   assert.match(await readFile(join(directory, 'config.toml'), 'utf8'), /# preserve comment/);
   await syncSharedMcp(directory, {});
   const after = JSON.parse((await run(['mcp', 'list', '--json'])).stdout);
-  assert.deepEqual(after.map(server => server.name), ['own']);
+  assert.deepEqual(after.map(server => server.name).sort(), ['ic', 'own']);
 });
 
 test('synchronization failure prevents launching with incomplete settings', async () => {
@@ -158,4 +158,30 @@ test('automatic MCP synchronization excludes Windows-only transports on other pl
     assert.ok(synchronized.browser && synchronized.herdr_tasks);
     assert.ok(JSON.parse(source).servers.visual_studio);
   }
+});
+
+test('clearing Zed restores a displaced Devkits MCP connection and removes only its own ownership marker', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'herdr-zed-mcp-isolation-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  await writeFile(join(directory, 'config.toml'), '# keep account settings\n');
+  const devkits = { command: 'node', args: ['/herdr/mods/devkits-tasks/mcp-server.cjs'] };
+  const zed = { command: 'node', args: ['/herdr/mods/herdr-zed-tasks/mcp-server.cjs'] };
+  const state = { mcp_servers: { herdr_tasks: devkits }, devkits_shared_mcp: { servers: { herdr_tasks: devkits } } };
+  const service = async () => ({ config: state, close: async () => {}, write: async edits => {
+    for (const edit of edits) {
+      if (edit.keyPath === 'herdr_zed_shared_mcp') {
+        if (edit.value === null) delete state.herdr_zed_shared_mcp; else state.herdr_zed_shared_mcp = edit.value;
+      } else {
+        const name = JSON.parse(edit.keyPath.slice('mcp_servers.'.length));
+        if (edit.value === null) delete state.mcp_servers[name]; else state.mcp_servers[name] = edit.value;
+      }
+    }
+  } });
+  await syncSharedMcp(directory, { herdr_tasks: zed }, service);
+  assert.deepEqual(state.mcp_servers.herdr_tasks, zed);
+  await syncSharedMcp(directory, { herdr_tasks: zed }, service);
+  await syncSharedMcp(directory, {}, service);
+  assert.deepEqual(state.mcp_servers.herdr_tasks, devkits);
+  assert.deepEqual(state.devkits_shared_mcp, { servers: { herdr_tasks: devkits } });
+  assert.equal(Object.hasOwn(state, 'herdr_zed_shared_mcp'), false);
 });

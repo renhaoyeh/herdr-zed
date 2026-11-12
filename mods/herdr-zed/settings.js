@@ -1,3 +1,4 @@
+import { openDataReset } from './reset-dialog.js';
 import { div } from 'gpui-kit';
 import { h_flex, v_flex } from 'gpui-base';
 import { openOverlay, closeOverlay, props, run, shared, setShared, notify } from 'herdr';
@@ -17,6 +18,7 @@ export const SETTINGS_OVERLAY = 'herdr-zed.settings.overlay';
 const SHELL_PAGES = [
   { key: 'general', title: 'General', description: 'Preferences for threads. Files and Changes keep their display options in their own toolbars. Changes save automatically.' },
   { key: 'git', title: 'Git', description: 'Display rules for Changes across all projects. Commit identity is configured in Changes.' },
+  { key: 'data', title: 'Data', description: 'Manage data stored by Herdr Zed on this computer.' },
   { key: 'extensions', title: 'Extensions', description: 'Choose what appears in your workspace. Open tools from the main window.' },
 ];
 
@@ -216,6 +218,14 @@ export class SettingsPage {
           .child('Open folder')));
   }
 
+  data(t) {
+    return v_flex().flex_1().min_h(0).overflow_y_scroll()
+      .child(setting(t, 'Clear all Herdr Zed data',
+        'Delete settings, saved sign-ins, dedicated account history, pasted images, Tasks, Calendar, connections and caches. Devkits data and project files are kept.',
+        Button('settings-clear-data', t, { variant: 'secondary' }).text_color(t.destructive || t.ansi1)
+          .on_click(() => openDataReset()).child('Clear data…')));
+  }
+
   git(t) {
     return v_flex().flex_1().min_h(0).gap(24)
       .child(section(t, 'Display filters · All projects', 'Hide matching untracked files in Changes. These rules affect the display; they do not change your .gitignore. Save to apply.',
@@ -225,7 +235,7 @@ export class SettingsPage {
   render(t) {
     const page = SHELL_PAGES.find(item => item.key === this.page);
     if (!page) return div().size_full().bg(t.popover);
-    const body = this.page === 'general' ? this.general(t) : this.page === 'git' ? this.git(t) : this.extensions.render(t);
+    const body = this.page === 'general' ? this.general(t) : this.page === 'git' ? this.git(t) : this.page === 'data' ? this.data(t) : this.extensions.render(t);
     return v_flex().size_full().min_w(0).min_h(0).p(24).gap(20).bg(t.popover).text_color(t.foreground)
       .child(DialogDescription(t).flex_none().child(page.description))
       .child(body);

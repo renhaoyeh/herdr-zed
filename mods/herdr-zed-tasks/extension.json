@@ -1,5 +1,6 @@
 {
   "version": 1,
+  "dataReset": null,
   "id": "tasks",
   "title": "Tasks",
   "services": [

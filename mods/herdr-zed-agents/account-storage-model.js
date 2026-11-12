@@ -8,8 +8,8 @@ export const storageGroups = [
 
 export function accountStorageDirectory(agent, home) {
   const key = agent?.profileKey || agent?.key || '';
-  const kind = key === 'codex' || key.startsWith('devkits-codex-') ? 'codex'
-    : key === 'claude' || key.startsWith('devkits-claude-') ? 'claude' : null;
+  const kind = key === 'codex' || key.startsWith('herdr-zed-codex-') ? 'codex'
+    : key === 'claude' || key.startsWith('herdr-zed-claude-') ? 'claude' : null;
   if (!kind) return null;
   const prefix = kind === 'codex' ? 'CODEX_HOME=' : 'CLAUDE_CONFIG_DIR=';
   const directory = agent.run?.find(arg => arg.startsWith(prefix))?.slice(prefix.length) || `${home}/.${kind}`;

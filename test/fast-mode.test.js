@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { sessionArgv } from '../components/session-model.js';
 
 test('Fast applies without a model or effort override and preserves account wrappers', () => {
-  const agent = { key: 'devkits-codex-work' };
+  const agent = { key: 'herdr-zed-codex-work' };
   const argv = ['env', 'CODEX_HOME=/work', '/bin/codex', '--no-daemon'];
   assert.deepEqual(sessionArgv(agent, argv, { serviceTier: 'fast' }),
     ['env', 'CODEX_HOME=/work', '/bin/codex', '-c', 'service_tier="fast"', '--no-daemon']);
@@ -24,8 +24,8 @@ test('Fast replaces every form of launcher service-tier config, retaining other 
 });
 
 test('Fast is Codex-only and never adds flags to Claude or other agents', () => {
-  for (const key of ['claude', 'devkits-claude-work', 'aider']) {
-    const agent = { key }, argv = [key === 'devkits-claude-work' ? 'claude' : key];
+  for (const key of ['claude', 'herdr-zed-claude-work', 'aider']) {
+    const agent = { key }, argv = [key === 'herdr-zed-claude-work' ? 'claude' : key];
     assert.equal(sessionArgv(agent, argv, { serviceTier: 'fast' }), argv);
   }
   assert.deepEqual(sessionArgv({ key: 'claude' }, ['claude'], { model: 'sonnet', serviceTier: 'fast' }),
@@ -34,15 +34,15 @@ test('Fast is Codex-only and never adds flags to Claude or other agents', () => 
 
 test('agent configurations retain their profile credentials and have independent identities', async () => {
   const { configuredAgents, sessionKind, settingsKey, launcherArgv } = await import('../components/session-model.js');
-  const profile = { key: 'devkits-codex-work', name: 'Work', icon: 'codex.svg', installed: true,
+  const profile = { key: 'herdr-zed-codex-work', name: 'Work', icon: 'codex.svg', installed: true,
     run: ['env', 'CODEX_HOME=/work', 'codex', '--no-daemon'] };
-  const configs = [{ key: 'devkits-preset-one', profileKey: profile.key, name: 'Sol Fast' },
-    { key: 'devkits-preset-two', profileKey: profile.key, name: 'Astra' },
-    { key: 'devkits-preset-missing', profileKey: 'missing', name: 'Missing' }];
+  const configs = [{ key: 'herdr-zed-preset-one', profileKey: profile.key, name: 'Sol Fast' },
+    { key: 'herdr-zed-preset-two', profileKey: profile.key, name: 'Astra' },
+    { key: 'herdr-zed-preset-missing', profileKey: 'missing', name: 'Missing' }];
   const agents = configuredAgents([profile], configs);
   assert.equal(agents.length, 3);
   assert.equal(sessionKind(agents[1]), 'codex');
-  assert.equal(settingsKey(agents[1]), 'devkits-preset-one');
+  assert.equal(settingsKey(agents[1]), 'herdr-zed-preset-one');
   assert.equal(agents[1].run, profile.run);
   assert.equal(agents[1].name, 'Sol Fast - Work');
   assert.equal(agents[2].name, 'Astra - Work');
@@ -56,7 +56,7 @@ test('icons carry the provider while account and configured-agent labels retain 
   assert.equal(launcherLabel('Claude Code · 工作'), '工作');
   assert.equal(launcherLabel('Codex · Work / Sol Fast'), 'Work / Sol Fast');
   const profile = { key: 'claude', name: 'Claude Code', run: ['claude'], icon: 'icons/claude.svg' };
-  const agents = configuredAgents([profile], [{ key: 'devkits-preset-one', profileKey: 'claude', name: 'Review' }]);
+  const agents = configuredAgents([profile], [{ key: 'herdr-zed-preset-one', profileKey: 'claude', name: 'Review' }]);
   const choice = launcherChoices(agents).find(item => item.agent?.profileKey);
   assert.equal(choice.name, 'Review');
   assert.equal(choice.agent.icon, profile.icon);
@@ -82,8 +82,8 @@ test('shared launcher options omit provider names in any case and retain account
   assert.equal(launcherOption(account, address).label, 'Codex CLI · me@example.com');
   assert.deepEqual(launcherOption({ key: 'claude', name: 'Claude' }, address), { key: 'claude', label: 'Claude Code', icon: 'icons/claude.svg', iconTint: false });
   assert.doesNotMatch(launcherOption({ key: 'claude', name: 'Claude' }, address).label, /No account/);
-  assert.equal(launcherOption({ key: 'devkits-codex-work', name: 'Codex · Work' }, address).label, 'Work');
+  assert.equal(launcherOption({ key: 'herdr-zed-codex-work', name: 'Codex · Work' }, address).label, 'Work');
   assert.equal(account.name, 'CODEX');
-  assert.deepEqual(launcherOption({ key: 'devkits-claude-work', name: 'CLAUDE CODE · WORK', icon: 'icons/custom.svg', tint: true }),
-    { key: 'devkits-claude-work', label: 'WORK', icon: 'icons/custom.svg', iconTint: true });
+  assert.deepEqual(launcherOption({ key: 'herdr-zed-claude-work', name: 'CLAUDE CODE · WORK', icon: 'icons/custom.svg', tint: true }),
+    { key: 'herdr-zed-claude-work', label: 'WORK', icon: 'icons/custom.svg', iconTint: true });
 });

@@ -43,6 +43,7 @@ the tests change in the same commit. Unknown keys inside `provides`, surfaces an
 ```jsonc
 {
   "version": 1,
+  "dataReset": { "helper": "reset-provider.js" }, // optional finite lifecycle helper, §5.1
   "id": "system",                 // extension ID, [a-z][a-z0-9-]*
   "title": "System Monitor",
   "dependencies": ["…"],          // sibling packages installed with it (not registered)
@@ -347,17 +348,49 @@ Herdr home = `HERDR_APP_HOME` or `~/.config/herdr-app`.
 
 | Data | Location | Decision |
 | --- | --- | --- |
-| Accounts, credentials, Profiles, `codex-mcp.json`, usage caches | `data/devkits/` | **Proposed:** shared with Devkits (open question) |
-| Guide (global rules) | `data/herdr-zed/AGENTS.md` | Own, no migration: its prompt composition differs from Devkits |
+| Accounts, credentials, MCP, ECC settings/packages, usage caches, source connections, diff filters | `data/herdr-zed/` | Own; never reads or migrates Devkits data |
+| Guide (global rules) | `data/herdr-zed/AGENTS.md` | Own |
 | Your Rules and Skills, their off switches | `data/herdr-zed/capabilities/`, `data/herdr-zed/capabilities.json` | Own |
-| Extension registry | `data/herdr-zed/extensions.json` | Own (was `data/devkits-zed/`) |
-| Images pasted into a prompt (New thread, task Continue) | `data/herdr-zed/attachments/` | Own; written by `components/image-attachments.js`, never cleaned up yet |
-| UI preferences and layout state (shared-state keys such as `devkits.side-panel-width`, `devkits.editor-tabs`, `devkits.diff-layout`, `devkits.projects`, project layouts) | `herdr-zed.*` keys | **Proposed:** own keys, no migration (open question) |
-| Conversation history, diff build filters | to be classified in the same question | |
-| GitHub account per repository, remembered account authors (`devkits.git-accounts`, `devkits.git-account-authors`) | owned by `herdr-zed-github` | Key names follow the same question |
-| Tasks records, Calendar events, source connections | follow the data-path decision for their provider | |
+| Extension registry | `data/herdr-zed/extensions.json` | Own |
+| Images pasted into a prompt | `data/herdr-zed/attachments/` | Own; removed by full reset |
+| Preferences, history, Profiles, Tasks/Calendar, GitHub choices | `herdr-zed.*` shared keys | Own; cleared through native APIs only |
+| Bundled ECC source | `mods/herdr-zed-agents/ecc-source/` | Installed dependency, refreshed by installer; retained by reset |
+| Dedicated program keys / Profiles | `herdr-zed-claude-*`, `herdr-zed-codex-*`, `herdr-zed-preset-*` | Distinct from other products |
+| External default CLI integrations | `herdr_zed_shared_mcp`, `herdr-zed-*` recorder/ECC files and marketplace names | Own markers and displaced MCP transport snapshots; default sign-ins/history stay external |
 
-No code reads both the old and new key; whichever is chosen is the only path.
+No code reads both old and new paths. Existing Devkits data stays untouched; accounts and
+connections must be configured separately in Herdr Zed. Global native program discovery excludes
+launchers referencing another product's data directory in the same Herdr home.
+
+### 5.1 Complete data reset
+
+Settings → Data belongs to the shell. Optional manifest `dataReset: { helper: "reset-provider.js" }`
+(or `null`/absent for no extra cleanup) declares a finite Node helper inside that provider's folder.
+The helper name is a plain `.js` basename, never a path. This is an explicit lifecycle interface,
+not a shell import or provider-name branch. Manifest version remains 1. All installed packages
+participate, including disabled ones; reset does not initialize their UI or services.
+
+The shell invokes helpers as `node <helper> inspect <Herdr home> HERDR ZED` (read-only JSON
+`{ accounts?: number }`) or `clear` with the same arguments (JSON `{}` on success; nonzero
+exit on failure). Only the explicit confirmed reset calls `clear`. Agents owns official CLI
+sign-out, program-entry removal and external default integration cleanup; SYSTEM owns generated
+sensor binaries; Simulator owns generated frames, never Xcode or simulator device data.
+
+The confirmation requires `HERDR ZED` and a short-lived, one-use native authorization. It replaces
+Settings, checks other overlays, swaps to a service-free transient root, closes open projects and
+waits for their removal. The shell coordinator stops terminals referencing its own data directory
+and actual descendants, then this installation's Node helpers/descendants, verifying exit before
+provider cleanup. Stops fail before sign-out; later failures disclose possible partial sign-out,
+preserve remaining files and allow explicit retry. A lock prevents concurrent resets, symbolic
+link deletion roots are rejected, and shared.json is never edited by helpers.
+
+After hooks complete, remove `data/herdr-zed/`, recreate only the default registry for installed
+packages, reset only Zed layout shortcuts and clear `herdr-zed.*` values through native APIs.
+Restore the installed layout and close Herdr to discard module caches. No deletion replays after
+reload/restart. Project files, Devkits, unrelated Herdr settings/program entries and default CLI
+credentials/history remain untouched. Owned ECC plugins in external default accounts are disabled
+through existing native managers; those managers retain their caches. Bundled ECC source remains
+installed outside the data reset boundary.
 
 ## 6. Shared components and sync
 
@@ -390,9 +423,7 @@ No code reads both the old and new key; whichever is chosen is the only path.
 
 ## Open questions
 
-1. **Data paths.** Proposal: keep sharing `data/devkits/` (accounts, `codex-mcp.json`); the Guide is resolved as own; move UI
-   preferences and layout state to `herdr-zed.*` keys so this layout and the old one never affect each
-   other. Also decide where conversation history, Git accounts/authors and Tasks/Calendar data live.
+1. **Data paths.** Resolved: all product data is independent under `data/herdr-zed/` and `herdr-zed.*` keys (§5). No automatic migration from Devkits.
 2. **Name.** "Zed" is Zed Industries' product name and may cause confusion. The repo/mod/key prefix
    (`herdr-zed`) should be fixed before step 2, because it appears in mod names, shared keys and data paths.
 3. **Launcher settings entry.** Resolved: one Settings dialog (§2.1 `settings`) opened from the header gear. The thread ⋯

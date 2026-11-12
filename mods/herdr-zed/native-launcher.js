@@ -1,6 +1,7 @@
+import { programInScope } from './components/session-model.js';
 import { div } from 'gpui-kit';
 import { v_flex } from 'gpui-base';
-import { knownAgents, props, closeOverlay, notify } from 'herdr';
+import { appHome, knownAgents, props, closeOverlay, notify } from 'herdr';
 import { DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel } from './components/dropdown-menu.js';
 import { AgentIcon } from './components/icon.js';
 import { createNativeThread } from './native-threads.js';
@@ -10,7 +11,7 @@ export class NativeLauncher {
     this.target = props(); this.items = [null]; this.index = 0;
     this.handle = cx.focus_handle(); this.handle.focus(); this.loading = true;
     cx.spawn(async cx => {
-      try { this.items = [null, ...(await knownAgents({ on: this.target.machine })).filter(agent => agent.installed)]; }
+      try { this.items = [null, ...(await knownAgents({ on: this.target.machine })).filter(agent => agent.installed && programInScope(agent, appHome()))]; }
       catch { this.error = 'Could not discover installed programs.'; }
       this.loading = false; cx.notify();
     });

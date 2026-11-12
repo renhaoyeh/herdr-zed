@@ -100,7 +100,7 @@ test('the quota cache survives provider reloads and manual refresh bypasses it w
 
 test('local and remote consumers keep separate snapshots and remote projects never query local quotas', async () => {
   const h = await setup({ discover: args => args.on ? [{ key: 'codex', name: 'Remote Codex', installed: true, run: ['codex'] },
-    { key: 'devkits-codex-local', name: 'Local account', installed: true, run: ['codex'] }] : [{ key: 'codex', name: 'Local Codex', installed: true, run: ['codex'] }] });
+    { key: 'herdr-zed-codex-local', name: 'Local account', installed: true, run: ['codex'] }] : [{ key: 'codex', name: 'Local Codex', installed: true, run: ['codex'] }] });
   const local = await h.client(), remote = await h.client({ context: () => ({ machine: 'remote' }) }); await flush();
   assert.equal(h.queries.length, 1); assert.equal(local.snapshot().choices[0].name, 'Local Codex');
   assert.equal(remote.snapshot().choices[0].name, 'Remote Codex'); assert.equal(remote.snapshot().choices.length, 1);
@@ -121,7 +121,7 @@ test('expired consumer leases stop automatic quota refreshes and unchanged heart
 
 test('the configured Claude hook stays idempotent and preserves existing chains and backups', async () => {
   const previous = { type: 'command', command: 'node "/app/mods/herdr-zed-agents/usage/claude-statusline.js"', padding: 2 };
-  const files = { '/profile/settings.json': JSON.stringify({ statusLine: previous }), '/profile/devkits-statusline-chain.json': 'original chain', '/profile/settings.json.devkits-backup': 'original backup' }, written = [];
+  const files = { '/profile/settings.json': JSON.stringify({ statusLine: previous }), '/profile/herdr-zed-statusline-chain.json': 'original chain', '/profile/settings.json.herdr-zed-backup': 'original backup' }, written = [];
   const { ensureClaudeStatusLine } = await evaluateNative('../components/claude-usage-hook.js', {
     appHome: () => '/app', readTextFile: async path => files[path] ?? null,
     writeTextFile: async (path, text, expected) => { assert.equal(files[path] ?? null, expected); files[path] = text; written.push(path); },
@@ -129,7 +129,7 @@ test('the configured Claude hook stays idempotent and preserves existing chains 
   assert.equal(await ensureClaudeStatusLine('/profile', { chain: true }), false);
   assert.equal(JSON.parse(files['/profile/settings.json']).statusLine.command, 'node "/app/mods/herdr-zed-agents/usage/claude-statusline.js"');
   assert.deepEqual(written, []);
-  assert.equal(files['/profile/devkits-statusline-chain.json'], 'original chain'); assert.equal(files['/profile/settings.json.devkits-backup'], 'original backup');
+  assert.equal(files['/profile/herdr-zed-statusline-chain.json'], 'original chain'); assert.equal(files['/profile/settings.json.herdr-zed-backup'], 'original backup');
   assert.equal(await ensureClaudeStatusLine('/profile', { chain: true }), false);
 });
 
@@ -139,6 +139,6 @@ test('the Usage mod status-line entry records usage directly', async t => {
   const result = spawnSync(process.execPath, [script], { env: { ...process.env, CLAUDE_CONFIG_DIR: directory },
     input: JSON.stringify({ rate_limits: { five_hour: { used_percentage: 42 } } }), encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr); assert.equal(result.stdout, '5h 42%');
-  const saved = JSON.parse(await readFile(join(directory, 'devkits-usage.json'), 'utf8'));
+  const saved = JSON.parse(await readFile(join(directory, 'herdr-zed-usage.json'), 'utf8'));
   assert.equal(saved.rate_limits.five_hour.used_percentage, 42);
 });

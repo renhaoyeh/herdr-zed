@@ -6,7 +6,7 @@ import { homedir } from 'node:os';
 import { isMain } from '../node-main.js';
 import { commandArgv } from '../components/session-shell.js';
 
-export const claudeUsageFile = 'devkits-usage.json';
+export const claudeUsageFile = 'herdr-zed-usage.json';
 const claudeLimits = [['five_hour', '5-hour', 300], ['seven_day', 'Weekly', 10080]];
 
 // Maps the rate_limits object Claude Code passes to its status line.

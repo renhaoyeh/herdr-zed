@@ -13,7 +13,7 @@ if (await isMain(import.meta.url)) {
     else if (action === 'detail') console.log(JSON.stringify({ text: await readEccDetail(await readEccCatalog(value), extra) }));
     else if (action === 'validate-file') {
       const config = parseEcc(await readFile(value, 'utf8')), catalog = await readEccCatalog(config.source);
-      const output = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'data', 'devkits', 'ecc-packages');
+      const output = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'data', 'herdr-zed', 'ecc-packages');
       if (config.enabled) for (const provider of ['claude', 'codex']) if (config.providerEnabled[provider]) await buildEccPackage(config, provider, output, catalog);
       console.log(JSON.stringify({ version: catalog.version, sourceRevision: catalog.sourceRevision }));
     } else throw new Error('Unsupported ECC operation.');

@@ -1,8 +1,9 @@
+import { ResetData } from './reset-dialog.js';
 import { closeThreadTab, closeThreadPane, isProjectPlaceholder } from './thread-close.js';
 import { View, div, svg, image } from 'gpui-kit';
 import { v_flex, h_flex, InputState, Input } from 'gpui-base';
-import { agents, spaces, panes, theme, run, props, window, openOverlay, closeOverlay, setAgentOrder, layout, settings, pickFolder, shared, setShared, notify, nextCommand, terminals, knownAgents, hc } from 'herdr';
-import { projectGroups, projectCatalog, folderKey, threadTitle, threadProgram, childTerminals, terminalLabel, agentReportedWorking } from './components/session-model.js';
+import { agents, spaces, panes, theme, run, props, window, openOverlay, closeOverlay, setAgentOrder, layout, settings, pickFolder, shared, setShared, notify, nextCommand, terminals, knownAgents, hc, appHome } from 'herdr';
+import { programInScope, projectGroups, projectCatalog, folderKey, threadTitle, threadProgram, childTerminals, terminalLabel, agentReportedWorking } from './components/session-model.js';
 import FileViewer, { FileMenu } from './files.js';
 import DiffViewer from './diff.js';
 import { GitResultToast, clearGitToast } from './git-result-toast.js';
@@ -88,6 +89,7 @@ const historyOpen = () => Boolean(shared(HISTORY_OPEN));
 export default class HerdrZed extends View {
   init(_props, cx) {
     const view = props()?.view;
+    if (view === 'reset-data') { this.resetData = new ResetData(); this.resetData.init(cx); return; }
     if (view === 'launcher') { this.launcher = new NativeLauncher(); this.launcher.init(cx); return; }
     if (view === IMAGE_PREVIEW_VIEW) return;
     if (view === 'settings-nav') { this.settingsNav = new SettingsNav(); return; }
@@ -410,7 +412,7 @@ export default class HerdrZed extends View {
     run('herdr-zed.open-file');
   }
 
-  cachedAgents(machine) { return knownAgents({ on: machine }).then(items => items.filter(agent => agent.installed)); }
+  cachedAgents(machine) { return knownAgents({ on: machine }).then(items => items.filter(agent => agent.installed && programInScope(agent, appHome()))); }
 
   startThread(agent, target) {
     try { createNativeThread(agent, target); }
@@ -736,7 +738,7 @@ export default class HerdrZed extends View {
 
   render(cx) {
     this.renderModel = null;
-    publishWorkspaceRect();
+    if (props()?.view !== 'reset-data') publishWorkspaceRect();
     try { return this.renderView(cx); }
     finally { this.renderModel = null; }
   }
@@ -747,6 +749,7 @@ export default class HerdrZed extends View {
     if (props()?.view === 'settings-header') return this.settingsHeader.render(t);
     if (props()?.view === 'settings-page') return this.settingsPage.render(t);
     if (props()?.view === 'commit-author') return this.authorDialog.render(t);
+    if (props()?.view === 'reset-data') return this.resetData.render(t);
     if (props()?.view === 'launcher') return this.launcher.render(t);
     if (props()?.view === 'file-menu') return this.fileMenu.render();
     if (props()?.view === 'editor') {

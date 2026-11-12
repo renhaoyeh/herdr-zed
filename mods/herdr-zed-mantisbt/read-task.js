@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { taskDetails, taskComments, normalizeUrl } from './source-api.js';
 try {
   const [appHome, gid, project, expectedServer] = process.argv.slice(2);
-  const connection = JSON.parse(await readFile(`${appHome}/data/devkits/mantisbt.json`, 'utf8'));
+  const connection = JSON.parse(await readFile(`${appHome}/data/herdr-zed/mantisbt.json`, 'utf8'));
   if (!connection?.token) throw new Error('Connect MantisBT to read this task.');
   if (expectedServer && normalizeUrl(connection.url) !== normalizeUrl(expectedServer)) throw new Error('Connect the original MantisBT server to read this task.');
   const task = await taskDetails(connection, gid, project || null);

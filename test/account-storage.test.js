@@ -42,7 +42,7 @@ test('missing account data differs from a failed read and bounded scans report i
 
 test('profiles resolve to their existing account directory, including default and Windows homes', () => {
   assert.deepEqual(accountStorageDirectory({ key: 'codex' }, '/home/rick'), { kind: 'codex', directory: '/home/rick/.codex' });
-  assert.deepEqual(accountStorageDirectory({ key: 'devkits-preset-one', profileKey: 'devkits-codex-account-one',
+  assert.deepEqual(accountStorageDirectory({ key: 'herdr-zed-preset-one', profileKey: 'herdr-zed-codex-account-one',
     run: ['env', 'CODEX_HOME=C:\\Users\\Rick\\Codex Account', 'codex'] }, 'ignored'),
   { kind: 'codex', directory: 'C:\\Users\\Rick\\Codex Account' });
   assert.deepEqual(accountStorageDirectory({ key: 'claude', run: ['env', 'CLAUDE_CONFIG_DIR=/custom', 'claude'] }, '/home'),

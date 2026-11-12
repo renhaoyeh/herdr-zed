@@ -40,7 +40,7 @@ test('Windows Add account allocates private directories and saves launchers with
     const view = new AccountLogin(); view.init({ provider }, cx);
     view.signInCodex = view.signInClaude = async profile => {
       assert.equal((await stat(profile.directory)).isDirectory(), true);
-      assert.match(profile.key, new RegExp(`^devkits-${provider}-account-[a-zA-Z0-9]{12}$`));
+      assert.match(profile.key, new RegExp(`^herdr-zed-${provider}-account-[a-zA-Z0-9]{12}$`));
       assert.equal(profile.run[0], 'git');
       return 'fixture@example.com';
     };
@@ -53,8 +53,8 @@ test('Windows Add account allocates private directories and saves launchers with
 });
 
 test('Windows logout supports legacy env launchers while keeping credentials scoped to the profile', async () => {
-  const root = 'C:\\App Data', key = `devkits-codex-${profileId}`, calls = [];
-  const home = `CODEX_HOME=${root}/data/devkits/codex/${profileId}`;
+  const root = 'C:\\App Data', key = `herdr-zed-codex-${profileId}`, calls = [];
+  const home = `CODEX_HOME=${root}/data/herdr-zed/codex/${profileId}`;
   let source = JSON.stringify({ programs: { [key]: { run: ['env', home, 'codex'] } } });
   const { removeAccountProfile } = await load({ appHome: () => root, window: () => ({ platform: 'windows' }),
     readTextFile: async () => source, writeTextFile: async (_path, next) => { source = next; },
@@ -67,7 +67,7 @@ test('Windows logout supports legacy env launchers while keeping credentials sco
 });
 
 test('renaming changes only the display label and uses an atomic settings write', async () => {
-  const key = `devkits-codex-${profileId}`;
+  const key = `herdr-zed-codex-${profileId}`;
   const entry = { name: 'Codex · Work', run: ['env', 'CODEX_HOME=/original', 'codex'], icon: 'icons/codex.svg' };
   const original = { programs: { [key]: entry, other: { name: 'Codex · Other' } }, shells: ['fish'] };
   const source = JSON.stringify(original);
@@ -85,7 +85,7 @@ test('renaming changes only the display label and uses an atomic settings write'
   }
   await assert.rejects(renameAccountProfile(key, 'x\ny'));
   await assert.rejects(renameAccountProfile('codex', 'New'));
-  await assert.rejects(renameAccountProfile('devkits-codex-missing', 'New'));
+  await assert.rejects(renameAccountProfile('herdr-zed-codex-missing', 'New'));
   const stale = await load({ appHome: () => '/root', readTextFile: async () => source,
     writeTextFile: async () => { throw Error('stale snapshot'); } });
   await assert.rejects(stale.renameAccountProfile(key, 'New'), /stale snapshot/);
@@ -93,8 +93,8 @@ test('renaming changes only the display label and uses an atomic settings write'
 
 test('removing an account signs out only its owned credentials and merges concurrent unrelated settings', async () => {
   for (const id of [profileId, 'Legacy']) {
-    const key = `devkits-codex-${id}`, calls = [], writes = [];
-    const entry = { name: 'Codex · Work', run: ['env', `CODEX_HOME=/root/data/devkits/codex/${id}`, 'codex'] };
+    const key = `herdr-zed-codex-${id}`, calls = [], writes = [];
+    const entry = { name: 'Codex · Work', run: ['env', `CODEX_HOME=/root/data/herdr-zed/codex/${id}`, 'codex'] };
     let source = JSON.stringify({ programs: { [key]: entry, keep: { name: 'Keep me' } } });
     const { removeAccountProfile } = await load({ appHome: () => '/root', readTextFile: async () => source,
       exec: async (command, args) => {
@@ -106,15 +106,15 @@ test('removing an account signs out only its owned credentials and merges concur
       } });
     await removeAccountProfile(key);
     assert.deepEqual(calls, [['env', ['-u', 'OPENAI_API_KEY', '-u', 'CODEX_API_KEY', '-u', 'CODEX_ACCESS_TOKEN',
-      `CODEX_HOME=/root/data/devkits/codex/${id}`, 'codex', '-c', 'cli_auth_credentials_store="file"', 'logout']]]);
+      `CODEX_HOME=/root/data/herdr-zed/codex/${id}`, 'codex', '-c', 'cli_auth_credentials_store="file"', 'logout']]]);
     assert.deepEqual(writes, [{ programs: { keep: { name: 'Keep me' } }, shells: ['fish'] }]);
   }
 });
 
 test('removal refuses built-ins, path traversal, external or shared credentials, and invalid settings before logout', async () => {
-  const home = `CODEX_HOME=/root/data/devkits/codex/${profileId}`;
-  const key = `devkits-codex-${profileId}`;
-  for (const [target, source] of [['codex', '{}'], ['devkits-codex-../other', '{}'],
+  const home = `CODEX_HOME=/root/data/herdr-zed/codex/${profileId}`;
+  const key = `herdr-zed-codex-${profileId}`;
+  for (const [target, source] of [['codex', '{}'], ['herdr-zed-codex-../other', '{}'],
     [key, '[]'], [key, '{}'], [key, JSON.stringify({ programs: { [key]: { run: ['CODEX_HOME=/root/.codex'] } } })],
     [key, JSON.stringify({ programs: { [key]: { run: [home] }, another: { run: [home] } } })]]) {
     const { removeAccountProfile } = await load({ appHome: () => '/root', readTextFile: async () => source,
@@ -124,9 +124,9 @@ test('removal refuses built-ins, path traversal, external or shared credentials,
 });
 
 test('logout failures keep the account; changed entries or failed atomic writes report partial sign-out', async () => {
-  const key = `devkits-codex-${profileId}`;
+  const key = `herdr-zed-codex-${profileId}`;
   for (const failure of ['logout', 'entry-changed', 'write']) {
-    let source = JSON.stringify({ programs: { [key]: { name: 'Work', run: [`CODEX_HOME=/root/data/devkits/codex/${profileId}`] } } });
+    let source = JSON.stringify({ programs: { [key]: { name: 'Work', run: [`CODEX_HOME=/root/data/herdr-zed/codex/${profileId}`] } } });
     const { removeAccountProfile } = await load({ appHome: () => '/root', readTextFile: async () => source,
       exec: async () => {
         if (failure === 'entry-changed') source = source.replace('Work', 'Changed');
@@ -206,7 +206,7 @@ async function scenario({ success = true, confirm = true, existing = false, fail
     InputState: { new: () => ({ value: () => inputName, set_value(value) { inputName = value; }, on() {}, focus() {} }) },
     exec: async (...args) => {
       commands.push(args);
-      return { code: 0, stdout: args[0] === 'node' ? `${root}/data/devkits/codex/${profileId}\n` : '' };
+      return { code: 0, stdout: args[0] === 'node' ? `${root}/data/herdr-zed/codex/${profileId}\n` : '' };
     },
     hc: async args => {
       commands.push(['hc', args]);
@@ -238,7 +238,7 @@ test('Chinese and uppercase labels are separate from validated internal IDs and 
   for (const name of [' 工作帳號 ', 'PERSONAL', 'Work / 工作', '../work', '$(id)', '工作'.repeat(24)]) {
     const profile = accountProfile('codex', name, '/Root With Spaces', profileId);
     assert.equal(profile.name, name.trim());
-    assert.equal(profile.directory, `/Root With Spaces/data/devkits/codex/${profileId}`);
+    assert.equal(profile.directory, `/Root With Spaces/data/herdr-zed/codex/${profileId}`);
     assert.ok(profile.run.includes(`CODEX_HOME=${profile.directory}`));
     assert.ok(!profile.run.includes(name.trim()));
   }
@@ -258,7 +258,7 @@ test('successful browser sign-in confirms account, preserves settings, and clean
   assert.equal(result.writes.length, 1);
   assert.deepEqual(result.source.shells, ['fish']);
   assert.deepEqual(result.source.programs.existing, { name: 'Keep me' });
-  const entry = result.source.programs[`devkits-codex-${profileId}`];
+  const entry = result.source.programs[`herdr-zed-codex-${profileId}`];
   assert.equal(entry.name, 'Codex · work');
   assert.equal(entry.run.at(-1), '--no-daemon');
   assert.ok(result.commands.some(([command, args]) => command === 'open' && args[0].startsWith('https://auth.openai.com/')));
@@ -291,8 +291,8 @@ test('a previously authenticated directory can retry registration without anothe
 
 test('duplicate names, invalid settings, and concurrent settings edits are never overwritten', async () => {
   for (const source of ['[]', '{"programs":[]}',
-    '{"programs":{"devkits-codex-work":{"name":"Codex · work"}}}',
-    `{"programs":{"devkits-codex-${profileId}":{}}}`]) {
+    '{"programs":{"herdr-zed-codex-work":{"name":"Codex · work"}}}',
+    `{"programs":{"herdr-zed-codex-${profileId}":{}}}`]) {
     const api = await load({ appHome: () => '/root', readTextFile: async () => source,
       writeTextFile: async () => assert.fail('must not write') });
     await assert.rejects(api.registerAccount(api.accountProfile('codex', 'work', '/root', profileId)));
@@ -319,11 +319,11 @@ test('retrying with a different display name keeps the same identity and credent
 
 test('adding a Unicode account preserves legacy profile paths and rejects existing display labels', async () => {
   const legacy = { name: 'Codex · Legacy', run: ['env', 'CODEX_HOME=/old/profile/path', 'codex'] };
-  const result = await scenario({ name: '工作帳號', initialPrograms: { 'devkits-codex-Legacy': legacy } });
+  const result = await scenario({ name: '工作帳號', initialPrograms: { 'herdr-zed-codex-Legacy': legacy } });
   assert.equal(result.view.phase, 'success');
-  assert.deepEqual(result.source.programs['devkits-codex-Legacy'], legacy);
-  assert.equal(result.source.programs[`devkits-codex-${profileId}`].name, 'Codex · 工作帳號');
-  const duplicate = await scenario({ name: 'Legacy', initialPrograms: { 'devkits-codex-Legacy': legacy } });
+  assert.deepEqual(result.source.programs['herdr-zed-codex-Legacy'], legacy);
+  assert.equal(result.source.programs[`herdr-zed-codex-${profileId}`].name, 'Codex · 工作帳號');
+  const duplicate = await scenario({ name: 'Legacy', initialPrograms: { 'herdr-zed-codex-Legacy': legacy } });
   assert.equal(duplicate.view.phase, 'name');
   assert.match(duplicate.view.error, /already in the agent menu/);
   assert.equal(duplicate.writes.length, 0);
@@ -366,7 +366,7 @@ async function claudeScenario({ reads, loggedInAfter = Infinity, existing = fals
     InputState: { new: () => ({ value: () => 'work', on() {}, focus() {}, set_value() {} }) },
     exec: async (command, args) => {
       commands.push([command, args]);
-      if (command === 'node') return { code: 0, stdout: allocated ?? `${root}/data/devkits/claude\\${profileId}\r\n` };
+      if (command === 'node') return { code: 0, stdout: allocated ?? `${root}/data/herdr-zed/claude\\${profileId}\r\n` };
       if (args.includes('status')) {
         statusCalls++;
         const loggedIn = existing || readCalls >= loggedInAfter;
@@ -400,9 +400,9 @@ const prompt = 'Opening browser to sign in…\nIf the browser didn\'t open, visi
 test('Claude profiles isolate config and keychain storage and strip inherited API credentials', async () => {
   const { accountProfile } = await load();
   const profile = accountProfile('claude', '工作', '/root', profileId);
-  assert.equal(profile.key, `devkits-claude-${profileId}`);
+  assert.equal(profile.key, `herdr-zed-claude-${profileId}`);
   assert.deepEqual(profile.run, ['env', '-u', 'ANTHROPIC_API_KEY', '-u', 'ANTHROPIC_AUTH_TOKEN', '-u', 'CLAUDE_CODE_OAUTH_TOKEN',
-    `CLAUDE_CONFIG_DIR=/root/data/devkits/claude/${profileId}`, `CLAUDE_SECURESTORAGE_CONFIG_DIR=/root/data/devkits/claude/${profileId}`, 'claude']);
+    `CLAUDE_CONFIG_DIR=/root/data/herdr-zed/claude/${profileId}`, `CLAUDE_SECURESTORAGE_CONFIG_DIR=/root/data/herdr-zed/claude/${profileId}`, 'claude']);
   assert.throws(() => accountProfile('other', 'work', '/root', profileId), /Unsupported/);
   assert.throws(() => accountProfile('claude', 'work', '/root', '../x'), /Invalid Claude account ID/);
 });
@@ -414,14 +414,14 @@ test('Claude sign-in waits for the CLI login, confirms the subscription account,
   assert.equal(result.view.authUrl, 'https://claude.com/cai/oauth/authorize?code=true&state=abc');
   const run = result.commands.find(([command, args]) => command === 'hc' && args[0] === 'run')[1];
   assert.deepEqual(run.slice(-4), ['claude', 'auth', 'login', '--claudeai']);
-  const entry = result.source.programs[`devkits-claude-${profileId}`];
+  const entry = result.source.programs[`herdr-zed-claude-${profileId}`];
   assert.equal(entry.name, 'Claude · work');
   assert.equal(entry.icon, 'icons/claude.svg');
   assert.equal(entry.run.at(-1), 'claude');
   assert.deepEqual(result.source.programs.keep, { name: 'Keep me' });
   assert.ok(result.commands.some(([command, args]) => command === 'hc' && args[0] === 'kill' && args[1] === 't-claude'));
   assert.ok(!result.commands.some(([command]) => command === 'open'));
-  assert.deepEqual(JSON.parse(result.settings[`/root/data/devkits/claude/${profileId}/settings.json`]).statusLine,
+  assert.deepEqual(JSON.parse(result.settings[`/root/data/herdr-zed/claude/${profileId}/settings.json`]).statusLine,
     { type: 'command', command: 'node "/root/mods/herdr-zed-agents/usage/claude-statusline.js"', padding: 0 });
 });
 
@@ -472,8 +472,8 @@ test('a pasted Claude code is typed only into its own login process', async () =
 });
 
 test('removing a Claude account runs Claude logout against its own config directory', async () => {
-  const key = `devkits-claude-${profileId}`, calls = [];
-  const directory = `/root/data/devkits/claude/${profileId}`;
+  const key = `herdr-zed-claude-${profileId}`, calls = [];
+  const directory = `/root/data/herdr-zed/claude/${profileId}`;
   const entry = { name: 'Claude · Work', run: ['env', `CLAUDE_CONFIG_DIR=${directory}`, 'claude'] };
   let source = JSON.stringify({ programs: { [key]: entry } });
   const { removeAccountProfile, renameAccountProfile } = await load({ appHome: () => '/root', readTextFile: async () => source,
@@ -488,13 +488,13 @@ test('removing a Claude account runs Claude logout against its own config direct
 
 test('allocated directories match across Windows path spellings but never outside the account folder', async () => {
   const root = 'C:/Users/Me/.config/herdr-app';
-  for (const allocated of [`C:\\Users\\Me\\.config\\herdr-app\\data\\devkits\\claude\\${profileId}\r\n`,
-    `/c/Users/Me/.config/herdr-app/data/devkits/claude/${profileId}\n`, `c:/users/me/.config/herdr-app/data/devkits/claude\\${profileId}`]) {
+  for (const allocated of [`C:\\Users\\Me\\.config\\herdr-app\\data\\herdr-zed\\claude\\${profileId}\r\n`,
+    `/c/Users/Me/.config/herdr-app/data/herdr-zed/claude/${profileId}\n`, `c:/users/me/.config/herdr-app/data/herdr-zed/claude\\${profileId}`]) {
     const { view } = await claudeScenario({ reads: [prompt], existing: true, root, allocated });
     assert.equal(view.phase, 'success', allocated);
-    assert.equal(view.profile.directory, `${root}/data/devkits/claude/${profileId}`);
+    assert.equal(view.profile.directory, `${root}/data/herdr-zed/claude/${profileId}`);
   }
-  for (const allocated of [`C:/elsewhere/data/devkits/claude/${profileId}`, `${root}/data/devkits/codex/${profileId}`]) {
+  for (const allocated of [`C:/elsewhere/data/herdr-zed/claude/${profileId}`, `${root}/data/herdr-zed/codex/${profileId}`]) {
     const { view, writes } = await claudeScenario({ reads: [prompt], existing: true, root, allocated });
     assert.equal(view.phase, 'error');
     assert.match(view.error, /Invalid Claude account directory: /);
@@ -514,15 +514,15 @@ test('the built-in profile chains its existing status line, with a backup, and r
   const settings = JSON.parse(files['/home/.claude/settings.json']);
   assert.equal(settings.model, 'opus');
   assert.deepEqual(settings.statusLine, { type: 'command', command: 'node "/app/mods/herdr-zed-agents/usage/claude-statusline.js"', padding: 2 });
-  assert.deepEqual(JSON.parse(files['/home/.claude/devkits-statusline-chain.json']), other);
-  assert.equal(files['/home/.claude/settings.json.devkits-backup'], original);
+  assert.deepEqual(JSON.parse(files['/home/.claude/herdr-zed-statusline-chain.json']), other);
+  assert.equal(files['/home/.claude/settings.json.herdr-zed-backup'], original);
   assert.equal(await ensureClaudeStatusLine('/home/.claude', { chain: true }), false);
   // Another tool reinstalling its status line is chained again; the first backup is kept.
   const updated = { type: 'command', command: 'orca-v2' };
   files['/home/.claude/settings.json'] = JSON.stringify({ model: 'opus', statusLine: updated });
   assert.equal(await ensureClaudeStatusLine('/home/.claude', { chain: true }), true);
-  assert.deepEqual(JSON.parse(files['/home/.claude/devkits-statusline-chain.json']), updated);
-  assert.equal(files['/home/.claude/settings.json.devkits-backup'], original);
+  assert.deepEqual(JSON.parse(files['/home/.claude/herdr-zed-statusline-chain.json']), updated);
+  assert.equal(files['/home/.claude/settings.json.herdr-zed-backup'], original);
   files['/home/.claude/settings.json'] = JSON.stringify({ statusLine: { type: 'static', text: 'x' } });
   assert.equal(await ensureClaudeStatusLine('/home/.claude', { chain: true }), false);
 });

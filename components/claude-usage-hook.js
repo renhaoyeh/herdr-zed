@@ -14,9 +14,9 @@ export async function ensureClaudeStatusLine(directory, { chain = false } = {}) 
   if (ours && current.command === command) return false;
   if (current && !ours) {
     if (!chain || current.type !== 'command' || typeof current.command !== 'string') return false;
-    const chainPath = `${directory}/devkits-statusline-chain.json`;
+    const chainPath = `${directory}/herdr-zed-statusline-chain.json`;
     await writeTextFile(chainPath, `${JSON.stringify(current, null, 2)}\n`, await readTextFile(chainPath));
-    const backup = `${path}.devkits-backup`;
+    const backup = `${path}.herdr-zed-backup`;
     if (await readTextFile(backup) === null) await writeTextFile(backup, source, null);
   }
   data.statusLine = { ...(current && !ours ? current : { padding: 0 }), type: 'command', command };

@@ -3,7 +3,7 @@ import { sessionKind } from './components/session-model.js';
 import { sharedMcpPath, parseSharedMcp } from './components/shared-mcp.js';
 import { parseDevkits, devkitsCatalog, devkitsGuidance, resourceSupported, mineRoot, mineSelectionPath, mineItems, parseMineSelection, withMine } from './devkits-model.js';
 
-export const devkitsPath = () => `${appHome()}/data/devkits/capabilities.json`;
+export const devkitsPath = () => `${appHome()}/data/herdr-zed/capabilities.json`;
 export async function readDevkitsSkills(skills) {
   return Promise.all(skills.map(async skill => {
     const policy = skill.policyPath ? await readTextFile(skill.policyPath) : null;

@@ -1,5 +1,6 @@
 {
   "version": 1,
+  "dataReset": { "helper": "reset-provider.js" },
   "id": "agents",
   "title": "Agents",
   "settings": {

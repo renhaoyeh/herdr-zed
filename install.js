@@ -86,7 +86,7 @@ async function requireEccSource(source) {
     throw new Error('ECC source is missing. Run git submodule update --init --recursive before installing.');
 }
 
-// ECC source is shared with Devkits (data/devkits/ecc-source). Copy it only when absent, through a staging folder.
+// ECC source belongs to the Agents package (mods/herdr-zed-agents/ecc-source). Copy it only when absent, through a staging folder.
 async function copyEcc(source, target) {
   await mkdir(dirname(target), { recursive: true });
   const staging = await mkdtemp(join(dirname(target), '.ecc-source-'));
@@ -110,7 +110,7 @@ export async function installExtension(home, mod, { root = REPO, eccSource = new
   const existing = await readOptional(manifestPath);
   if (existing !== null) parseExtensionManifest(mod, existing);
   const { dependencies } = extensionMetadata(mod, existing ?? manifestText);
-  const eccTarget = join(home, 'data', 'devkits', 'ecc-source');
+  const eccTarget = join(home, 'mods', AGENTS, 'ecc-source');
   const copyEccSource = mod === AGENTS && !(await exists(eccTarget));
   if (copyEccSource) await requireEccSource(eccSource);
 
@@ -184,6 +184,11 @@ export async function update(home, { root = REPO, beforeReplace } = {}) {
     for (const name of mods) {
       if (name === SHELL) await copyShell(root, join(stage, 'mods', name));
       else await copyMod(root, name, join(stage, 'mods', name));
+      if (name === AGENTS) {
+        const eccSource = new URL('vendor/everything-claude-code/', root);
+        await requireEccSource(eccSource);
+        await copyEcc(eccSource, join(stage, 'mods', name, 'ecc-source'));
+      }
     }
     const replaced = mods.map(name => join('mods', name));
     if (layoutInstalled) {

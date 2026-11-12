@@ -1,5 +1,6 @@
 {
   "version": 1,
+  "dataReset": null,
   "id": "asana",
   "title": "Asana",
   "settings": { "view": "settings", "title": "Asana" },

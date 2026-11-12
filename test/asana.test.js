@@ -302,7 +302,7 @@ line two ${'x'.repeat(600)}` : `c${index}`, at: '2026-11-0' + (index + 1) + 'T00
 });
 
 test('model and effort flags go right after the Claude or Codex executable; Default leaves the command alone', () => {
-  const claude = { key: 'devkits-claude-work', run: ['env', 'CLAUDE_CONFIG_DIR=/c', 'claude', '--permission-mode', 'plan'] };
+  const claude = { key: 'herdr-zed-claude-work', run: ['env', 'CLAUDE_CONFIG_DIR=/c', 'claude', '--permission-mode', 'plan'] };
   assert.deepEqual(sessionArgv(claude, claude.run, { model: 'sonnet', effort: 'high' }),
     ['env', 'CLAUDE_CONFIG_DIR=/c', 'claude', '--model', 'sonnet', '--effort', 'high', '--permission-mode', 'plan']);
   const codex = { key: 'codex', run: ['codex', '--no-daemon'] };

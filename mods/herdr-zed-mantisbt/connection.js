@@ -1,6 +1,6 @@
 import { appHome, readTextFile, writeTextFile } from 'herdr';
 import { normalizeUrl } from './rest.js';
-const connectionPath = () => `${appHome()}/data/devkits/mantisbt.json`;
+const connectionPath = () => `${appHome()}/data/herdr-zed/mantisbt.json`;
 export async function readMantisConnection() {
   try {
     const connection = JSON.parse(await readTextFile(connectionPath()) || 'null');
@@ -35,7 +35,7 @@ export async function saveMantisProjects(connection, projects, fetchedAt) {
 }
 
 // Fetched issue lists live in their own file so reading credentials never loads them.
-const issuesPath = () => `${appHome()}/data/devkits/mantisbt-issues.json`;
+const issuesPath = () => `${appHome()}/data/herdr-zed/mantisbt-issues.json`;
 const tokenKey = token => { let hash = 5381; for (const char of String(token)) hash = ((hash << 5) + hash + char.charCodeAt(0)) | 0; return String(hash); };
 const issuesKey = (connection, project) => `${normalizeUrl(connection.url)}|${project}`;
 

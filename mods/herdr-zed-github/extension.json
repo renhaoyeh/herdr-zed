@@ -1,5 +1,6 @@
 {
   "version": 1,
+  "dataReset": null,
   "id": "github",
   "title": "GitHub",
   "settings": { "view": "settings", "title": "GitHub" },

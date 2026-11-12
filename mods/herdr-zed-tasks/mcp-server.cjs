@@ -19,7 +19,7 @@ const tools = [
 ];
 async function bridge(name, args) {
   const id = randomUUID(), until = Date.now() + 10000;
-  const directory = join(home, 'data', 'devkits', 'tasks-mcp'), file = join(directory, `${id}.json`);
+  const directory = join(home, 'data', 'herdr-zed', 'tasks-mcp'), file = join(directory, `${id}.json`);
   await mkdir(directory, { recursive: true });
   try {
     await writeFile(join(directory, `${id}.request.json`), JSON.stringify({ id, until, name, args }), { flag: 'wx' });

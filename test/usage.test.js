@@ -128,7 +128,7 @@ test('Claude usage comes only from the status line recording in the account dire
   await assert.rejects(readClaudeUsage(run), /No usage yet/);
   const limits = { five_hour: { used_percentage: 13, resets_at: 1793939999 }, seven_day: { used_percentage: 32.4, resets_at: 1794311999 } };
   assert.equal(record(JSON.stringify({ rate_limits: limits }), directory, 5000), '5h 13% · Week 32%');
-  assert.deepEqual(JSON.parse(await readFile(`${directory}/devkits-usage.json`, 'utf8')), { capturedAt: 5000, rate_limits: limits });
+  assert.deepEqual(JSON.parse(await readFile(`${directory}/herdr-zed-usage.json`, 'utf8')), { capturedAt: 5000, rate_limits: limits });
   assert.deepEqual(await readClaudeUsage(run), { email: null, fetchedAt: 5000, windows: claudeUsageWindows(limits) });
   const { writeFile } = await import('node:fs/promises');
   await writeFile(`${directory}/.claude.json`, JSON.stringify({ oauthAccount: { emailAddress: 'me@example.com',
@@ -148,13 +148,13 @@ test('a chained status line receives the same input and its output replaces the 
   const calls = [];
   const run = (command, options) => { calls.push([command, options.input, options.shell]); return { stdout: 'orca line  \n' }; };
   assert.equal(chained('{"a":1}', directory, run), null);
-  await writeFile(`${directory}/devkits-statusline-chain.json`, JSON.stringify({ type: 'command', command: 'orca.cmd' }));
+  await writeFile(`${directory}/herdr-zed-statusline-chain.json`, JSON.stringify({ type: 'command', command: 'orca.cmd' }));
   assert.equal(chained('{"a":1}', directory, run), 'orca line');
   assert.deepEqual(calls, [['orca.cmd', '{"a":1}', true]]);
   assert.equal(chained('{}', directory, () => ({ stdout: null })), '');
   // Real process: the chained command reads stdin and its output is returned.
   const echo = `${JSON.stringify(process.execPath)} -e "process.stdin.pipe(process.stdout)"`;
-  await writeFile(`${directory}/devkits-statusline-chain.json`, JSON.stringify({ type: 'command', command: echo }));
+  await writeFile(`${directory}/herdr-zed-statusline-chain.json`, JSON.stringify({ type: 'command', command: echo }));
   assert.equal(chained('hello', directory), 'hello');
 });
 
@@ -212,7 +212,7 @@ test('Usage support matches the actual quota readers rather than every installed
   assert.equal(usageProvider({ key: 'codex', run: ['codex'] }), 'codex');
   assert.equal(usageProvider({ key: 'custom', run: ['/opt/tools/codex'] }), 'codex');
   assert.equal(usageProvider({ key: 'claude', run: ['claude'] }), 'claude');
-  assert.equal(usageProvider({ key: 'devkits-claude-account', run: ['env', 'CLAUDE_CONFIG_DIR=/account', 'claude'] }), 'claude');
+  assert.equal(usageProvider({ key: 'herdr-zed-claude-account', run: ['env', 'CLAUDE_CONFIG_DIR=/account', 'claude'] }), 'claude');
   for (const agent of [null, { key: 'other', run: ['other'] }, { key: 'fake', run: ['env', 'SOME=codex', 'other'] },
     { key: 'profile', profileKey: 'codex', run: ['codex'] }, { key: 'codex', installed: false, run: ['codex'] }])
     assert.equal(usageProvider(agent), null);

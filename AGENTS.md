@@ -28,8 +28,9 @@ This repository's [design.md](design.md) (Settings, status bar, dialog types, te
   copies. Add a `COPIES` line when a mod starts using a component. Icons live in `assets/icons/`.
 - Changing the manifest schema or a message format changes the parser, every manifest and the contract
   tests in the same commit. Manifests stay `version: 1`.
-- Shared-state keys use the `herdr-zed.` prefix. `data/devkits/` paths stay shared with Devkits,
-  except the Guide, which lives in `data/herdr-zed/AGENTS.md`.
+- Shared-state keys use the `herdr-zed.` prefix. All product data lives in `data/herdr-zed/`,
+  including accounts, MCP, ECC settings, connections, caches and the Guide. Never read or modify
+  Devkits data; do not migrate it automatically.
 
 ## Validation
 

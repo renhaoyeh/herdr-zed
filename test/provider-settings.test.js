@@ -136,7 +136,7 @@ test('New thread and Agents rows name the program and account, and never show a 
   const { host } = shell({ shared: key => key === 'herdr-zed.account-identities' ? identities : null, ...sessions, availableAgents: () => [], spaces: () => [] });
   const { sessionMenu } = await evaluateNative('../mods/herdr-zed-agents/session-menu.js', host, 'sessionMenu');
   const view = agentsView(sessionMenu);
-  const claude = { key: 'claude', name: 'Claude Code' }, codex = { key: 'codex', name: 'Codex' }, named = { key: 'devkits-claude-team', name: 'Claude Code · team' };
+  const claude = { key: 'claude', name: 'Claude Code' }, codex = { key: 'codex', name: 'Codex' }, named = { key: 'herdr-zed-claude-team', name: 'Claude Code · team' };
   // A Default account is named by its address when one is known.
   assert.equal(view.pickerName(claude, 'Default account'), 'Claude Code · work@example.test');
   assert.equal(view.accountName(claude, 'Default account'), 'work@example.test');
@@ -147,7 +147,7 @@ test('New thread and Agents rows name the program and account, and never show a 
   assert.equal(view.pickerName(named, 'team'), 'Claude Code · team');
   // Terminal and profiles keep their own labels.
   assert.equal(view.pickerName(null, 'Terminal'), 'Terminal');
-  assert.equal(view.pickerName({ key: 'devkits-claude-team', profileKey: 'claude', name: 'Work profile' }, 'Work profile'), 'Work profile');
+  assert.equal(view.pickerName({ key: 'herdr-zed-claude-team', profileKey: 'claude', name: 'Work profile' }, 'Work profile'), 'Work profile');
   for (const agent of [claude, codex, named]) {
     for (const label of ['Default account', 'team']) assert.doesNotMatch(view.pickerName(agent, label), /No account/);
   }
