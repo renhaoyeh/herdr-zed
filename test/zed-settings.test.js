@@ -59,7 +59,7 @@ function settingsRuntime({ settings = [], memory = {}, closeThrows = [], launche
   const host = {
     div: element, v_flex: element, h_flex: element, Button: id => element(id), DialogTitle: () => element(), DialogDescription: () => element(),
     Switch: (id, checked) => element(id, { checked }), ToggleGroup: id => element(id), ToggleGroupItem: (id, pressed) => element(id, { pressed }),
-    ToolbarButton: id => element(id),
+    ToolbarButton: id => element(id), Checkbox: (id, checked) => element(id, { checked }), window: () => ({ platform: 'macos' }),
     glyph: () => element(),
     AUTO_RESUME_KEY: 'herdr-zed.auto-resume', extensionCatalog: () => ({ packages, resolved: { settings, launcher } }),
     BuildRulesSettings: class { init() { this.inited = true; } close() {} render() { return element('rules'); } },
@@ -187,7 +187,7 @@ test('an extension opens its first declared sub-page, and its contextual tabs an
   assert.equal(r.opened[2].layout.children[0].children[1].content.props.page, 'extensions');
 });
 
-test('the General page keeps only auto-resume; display options live in the Files and Changes toolbars', async () => {
+test('General keeps thread preferences; display options live in the Files and Changes toolbars', async () => {
   const r = settingsRuntime(); const s = await r.ready;
   r.setProps({ page: 'general', context: null });
   const page = new s.SettingsPage(); page.init(cx()); const body = page.render({});
@@ -195,6 +195,10 @@ test('the General page keeps only auto-resume; display options live in the Files
   for (const id of ['settings-files-wrap-tabs', 'settings-diff-wrap', 'settings-diff-layout']) assert.equal(find(body, id), null, id);
   find(body, 'settings-auto-resume').__handlers.on_change(false, cx());
   assert.deepEqual(r.memory, { 'herdr-zed.auto-resume': false });
+  assert.equal(find(body, 'settings-ctrl-enter-submit').checked, true, 'Ctrl/Enter submission defaults to checked');
+  find(body, 'settings-ctrl-enter-submit').__handlers.on_change(false, cx());
+  assert.equal(r.memory['herdr-zed.ctrl-enter-submit'], false);
+  assert.equal(find(page.render({}), 'settings-ctrl-enter-submit').checked, false, 'explicit off survives rerender');
 });
 
 test('launcher configuration has a direct entry and its own dialog, without extension management controls', async () => {

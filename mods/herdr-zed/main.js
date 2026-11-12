@@ -213,23 +213,28 @@ export default class HerdrZed extends View {
     const projects = this.projects();
     const index = projects.findIndex(project => project.id === target.project.id);
     const close = () => { closeOverlay(target.overlay); this.closeProject(target.project); };
-    const workflow = workflowSettings();
+    const workflow = workflowSettings(), sidebar = workflowSidebar();
+    const shown = sidebar && extensionSurfaceVisible(sidebar);
     const actions = [
+      { id: 'menu-new-terminal', icon: 'terminal', label: 'New terminal', enabled: true,
+        action: () => this.startThread(null, this.launcherTarget(target.project)) },
       ...(workflow ? [{ id: 'menu-agent-settings', icon: 'settings', label: `${workflow.title}…`, enabled: true,
         action: () => openSettings(settingsPageKey(workflow.id), target.project) }] : []),
+      ...(sidebar ? [{ id: 'menu-show-usage', icon: sidebar.icon || 'chart-column', label: `${shown ? 'Hide' : 'Show'} ${sidebar.title}`, enabled: true,
+        action: () => setExtensionSurfaceVisible(sidebar, !shown) }] : []),
       { id: 'menu-project-up', icon: 'arrow-up', label: 'Move up', enabled: index > 0, separated: Boolean(workflow), action: () => this.moveProject(target.project.id, -1) },
       { id: 'menu-project-down', icon: 'arrow-down', label: 'Move down', enabled: index >= 0 && index < projects.length - 1, action: () => this.moveProject(target.project.id, 1) },
       { id: 'menu-close-project', icon: 'close', label: 'Close project', enabled: true, action: close, separated: true },
     ];
-    const activate = action => {
+    const activate = (action, cx) => {
       if (!action.enabled) return;
       if (action.id !== 'menu-close-project') closeOverlay(target.overlay);
-      action.action();
+      action.action(cx);
     };
     this.projectMenuIndex ??= actions.findIndex(action => action.enabled);
     return DropdownMenuContent('project-menu', undefined, t)
       .track_focus(this.handle).on_key_down((event, cx) => {
-        if (event.key === 'enter' || event.key === 'space') activate(actions[this.projectMenuIndex]);
+        if (event.key === 'enter' || event.key === 'space') activate(actions[this.projectMenuIndex], cx);
         else if (event.key === 'escape') closeOverlay(target.overlay);
         else if (event.key === 'up' || event.key === 'down') {
           const step = event.key === 'up' ? -1 : 1;
@@ -245,7 +250,7 @@ export default class HerdrZed extends View {
         DropdownMenuItem(action.id, t).opacity(action.enabled ? 1 : 0.4)
           .bg(this.projectMenuIndex === i && action.enabled ? t.hover : t.popover)
           .on_hover((inside, cx) => { if (inside && action.enabled) { this.projectMenuIndex = i; cx.notify(); } })
-          .on_click(() => activate(action))
+          .on_click((_event, cx) => activate(action, cx))
           .when(Boolean(action.icon), el => el.child(glyph(action.icon))).child(action.label),
         ...(action.divider ? [DropdownMenuSeparator(t)] : []),
       ]));
@@ -361,6 +366,7 @@ export default class HerdrZed extends View {
     const project = this.projects().find(project => id ? project.id === id : project.active);
     if (!project) { this.openProject(cx); return; }
     if (!project.active) this.selectProject(project);
+    this.folded?.delete(project.id);
     closeWorkspacePanel();
     setShared(COMPOSE_KEY, startProjectKey(project));
     // Like opening a file: the editor shows beside the conversation, which stays as it is.
@@ -368,6 +374,13 @@ export default class HerdrZed extends View {
     run('layout.show', { id: 'editor' });
     run('layout.select', { stack: 'editor', child: 'workspace-editor' });
     run('herdr-zed.compose');
+  }
+
+  newThreadButton(id, project, t, row = false) {
+    return ToolbarButton(id, t, { icon: true, row })
+      .tooltip('New thread').accessibility_label('New thread')
+      .on_click((_event, cx) => { cx.stop_propagation(); this.newThread(cx, project?.id); })
+      .child(glyph('plus', row ? ROW_GLYPH : TOOLBAR_GLYPH));
   }
 
   // The launcher picker for a composed task: the provider's (account, model, effort) or the native one.
@@ -524,9 +537,7 @@ export default class HerdrZed extends View {
       .child(div().flex_1())
       .child(h_flex().h_full().flex_none().items_center()
         // + then maximize then ⋯, as in Zed's panel toolbars.
-        .child(ToolbarButton(`new-thread-${p.pane}`, t, { icon: true }).h_full()
-          .tooltip('New thread…').accessibility_label('New thread…').child(glyph('plus', TOOLBAR_GLYPH))
-          .on_click((_event, cx) => { cx.stop_propagation(); this.newThread(cx, thread?.space); }))
+        .child(this.newThreadButton(`new-thread-${p.pane}`, project, t).h_full())
         .when(Boolean(project && layoutNode(layout(), 'workspace-view')), el => el.child(
           ToolbarButton(`maximize-thread-${p.pane}`, t, { icon: true }).h_full()
             .tooltip(maximized ? 'Restore thread' : 'Maximize thread').accessibility_label(maximized ? 'Restore thread' : 'Maximize thread')
@@ -535,29 +546,19 @@ export default class HerdrZed extends View {
               maximizeConversation(project, !conversationMaximized(project));
               run('pane.focus', { pane: p.pane });
             }).child(glyph(maximized ? 'minimize' : 'maximize', TOOLBAR_GLYPH))))
-        // A split terminal in a thread closes on its own; the thread itself closes from the New thread panel.
+        // A split terminal closes on its own; the thread closes from its sidebar row.
         .when(secondary, el => el.child(ToolbarButton(`close-terminal-${p.pane}`, t, { icon: true }).h_full()
           .tooltip('Close terminal').accessibility_label('Close terminal')
           .on_click((_event, cx) => { cx.stop_propagation(); closeThreadPane(p.pane); }).child(glyph('close', TOOLBAR_GLYPH)))));
   }
 
-  // design.md, Start a thread: the thread options live in the New thread panel's header, beside where threads start:
-  // the launcher's sidebar surface (Show Usage), its settings, and closing the project's current thread.
+  // Launcher configuration sits beside the composer's send action.
   composerActions(project, t) {
-    const workflow = workflowSettings(), sidebar = workflowSidebar();
-    const tab = spaces().find(space => space.id === project.id)?.tabs?.find(tab => tab.active && !isProjectPlaceholder(tab));
-    const shown = sidebar && extensionSurfaceVisible(sidebar);
-    const action = (id, icon, label, onClick, selected = false) => ToolbarButton(id, t, { icon: true, selected })
-      .tooltip(label).accessibility_label(label).on_click((_event, cx) => { onClick(); cx.notify(); }).child(glyph(icon, TOOLBAR_GLYPH));
-    return [
-      ...(sidebar ? [action('composer-show-usage', sidebar.icon || 'chart-column', `${shown ? 'Hide' : 'Show'} ${sidebar.title}`,
-        () => setExtensionSurfaceVisible(sidebar, !shown), shown)] : []),
-      ...(workflow ? [action('composer-agent-settings', 'settings', `${workflow.title}…`, () => openSettings(settingsPageKey(workflow.id), project))] : []),
-      ...(tab ? [action('composer-close-thread', 'close', `Close thread “${tab.name}”`, () => closeThreadTab(tab.id))] : []),
-    ];
+    const workflow = workflowSettings();
+    return workflow ? [ToolbarButton('composer-agent-settings', t, { icon: true })
+      .tooltip(`${workflow.title}…`).accessibility_label(`${workflow.title}…`)
+      .on_click(() => openSettings(settingsPageKey(workflow.id), project)).child(glyph('settings', TOOLBAR_GLYPH))] : [];
   }
-
-
 
   // The status row is three layout blocks (layouts/herdr-zed.json, extension-surfaces.js): `status` (left: thread
   // toggle and machine), the status.right surfaces, and `status-tools` (right: extension actions, dock toggles,
@@ -845,15 +846,8 @@ export default class HerdrZed extends View {
             .child(div().flex_1())
             .when(blocked > 0, el => el.child(count('circle-alert', t.blocked, blocked, blocked === 1 ? 'thread needs you' : 'threads need you')))
             .when(done > 0, el => el.child(div().pl(blocked ? 6 : 0).child(count('circle-check', t.done, done, 'finished'))))
-            .child(ToolbarButton(`new-thread-${space.id}`, t, { icon: true, row: true })
-              .tooltip(`New thread in ${space.name}`).accessibility_label(`New thread in ${space.name}`)
-              .child(glyph('plus', ROW_GLYPH)).opacity(this.hoveredProject === space.id ? 1 : 0)
-              .on_click((_event, cx) => {
-                cx.stop_propagation();
-                this.folded.delete(space.id);
-                this.newThread(cx, space.id);
-                cx.notify();
-              }))
+            .child(this.newThreadButton(`new-thread-${space.id}`, space, t, true)
+              .opacity(this.hoveredProject === space.id ? 1 : 0))
             .child(DropdownMenuTrigger(ToolbarButton(`project-menu-${space.id}`, t, { icon: true, row: true })
               .tooltip(`More actions for ${space.name}`).accessibility_label(`More actions for ${space.name}`), 200,
               (_cx, at) => openOverlay({ mod: 'herdr-zed', kind: 'popup', frame: 'none', width: 200, at,

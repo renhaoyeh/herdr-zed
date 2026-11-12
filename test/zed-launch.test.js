@@ -226,17 +226,19 @@ test('composer choices keep valid entries per machine and drop malformed ones', 
 });
 
 test('Start a thread opens on the program last chosen in the project and starts only on Ctrl/Cmd+Enter', async () => {
-  const tabs = [];
+  const tabs = [], memory = {};
   const { startChoice, startProjectKey, startPanel } = await evaluateNative('../mods/herdr-zed/start-panel.js', { withAttachments: text => text, AttachmentStrip: () => null, pasteClipboardImage: async () => null, 
-    shared: () => ({}), setShared() {}, window: () => ({ platform: 'windows' }), spaces: () => tabs, Button() {}, Select() {}, SelectState: class {},
+    shared: key => memory[key], setShared() {}, window: () => ({ platform: 'windows' }), spaces: () => tabs, Button() {}, Select() {}, SelectState: class {},
     Empty() {}, EmptyTitle() {}, EmptyDescription() {}, glyph() {}, AgentIcon() {}, div() {}, v_flex() {}, h_flex() {}, Textarea: {},
     TextareaState: { new: () => ({ handlers: {}, text: 'Task', on(event, fn) { this.handlers[event] = fn; }, set_auto_grow() {}, value() { return this.text; }, set_value(text) { this.text = text; } }) },
   }, 'startChoice, startProjectKey, startPanel');
   const programs = [{ key: 'claude' }, { key: 'codex' }], project = { id: 's', folder: 'C:\\repo\\', machine: null };
   assert.equal(startChoice(programs, project, {}).key, 'claude', 'first program by default');
   assert.equal(startChoice(programs, project, { [startProjectKey(project)]: 'codex' }).key, 'codex');
-  assert.equal(startChoice(programs, project, { [startProjectKey(project)]: 'terminal' }), null);
-  const started = [], view = { ...startPanel, startThread: (agent, target) => started.push([agent?.key, target.task]) };
+  assert.equal(startChoice(programs, project, { [startProjectKey(project)]: 'terminal' }).key, 'claude', 'the composer offers agents only');
+  const finished = [], shown = [];
+  const started = [], view = { ...startPanel, editor: { projectKey: 'repo', finishCompose: key => finished.push(key) },
+    showConversation: (...args) => shown.push(args), startThread: (agent, target) => started.push([agent?.key, target.task]) };
   view.initStartPanel({});
   view.startTarget = { agent: programs[0], takesTask: true, target: { space: 's' } };
   view.startTask.handlers.submit({ secondary: false }, { notify() {} });
@@ -250,9 +252,23 @@ test('Start a thread opens on the program last chosen in the project and starts 
   assert.equal(view.startPending, null);
   assert.equal(view.startTask.value(), 'Task', 'a launch that never shows keeps the task to retry');
   view.startTask.handlers.submit({ secondary: true }, { notify() {} });
-  tabs.push({ tabs: [{ id: 'new' }] });
+  tabs.push({ id: 'other', active: false, tabs: [{ id: 'unrelated' }] });
+  view.settleStart({ notify() {} });
+  assert.equal(view.startTask.value(), 'Task', 'another project cannot complete this launch');
+  tabs.push({ id: 's', active: true, tabs: [{ id: 'new' }] });
   view.settleStart({ notify() {} });
   assert.equal(view.startTask.value(), '', 'the new thread clears the task');
+  assert.deepEqual(finished, ['repo'], 'success closes the originating composer');
+  assert.equal(shown[0][1].tabs[0].id, 'new', 'success reveals the new thread');
+  memory['herdr-zed.ctrl-enter-submit'] = false;
+  view.startTask.set_value('Next task');
+  view.startTask.handlers.submit({ secondary: true }, { notify() {} });
+  view.startTask.handlers.submit({ secondary: false, shift: true }, { notify() {} });
+  assert.equal(started.length, 2, 'when unchecked, Ctrl+Enter and Shift+Enter do not submit');
+  view.startTask.handlers.submit({ secondary: false }, { notify() {} });
+  assert.equal(started.length, 3, 'when unchecked, Enter submits');
+  assert.deepEqual(started.at(-1), ['claude', 'Next task']);
+
 });
 
 test('the panel reads the branch, changes and push state from git status', async () => {

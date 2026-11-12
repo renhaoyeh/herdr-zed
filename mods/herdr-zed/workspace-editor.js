@@ -132,6 +132,16 @@ export default class WorkspaceEditor {
     cx.notify();
   }
 
+  finishCompose(projectKey, cx) {
+    if (projectKey === this.projectKey) { this.closeItem(COMPOSE_TAB, cx); return; }
+    const session = this.sessions.get(projectKey);
+    if (!session) return;
+    session.compose = false;
+    session.order = session.order.filter(key => key !== COMPOSE_TAB);
+    session.history = session.history.filter(key => key !== COMPOSE_TAB);
+    if (session.active === COMPOSE_TAB) session.active = session.history.at(-1) || session.order.at(-1) || null;
+  }
+
   activate(key, cx, cycling = false) {
     this.capturePreview();
     const cycle = this.tabSwitch;

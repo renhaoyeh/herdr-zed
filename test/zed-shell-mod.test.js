@@ -89,7 +89,7 @@ test('native sidebar, pane menu, dock controls and empty editor render without e
     panes: () => [{ pane: 'p', terminal: 'a', tab: 't', space: 's', focused: true, status, program }],
     terminals: () => [{ address: 'a', tab: 't', status, argv: ['codex'], program }],
     setAgentOrder() {}, run: (...args) => commands.push(args), hc: async args => { commands.push(['hc', args]); return { code: 0 }; },
-    knownAgents: async () => [program], notify: message => assert.fail(message.body), openOverlay() {}, closeOverlay() {},
+    knownAgents: async () => [program], notify: message => assert.fail(message.body), openOverlay: spec => commands.push(['overlay', spec]), closeOverlay() {},
     DropdownMenuState: class {}, ProjectLayout: class { sync() {} },
     layoutNode: (node, id) => objects(node).find(value => value.id === id), conversationMaximized: () => false, maximizeConversation() {},
     WorkspaceEditor: class { init() {} render(_project, context, options) { return options.compose(); } },
@@ -113,10 +113,10 @@ test('native sidebar, pane menu, dock controls and empty editor render without e
   host.DropdownMenu = (id, _state, trigger, items, choose) => Object.assign(ui(id).child(trigger), { items, choose });
   Object.assign(host, { TextareaState: { new: () => ({ on() {}, set_auto_grow() {}, value: () => '', set_value() {}, release() {} }) },
     Textarea: { new: () => ui('textarea') }, Select: id => ui(id), SelectState: class {} });
-  host.activeLauncher ||= () => null; host.Popup ||= { new: (id) => ui(id) }; host.projectHistory ||= () => []; host.archivedAge ||= () => ''; host.exec ||= async () => ({ code: 1, stdout: '', stderr: '' });
+  host.activeLauncher ||= () => null; host.Popup ||= { new: (id) => ui(id) }; host.exec ||= async () => ({ code: 1, stdout: '', stderr: '' });
   Object.assign(host, { withAttachments: text => text, AttachmentStrip: () => null, pasteClipboardImage: async () => null });
-  Object.assign(host, await evaluateNative('../mods/herdr-zed/start-panel.js', host, 'startPanel, COMPOSE_KEY, startProjectKey'));
   Object.assign(host, await evaluateNative('../mods/herdr-zed/decorations.js', host, 'threadDecorations, decorationTone'));
+  Object.assign(host, await evaluateNative('../mods/herdr-zed/start-panel.js', host, 'startPanel, COMPOSE_KEY, startProjectKey'));
   Object.assign(host, await evaluateNative('../mods/herdr-zed/thread-close.js', host, 'closeThreadTab, closeThreadPane, isProjectPlaceholder'));
   Object.assign(host, { threadArchive: { threadBusy: () => false, archiveThread() {}, restoreThread() {}, historyList: () => ui() }, historyEligible: () => false });
   Object.assign(host, { IMAGE_PREVIEW_VIEW: 'image-preview', ImagePreview: () => null });
@@ -126,7 +126,16 @@ test('native sidebar, pane menu, dock controls and empty editor render without e
   const launches = [];
   view.newThread = (_cx, project) => { launches.push(project); };
   elements(sidebar).find(element => element.attributes.id === 'new-thread-s').click({ stop_propagation() {} }, cx);
-  assert.deepEqual(launches, ['s'], 'sidebar + opens that project New thread tab');
+  assert.deepEqual(launches, ['s'], 'sidebar + opens New thread directly');
+  target = { view: 'project-menu', project: nativeSpaces[0], overlay: 'project-menu' };
+  view.init(null, cx);
+  const terminals = [];
+  view.startThread = (...args) => terminals.push(args);
+  elements(view.render(cx)).find(element => element.attributes.id === 'menu-new-terminal').click({}, cx);
+  assert.equal(terminals[0][0], null);
+  assert.equal(terminals[0][1].folder, '/workspace', 'project menu opens Terminal directly');
+  target = {};
+
   const panelCloses = () => commands.filter(([name]) => name === 'close-workspace-panel').length;
   for (const show of [() => view.showConversation(true), () => view.openEditorFile('/workspace/a.js')]) {
     const before = panelCloses(); show();
@@ -139,15 +148,10 @@ test('native sidebar, pane menu, dock controls and empty editor render without e
   assert.equal(elements(pane).some(element => element.attributes.id === 'thread-actions-p'), false, 'thread options live in the New thread panel');
   const panelAction = id => view.composerActions(view.projects().find(project => project.id === 's'), {})
     .flatMap(element => elements(element)).find(element => element.attributes.id === id);
-  assert.ok(panelAction('composer-show-usage'));
-  panelAction('composer-show-usage').click({}, cx);
-  assert.equal(usageVisible, true);
-  panelAction('composer-show-usage').click({}, cx);
-  assert.equal(usageVisible, false);
+  assert.equal(panelAction('composer-show-usage'), undefined);
+  assert.equal(panelAction('composer-close-thread'), undefined);
   panelAction('composer-agent-settings').click({}, cx);
-  assert.equal(commands.at(-1)[1], 'extension:workflow', 'the panel opens the declared workflow configuration');
-  panelAction('composer-close-thread').click({}, cx);
-  assert.deepEqual(commands.at(-1), ['tab.close', { id: 't' }], 'Close thread closes the project\'s current thread');
+  assert.equal(commands.at(-1)[1], 'extension:workflow', 'the composer opens the declared workflow configuration');
   target = { view: 'header' }; const header = view.render(cx);
   assert.equal(elements(header).some(element => element.attributes.id === 'header-agents'), false);
   elements(header).find(element => element.attributes.id === 'header-extensions').click();
@@ -156,6 +160,10 @@ test('native sidebar, pane menu, dock controls and empty editor render without e
   const projectMenu = view.render(cx);
   elements(projectMenu).find(element => element.attributes.id === 'menu-agent-settings').click();
   assert.equal(commands.at(-1)[1], 'extension:workflow', 'project menu provides the setup entry before starting a thread');
+  elements(view.render(cx)).find(element => element.attributes.id === 'menu-show-usage').click({}, cx);
+  assert.equal(usageVisible, true);
+  elements(view.render(cx)).find(element => element.attributes.id === 'menu-show-usage').click({}, cx);
+  assert.equal(usageVisible, false, 'project menu toggles Usage');
   target = { view: 'status' }; const left = view.render(cx);
   assert.ok(elements(left).some(element => element.attributes.id === 'open-conversation'), 'a real thread offers its toggle');
   const savedTabs = nativeSpaces[0].tabs;
@@ -171,7 +179,32 @@ test('native sidebar, pane menu, dock controls and empty editor render without e
   assert.ok(!elements(bottom).some(element => element.attributes.id === 'manage-extensions'), 'The status bar has no Extensions icon; Settings owns extensions');
   assert.ok(!elements(sidebar).some(element => element.attributes.id === 'manage-extensions'));
   target = { view: 'editor' }; view.init(null, cx); const editor = view.render(cx);
-  assert.match(text(editor), /Start a thread/);
+  assert.match(text(editor), /New thread/);
+  assert.doesNotMatch(text(editor), /RECENT|View all/, 'history stays in the sidebar');
+  const choice = { key: 'codex', label: 'Codex', detail: '5h 20%', tone: 'muted', fields: [
+    { id: 'model', label: 'Model', type: 'select', value: 'default', options: [{ key: 'default', label: 'Default model' }] },
+    { id: 'effort', label: 'Effort', type: 'select', value: 'high', options: [{ key: 'default', label: 'Default effort' }, { key: 'high', label: 'High' }] },
+    { id: 'fast', label: 'Fast', type: 'toggle', value: true }] };
+  view.startSession = () => ({ launcher: 'agents', choices: [choice], choice, values: view.startValues(choice), ready: true });
+  let composer = view.projectStartView(nativeSpaces[0], {}, cx);
+  view.startGitView = () => ui('branch-context').child('main');
+  composer = view.projectStartView(nativeSpaces[0], {}, cx);
+  const heading = elements(composer).find(element => element.attributes.id === 'project-start-heading');
+  assert.match(text(heading), /New thread.*workspace.*main/, 'project and branch share the heading');
+  assert.equal(elements(heading).some(element => element.attributes.id === 'composer-agent-settings'), false);
+  const toolbar = elements(composer).find(element => element.attributes.id === 'project-start-toolbar');
+  assert.deepEqual(toolbar.nodes.slice(-2).map(element => element.attributes.id), ['composer-agent-settings', 'project-start-submit'], 'settings sits immediately before send');
+  const has = (root, id) => elements(root).some(element => element.attributes.id === id);
+  assert.ok(has(composer, 'project-start-model-popup'));
+  assert.ok(has(composer, 'project-start-effort-popup'), 'Effort is directly accessible');
+  assert.ok(has(composer, 'project-start-fast'), 'Fast is directly accessible');
+  assert.equal(has(composer, 'project-start-options'), false, 'no extra options menu');
+  assert.doesNotMatch(text(composer), /5h 20%|Ctrl\+Enter|⌘ Enter|Start task/, 'quota, keyboard hints and button text stay out of the composer');
+  const submit = elements(composer).find(element => element.attributes.id === 'project-start-submit');
+  assert.equal(submit.attributes.accessibility_label, 'Start task');
+  assert.equal(submit.attributes.tooltip, 'Start task');
+  choice.tone = 'warning';
+  assert.match(text(view.projectStartView(nativeSpaces[0], {}, cx)), /5h 20%/, 'quota warnings remain visible');
   assert.doesNotMatch([sidebar, pane, header, bottom, editor].map(text).join(' '), /Agent settings|Calendar|MantisBT|Asana|SYSTEM|USAGE|Interface settings/);
   assert.equal(commands.some(([name, args]) => name === 'space.new' || name === 'tab.new' && args?.props?.view !== 'project-empty'), false, 'Rendering never starts a thread');
 });

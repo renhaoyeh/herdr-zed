@@ -184,8 +184,8 @@ installed Devkits without reading or consuming Devkits' queues (e.g. `devkits.ag
 ### 3.1 Launch
 
 ```
-user clicks + / New Thread
- └ shell: the project's editor shows the composer (task text, program, the program's fields); Start / Ctrl+Enter:
+user clicks + / invokes New Thread (New terminal opens directly from the project menu)
+ └ shell: the project's editor shows the composer (task text, program, session fields); start icon / configured Enter shortcut:
  └ shell: catalog has one usable launcher?
      no  → native program → createNativeThread(knownAgent, { …target, task? })          (argv unchanged)
      yes (and every service it declares is mounted):
@@ -309,7 +309,7 @@ when the key clears. Hidden readings take no space in the row.
 
 - The provider writes the key only when its value changes, from a timer or sync logic, never during render (every
   `setShared` re-renders all mods, so a write from render would loop).
-- Agents exposes Usage only in the sidebar. The Show/Hide Usage button in the New thread panel's header controls that surface;
+- Agents exposes Usage only in the sidebar. The project menu's Show/Hide Usage item controls that surface;
   no status Usage view, subscription or emptiness reporter is mounted.
 - The shell reads the keys on each status layout sync; the status-tools view re-renders after every shared write and
   triggers that sync. Disabling the extension clears its keys.

@@ -1,6 +1,6 @@
 import { div } from 'gpui-kit';
 import { v_flex, h_flex, TextareaState, Textarea, Popup } from 'gpui-base';
-import { shared, setShared, window, spaces, exec, notify } from 'herdr';
+import { shared, setShared, spaces, exec, notify } from 'herdr';
 import { pasteClipboardImage, withAttachments, AttachmentStrip } from './components/image-attachments.js';
 import { Button, ToolbarButton } from './components/button.js';
 import { DropdownMenuContent } from './components/dropdown-menu.js';
@@ -8,8 +8,6 @@ import { Empty, EmptyTitle, EmptyDescription } from './components/empty.js';
 import { glyph, AgentIcon } from './components/icon.js';
 import { activeLauncher } from './extensions.js';
 import { composerChoices, composerOptionShown, launchIntent } from './components/extension-contract.js';
-import { projectHistory } from './thread-archive.js';
-import { archivedAge } from './components/session-model.js';
 import { decorationTone } from './decorations.js';
 
 // The program chosen last in each project, so the composer opens on it.
@@ -36,7 +34,7 @@ const tabIds = () => new Set(spaces().flatMap(space => (space.tabs || []).map(ta
 export const startProjectKey = project => JSON.stringify([project.machine || '', (project.folder || '').replace(/\\/g, '/').replace(/\/+$/, '') || project.id]);
 export function startChoice(programs, project, remembered = {}) {
   const key = remembered[startProjectKey(project)];
-  return key === 'terminal' ? null : programs.find(agent => agent.key === key) || programs[0] || null;
+  return programs.find(agent => agent.key === key) || programs[0] || null;
 }
 
 // Start a thread: describe the task, pick the program and its session fields, then Ctrl+Enter (Cmd+Enter on macOS) or
@@ -45,10 +43,13 @@ export function startChoice(programs, project, remembered = {}) {
 // publishes, and Start hands it a launch intent (ARCHITECTURE §3.1 Composer); without one, native programs start as is.
 export const startPanel = {
   initStartPanel(cx) {
-    this.startTask = TextareaState.new({ placeholder: 'Describe the task (optional)…' });
+    this.startTask = TextareaState.new({ placeholder: 'What would you like to do?' });
     this.startTask.set_auto_grow(4, 12);
     this.startTask.on('change', (_event, cx) => cx.notify());
-    this.startTask.on('submit', (event, cx) => { if (event?.secondary) this.submitStart(cx); });
+    this.startTask.on('submit', (event, cx) => {
+      const modified = shared('herdr-zed.ctrl-enter-submit') !== false;
+      if (!event?.shift && Boolean(event?.secondary) === modified) this.submitStart(cx);
+    });
     // A pasted image is saved and shown under the task; its path goes to the agent with the task.
     this.startImages = [];
     this.startTask.on('paste_other', (_event, cx) => cx.spawn(async cx => {
@@ -92,8 +93,9 @@ export const startPanel = {
   },
   submitStart(cx) {
     const start = this.startTarget;
-    if (!start || this.startPending) return;
+    if (!start || !start.takesTask || this.startPending) return;
     const task = start.takesTask ? withAttachments(this.startTask.value().trim(), this.startImages) : '';
+    this.startPending = { known: tabIds(), target: start.target, editorKey: this.editor?.projectKey, until: Date.now() + START_WAIT_MS };
     if (start.intent) {
       // ARCHITECTURE §3.1 Composer: the launcher prepares the account and emits the launch request.
       setShared(LAUNCH_INTENTS, [...(shared(LAUNCH_INTENTS) || []).filter(intent => intent?.expiresAt > Date.now()),
@@ -101,15 +103,21 @@ export const startPanel = {
     } else if (start.picker) this.openLauncher(start.project, task || null);
     else this.startThread(start.agent, { ...start.target, ...(task ? { task } : {}) });
     // The panel stays. Its task is kept until the new thread's tab appears, so a launch that fails loses nothing.
-    this.startPending = { known: tabIds(), until: Date.now() + START_WAIT_MS };
     cx.notify();
   },
-  // A tab that was not there at Start means the thread started: clear the task. Past the wait, give it back to edit.
+  // Observe the new thread in the launch's project before closing its draft; timeout preserves the task.
   settleStart(cx, now = Date.now()) {
     const pending = this.startPending;
     if (!pending) return;
-    if ([...tabIds()].some(id => !pending.known.has(id))) { this.startTask.set_value(''); this.startImages = []; }
-    else if (now < pending.until) return;
+    const project = spaces().find(space => (pending.target.space ? space.id === pending.target.space
+      : startProjectKey(space) === startProjectKey({ ...pending.target, id: pending.target.space }))
+      && (space.machine || '') === (pending.target.machine || ''));
+    const thread = project?.tabs?.find(tab => !pending.known.has(tab.id));
+    if (thread) {
+      this.startTask.set_value(''); this.startImages = [];
+      this.editor?.finishCompose(pending.editorKey, cx);
+      if (project.active) this.showConversation?.(true, { ...project, tabs: [{ ...thread, active: true }] });
+    } else if (now < pending.until) return;
     this.startPending = null;
     cx.notify();
   },
@@ -149,37 +157,13 @@ export const startPanel = {
     }
     return entry.value;
   },
-  openStartChanges(cx) {
-    if (!this.editor) return;
-    this.editor.gitOpened({ kind: 'changes' });
-    this.editor.activate('changes', cx);
-  },
   startGitView(project, t, cx) {
     const git = this.startGit(project, cx);
     if (!git?.branch) return null;
-    return h_flex().gap(10).items_center().text_size(12).text_color(t.muted)
-      .child(h_flex().min_w(0).gap(4).items_center().child(glyph('branch', 12)).child(div().min_w(0).max_w(220).truncate().child(git.branch)))
-      .child(Button('project-start-changes', t, { variant: 'ghost' }).h(24).px(6).gap(4).text_size(12)
-        .accessibility_label(git.changes ? `${git.changes} uncommitted changes, open Changes` : 'No uncommitted changes, open Changes')
-        .on_click((_event, cx) => this.openStartChanges(cx))
-        .child(glyph('git-compare', 12)).child(git.changes ? `${git.changes} change${git.changes === 1 ? '' : 's'}` : 'Clean'))
-      .when(git.ahead > 0, el => el.child(div().child(`↑${git.ahead} to push`)))
-      .when(git.behind > 0, el => el.child(div().child(`↓${git.behind} behind`)));
+    return h_flex().gap(4).items_center().text_size(12).text_color(t.muted)
+      .child(glyph('branch', 12)).child(div().min_w(0).max_w(220).truncate().child(git.branch));
   },
-  // Archived threads of this project, newest first; a row resumes its conversation (thread-archive restoreThread).
-  startRecentView(project, t, cx) {
-    const entries = project.machine ? [] : projectHistory(project.folder);
-    if (!entries.length) return null;
-    return v_flex().gap(2)
-      .child(div().px(2).pb(4).text_size(11).font_medium().text_color(t.muted).child('RECENT'))
-      .children(entries.map(entry => h_flex().id(`project-start-recent-${entry.id}`).h(30).px(8).gap(8).items_center().cursor_pointer()
-        .hover(el => el.bg(t.hover)).accessibility_label(`Resume ${entry.title}`)
-        .on_click((_event, cx) => { this.restoreThread?.(entry); this.startHistoryRestoreTimer?.(cx); cx.notify(); })
-        .child(div().size(14).flex_none().flex().items_center().justify_center()
-          .child(entry.icon && !entry.tint ? AgentIcon({ icon: entry.icon }, t).size(14) : glyph('rotate-ccw', 14).text_color(t.muted)))
-        .child(div().flex_1().min_w(0).truncate().text_size(13).child(entry.title))
-        .child(div().flex_none().text_size(11).text_color(t.muted).child(archivedAge(entry.at)))));
-  },
+
   // The session the panel starts: a program (or Terminal) and, with a launcher, its field values. `session.choices`
   // are every program the menu offers.
   startSession(project, cx) {
@@ -189,7 +173,7 @@ export const startPanel = {
       const choices = composerChoices(shared(`herdr-zed.composer.${launcher.id}`), project.machine);
       // A launcher that has not published this machine yet: its picker chooses instead.
       if (!choices) return { launcher: launcher.id, picker: true };
-      const choice = key === 'terminal' ? null : choices.find(item => item.key === key) || choices[0] || null;
+      const choice = choices.find(item => item.key === key) || choices[0] || null;
       return { launcher: launcher.id, choices, choice, values: choice ? this.startValues(choice) : {}, ready: true };
     }
     const programs = this.startAgents(project.machine, cx), items = programs.items || [];
@@ -241,15 +225,14 @@ export const startPanel = {
     return Popup.new(`${id}-popup`, button).anchor('top_left').when(open, el => el.content(this.startMenu(id, index, menu, t)));
   },
   // The session controls, split like Zed's: the program, then one control per launcher field (a select is a menu, a
-  // toggle is an icon button), then the program's reading (its account's quota).
+  // toggle is an icon button). All session controls stay in the input toolbar.
   startSessionControls(project, session, t) {
     const { choice, values, launcher } = session;
     const icon = item => div().size(14).flex_none().flex().items_center().justify_center()
       .child(item ? AgentIcon({ icon: item.icon, tint: item.tint }, t).size(14) : glyph('terminal', 14).text_color(t.muted));
     const reading = item => item?.detail ? div().flex_none().text_size(11).text_color(decorationTone(t, item.tone)).child(item.detail) : null;
-    const programs = [{ key: 'terminal', label: 'Terminal', icon: icon(null) },
-      ...session.choices.map(item => ({ key: item.key, label: item.label, icon: icon(item), detail: reading(item) }))];
-    const controls = [this.startControl('project-start-program', 0, { icon: icon(choice), text: choice?.label || 'Terminal', label: `Program: ${choice?.label || 'Terminal'}` },
+    const programs = session.choices.map(item => ({ key: item.key, label: item.label, icon: icon(item), detail: reading(item) }));
+    const controls = [this.startControl('project-start-program', 0, { icon: icon(choice), text: choice?.label || 'No agents available', label: `Program: ${choice?.label || 'No agents available'}` },
       { launcher, menu: 'program', label: 'Program', items: programs, value: choice?.key || 'terminal',
         choose: (key, cx) => this.chooseStartAgent(project, key, cx) }, t)];
     (choice?.fields || []).slice(0, START_MENUS - 1).forEach((field, i) => {
@@ -269,8 +252,7 @@ export const startPanel = {
         { launcher, menu: `${choice.key}:${field.id}`, label: field.label, items: shown, value: values[field.id],
           choose: (key, cx) => this.pickStartValue(choice, field.id, key, cx) }, t));
     });
-    const quota = reading(choice);
-    return quota ? [...controls, quota] : controls;
+    return { controls, warning: ['warning', 'error'].includes(choice?.tone) ? reading(choice) : null };
   },
   projectStartView(project, t, cx) {
     if (!project) return div().size_full().bg(t.background);
@@ -278,40 +260,40 @@ export const startPanel = {
     const session = this.startSession(project, cx);
     if (session.picker) {
       this.startTarget = { picker: true, takesTask: true, project, target };
-      return this.composerView(project, t, cx, { ready: true, takesTask: true, action: 'Start…', hint: 'chooses the program, model and effort' });
+      return this.composerView(project, t, cx, { ready: true, takesTask: true, action: 'Choose the program and start' });
     }
     const { choice, values } = session;
     this.startTarget = session.launcher
       ? choice ? { intent: { launcher: session.launcher, choice: choice.key, values }, takesTask: true, project, target } : { agent: null, takesTask: false, project, target }
       : { agent: session.agent || null, takesTask: Boolean(session.agent), project, target };
-    return this.composerView(project, t, cx, { ready: session.ready, takesTask: Boolean(choice), icon: choice || null, status: session.status || null,
+    return this.composerView(project, t, cx, { ready: session.ready && Boolean(choice), takesTask: Boolean(choice), status: session.status || null,
       session: this.startSessionControls(project, session, t) });
   },
-  composerView(project, t, cx, { ready, takesTask, icon = null, session = [], status = null, action = 'Start', hint = 'starts' }) {
-    const shortcut = window()?.platform === 'macos' ? '⌘ Enter' : 'Ctrl+Enter';
-    const git = this.startGitView(project, t, cx), recent = this.startRecentView(project, t, cx);
-    return div().id('project-start').size_full().bg(t.background).text_color(t.foreground).flex().items_center().justify_center().p(24)
-      .child(v_flex().w_full().max_w(680).gap(10)
-        .child(h_flex().gap(8).items_center().child(div().text_size(15).font_medium().child('Start a thread'))
-          .child(div().flex_1().min_w(0).truncate().text_size(12).text_color(t.muted).child(project.name))
-          .children(this.composerActions?.(project, t) || []))
-        // The session (program, model, effort…) and where it starts: the header, not the input box.
-        .child(h_flex().gap(10).items_center().flex_wrap().children(session)
-          .child(div().flex_1()).when(Boolean(git), el => el.child(git)))
+  composerView(project, t, cx, { ready, takesTask, session = { controls: [] }, status = null, action = 'Start task' }) {
+    const git = this.startGitView(project, t, cx);
+    return v_flex().id('project-start').size_full().bg(t.background).text_color(t.foreground).items_center().p(24).overflow_y_scroll()
+      .child(div().flex_1().min_h(0))
+      .child(v_flex().w_full().max_w(680).flex_none().gap(10)
+        .child(h_flex().id('project-start-heading').gap(8).items_center()
+          .child(div().flex_none().text_size(15).font_medium().child('New thread'))
+          .child(div().flex_1())
+          .child(h_flex().min_w(0).gap(8).items_center().text_size(12).text_color(t.muted)
+            .child(div().min_w(0).truncate().tooltip(project.name).child(project.name))
+            .when(Boolean(git), el => el.child(git))))
         .child(v_flex().border(1).border_color(t.border).bg(t.popover)
           .child(Textarea.new(this.startTask).id('project-start-task').w_full().px(12).py(10).border(0).text_size(13)
             .disabled(!takesTask || Boolean(this.startPending)).accessibility_label('Task for the new thread'))
           .when(takesTask && this.startImages.length > 0, el => el.child(div().px(12).pb(8).child(AttachmentStrip('project-start-images', this.startImages,
             (index, cx) => { this.startImages = this.startImages.filter((_item, at) => at !== index); cx.notify(); }, t, 'herdr-zed'))))
-          .child(h_flex().px(8).py(6).gap(8).items_center().border_t(1).border_color(t.border)
-            .child(div().flex_1())
-            .child(div().text_size(11).text_color(t.dim).child(takesTask ? `${shortcut} ${hint}` : 'A terminal starts without a task'))
-            .child(Button('project-start-submit', t).h(28).gap(6).disabled(!ready || Boolean(this.startPending))
-              .accessibility_label(action === 'Start' ? `Start ${icon?.label || icon?.name || 'Terminal'}` : 'Choose the program and start')
+          .child(h_flex().id('project-start-toolbar').px(8).py(6).gap(8).items_center().border_t(1).border_color(t.border)
+            .flex_wrap().children(session.controls).child(div().flex_1())
+            .children(this.composerActions?.(project, t) || [])
+            .child(ToolbarButton('project-start-submit', t, { icon: true }).disabled(!ready || Boolean(this.startPending))
+              .tooltip(this.startPending ? 'Starting…' : action).accessibility_label(this.startPending ? 'Starting…' : action)
               .on_click((_event, cx) => this.submitStart(cx))
-              .when(action === 'Start', el => el.child(div().size(14).flex().items_center().justify_center().child(AgentIcon(icon, t))))
-              .child(this.startPending ? 'Starting…' : action))))
-        .when(Boolean(status), el => el.child(div().text_size(12).text_color(t.muted).child(status)))
-        .when(Boolean(recent), el => el.child(div().pt(12).child(recent))));
+              .child(glyph(this.startPending ? 'loader' : 'arrow-up', 16)))))
+        .when(Boolean(session.warning), el => el.child(session.warning))
+        .when(Boolean(status), el => el.child(div().text_size(12).text_color(t.muted).child(status))))
+      .child(div().flex_1().min_h(0));
   },
 };

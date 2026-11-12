@@ -1,9 +1,10 @@
 import { openDataReset } from './reset-dialog.js';
 import { div } from 'gpui-kit';
 import { h_flex, v_flex } from 'gpui-base';
-import { openOverlay, closeOverlay, props, run, shared, setShared, notify } from 'herdr';
+import { openOverlay, closeOverlay, props, run, shared, setShared, notify, window } from 'herdr';
 import { Button, ToolbarButton } from './components/button.js';
 import { glyph } from './components/icon.js';
+import { Checkbox } from './components/checkbox.js';
 import { Switch } from './components/switch.js';
 import { DialogTitle, DialogDescription } from './components/dialog.js';
 import { AUTO_RESUME_KEY } from './thread-identity.js';
@@ -206,10 +207,14 @@ export class SettingsPage {
   }
 
   general(t) {
+    const submitLabel = `Use ${window()?.platform === 'macos' ? '⌘Enter' : 'Ctrl+Enter'} to start threads`;
     return v_flex().flex_1().min_h(0).overflow_y_scroll()
       .child(setting(t, 'Resume agent threads after restart', 'Reopen threads whose terminals were lost on reboot or a crash.',
         Switch('settings-auto-resume', shared(AUTO_RESUME_KEY) !== false, t).accessibility_label('Resume agent threads after restart')
           .on_change((checked, cx) => { setShared(AUTO_RESUME_KEY, checked); cx.notify(); })))
+      .child(setting(t, submitLabel, 'When unchecked, Enter starts the thread. Shift+Enter adds a line.',
+        Checkbox('settings-ctrl-enter-submit', shared('herdr-zed.ctrl-enter-submit') !== false, t).accessibility_label(submitLabel)
+          .on_change((checked, cx) => { setShared('herdr-zed.ctrl-enter-submit', checked); cx.notify(); })))
       .child(setting(t, 'Pasted images', this.attachments
         ? `${this.attachments.count} ${this.attachments.count === 1 ? 'image' : 'images'} · ${formatBytes(this.attachments.bytes)}. Images pasted into New thread and task prompts are kept here; delete any you no longer need.`
         : 'Images pasted into New thread and task prompts are kept in data/herdr-zed/attachments.',

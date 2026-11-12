@@ -7,7 +7,7 @@ titles). Where they conflict, this file wins.
 
 - Switches match Devkits Sera: square 28×16 tracks, 10px square knobs, an outlined off state and a solid on state.
 - The main window header has independent Extensions and Settings buttons. Agents opens from the New thread panel's
-  header settings button; the project ⋯ menu provides the same entry. Settings opens from its gear
+  settings button beside Send; the project ⋯ menu provides the same entry. Settings opens from its gear
   (and `herdr-zed.settings`), with a fixed 220px nav and General/Git/Data preferences. It has no Agents/Extensions links.
   A switch already on screen (Files' Wrap tabs, Changes' wrap and Unified/Split) is not repeated in Settings.
   "App settings…" opens Herdr's appearance, keyboard and terminal settings. One management dialog is open
@@ -15,7 +15,7 @@ titles). Where they conflict, this file wins.
 - Management dialogs are 1040×0.86 and modal, with one shell-owned 1px outer border, a 64px title bar and an X. No Done buttons.
 - Extensions manages optional tools: enable switches, display location switches and Configure links. The launcher workflow
   is excluded: Agents has its own dialog with account/launch/rules tabs and no enable or Usage display switches.
-  Its tabbed header is 104px high. Agents pages follow the setup flow: Accounts, Launch menu, Profiles, Capabilities, ECC, MCP Connections, Global Rules. Capabilities, ECC and Global Rules share one side navigation (Overview where present, then Claude Code and Codex). Capabilities lists built-in and your own ("Mine", from data/herdr-zed/capabilities) Rules and Skills per provider, each with a switch, and names required connections; it does not configure or enable MCP servers. MCP Connections manages existing built-in, recommended and user-added shared servers for Codex without a search field or arbitrary add action; built-in servers show no editable fields, connection actions stay above the scrolling details, and it saves its own draft. Global Rules lists, in injection order, each section a new session receives (name, source, text on demand) and ends with the editable Custom section; it has no selection controls. Each page keeps its own Save/Discard, disabled until something changed. Launch menu has no duplicate connection dialog entry. The Show/Hide Usage button in the New thread panel's header controls the Usage sidebar;
+  Its tabbed header is 104px high. Agents pages follow the setup flow: Accounts, Launch menu, Profiles, Capabilities, ECC, MCP Connections, Global Rules. Capabilities, ECC and Global Rules share one side navigation (Overview where present, then Claude Code and Codex). Capabilities lists built-in and your own ("Mine", from data/herdr-zed/capabilities) Rules and Skills per provider, each with a switch, and names required connections; it does not configure or enable MCP servers. MCP Connections manages existing built-in, recommended and user-added shared servers for Codex without a search field or arbitrary add action; built-in servers show no editable fields, connection actions stay above the scrolling details, and it saves its own draft. Global Rules lists, in injection order, each section a new session receives (name, source, text on demand) and ends with the editable Custom section; it has no selection controls. Each page keeps its own Save/Discard, disabled until something changed. Launch menu has no duplicate connection dialog entry. The project menu's Show/Hide Usage item controls the Usage sidebar;
   Usage has no status-bar contribution.
   The shell identifies launcher workflows by their declared capability, without provider-specific branches.
 - Tools themselves open from the main window's status bar, sidebar or dock. An extension's configuration has a back button
@@ -31,7 +31,7 @@ titles). Where they conflict, this file wins.
 
 ## Sidebar
 
-- Top to bottom: the thread list, the sidebar surfaces (Usage via the New thread panel's header; optional tools via Extensions), and the
+- Top to bottom: the thread list, the sidebar surfaces (Usage via the project menu; optional tools via Extensions), and the
   thread history row. The history row is always the last row (its own layout block `sidebar-history`).
 - Sidebar surfaces start hidden the first time they mount; Manage extensions turns them on.
 - Project rows: the current project has a 2px accent left edge; a project without threads has a dim name and no
@@ -50,29 +50,30 @@ titles). Where they conflict, this file wins.
 
 ## Start a thread
 
-- Every new thread starts in the composer: only + / New thread opens it (it never shows by itself), as the editor's
-  New thread tab (one per project, focused) beside files and Git views; switching tabs keeps the draft. The tab stays
-  open after Start: the task and Start lock ("Starting…") until the new thread's tab appears, which clears the task;
-  if none appears within 30 s, the task is given back to edit. Closing the tab cancels.
-- Under the header, one row: the session controls, the program's reading, then the project's Git state on the right.
-  The input box holds only the task, the shortcut hint and Start; no selects sit in it.
-  - The controls are split like Zed's: the program, then one control per launcher field. The program and each select
-    open their own menu (Default for the first option; options a pick rules out are hidden); a toggle is an icon
-    button (Fast). Every menu row has a star: starred options are listed first in that menu, a filled star unstars.
-    Program rows show the launcher's `detail` (e.g. the account's quota) coloured by `tone` as thread decorations are;
-    the chosen program's reading also sits after the controls. Favorites are `herdr-zed.start-favorites`,
-    `{ [launcher or '']: { [menu]: [option keys] } }`, the menu being `program` or `<choice>:<field>`.
-  - Git: the branch, the uncommitted changes (a ghost button that opens Changes; "Clean" when none) and commits to
-    push or behind, from `git status` at most every 5 s.
-  Below the composer: RECENT, the project's last five archived threads; a row resumes that conversation.
-- The thread options sit in the panel's header, as icon buttons: Show/Hide the launcher's sidebar surface (Usage), its
-  settings, and Close thread for the project's current thread. A thread's own header keeps + and maximize; a split
-  terminal's header also has Close terminal (close icon), which closes only that pane. Enter adds a line; Ctrl+Enter (Cmd+Enter on macOS) or Start continues. Nothing is
-  sent on plain Enter. The task becomes the agent's first message; a Terminal starts without one.
-- Under the task: the program (Terminal and the programs, opening on the one last chosen in that project), then the
-  program's fields from the launcher extension: Model and Effort selects and a Fast toggle (zap icon, selected
-  background when on). Efforts a model lacks are hidden and fall back to Default. Without a launcher, native programs
-  have no fields. A launcher that has not listed the project's machine yet shows Start…, which opens its picker.
+- The + button opens New thread directly. New terminal in the project menu opens a terminal without a task form.
+  The New thread command opens the agent composer directly, as one editor tab per project; it never opens by itself.
+  Switching tabs keeps the draft. The arrow-up icon starts the task, with a tooltip and accessible label.
+  Settings → General has a checked-by-default Ctrl+Enter (Cmd+Enter on macOS) submission checkbox. When checked,
+  Enter adds a line and the modified Enter starts; when unchecked, Enter starts and Shift+Enter adds a line.
+  Keyboard hints and Start button text stay out of the composer.
+- The composer group is vertically centered with a maximum width of 680px. Equal flexible spacers above and below
+  collapse in short windows so the whole input remains scrollable. Its heading
+  reads New thread on the left, with the muted project name and branch on the same row at the right. Git changes and ahead/behind counts stay in Changes.
+- The task input is primary. Its bottom toolbar holds the program, every launcher field (Model, Effort, Fast), and the
+  start icon. There is no extra options menu or summary. The shell uses published field order,
+  without provider-specific branches. Programs open on the last agent chosen for that project; Terminal is excluded.
+- Each select keeps its own menu and favorites. Starred options come first; every menu row has a star. Favorites use
+  `herdr-zed.start-favorites`, `{ [launcher or '']: { [menu]: [option keys] } }`, with `program` or `<choice>:<field>`.
+  Options ruled out by another field are hidden and fall back to Default. Program menus retain account quota readings;
+  the main composer shows a quota reading only when its tone is warning or error. Usage retains full readings.
+- The task becomes the agent's first message. A launcher that has not listed the machine yet uses Start… to open its
+  picker. Without an available agent, Start task and keyboard submission are disabled; Terminal remains in the project menu.
+- Starting locks the task and Start task until a new thread appears in the target project. Success closes the originating
+  New thread tab and reveals the new thread when that project is active. A 30-second timeout retains the task for retry.
+  The central composer has no Recent list; archived conversations remain in the existing sidebar history.
+- The composer toolbar places Agents settings immediately before Send. Its header has no action buttons.
+  Show/Hide Usage lives in the project menu; a thread closes from its sidebar row.
+  A thread's header keeps + and maximize; a split terminal also has Close terminal, closing only that pane.
 
 ## Status bar
 

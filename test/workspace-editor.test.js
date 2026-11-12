@@ -186,3 +186,18 @@ test('opening an absolute file uses ordinary file tabs alongside Git views', asy
   editor.closeActiveTab(cx);
   assert.equal(editor.session.active, 'graph');
 });
+
+
+test('successful launches close only their originating New thread tab', async () => {
+  const { editor, cx } = await editorHarness();
+  const first = { id: 'one', folder: '/one' }, second = { id: 'two', folder: '/two' };
+  editor.openCompose(first, cx); const firstKey = editor.projectKey;
+  editor.openCompose(second, cx); const secondSession = editor.session;
+  editor.finishCompose(firstKey, cx);
+  assert.equal(editor.sessions.get(firstKey).compose, false);
+  assert.equal(secondSession.compose, true, 'a different project keeps its draft tab');
+  assert.equal(secondSession.active, 'compose');
+  editor.finishCompose(editor.projectKey, cx);
+  assert.equal(secondSession.compose, false);
+  assert.equal(secondSession.active, null);
+});
