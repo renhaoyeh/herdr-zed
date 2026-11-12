@@ -1,6 +1,6 @@
 import { agents, spaces, terminals, shared, setShared, notify, props, run, hc } from 'herdr';
-import { projectCatalog, projectGroups, folderKey, launcherChoices, launcherLabel, isAccountLauncher, configuredAgents, resolveThreadProfiles } from './components/session-model.js';
-import { boardKey, taskActions, canStartTask, taskNeedsArchiveChoice } from './agent-board-model.js';
+import { projectCatalog, projectGroups, folderKey, launcherChoices, launcherLabel, isAccountLauncher, configuredAgents, resolveThreadProfiles, resumeArgv, commandKind } from './components/session-model.js';
+import { boardKey, taskActions, canStartTask, taskNeedsArchiveChoice, threadTaskId } from './agent-board-model.js';
 import { projectBoardTasks, rememberBoardTask, setTaskArchived, threadBoardTask, threadBoardStatus, sessionThreadTitle, boardRecords, createLocalTask, deleteLocalTask } from './agent-board-state.js';
 import { observeTaskInput } from './agent-task-evidence.js';
 import { openArchiveTask } from './archive-task.js';
@@ -107,6 +107,19 @@ export class TaskRuntime {
     const links = { ...(shared('herdr-zed.thread-tasks') || {}) }, profiles = { ...(shared('herdr-zed.thread-profiles') || {}) };
     let changed = false;
     for (const [tabId, thread] of Object.entries(threads)) {
+      // A tab the shell reopened after a restart continues the old one: its task (or thread card) moves with it.
+      if (thread?.replaces && !links[tabId]) {
+        const project = this.projects().find(item => item.tabs?.some(tab => tab.id === tabId));
+        const previous = links[thread.replaces];
+        const card = project && boardRecords(project)[threadTaskId(thread.replaces)];
+        const link = previous || (card ? { gid: card.gid, name: card.name, folder: project.folder, source: 'thread' } : null);
+        if (link) {
+          links[tabId] = link;
+          if (profiles[thread.replaces]) profiles[tabId] = profiles[thread.replaces];
+          changed = true;
+          continue;
+        }
+      }
       const origin = thread?.origin;
       if (origin?.extension !== 'tasks' || typeof origin.ref !== 'string' || links[tabId]) continue;
       const project = this.projects().find(item => item.tabs?.some(tab => tab.id === tabId));
@@ -161,8 +174,25 @@ export class TaskRuntime {
     this.decorationSignature = signature;
     setShared('herdr-zed.decorations.tasks', { updatedAt: Date.now(), threads });
   }
+  // The shell records each live conversation's session (§3.1). Keep it on the task, so the task can reopen it after its
+  // tab is gone (closed, or lost in a restart) even when Tasks never read the conversation file itself.
+  rememberConversations() {
+    const sessions = shared('herdr-zed.thread-sessions') || {}, links = shared('herdr-zed.thread-tasks') || {};
+    for (const record of Object.values(sessions)) {
+      if (!record?.sessionId || !Array.isArray(record.command) || !commandKind(record.command)) continue;
+      const project = this.projects().find(item => item.tabs?.some(tab => tab.id === record.tabId));
+      if (!project) continue;
+      const records = boardRecords(project);
+      const task = records[links[record.tabId]?.gid] || records[threadTaskId(record.tabId)];
+      if (!task) continue;
+      const conversation = { id: `${commandKind(record.command)}:${record.sessionId}`, argv: resumeArgv(record.command, record.sessionId, Boolean(links[record.tabId] && links[record.tabId].source !== 'thread')),
+        profile: shared('herdr-zed.thread-profiles')?.[record.tabId] || task.conversation?.profile || null };
+      if (JSON.stringify(task.conversation) !== JSON.stringify(conversation)) rememberBoardTask(project, task, { conversation });
+    }
+  }
   refresh(cx) {
     this.resolveSessions();
+    this.rememberConversations();
     observeTaskInput(agents(), terminals(), cx);
     const snapshot = this.snapshot(), next = JSON.stringify(snapshot);
     if (next !== this.snapshotSignature) { this.snapshotSignature = next; setShared('herdr-zed.tasks.snapshot', snapshot); }
@@ -190,7 +220,7 @@ export class TaskRuntime {
     const project = this.projects().find(item => item.id === target.space || (!item.machine && folderKey(item.folder) === folderKey(target.folder))) || { folder: target.folder, tabs: [] };
     const current = projectBoardTasks(project, agents()).find(item => item.gid === task.gid);
     if (!current) throw new Error('This task is no longer available.');
-    if (!taskActions(current).canStart) throw new Error('Move this task to Todo before starting a new session.');
+    if (!taskActions(current).canStart) throw new Error('Stop the running agent, or reopen a Done task, before starting a new session.');
     const reporting = !target.machine && !spaces().find(space => space.id === target.space)?.machine
       ? { run: `run:${Date.now()}:${Math.random().toString(36).slice(2)}` } : null;
     const prompt = taskPrompt(task, reporting);
@@ -273,8 +303,26 @@ export class TaskRuntime {
         const current = projectBoardTasks(project, agents()).find(item => item.gid === task.gid);
         if (current?.archived) setTaskArchived(project, current, false);
       },
-      // Restoring a saved conversation needs a resume contract that Tasks does not have yet (see report).
-      resume: task => this.agentBoard.setTaskError(task.gid, 'Restore conversation is not available from Tasks yet. Use the thread history.'),
+      // Reopens the task's last conversation (its archive, else the one its agent recorded) in a new tab of this project.
+      // pending-profiles links the new tab back to the task; an archive is consumed only once its agent starts.
+      resume: task => {
+        const current = projectBoardTasks(project, agents()).find(item => item.gid === task.gid);
+        if (!current || current.archived || current.tabs.length) return;
+        const saved = (shared('herdr-zed.archived-threads') || []).find(entry => entry.id === current.archiveId);
+        const argv = saved?.argv || current.conversation?.argv;
+        const space = spaces().find(item => item.id === project.id);
+        if (!space || !Array.isArray(argv) || !argv.length) {
+          this.agentBoard.setTaskError(task.gid, 'No saved conversation can be reopened here. Start a new session instead.');
+          return;
+        }
+        this.agentBoard.clearTaskError(task.gid);
+        setShared('herdr-zed.pending-profiles', [...(shared('herdr-zed.pending-profiles') || []), {
+          key: current.conversation?.profile || current.agentKey || null, space: space.id, folder: project.folder,
+          before: (space.tabs || []).map(tab => tab.id), at: Date.now(),
+          task: { gid: current.gid, name: current.name, folder: project.folder, source: current.source || 'local' },
+          ...(saved ? { restoreArchiveId: saved.id } : {}) }]);
+        run('tab.new', { space: space.id, folder: project.folder, name: current.agentName || current.name, argv });
+      },
       stop: task => {
         const current = projectBoardTasks(project, agents()).find(item => item.gid === task.gid);
         if (!current) return;

@@ -137,6 +137,10 @@ export function createThreadResume(api) {
           && liveNow.some(item => item.address === pane.terminal && commandKind(item.argv) === job.record.kind
             && JSON.stringify(item.argv).includes(job.record.sessionId)));
         if (shown) {
+          // §3.1: the fresh tab continues the stale one, so providers move what they linked to it (a task) across.
+          const threads = api.shared('herdr-zed.threads') || {};
+          api.setShared('herdr-zed.threads', { ...threads,
+            [fresh.id]: { profile: null, source: 'herdr-zed', ...threads[tabId], ...threads[fresh.id], replaces: tabId } });
           const stale = spaceList.flatMap(item => item.tabs).find(tab => tab.id === tabId);
           if (stale?.panes > 1) {
             const pane = paneList.find(item => item.terminal === job.record.address)?.pane;

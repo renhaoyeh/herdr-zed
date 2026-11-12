@@ -100,8 +100,11 @@ export function taskActions(task) {
   const active = Boolean(task && (busy || task.attention && task.attention.kind !== 'error' || task.execution?.status === 'waiting'
     || task.execution?.status === 'starting' && Date.now() - task.execution.startedAt < 60000));
   const todo = task?.status === 'todo' && !archived && !active;
+  // A task that is not Done and has no active agent can start another session, with the same or another agent:
+  // that is how work is handed off when an agent stops or its thread is gone.
+  const open = Boolean(task && !archived && !active && task.status !== 'done');
   return {
-    canStart: Boolean(todo && (!task.tabs?.length || task.execution || task.runs?.length)),
+    canStart: Boolean(open && (task.status === 'todo' && !task.tabs?.length || task.execution || task.runs?.length)),
     canEdit: Boolean(todo),
     canSetStatus: Boolean(task && !archived && !active),
     canArchive: Boolean(task && !archived),

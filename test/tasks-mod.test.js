@@ -254,6 +254,7 @@ async function modules(records = {}, projects = [{ id: 'p', folder: '/project', 
     props: () => ({ overlay: 'calendar' }), nextCommand: () => new Promise(() => {}),
     knownAgents: async () => [], readTextFile: async () => null,
     exec: async (...args) => { native.push(args); return { code: 0, stdout: '{}' }; },
+    run: (...args) => native.push(['run', ...args]),
     notify: message => assert.fail(message.body), openOverlay: spec => overlays.push(spec), closeOverlay: id => closed.push(id),
   };
   base.openWorkspacePanel = (await evaluateNative('../components/workspace-overlay.js', { shared: key => clone(memory[key]), settings: () => ({ zoom: 1 }),
@@ -438,18 +439,57 @@ test('Tasks resolves native session handoffs before projecting their task and th
 });
 
 
-test('Restore conversation is not started by Tasks: the board shows an inline error and no run or archive changes', async () => {
-  const key = '["","/project"]', task = { gid: 'thread:closed', source: 'thread', name: 'Closed work', status: 'done',
-    conversation: { id: 'codex:exact-session', profile: 'work', argv: ['env', 'CODEX_HOME=/work', 'codex', 'resume', '--no-daemon', 'exact-session'] } };
+test('Restore conversation reopens the recorded session in this project and links the new tab to the task', async () => {
+  const key = '["","/project"]', argv = ['env', 'CODEX_HOME=/work', 'codex', 'resume', '--no-daemon', 'exact-session'];
+  const task = { gid: 'thread:closed', source: 'thread', name: 'Closed work', status: 'doing', agentName: 'Codex',
+    conversation: { id: 'codex:exact-session', profile: 'work', argv } };
   const h = await modules({ [key]: { [task.gid]: task } }), project = h.state.projects[0];
-  const shown = {};
-  h.runtime.agentBoard = { render: (_p, _a, _l, actions) => actions, setTaskError: (gid, message) => { shown.gid = gid; shown.message = message; } };
-  const actions = h.runtime.boardPanel(project, context().cx);
-  actions.resume(task);
-  assert.deepEqual(shown, { gid: task.gid, message: 'Restore conversation is not available from Tasks yet. Use the thread history.' });
-  assert.equal(h.memory['herdr-zed.archived-threads'], undefined);
-  assert.equal(h.owner.boardRecords(project)[task.gid].status, 'done');
-  assert.deepEqual(h.launches, []); assert.deepEqual(h.native, []);
+  const errors = [];
+  h.runtime.agentBoard = { render: (_p, _a, _l, actions) => actions, setTaskError: (gid, message) => errors.push(message), clearTaskError() {} };
+  h.runtime.boardPanel(project, context().cx).resume(task);
+  assert.deepEqual(errors, []);
+  assert.deepEqual(h.native, [['run', 'tab.new', { space: 'p', folder: '/project', name: 'Codex', argv }]]);
+  const [pending] = h.memory['herdr-zed.pending-profiles'];
+  assert.equal(pending.key, 'work'); assert.equal(pending.task.gid, task.gid); assert.deepEqual(pending.before, []);
+  assert.equal(pending.restoreArchiveId, undefined, 'no archive to consume');
+  assert.deepEqual(h.launches, []);
+});
+
+test('a task without a recorded session explains that a new session is needed', async () => {
+  const key = '["","/project"]', task = { gid: 'local:none', source: 'local', name: 'Nothing saved', status: 'doing' };
+  const h = await modules({ [key]: { [task.gid]: task } }), project = h.state.projects[0];
+  const errors = [];
+  h.runtime.agentBoard = { render: (_p, _a, _l, actions) => actions, setTaskError: (gid, message) => errors.push(message), clearTaskError() {} };
+  h.runtime.boardPanel(project, context().cx).resume(task);
+  assert.match(errors[0], /Start a new session/);
+  assert.deepEqual(h.native, []);
+});
+
+test('a stopped In progress or For review task can be handed to another agent; Done and running tasks cannot', async () => {
+  const { taskActions } = policy;
+  const run = { execution: { status: 'stopped' }, tabs: [], agents: [] };
+  assert.equal(taskActions({ ...run, status: 'doing' }).canStart, true);
+  assert.equal(taskActions({ ...run, status: 'review' }).canStart, true);
+  assert.equal(taskActions({ ...run, status: 'done' }).canStart, false);
+  assert.equal(taskActions({ ...run, status: 'doing', agents: [{ status: 'working' }] }).canStart, false);
+  assert.equal(taskActions({ ...run, status: 'doing', archived: true }).canStart, false);
+});
+
+test('a tab reopened after a restart keeps its task card, and the shell session record is kept on the task', async () => {
+  const key = '["","/project"]', card = { gid: 'thread:old', source: 'thread', name: 'Chat', status: 'doing', threadId: 'old' };
+  const task = { gid: 'local:linked', source: 'local', name: 'Linked', status: 'doing' };
+  const h = await modules({ [key]: { [card.gid]: card, [task.gid]: task } }), project = h.state.projects[0];
+  h.memory['herdr-zed.thread-tasks'] = { 'old-task': { gid: task.gid, name: task.name, folder: '/project', source: 'local' } };
+  project.tabs = [{ id: 'new' }, { id: 'new-task' }];
+  h.memory['herdr-zed.threads'] = { new: { profile: null, source: 'herdr-zed', replaces: 'old' },
+    'new-task': { profile: null, source: 'herdr-zed', replaces: 'old-task' } };
+  h.runtime.resolveSessions();
+  assert.equal(h.memory['herdr-zed.thread-tasks'].new.gid, card.gid, 'the thread card moves to the new tab');
+  assert.equal(h.memory['herdr-zed.thread-tasks']['new-task'].gid, task.gid, 'a linked task moves to the new tab');
+  const command = ['codex', '--no-daemon'];
+  h.memory['herdr-zed.thread-sessions'] = { new: { tabId: 'new', sessionId: 'abc', command } };
+  h.runtime.rememberConversations();
+  assert.deepEqual(h.owner.boardRecords(project)[card.gid].conversation, { id: 'codex:abc', argv: ['codex', 'resume', '--no-daemon', 'abc'], profile: null });
 });
 
 test('delete_task removes a thread card whose tab is gone and refuses a task with an active agent', async () => {

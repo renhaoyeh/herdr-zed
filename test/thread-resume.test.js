@@ -89,6 +89,8 @@ test('after a reboot, a lost agent terminal is resumed in a new tab and the stal
   assert.deepEqual(commands.filter(([name]) => name === 'tab.close'), [['tab.close', { id: 'tab-1' }]]);
   assert.equal(commands.filter(([name]) => name === 'tab.new').length, 1, 'one attempt per session');
   assert.equal(memory[KEY]['tab-1'], undefined, 'the stale record is replaced, not kept');
+  assert.deepEqual(memory['herdr-zed.threads']['tab-2'], { profile: null, source: 'herdr-zed', replaces: 'tab-1' },
+    'the new tab says which tab it continues, so a task linked to the old tab follows it');
   assert.equal(notices.length, 1);
   assert.match(notices[0].title, /Resumed 1 conversation/);
   assert.match(notices[0].body, /Fix login/);

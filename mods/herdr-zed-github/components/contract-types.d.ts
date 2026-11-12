@@ -73,7 +73,7 @@ export type Validation<T> = { ok: true; value: T } | { ok: false; error: string 
 /** §3.3 provider → shell, `herdr-zed.decorations.<extension id>`. */
 export interface ThreadDecoration { badge?: string; subtitle?: string; tone?: 'muted' | 'accent' | 'warning' | 'error'; }
 /** §3.1 shell-side read model, `herdr-zed.threads`: tab ID → what launched it. */
-export interface ThreadRecord { profile: string | null; source: ExtensionId; origin?: LaunchOrigin; }
+export interface ThreadRecord { profile: string | null; source: ExtensionId; origin?: LaunchOrigin; replaces?: string; }
 export interface DecorationEnvelope { updatedAt: number; threads: Record<string, ThreadDecoration>; }
 
 /** §3.5 provider → shell, `herdr-zed.git-credentials.<extension id>`. */

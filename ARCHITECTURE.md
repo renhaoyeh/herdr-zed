@@ -220,6 +220,9 @@ user clicks + / New Thread
   off the queue, prepares the session from `values` and emits a launch request as above, notifying its own errors.
 - `id` and `profile` let the shell match the new tab when it appears (current `pending-profiles` pattern)
   and expose `{ tabId, profile, source }` in the thread read model (`herdr-zed.threads`) for decorators.
+- When auto-resume reopens a conversation after a restart, the new tab's record carries `replaces: <old tab id>` (and the
+  old record's profile, source and origin), so a provider moves what it linked to the old tab across. Providers may read
+  the shell's resume records (`herdr-zed.thread-sessions`, `{ [tabId]: { sessionId, command, ... } }`) and never write them.
 - Local-shell wrapping (`terminalArgv`) is the provider's job for provider launches; the shell applies it
   only on the native knownAgents path, as today.
 - **Terminal**: a launcher's picker opens a plain terminal with the shell command `herdr-zed.new-terminal`
