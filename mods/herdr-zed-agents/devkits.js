@@ -11,8 +11,8 @@ export async function readDevkitsSkills(skills) {
     return { ...skill, path, text: policy != null ? policy : await readTextFile(skill.path) };
   }));
 }
-export async function sessionDevkits(agent) {
-  const provider = sessionKind(agent);
+export const sessionDevkits = agent => providerDevkits(sessionKind(agent));
+export async function providerDevkits(provider) {
   if (!['codex', 'claude'].includes(provider)) return null;
   const config = parseDevkits(await readTextFile(devkitsPath()));
   if (![...Object.values(config.rules), ...Object.values(config.skills)].some(Boolean)) return null;

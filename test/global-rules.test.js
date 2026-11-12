@@ -31,7 +31,7 @@ test('settings keep text edits as drafts and preserve them after a concurrent Gu
   let source = model.defaultRules, conflict = false;
   const { globalRulesSettings } = await evaluateNative('../mods/herdr-zed-agents/global-rules-settings.js', {
     ...model, rulesPath: () => '/guide', shared: key => memory[key], setShared: (key, value) => { memory[key] = value; },
-    readTextFile: async () => source,
+    readTextFile: async () => source, providerDevkits: async provider => ({ summary: `- **Core** (${provider})` }),
     writeTextFile: async (_path, next, expected) => {
       if (conflict || source !== expected) throw new Error('File changed. Reopen Global Rules to load the latest version.');
       source = next;

@@ -438,14 +438,18 @@ test('GitHub embedded Settings renders without calling cx.notify', async () => {
 });
 
 
-test('Global Rules is one editable text area with Save and no selection controls', async () => {
-  const { host, log, factory } = shell({ Editor: { new: () => factory('editor')() } });
+test('Global Rules previews the composed rules per provider above the Custom editor', async () => {
+  const { host, log, factory } = shell({ Editor: { new: () => factory('editor')() }, TextView: { markdown: (id, text) => factory('markdown')(id, text) } });
   const { globalRulesSettings } = await evaluateNative('../mods/herdr-zed-agents/global-rules-settings.js',
-    { ...host, rulesPath: () => '/guide' }, 'globalRulesSettings');
-  globalRulesSettings.globalRulesPage.call({ rulesCustom: {}, rulesLoaded: true }, theme());
-  assert.equal(names(log).filter(name => name === 'editor').length > 0, true);
-  assert.ok(names(log).includes('Button#save-global-rules'));
-  assert.ok(!names(log).some(name => name.startsWith('Checkbox') || name.startsWith('Button#rules-view-')));
+    { ...host, rulesPath: () => '/guide', providerDevkits: async () => null,
+      composeSessionRules: (custom, kits) => `${kits?.summary || ''}|${custom}`, defaultRules: '' }, 'globalRulesSettings');
+  globalRulesSettings.globalRulesPage.call({ rulesCustom: { value: () => 'Mine' }, rulesLoaded: true, rulesOriginal: '', rulesProvider: 'codex',
+    rulesKits: { codex: { summary: 'Codex kit' } } }, theme());
+  const drawn = names(log);
+  assert.ok(drawn.includes('markdown#global-rules-preview-text-codex'));
+  assert.ok(drawn.includes('Button#global-rules-preview-claude') && drawn.includes('Button#global-rules-preview-codex'));
+  assert.ok(drawn.includes('editor') && drawn.includes('Button#save-global-rules') && drawn.includes('Button#discard-global-rules'));
+  assert.ok(!drawn.some(name => name.startsWith('Checkbox') || name.startsWith('Switch')));
 });
 
 test('adding either provider opens a visible login viewport above Accounts', async () => {
