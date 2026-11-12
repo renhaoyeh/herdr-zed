@@ -57,7 +57,7 @@ export const mcpSetupSettings = {
         if (JSON.stringify(this.setupCandidate()) !== JSON.stringify(server)) throw Error('Setup changed during verification. Test the current values again.');
         this.mcpConfig = { ...this.mcpConfig, servers: { ...this.mcpConfig.servers, [form.name]: server } };
         this.capVerified[form.name] = { ...result, fingerprint: mcpFingerprint(server) };
-        this.capSetup = null; this.capDirty = true; this.capSaved = false;
+        this.capSetup = null; this.mcpDirty = true; this.mcpSaved = false;
         if (this.capPending) {
           const plan = this.currentDevkitsPlan();
           if (!plan.missing.length && !plan.blocked.length) this.acceptDevkitsPlan(cx);

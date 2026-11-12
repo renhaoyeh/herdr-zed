@@ -109,7 +109,7 @@ test('Agents labels say thread for starting one; save semantics are named on exp
   assert.doesNotMatch(profiles, /Add session/);
 
   const capabilities = await source('mods/herdr-zed-agents/devkits-settings.js');
-  assert.match(capabilities, /Choose built-in Rules and Skills for new local agent sessions\. Save to apply\./);
+  assert.match(capabilities, /Choose Rules and Skills for new local sessions, per provider\./);
   assert.match(capabilities, /'Save changes'\)/);
   const ecc = await source('mods/herdr-zed-agents/ecc-settings.js');
   assert.match(ecc, /child\('Changes are saved when you click Save\./);

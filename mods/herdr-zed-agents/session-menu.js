@@ -448,7 +448,7 @@ export const sessionMenu = {
       .child('Accounts, profiles, rules, capabilities, MCP connections and ECC are set up on this computer. This project is on another machine.');
     if (page === 'accounts') return this.accountsPage(t, cx);
     if (page === 'profiles') return this.agentProfilesPage(t);
-    if (page === 'global-rules') return this.globalRulesPage(t);
+    if (page === 'global-rules') return this.withSideNav(this.globalRulesNavigation(t), this.globalRulesPage(t));
     if (page === 'mcp') return this.devkitsPage(t);
     if (page === 'capabilities') return this.withSideNav(this.devkitsNavigation(t), this.devkitsPage(t));
     if (page === 'ecc') return this.withSideNav(this.eccNavigation(t), this.eccPage(t));

@@ -21,7 +21,7 @@ test('existing connections remain configurable and verification stages a draft',
   view.capSetup.command.set_value('updated');
   view.testMcpSetup(cx); await Promise.all(jobs);
   assert.equal(view.capSetup, null);
-  assert.equal(view.capDirty, true);
+  assert.equal(view.mcpDirty, true);
   assert.equal(view.mcpConfig.servers.existing.command, 'updated');
 });
 

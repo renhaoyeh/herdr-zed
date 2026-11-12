@@ -332,6 +332,7 @@ Herdr home = `HERDR_APP_HOME` or `~/.config/herdr-app`.
 | --- | --- | --- |
 | Accounts, credentials, Profiles, `codex-mcp.json`, usage caches | `data/devkits/` | **Proposed:** shared with Devkits (open question) |
 | Guide (global rules) | `data/herdr-zed/AGENTS.md` | Own, no migration: its prompt composition differs from Devkits |
+| Your Rules and Skills, their off switches | `data/herdr-zed/capabilities/`, `data/herdr-zed/capabilities.json` | Own |
 | Extension registry | `data/herdr-zed/extensions.json` | Own (was `data/devkits-zed/`) |
 | UI preferences and layout state (shared-state keys such as `devkits.side-panel-width`, `devkits.editor-tabs`, `devkits.diff-layout`, `devkits.projects`, project layouts) | `herdr-zed.*` keys | **Proposed:** own keys, no migration (open question) |
 | Conversation history, diff build filters | to be classified in the same question | |

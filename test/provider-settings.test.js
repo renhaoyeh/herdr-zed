@@ -108,11 +108,11 @@ test('Agents Settings mounts exactly the page its props name, and remote project
   const { host, log, factory } = shell({ props: () => ({ view: 'manage-launchers', embedded: true, overlay: 'shell' }),
     ...sessions, availableAgents: () => [], spaces: () => [] });
   const { sessionMenu } = await evaluateNative('../mods/herdr-zed-agents/session-menu.js', host, 'sessionMenu');
-  const stubs = { accountsPage: 'accounts', agentProfilesPage: 'profiles', globalRulesPage: 'global-rules', devkitsNavigation: 'cap-nav',
+  const stubs = { accountsPage: 'accounts', agentProfilesPage: 'profiles', globalRulesNavigation: 'rules-nav', globalRulesPage: 'global-rules', devkitsNavigation: 'cap-nav',
     devkitsPage: 'capabilities', eccNavigation: 'ecc-nav', eccPage: 'ecc' };
   const view = agentsView(sessionMenu, Object.fromEntries(Object.entries(stubs).map(([method, id]) => [method, () => factory(id)()])));
   // Each page draws its own content; the two pages with sub-navigation draw it beside the page.
-  const expected = { accounts: ['accounts'], profiles: ['profiles'], 'global-rules': ['global-rules'],
+  const expected = { accounts: ['accounts'], profiles: ['profiles'], 'global-rules': ['rules-nav', 'global-rules'],
     capabilities: ['cap-nav', 'capabilities'], mcp: ['capabilities'], ecc: ['ecc-nav', 'ecc'] };
   for (const [page, drawnNames] of Object.entries(expected)) {
     log.length = 0;
@@ -438,16 +438,21 @@ test('GitHub embedded Settings renders without calling cx.notify', async () => {
 });
 
 
-test('Global Rules previews the composed rules per provider above the Custom editor', async () => {
-  const { host, log, factory } = shell({ Editor: { new: () => factory('editor')() }, TextView: { markdown: (id, text) => factory('markdown')(id, text) } });
+test('Global Rules lists the injected sections in order per provider and ends with the Custom editor', async () => {
+  const { host, log, factory } = shell({ Editor: { new: () => factory('editor')() }, TextView: { markdown: (id, text) => factory('markdown')(id, text) },
+    AgentIcon: (...args) => factory('AgentIcon')(...args) });
   const { globalRulesSettings } = await evaluateNative('../mods/herdr-zed-agents/global-rules-settings.js',
-    { ...host, rulesPath: () => '/guide', providerDevkits: async () => null,
-      composeSessionRules: (custom, kits) => `${kits?.summary || ''}|${custom}`, defaultRules: '' }, 'globalRulesSettings');
-  globalRulesSettings.globalRulesPage.call({ rulesCustom: { value: () => 'Mine' }, rulesLoaded: true, rulesOriginal: '', rulesProvider: 'codex',
-    rulesKits: { codex: { summary: 'Codex kit' } } }, theme());
+    { ...host, rulesPath: () => '/guide', providerDevkits: async () => null, defaultRules: '' }, 'globalRulesSettings');
+  const view = { ...globalRulesSettings, rulesCustom: { value: () => 'Mine' }, rulesLoaded: true, rulesOriginal: '', rulesProvider: 'codex', rulesOpen: 'core',
+    rulesKits: { codex: { items: [{ id: 'core', name: 'Herdr Core', kind: 'rule', source: 'built-in', description: 'Use hc.', body: 'Read hc.' },
+      { id: 'mine:rules:team', name: 'Team', kind: 'rule', source: 'mine', description: 'Ours.', body: 'Be kind.' }] } } };
+  view.globalRulesNavigation(theme());
+  view.globalRulesPage(theme());
   const drawn = names(log);
-  assert.ok(drawn.includes('markdown#global-rules-preview-text-codex'));
-  assert.ok(drawn.includes('Button#global-rules-preview-claude') && drawn.includes('Button#global-rules-preview-codex'));
+  assert.ok(drawn.includes('Button#global-rules-provider-claude') && drawn.includes('Button#global-rules-provider-codex'));
+  const rows = drawn.filter(name => name.startsWith('v_flex#global-rules-row-'));
+  assert.deepEqual([...new Set(rows)], ['v_flex#global-rules-row-core', 'v_flex#global-rules-row-mine:rules:team', 'v_flex#global-rules-row-ecc', 'v_flex#global-rules-row-profile']);
+  assert.ok(drawn.includes('markdown#global-rules-body-core'), 'the open section shows its text');
   assert.ok(drawn.includes('editor') && drawn.includes('Button#save-global-rules') && drawn.includes('Button#discard-global-rules'));
   assert.ok(!drawn.some(name => name.startsWith('Checkbox') || name.startsWith('Switch')));
 });

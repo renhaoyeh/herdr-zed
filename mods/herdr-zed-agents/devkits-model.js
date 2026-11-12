@@ -7,11 +7,6 @@ const devkitsDefinitions = [
   { id: 'shared-mcp', group: 'skills', name: 'Shared MCP installation', icon: 'settings', description: 'Install or configure shared local Codex MCP connections when requested, preserving existing account settings.', skill: 'shared-mcp', mcps: [], providers: ['codex'] },
   { id: 'visual-studio', group: 'skills', name: 'Visual Studio builds', icon: 'gear', description: 'Build the intended Visual Studio solution and inspect its diagnostics.', skill: 'visual-studio', mcps: ['visual_studio'], platforms: sharedMcpPlatforms.visual_studio },
 ];
-export const devkitsGroups = [
-  { id: 'rules', label: 'Rules', description: 'Selected rules guide each new conversation. Task reporting applies only during actual work.' },
-  { id: 'skills', label: 'Skills', description: 'Reusable methods loaded when the task needs them.' },
-  { id: 'mcp', label: 'MCP', description: 'Actual tool connections. Configure, verify and enable each connection here.' },
-];
 export const devkitsMcpPresets = [{ id: 'visual_studio', name: 'Visual Studio', platforms: sharedMcpPlatforms.visual_studio,
   url: 'https://github.com/renhaoyeh/vs-mcp#installation-and-connection',
   setup: 'Install the official VSIX on Windows, start Visual Studio once to install its bridge, and install the .NET 10 runtime. Detect the bridge or choose its executable, then test the connection. The bridge can be tested without starting an IDE or building a solution.' }];
@@ -65,21 +60,60 @@ export function mcpUsers(name, config, catalog) {
   return ['rules', 'skills'].flatMap(kind => catalog[kind].filter(item => config[kind][item.id] === true && item.mcps.includes(name)).map(item => item.name));
 }
 // Skill bodies start with their own title; under "## <name>" the rest moves down one level.
-const ruleBody = text => demoteHeadings((text || '').replace(/^---\r?\n[\s\S]*?\r?\n---\s*/, '').replace(/^\s*#\s[^\n]*\n/, '').trim(), 1);
+const ruleBody = text => demoteHeadings(stripFrontmatter(text).replace(/^\s*#\s[^\n]*\n/, '').trim(), 1);
+const stripFrontmatter = text => (text || '').replace(/^---\r?\n[\s\S]*?\r?\n---\s*/, '');
+const plainPath = path => path.replace(/\\/g, '/');
+
+// The user's own Rules and Skills: data/herdr-zed/capabilities/rules/*.md and skills/<name>/SKILL.md.
+// They are on unless listed in data/herdr-zed/capabilities.json, so a new file takes effect without a switch.
+export const mineRoot = root => `${root}/data/herdr-zed/capabilities`;
+export const mineSelectionPath = root => `${root}/data/herdr-zed/capabilities.json`;
+export function frontmatter(text) {
+  const head = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text || '')?.[1] || '';
+  const field = key => new RegExp(`^${key}:[ \\t]*(.+)$`, 'm').exec(head)?.[1].trim().replace(/^(['"])(.*)\1$/, '$2') || '';
+  return { name: field('name'), description: field('description') };
+}
+export function mineItems(found) {
+  return ['rules', 'skills'].flatMap(kind => (found?.[kind] || []).filter(file => file.text != null).map(file => {
+    const meta = frontmatter(file.text), base = plainPath(file.path).split('/').filter(Boolean);
+    const slug = kind === 'rules' ? base.at(-1).replace(/\.md$/i, '') : base.at(-2);
+    const lead = stripFrontmatter(file.text).split(/\r?\n/).map(line => line.trim()).find(line => line && !line.startsWith('#')) || '';
+    return { id: `mine:${kind}:${slug}`, group: kind, source: 'mine', name: meta.name || slug, icon: 'file',
+      description: meta.description || lead, path: file.path, text: file.text, mcps: [] };
+  }));
+}
+export function parseMineSelection(text) {
+  if (text == null) return { version: 1, disabled: [] };
+  const value = JSON.parse(text);
+  if (value?.version !== 1 || !Array.isArray(value.disabled) || value.disabled.some(id => typeof id !== 'string'))
+    throw Error('Invalid capabilities.json. Expected { "version": 1, "disabled": [ids] }.');
+  return { version: 1, disabled: value.disabled };
+}
+/** Built-in selections plus the user's items, which are on unless disabled. */
+export function withMine(config, catalog, mine) {
+  const merged = { ...config, rules: { ...config.rules }, skills: { ...config.skills } };
+  for (const kind of ['rules', 'skills']) for (const item of catalog[kind].filter(item => item.source === 'mine'))
+    merged[kind][item.id] = !mine.disabled.includes(item.id);
+  return merged;
+}
+export const providerSupported = (item, provider) => !item.providers || item.providers.includes(provider);
+
 export function devkitsGuidance(config, catalog, servers, platform, missingSkills = [], provider = 'codex') {
   const scoped = item => provider === 'claude' ? { ...item, mcps: item.mcps.filter(name => name === 'herdr_tasks') } : item;
-  const usable = kind => catalog[kind].filter(item => config[kind][item.id] === true && (!item.providers || item.providers.includes(provider))
+  const usable = kind => catalog[kind].filter(item => config[kind][item.id] === true && providerSupported(item, provider)
     && !resourceProblems(scoped(item), config, servers, platform, missingSkills).length);
-  const rules = usable('rules'), skills = usable('skills');
-  if (!rules.length && !skills.length) return null;
   const claudeMcp = item => provider === 'claude' && item.mcps.some(name => name !== 'herdr_tasks')
     ? ' Use only when the required MCP tools are available in this Claude session.' : '';
+  const items = [
+    ...usable('rules').map(item => ({ id: item.id, name: item.name, kind: 'rule', source: item.source || 'built-in', description: item.description,
+      body: ruleBody(item.text) })),
+    ...usable('skills').map(item => ({ id: item.id, name: item.name, kind: 'skill', source: item.source || 'built-in', description: item.description,
+      body: `Read the skill \`${plainPath(item.path)}\` when relevant to the user's task; resolve supporting files relative to it.${claudeMcp(item)}` })),
+  ];
+  if (!items.length) return null;
   return {
-    summary: [...rules.map(item => `- **${item.name}** (rule): ${item.description}`),
-      ...skills.map(item => `- **${item.name}** (skill): ${item.description}`)].join('\n'),
-    sections: [
-      ...rules.map(item => [`## ${item.name}`, ruleBody(item.text)].filter(Boolean).join('\n\n')),
-      ...skills.map(item => `## ${item.name}\n\nRead the skill \`${item.path.replace(/\\/g, '/')}\` when relevant to the user's task; resolve supporting files relative to it.${claudeMcp(item)}`),
-    ].join('\n\n'),
+    items,
+    summary: items.map(item => `- **${item.name}** (${item.kind}): ${item.description}`).join('\n'),
+    sections: items.map(item => [`## ${item.name}`, item.body].filter(Boolean).join('\n\n')).join('\n\n'),
   };
 }

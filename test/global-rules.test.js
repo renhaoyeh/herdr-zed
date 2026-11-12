@@ -88,3 +88,22 @@ test('Devkits guidance nests skill bodies, skips Codex-only skills for Claude an
   const codex = devkits.devkitsGuidance(config, catalog, {}, 'windows', [], 'codex');
   assert.match(codex.sections, /## Shared MCP installation\n\nRead the skill `C:\/herdr\/mods\/herdr-zed-agents\/assets\/skills\/shared-mcp\/SKILL.md`/);
 });
+
+test('user Rules and Skills read their name and description and stay on unless disabled', async () => {
+  const devkits = await import('../mods/herdr-zed-agents/devkits-model.js');
+  const items = devkits.mineItems({
+    rules: [{ path: '/home/data/herdr-zed/capabilities/rules/team.md', text: '---\nname: Team conventions\ndescription: "How we work"\n---\n# Team\n\nBody' },
+      { path: '/home/data/herdr-zed/capabilities/rules/plain.md', text: '# Plain\n\nFirst line.\n' },
+      { path: '/home/data/herdr-zed/capabilities/rules/gone.md', text: null }],
+    skills: [{ path: '/home/data/herdr-zed/capabilities/skills/deploy/SKILL.md', text: '---\nname: deploy\ndescription: Ship it\n---\nSteps' }],
+  });
+  assert.deepEqual(items.map(item => [item.id, item.name, item.description]), [
+    ['mine:rules:team', 'Team conventions', 'How we work'], ['mine:rules:plain', 'plain', 'First line.'], ['mine:skills:deploy', 'deploy', 'Ship it']]);
+  const catalog = { rules: items.filter(item => item.group === 'rules'), skills: items.filter(item => item.group === 'skills') };
+  const config = devkits.withMine({ version: 2, rules: {}, skills: {} }, catalog, devkits.parseMineSelection('{"version":1,"disabled":["mine:rules:plain"]}'));
+  assert.deepEqual(config.rules, { 'mine:rules:team': true, 'mine:rules:plain': false });
+  const guidance = devkits.devkitsGuidance(config, catalog, {}, 'windows', [], 'claude');
+  assert.deepEqual(guidance.items.map(item => [item.name, item.source]), [['Team conventions', 'mine'], ['deploy', 'mine']]);
+  assert.match(guidance.sections, /## Team conventions\n\nBody/);
+  assert.throws(() => devkits.parseMineSelection('{"disabled":"x"}'), /Invalid capabilities\.json/);
+});
