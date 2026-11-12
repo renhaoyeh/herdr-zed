@@ -147,7 +147,7 @@ One save semantic per page: autosave, or explicit Save — never both on one pag
 ## Task board workflow
 
 - Columns are Todo → In progress → For review → Done. An agent's successful task report moves work to For review; only the user accepts it into Done. Feedback or a new reported attempt returns it to In progress. A CLI turn ending never completes a task.
-- A task that is not Done and has no active agent can start another session with any agent (hand-off). Without a live thread, Restore conversation reopens its last recorded session in a new tab linked to the task.
+- A task that is not Done and has no active agent can start another session with any agent (hand-off). After a first session its button reads Continue, and an editable prompt above it names the task (its gid) so the agent reads the earlier results with list_tasks and checks the project's current state before picking up what remains. Without a live thread, Restore conversation reopens its last recorded session in a new tab linked to the task.
 - Waiting, failed attempts, starting and stopped agents are execution information on the card, not extra columns or a separate Action Required filter. Git commits and pull requests do not determine board completion or trigger repository operations.
 - Archive is independent of stage. Any card can be archived and restored with its stage preserved. Active agents require an explicit choice to keep running in the background or stop before archiving. Failed stop confirmation leaves the card visible. Background archived runs still receive progress reports.
 

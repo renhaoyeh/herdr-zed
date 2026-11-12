@@ -1,16 +1,33 @@
 import { div } from 'gpui-kit';
-import { h_flex } from 'gpui-base';
+import { h_flex, v_flex, TextareaState, Textarea } from 'gpui-base';
 import { shared, setShared, home, readTextFile } from 'herdr';
 import { effortLabel, claudeModels, claudeEfforts, codexHome, codexModels, isClaudeLauncher, isCodexLauncher, sessionKind, shownOptions, orderedOptions, settingsKey, launcherOption, accountAddresses } from './components/session-model.js';
 import { Select, SelectState } from './components/select.js';
 import { Button } from './components/button.js';
 import { glyph } from './components/icon.js';
+import { continuationPrompt } from './task-prompt.js';
 
 const sessionButton = (id, t) => Button(id, t).rounded(t.appearance === 'linear' ? 999 : 6);
 export class TaskSession {
   init(cx) {
     this.selects = { agent: new SelectState(cx), model: new SelectState(cx), effort: new SelectState(cx) };
     this.codexModels = new Map();
+    // One editor for the shown task (state cannot be created during render); `prompt` records which task it holds.
+    this.promptState = TextareaState.new({ placeholder: 'Extra instructions for the agent (optional)…' });
+    this.promptState.set_auto_grow(4, 14);
+    this.prompt = null;
+  }
+
+  // The editable instructions for the next session of a task, prefilled with the Continue prompt once it has earlier
+  // sessions. Another task, or a new session result the person has not edited over, resets it to the default.
+  promptFor(task) {
+    const base = continuationPrompt(task) || '';
+    const current = this.prompt;
+    if (current?.gid !== task.gid || (current.base !== base && this.promptState.value() === current.base)) {
+      this.promptState.set_value(base);
+      this.prompt = { gid: task.gid, base };
+    }
+    return { state: this.promptState };
   }
 
   render(task, agents, start, t, cx) {
@@ -64,6 +81,8 @@ export class TaskSession {
 
   launchRow(task, agents, start, t) {
     const current = this.session(agents);
+    // A task with earlier sessions continues: the new session gets their results and picks up from the current state.
+    const resume = Boolean(task.execution || task.runs?.length);
     const remember = change => setShared('herdr-zed.asana-session', { ...(shared('herdr-zed.asana-session') || {}), ...change });
     const option = (key, label) => ({ key, label, color: key === 'default' ? t.muted : t.foreground });
     // Default is the agent profile's own model and effort from Manage, named when it has one.
@@ -73,7 +92,12 @@ export class TaskSession {
       effort: defaultEffort && effortLabel(defaultEffort) };
     const pick = (id, name, label, value, options, onChange) => Select(id, this.selects[name], value || 'default',
       [option('default', fallback[name] ? `Default (${fallback[name]})` : 'Default'), ...options], label, onChange, t, { width: 168, prefix: label, boxed: t.appearance !== 'linear', radius: 6 });
-    return h_flex().gap(8).items_center().flex_wrap()
+    const prompt = this.promptFor(task);
+    return v_flex().gap(8)
+      .child(div().text_size(12).font_medium().child(resume ? 'Continue with' : 'Instructions'))
+      .child(Textarea.new(prompt.state).id('task-session-prompt').accessibility_label(resume ? 'Prompt for the next session' : 'Extra instructions')
+        .w_full().text_size(12))
+      .child(h_flex().gap(8).items_center().flex_wrap()
       .when(agents.length > 0, el => el.child(Select('task-session-agent', this.selects.agent, current.agent.key,
         agents.map(agent => launcherOption(agent, accountAddresses(shared))).map(option => ({ ...option, color: option.unknown ? t.muted : t.foreground })), 'Agent',
         key => remember({ agent: key, model: null, effort: null }), t, { width: 200, prefix: 'Agent', boxed: t.appearance !== 'linear', radius: 6 })))
@@ -82,12 +106,14 @@ export class TaskSession {
       .when(current.efforts.length > 0, el => el.child(pick('task-session-effort', 'effort', 'Effort', current.effort,
         current.efforts.map(effort => option(effort, effortLabel(effort))), key => remember({ effort: key === 'default' ? null : key }))))
       .child(div().flex_1())
-      .child(sessionButton('task-session-start', t).h(28).px(10).gap(6).disabled(!current.agent).accessibility_label('Start a session for this task')
+      .child(sessionButton('task-session-start', t).h(28).px(10).gap(6).disabled(!current.agent)
+        .accessibility_label(resume ? 'Continue this task in a new session' : 'Start a session for this task')
         .on_click((_event, cx) => { if (current.agent) start(current.agent, task, {
           model: current.model || profile.model || null,
           effort: current.effort || defaultEffort,
-        }, cx); })
-        .child(glyph('plus', 12)).child('Start session'));
+          instructions: prompt.state.value(),
+        }, cx); this.prompt = null; })
+        .child(glyph(resume ? 'play' : 'plus', 12)).child(resume ? 'Continue' : 'Start session')));
   }
 
 }

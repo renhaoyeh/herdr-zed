@@ -342,7 +342,8 @@ export default class AgentBoard {
     const priorityValue = policy.canEdit
       ? Select('board-task-priority', this.prioritySelect, task.priority || 'none', boardPriorityOptions(t), 'Priority', setPriority, t, { width: 190 })
       : h_flex().gap(8).items_center().child(glyph(priority.icon, 14).text_color(t.muted)).child(priority.label);
-    const launchRow = detail && canStartTask(task) ? this.session.render(detail, launchers, actions.start, t, cx) : null;
+    const reopen = Boolean((task.archiveId || task.conversation) && !task.archived && !task.tabs.length);
+    const launchRow = detail && canStartTask(task) ? this.session.render({ ...detail, runs: task.runs, execution: task.execution }, launchers, actions.start, t, cx) : null;
     const property = (label, value) => h_flex().min_h(28).gap(12).items_center().text_size(13)
       .child(div().w(74).flex_none().text_color(t.muted).child(label))
       .child(h_flex().min_w(0).flex_1().items_center().child(value));
@@ -388,8 +389,6 @@ export default class AgentBoard {
         .child(this.subtasks(task, tasks, project, t))
         .when(Boolean(this.relatedError), el => el.child(div().id('board-related-error').text_size(12).text_color(t.destructive).child(this.relatedError)))
         .when(this.taskError?.gid === task.gid, el => el.child(div().id('board-task-error').text_size(12).text_color(t.destructive).child(this.taskError.message)))
-        .when(task.tabs.length > 0, el => el.children(task.tabs.map(tab => button(`board-thread-${tab.id}`, t, { variant: 'secondary' }).h(28)
-          .on_click(() => actions.thread(tab.id)).child(task.attention ? 'Respond to agent' : 'Open conversation').child(glyph('external-link', 12)))))
         .when(task.tabs.length > 0, el => el.child(button('board-copy-reporting', t).h(28).self_start()
           .on_click((_e, cx) => cx.spawn(async cx => {
             try {
@@ -413,11 +412,15 @@ export default class AgentBoard {
         .children((detail?.comments || []).map(comment => v_flex().gap(8)
           .child(div().text_size(12).font_medium().child(comment.author))
           .child(TextView.markdown(`board-comment-${comment.gid}`, comment.text).selectable(true).scrollable(false).w_full().text_size(13)))))
-      .when(Boolean(launchRow) || policy.canArchive || policy.canRestore || policy.canDelete, el => el.child(v_flex().flex_none().px(24).py(14).gap(12).border_t(1).border_color(t.border)
+      .when(Boolean(launchRow) || reopen || task.tabs.length > 0 || policy.canArchive || policy.canRestore || policy.canDelete, el => el.child(v_flex().flex_none().px(24).py(14).gap(12).border_t(1).border_color(t.border)
+        // Every way back into the work sits together: the open conversation (or the saved one), then a new session.
+        .when(task.tabs.length > 0 || reopen, el => el.child(h_flex().flex_wrap().gap(8).items_center()
+          .children(task.tabs.map(tab => button(`board-thread-${tab.id}`, t, { variant: 'secondary' }).h(28)
+            .on_click(() => actions.thread(tab.id)).child(task.attention ? 'Respond to agent' : 'Open conversation').child(glyph('external-link', 12))))
+          .when(reopen, el => el.child(button('board-resume-session', t, { variant: 'secondary' }).h(28)
+            .on_click((_e, cx) => { actions.resume?.(task); cx.notify(); }).child(glyph('rotate-ccw', 13)).child('Restore conversation')))))
         .when(Boolean(launchRow), el => el.child(launchRow))
         .child(h_flex().gap(12).items_center()
-          .when(Boolean((task.archiveId || task.conversation) && !task.archived && !task.tabs.length), el => el.child(button('board-resume-session', t).h(28)
-            .on_click((_e, cx) => { actions.resume?.(task); cx.notify(); }).child(glyph('rotate-ccw', 13)).child('Restore conversation')))
           .when(policy.canArchive || policy.canRestore, el => el.child(button('board-archive-task', t).h(28).justify_start()
             .on_click((_e, cx) => task.archived ? actions.restore(task) : actions.archive(task, cx))
             .child(glyph(task.archived ? 'rotate-ccw' : 'archive', 13)).child(task.archived ? 'Restore task' : 'Archive task')))

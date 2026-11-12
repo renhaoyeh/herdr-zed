@@ -15,7 +15,7 @@ async function load(host = {}) {
   Object.assign(host, await evaluateNative('../mods/herdr-zed-asana/connection.js', host, 'readAsanaToken, saveAsanaToken'));
   Object.assign(host, await evaluateNative('../mods/herdr-zed-asana/source.js', host, 'asanaSource'));
   Object.assign(host, await evaluateNative('../mods/herdr-zed-asana/components/task-source-model.js', host, 'filterTasks, sourceTaskSnapshot, relativeTime, previewWidthAt, statusKind, avatarColor, initials, dueLabel, sourcePathKey'));
-  Object.assign(host, await evaluateNative('../mods/herdr-zed-tasks/task-prompt.js', host, 'taskPrompt'));
+  Object.assign(host, await evaluateNative('../mods/herdr-zed-tasks/task-prompt.js', host, 'taskPrompt, continuationPrompt, taskAttempts'));
   Object.assign(host, await evaluateNative('../mods/herdr-zed-asana/components/task-source.js', host, 'TaskSourceController, TaskSourceProjectPicker'));
   Object.assign(host, await evaluateNative('../mods/herdr-zed-tasks/task-session.js', host, 'TaskSession'));
   Object.assign(host, await evaluateNative('../mods/herdr-zed-asana/ui.js', host, 'AsanaPanel, AsanaProjectPicker, asanaTheme'));
@@ -107,6 +107,15 @@ test('search matches every word across name, section, assignee and parent; promp
     'Work on this Asana task: Add test\n\nhttps://x\n\nIt is a subtask of: Fix login\nhttps://p\n\nDescription:\nSteps');
   assert.equal(taskPrompt({ name: 'Short', url: '', notes: '', parent: null }), 'Work on this Asana task: Short');
   assert.ok(taskPrompt({ name: 'Long', url: '', notes: 'x'.repeat(5000), parent: null }).length < 4100);
+});
+
+test('a task with earlier sessions continues by naming itself: the agent reads their results from Tasks', async () => {
+  const { taskPrompt } = await load();
+  const prompt = taskPrompt({ gid: 'local:fix', name: 'Fix login', source: 'local', notes: '',
+    runs: [{ profileName: 'Codex', status: 'done', summary: 'Secret old summary' }], execution: { status: 'stopped' } });
+  assert.match(prompt, /earlier sessions \(task gid: local:fix\)\. .*list_tasks.*git status and diff/s);
+  assert.doesNotMatch(prompt, /Secret old summary/, 'the summaries stay in Tasks, not in the prompt');
+  assert.doesNotMatch(taskPrompt({ gid: 'local:new', name: 'New', source: 'local', notes: '' }), /earlier sessions/, 'a first session has no continuation');
 });
 
 test('the token is stored locally and only replaced against the file it was read from', async () => {
@@ -344,15 +353,30 @@ test('Tasks names and applies profile defaults, narrows efforts to the effective
   assert.equal(picks.get('task-session-agent').options[0].iconTint, false);
   assert.equal(picks.get('task-session-model').options[0].label, 'Default (A)');
   assert.equal(picks.get('task-session-effort').options[0].label, 'Default (High)');
-  click(); assert.deepEqual(started, { model: 'a', effort: 'high' });
+  click(); assert.deepEqual(started, { model: 'a', effort: 'high', instructions: '' });
   memory['herdr-zed.asana-session'] = { agent: 'codex', model: 'b' };
-  render(); click(); assert.deepEqual(started, { model: 'b', effort: null });
+  render(); click(); assert.deepEqual(started, { model: 'b', effort: null, instructions: '' });
   assert.equal(picks.get('task-session-effort').options[0].label, 'Default');
   memory['herdr-zed.asana-session'] = {};
   memory['herdr-zed.session-options'] = { codex: { models: ['a'], efforts: ['high'] } };
-  render(); click(); assert.deepEqual(started, { model: null, effort: null });
+  render(); click(); assert.deepEqual(started, { model: null, effort: null, instructions: '' });
   assert.equal(picks.get('task-session-model').options[0].label, 'Default');
   assert.deepEqual(panel.session(agents).efforts, ['low']);
+});
+
+test('Continue prefills the editable prompt with the earlier sessions and sends what is in it', async () => {
+  let click, started;
+  const button = new Proxy({}, { get: (_target, key) => (...args) => { if (key === 'on_click') click = args[0]; return button; } });
+  const { TaskSession } = await load({ ...ui, shared: () => undefined, Select: () => element(), Button: () => button });
+  const panel = new TaskSession(); panel.init({ focus_handle: () => ({ focus() {} }) });
+  const agents = [{ key: 'codex', name: 'Codex', run: ['codex'] }];
+  const task = { gid: 'task', runs: [{ profileName: 'Codex', status: 'done', summary: 'Half done' }] };
+  panel.launchRow(task, agents, (_agent, _task, options) => { started = options; }, {});
+  assert.match(panel.promptState.value(), /earlier sessions \(task gid: task\).*list_tasks/);
+  panel.promptState.set_value('Only fix the tests.');
+  click();
+  assert.equal(started.instructions, 'Only fix the tests.');
+  assert.equal(panel.prompt, null, 'the next session starts from a fresh default');
 });
 
 test('the composer remembers the agent and drops a model or effort the new agent lacks', async () => {

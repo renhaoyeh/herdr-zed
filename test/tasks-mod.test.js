@@ -149,11 +149,18 @@ test('a new local execution receives MCP tool discovery and a unique run while r
   const saved = h.owner.boardRecords(h.state.projects[0])[task.gid];
   assert.equal(h.launches.length, 1);
   const { agent, options, target } = h.launches[0];
-  assert.equal(agent.key, 'codex'); assert.equal(target.task.gid, task.gid);
-  // Agents forwards the prompt and run ID to prepare; Tasks owns the origin link on the launch request.
-  assert.match(options.prompt, /herdr_tasks MCP report_task/);
-  assert.ok(options.prompt.includes(saved.execution.id));
+  assert.equal(agent.key, 'codex'); assert.equal(typeof target.task, 'string', 'the prompt is the first message');
+  // Agents sends target.task as the first message; Tasks owns the origin link on the launch request.
+  assert.match(target.task, /herdr_tasks MCP report_task/);
+  assert.ok(target.task.includes(saved.execution.id));
   assert.deepEqual(options.origin, { extension: 'tasks', ref: task.gid });
+  assert.match(target.task, /earlier sessions \(task gid: local:new-run\)/, 'Continue names the task for list_tasks');
+  assert.equal('instructions' in options, false, 'the prompt override is not a launch option');
+  const edited = await modules({ [key]: { [task.gid]: task } });
+  await edited.runtime.startThread({ key: 'codex', name: 'Implementer', run: ['codex'], installed: true },
+    { space: 'p', folder: '/project', task }, { instructions: '  Only fix the fixture.  ' });
+  assert.match(edited.launches[0].target.task, /Keep the existing UI\.\n\nOnly fix the fixture\.\n\nHerdr task attempt/);
+  assert.doesNotMatch(edited.launches[0].target.task, /earlier sessions/, 'what the person left replaces the default');
   assert.equal(options.model, 'chosen-model'); assert.equal(options.effort, 'high');
   // The record keeps what prepare decided, not what was requested.
   assert.equal(saved.execution.profileName, 'Implementer');

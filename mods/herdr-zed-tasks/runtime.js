@@ -223,7 +223,9 @@ export class TaskRuntime {
     if (!taskActions(current).canStart) throw new Error('Stop the running agent, or reopen a Done task, before starting a new session.');
     const reporting = !target.machine && !spaces().find(space => space.id === target.space)?.machine
       ? { run: `run:${Date.now()}:${Math.random().toString(36).slice(2)}` } : null;
-    const prompt = taskPrompt(task, reporting);
+    const { instructions, ...launchOptions } = options;
+    options = launchOptions;
+    const prompt = taskPrompt({ ...task, runs: current.runs, execution: current.execution }, reporting, instructions);
     const before = boardRecords(project)[task.gid] || {};
     rememberBoardTask(project, task, { status: 'doing', manual: false, seenWorking: false, agentKey: agent.key, agentName: agent.name,
       ...(reporting ? { execution: { id: reporting.run, status: 'starting', profile: agent.key, profileName: agent.name,
@@ -231,7 +233,8 @@ export class TaskRuntime {
         runs: [...(before.runs || []), ...(before.execution ? [before.execution] : [])].slice(-30) } : {}) });
     let launched;
     try {
-      launched = await this.agentClient.launch(agent, target, { ...options, prompt, origin: { extension: 'tasks', ref: task.gid } });
+      // Agents sends target.task as the agent's first message (launch.js); the board's task object stays here.
+      launched = await this.agentClient.launch(agent, { ...target, task: prompt }, { ...options, origin: { extension: 'tasks', ref: task.gid } });
     } catch (error) {
       // The run never started: restore the task as it was before this attempt.
       rememberBoardTask(project, task, { status: before.status || 'todo', manual: before.manual ?? false,
