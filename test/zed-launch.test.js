@@ -156,3 +156,39 @@ test('a new space launch matches by folder and machine when no space is given', 
   const result = reconcileLaunches({ pending: [launch], threads: {} }, spaces, NOW);
   assert.deepEqual(Object.keys(result.threads), ['tab-9']);
 });
+
+test('Start a thread hands its task to the agent as the first message; a terminal takes none', async () => {
+  const calls = [], memory = {};
+  const api = { spaces: () => [{ id: 'space-1', machine: null }], shared: key => memory[key], setShared: (key, value) => { memory[key] = value; },
+    run: (...args) => calls.push(args), closeOverlay() {}, window: () => ({ platform: 'linux' }) };
+  const { createNativeThread } = await evaluateNative('../mods/herdr-zed/native-threads.js', { ...api, terminalArgv }, 'createNativeThread');
+  const target = { space: 'space-1', folder: '/repo', projectName: 'Repo', machine: null, task: 'Fix the login bug' };
+  createNativeThread({ key: 'claude', name: 'Claude Code', run: ['claude'] }, target, api);
+  assert.deepEqual(calls.find(([name]) => name === 'tab.new')[1].task, 'Fix the login bug');
+  calls.length = 0;
+  createNativeThread(null, target, api);
+  assert.equal('task' in calls.find(([name]) => name === 'tab.new')[1], false);
+  calls.length = 0;
+  createNativeThread({ key: 'codex', name: 'Codex', run: ['codex'] }, { ...target, space: null }, api);
+  assert.equal(calls.find(([name]) => name === 'space.new')[1].task, 'Fix the login bug');
+});
+
+test('Start a thread opens on the program last chosen in the project and starts only on Ctrl/Cmd+Enter', async () => {
+  const { startChoice, startProjectKey, startPanel } = await evaluateNative('../mods/herdr-zed/start-panel.js', {
+    shared: () => ({}), setShared() {}, window: () => ({ platform: 'windows' }), Button() {}, Select() {}, SelectState: class {},
+    Empty() {}, EmptyTitle() {}, EmptyDescription() {}, glyph() {}, AgentIcon() {}, div() {}, v_flex() {}, h_flex() {}, Textarea: {},
+    TextareaState: { new: () => ({ handlers: {}, text: 'Task', on(event, fn) { this.handlers[event] = fn; }, set_auto_grow() {}, value() { return this.text; }, set_value(text) { this.text = text; } }) },
+  }, 'startChoice, startProjectKey, startPanel');
+  const programs = [{ key: 'claude' }, { key: 'codex' }], project = { id: 's', folder: 'C:\\repo\\', machine: null };
+  assert.equal(startChoice(programs, project, {}).key, 'claude', 'first program by default');
+  assert.equal(startChoice(programs, project, { [startProjectKey(project)]: 'codex' }).key, 'codex');
+  assert.equal(startChoice(programs, project, { [startProjectKey(project)]: 'terminal' }), null);
+  const started = [], view = { ...startPanel, startThread: (agent, target) => started.push([agent?.key, target.task]) };
+  view.initStartPanel({});
+  view.startTarget = { agent: programs[0], target: { space: 's' } };
+  view.startTask.handlers.submit({ secondary: false }, { notify() {} });
+  assert.deepEqual(started, [], 'plain Enter only adds a line');
+  view.startTask.handlers.submit({ secondary: true }, { notify() {} });
+  assert.deepEqual(started, [['claude', 'Task']]);
+  assert.equal(view.startTask.value(), '', 'the composer clears after starting');
+});

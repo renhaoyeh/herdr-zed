@@ -13,7 +13,9 @@ export function createNativeThread(agent, target, api = { spaces, shared, setSha
   api.setShared('herdr-zed.conversation-visible', { ...(api.shared('herdr-zed.conversation-visible') || {}), [key]: true });
   api.setShared('herdr-zed.selected-project', null);
   api.run('layout.select', { stack: 'workspace-view', child: 'main' });
-  if (target.space) api.run('tab.new', { space: target.space, folder: target.folder, ...(argv ? { name: agent.name, argv } : {}) });
-  else api.run('space.new', { name: target.projectName, folder: target.folder, machine: machine || '', ...(argv ? { tab: agent.name, argv } : {}) });
+  // A task becomes the agent's first message (Herdr tab.new/space.new `task`); a plain terminal takes none.
+  const task = argv && target.task ? { task: target.task } : {};
+  if (target.space) api.run('tab.new', { space: target.space, folder: target.folder, ...(argv ? { name: agent.name, argv, ...task } : {}) });
+  else api.run('space.new', { name: target.projectName, folder: target.folder, machine: machine || '', ...(argv ? { tab: agent.name, argv, ...task } : {}) });
   if (target.overlay) api.closeOverlay(target.overlay);
 }

@@ -111,6 +111,8 @@ test('native sidebar, pane menu, dock controls and empty editor render without e
   const triggerAnchor = { x: 252, y: 80 };
   host.DropdownMenuTrigger = (trigger, _width, open) => trigger.on_click((_event, context) => open(context, triggerAnchor));
   host.DropdownMenu = (id, _state, trigger, items, choose) => Object.assign(ui(id).child(trigger), { items, choose });
+  Object.assign(host, { TextareaState: { new: () => ({ on() {}, set_auto_grow() {}, value: () => '', set_value() {}, release() {} }) },
+    Textarea: { new: () => ui('textarea') }, Select: id => ui(id), SelectState: class {} });
   Object.assign(host, await evaluateNative('../mods/herdr-zed/start-panel.js', host, 'startPanel'));
   Object.assign(host, await evaluateNative('../mods/herdr-zed/decorations.js', host, 'threadDecorations, decorationTone'));
   Object.assign(host, await evaluateNative('../mods/herdr-zed/thread-close.js', host, 'closeThreadTab, closeThreadPane, isProjectPlaceholder'));

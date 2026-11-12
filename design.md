@@ -36,6 +36,13 @@ titles). Where they conflict, this file wins.
 - The sidebar width can be dragged horizontally. Its top bar and history row stay 32px high; internal vertical
   boundaries cannot be dragged to resize the thread area.
 
+## Start a thread
+
+- An empty project shows a composer: a multi-line task field, the program picker (Terminal and installed programs,
+  opening on the one last chosen in that project) and Start. Enter adds a line; Ctrl+Enter (Cmd+Enter on macOS) or
+  Start begins the thread. Nothing is sent on plain Enter. The task becomes the agent's first message; a Terminal
+  starts without one.
+
 ## Status bar
 
 - Left: context (conversation toggle, machine). Right, in order: `status.right` surfaces (live readings) →

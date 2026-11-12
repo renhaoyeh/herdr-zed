@@ -117,7 +117,7 @@ export default class HerdrZed extends View {
       });
     }
     if (view === 'editor') {
-      this.editor = new WorkspaceEditor(); this.editor.init(cx); this.files = this.editor.files;
+      this.editor = new WorkspaceEditor(); this.editor.init(cx); this.files = this.editor.files; this.initStartPanel(cx);
       cx.spawn(async cx => {
         for (;;) {
           const command = await nextCommand();
@@ -393,7 +393,7 @@ export default class HerdrZed extends View {
   groupedThreads(space, threads, t, live) { return threads.map(thread => this.renderThreadGroup(thread, t, live)); }
 
   async close() {
-    this.settingsPage?.close();
+    this.settingsPage?.close(); this.startTask?.release();
     this.authorDialog?.close();
     if (this.editor) this.editor.close(); else this.files?.close();
     this.diff?.close();
