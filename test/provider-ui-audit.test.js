@@ -53,6 +53,6 @@ test('every icon-only button in the provider mods has an accessibility label and
       }
     }
   }
-  assert.ok(checked >= 30, `the audit reads the icon-only buttons (${checked} found)`);
+  assert.ok(checked >= 29, `the audit reads the icon-only buttons (${checked} found)`);
   assert.deepEqual(problems, []);
 });

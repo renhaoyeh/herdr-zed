@@ -8,7 +8,7 @@ import { launcherLabel, launcherOption, accountAddresses } from './components/se
 import { rememberBoardTask, projectBoardTasks, boardRecords, setTaskDueDate } from './agent-board-state.js';
 import { taskTokenId } from './components/tasks-model.js';
 import { rulesPath } from './components/agents.js';
-import { readTaskOutput, taskIdentifier, outputMarkdown } from './agent-board-details.js';
+import { taskIdentifier } from './agent-board-details.js';
 import { glyph, AgentIcon } from './components/icon.js';
 import { Button } from './components/button.js';
 import { Select, SelectState } from './components/select.js';
@@ -46,13 +46,8 @@ export default class AgentBoard {
     this.detailPanel = new SidePanelState(() => shared('herdr-zed.task-detail-width') ?? 500,
       width => setShared('herdr-zed.task-detail-width', width),
       { minWidth: 360, maxWidth: 880, defaultWidth: 500, minContentWidth: 320, label: 'Resize task details' });
-    this.outputs = new Map();
     this.cardMenu = new DropdownMenuState(cx);
     this.importMenu = new DropdownMenuState(cx);
-    cx.timer.every(5000, cx => {
-      if (shared('herdr-zed.tasks-open') && this.project?.id === shared('herdr-zed.board-project') && this.currentTask?.gid === this.selected)
-        this.loadOutput(this.currentTask, this.project, cx);
-    });
   }
   assignment(task, launchers, t, size = 14) {
     const key = task.agentKey || task.tabs.map(tab => shared('herdr-zed.thread-profiles')?.[tab.id]).find(Boolean);
@@ -150,24 +145,6 @@ export default class AgentBoard {
     this.setStatus(project, gid, status);
     this.cancelDrag(cx); cx.stop_propagation();
   }
-  loadOutput(task, project, cx) {
-    if (!task.agents.length) return;
-    const key = `${project.folder}:${task.gid}`, previous = this.outputs.get(key);
-    if (previous?.busy) return;
-    const request = { ...previous, busy: true, error: null };
-    this.outputs.set(key, request);
-    cx.spawn(async cx => {
-      try {
-        const text = await readTaskOutput(task);
-        if (this.outputs.get(key) !== request) return;
-        this.outputs.set(key, { text, at: Date.now(), busy: false });
-        const current = boardRecords(project)[task.gid];
-        if (text && current && current.lastOutput !== text)
-          rememberBoardTask(project, current, { lastOutput: text, lastOutputAt: Date.now() });
-      } catch (error) { if (this.outputs.get(key) === request) this.outputs.set(key, { ...previous, error: error.message, busy: false }); }
-      cx.notify();
-    });
-  }
   show(task, project, cx) {
     const key = JSON.stringify([boardKey(project), task.gid]);
     if (this.selected === task.gid && this.selection?.key === key && !this.detail.detailError) return;
@@ -179,7 +156,6 @@ export default class AgentBoard {
     this.detail.detailRequest = null;
     this.detail.folder = project.folder;
     if (task.agentKey) setShared('herdr-zed.asana-session', { ...(shared('herdr-zed.asana-session') || {}), agent: task.agentKey });
-    this.loadOutput(task, project, cx);
     if (task.source === 'local' || task.source === 'thread') { cx.notify(); return; }
     this.detail.show(task, cx); cx.notify();
   }
@@ -345,8 +321,6 @@ export default class AgentBoard {
   preview(task, project, launchers, actions, t, cx, tasks = []) {
     const origin = task.mantisbt || task.asana;
     const detail = task.source === 'local' || task.source === 'thread' ? { ...task, notes: task.notes || '', comments: origin?.comments || [] } : this.detail.detail;
-    const output = this.outputs.get(`${project.folder}:${task.gid}`) || {};
-    const text = output.text || task.lastOutput;
     const policy = taskActions(task);
     const status = boardStatuses.find(status => status.key === task.status);
     const priority = boardPriorities.find(priority => priority.key === task.priority) || boardPriorities[0];
@@ -436,14 +410,6 @@ export default class AgentBoard {
           .children(task.activity.slice(-15).reverse().map(item => v_flex().gap(4)
             .child(div().text_size(10).text_color(t.muted).child(`${new Date(item.at).toLocaleString()} · ${item.status}`))
             .child(div().text_size(12).child(item.message))))))
-        .when(task.agents.length > 0 || Boolean(text), el => el.child(v_flex().gap(12)
-          .child(h_flex().gap(8).items_center().text_size(12).font_medium()
-            .child('Latest output').child(div().flex_1())
-            .child(button('board-refresh-output', t, { size: 'icon' }).disabled(Boolean(output.busy)).accessibility_label('Refresh agent output').tooltip('Refresh agent output')
-              .on_click((_e, cx) => this.loadOutput(task, project, cx)).child(glyph('refresh-cw', 14))))
-          .when(Boolean(output.error), el => el.child(div().text_size(12).text_color(t.destructive).child(output.error)))
-          .when(!text && !output.error, el => el.child(div().text_size(12).text_color(t.muted).child('Reading agent output…')))
-          .when(Boolean(text), el => el.child(TextView.markdown(`board-output-${task.gid}`, outputMarkdown(text)).selectable(true).scrollable(false).w_full().text_size(11)))))
         .children((detail?.comments || []).map(comment => v_flex().gap(8)
           .child(div().text_size(12).font_medium().child(comment.author))
           .child(TextView.markdown(`board-comment-${comment.gid}`, comment.text).selectable(true).scrollable(false).w_full().text_size(13)))))
