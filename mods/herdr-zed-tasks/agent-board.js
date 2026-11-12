@@ -7,6 +7,7 @@ import { boardStatuses, boardKey, liveVersion, boardPriorityOptions, boardPriori
 import { launcherLabel, launcherOption, accountAddresses } from './components/session-model.js';
 import { rememberBoardTask, projectBoardTasks, boardRecords, setTaskDueDate } from './agent-board-state.js';
 import { taskTokenId } from './components/tasks-model.js';
+import { rulesPath } from './components/agents.js';
 import { readTaskOutput, taskIdentifier, outputMarkdown } from './agent-board-details.js';
 import { glyph, AgentIcon } from './components/icon.js';
 import { Button } from './components/button.js';
@@ -418,7 +419,7 @@ export default class AgentBoard {
         .when(task.tabs.length > 0, el => el.child(button('board-copy-reporting', t).h(28).self_start()
           .on_click((_e, cx) => cx.spawn(async cx => {
             try {
-              const guide = await readTextFile(`${appHome()}/data/devkits/AGENTS.md`);
+              const guide = await readTextFile(rulesPath());
               if (!guide?.trim()) throw new Error('The global Agent Guide is empty or unavailable.');
               cx.write_to_clipboard(guide); this.copiedReportFor = task.gid; this.relatedError = null;
             } catch (error) { this.relatedError = error.message; }

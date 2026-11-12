@@ -330,7 +330,8 @@ Herdr home = `HERDR_APP_HOME` or `~/.config/herdr-app`.
 
 | Data | Location | Decision |
 | --- | --- | --- |
-| Accounts, credentials, Profiles, Guide (`data/devkits/AGENTS.md`), `codex-mcp.json`, usage caches | `data/devkits/` | **Proposed:** shared with Devkits (open question) |
+| Accounts, credentials, Profiles, `codex-mcp.json`, usage caches | `data/devkits/` | **Proposed:** shared with Devkits (open question) |
+| Guide (global rules) | `data/herdr-zed/AGENTS.md` | Own, no migration: its prompt composition differs from Devkits |
 | Extension registry | `data/herdr-zed/extensions.json` | Own (was `data/devkits-zed/`) |
 | UI preferences and layout state (shared-state keys such as `devkits.side-panel-width`, `devkits.editor-tabs`, `devkits.diff-layout`, `devkits.projects`, project layouts) | `herdr-zed.*` keys | **Proposed:** own keys, no migration (open question) |
 | Conversation history, diff build filters | to be classified in the same question | |
@@ -370,7 +371,7 @@ No code reads both the old and new key; whichever is chosen is the only path.
 
 ## Open questions
 
-1. **Data paths.** Proposal: keep sharing `data/devkits/` (accounts, Guide, `codex-mcp.json`); move UI
+1. **Data paths.** Proposal: keep sharing `data/devkits/` (accounts, `codex-mcp.json`); the Guide is resolved as own; move UI
    preferences and layout state to `herdr-zed.*` keys so this layout and the old one never affect each
    other. Also decide where conversation history, Git accounts/authors and Tasks/Calendar data live.
 2. **Name.** "Zed" is Zed Industries' product name and may cause confusion. The repo/mod/key prefix

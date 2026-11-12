@@ -3,7 +3,7 @@ import { shared, setShared, layout, openOverlay, appHome } from 'herdr';
 import { noAccountLabel } from './session-model.js';
 
 const REQUESTS = 'herdr-zed.agents.requests', RESULTS = 'herdr-zed.agents.results';
-export const rulesPath = () => `${appHome()}/data/devkits/AGENTS.md`;
+export const rulesPath = () => `${appHome()}/data/herdr-zed/AGENTS.md`;
 export const noAccount = noAccountLabel;
 // The shell owns the New thread picker; the Agents settings page opens the shared MCP dialog.
 export const openSharedMcp = () => openOverlay({ mod: 'herdr-zed-agents', kind: 'dialog', frame: 'none', modal: true, width: 720, height: 0.8,
