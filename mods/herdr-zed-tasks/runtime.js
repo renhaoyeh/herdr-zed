@@ -1,7 +1,7 @@
 import { agents, spaces, terminals, shared, setShared, notify, props, run, hc } from 'herdr';
 import { projectCatalog, projectGroups, folderKey, launcherChoices, launcherLabel, isAccountLauncher, configuredAgents, resolveThreadProfiles } from './components/session-model.js';
 import { boardKey, taskActions, canStartTask, taskNeedsArchiveChoice } from './agent-board-model.js';
-import { projectBoardTasks, rememberBoardTask, setTaskArchived, threadBoardTask, threadBoardStatus, sessionThreadTitle, boardRecords, createLocalTask } from './agent-board-state.js';
+import { projectBoardTasks, rememberBoardTask, setTaskArchived, threadBoardTask, threadBoardStatus, sessionThreadTitle, boardRecords, createLocalTask, deleteLocalTask } from './agent-board-state.js';
 import { observeTaskInput } from './agent-task-evidence.js';
 import { openArchiveTask } from './archive-task.js';
 import { taskPrompt } from './task-prompt.js';
@@ -26,6 +26,12 @@ export class TaskRuntime {
     const resolved = this.resolveImport({ source: snapshot?.source, context, snapshot });
     if (resolved.error) { notify({ title: 'Could not import task', body: resolved.error, level: 'error' }); return null; }
     return openTaskComposer(resolved.project, null, 'todo', resolved.snapshot);
+  }
+  // The board's Delete, with the same policy: local tasks and thread cards whose agent is not active.
+  deleteTask(project, gid) {
+    const current = this.projects().find(item => boardKey(item) === project.key);
+    if (!current || !deleteLocalTask(current, gid, agents())) throw new Error('This task cannot be deleted: it is not a local task or thread card, or its agent is active.');
+    return { gid, deleted: true };
   }
   createTask(project, args) { return createLocalTask(project, args.name, args.notes || '', { priority: args.priority || 'none', ...(args.parentId ? { parentId: args.parentId } : {}) }, agents()); }
   // Native focus: the conversation's space and tab are selected in Herdr itself.

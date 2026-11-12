@@ -11,6 +11,11 @@ export function tasksMcpCall(runtime, name, args = {}) {
   const project = projects.find(project => project.key === args.project);
   if (!project) throw new Error('Unknown project. Use list_projects and pass its key.');
   if (name === 'list_tasks') return { tasks: snapshot.projects[project.key].tasks };
+  if (name === 'delete_task') {
+    for (const key of Object.keys(args)) if (!['project', 'gid'].includes(key)) throw new Error(`Unknown field: ${key}`);
+    if (typeof args.gid !== 'string' || !args.gid) throw new Error('gid must be a nonempty task gid.');
+    return runtime.deleteTask(project, args.gid);
+  }
   if (name !== 'create_task') throw new Error('Unknown tool.');
   for (const key of Object.keys(args)) if (!['project', 'name', 'notes', 'priority', 'parentId'].includes(key)) throw new Error(`Unknown field: ${key}`);
   if (typeof args.name !== 'string' || !args.name.trim() || args.name.length > 1000) throw new Error('name must contain 1–1000 characters.');

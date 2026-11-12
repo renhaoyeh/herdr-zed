@@ -29,13 +29,13 @@ test('stdio handshake, discovery, Unicode calls and errors remain valid JSON-RPC
   const send = (id, method, params) => input.write(JSON.stringify({ jsonrpc: '2.0', ...(id === undefined ? {} : { id }), method, params }) + '\n');
   send(0, 'tools/list'); send(1, 'initialize', { protocolVersion: '2025-06-18' }); send(undefined, 'notifications/initialized');
   send(2, 'tools/list'); send(3, 'tools/call', { name: 'create_task', arguments: { name: '繁體中文\nDescription' } });
-  send(4, 'tools/call', { name: 'create_task', arguments: { name: 'fail' } }); send(5, 'tools/call', { name: 'delete_task' }); send(6, 'ping');
+  send(4, 'tools/call', { name: 'create_task', arguments: { name: 'fail' } }); send(5, 'tools/call', { name: 'rename_task' }); send(6, 'ping');
   await server.drained(); server.lines.close();
   messages.push(...raw.trim().split('\n').map(line => JSON.parse(line)));
   assert.equal(messages.length, 8);
   assert.equal(messages[0].error.code, -32700); assert.equal(messages[1].error.code, -32000);
   assert.equal(messages[2].result.serverInfo.name, 'herdr-tasks');
-  assert.equal(messages[3].result.tools.length, 4);
+  assert.equal(messages[3].result.tools.length, 5);
   assert.equal(messages[4].result.structuredContent.task.name, '繁體中文\nDescription');
   assert.equal(messages[5].result.isError, true); assert.equal(messages[6].error.code, -32602);
   assert.deepEqual(messages[7].result, {}); assert.equal(calls.length, 2);

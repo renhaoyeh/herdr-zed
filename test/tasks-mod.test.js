@@ -452,6 +452,15 @@ test('Restore conversation is not started by Tasks: the board shows an inline er
   assert.deepEqual(h.launches, []); assert.deepEqual(h.native, []);
 });
 
+test('delete_task removes a thread card whose tab is gone and refuses a task with an active agent', async () => {
+  const key = '["","/project"]', gone = { gid: 'thread:gone', source: 'thread', name: 'Gone', status: 'review', threadId: 'gone', hasInput: true };
+  const h = await modules({ [key]: { [gone.gid]: gone } });
+  assert.deepEqual(tasksMcpCall(h.runtime, 'delete_task', { project: key, gid: gone.gid }), { gid: gone.gid, deleted: true });
+  assert.equal(h.owner.boardRecords(h.state.projects[0])[gone.gid], undefined);
+  assert.throws(() => tasksMcpCall(h.runtime, 'delete_task', { project: key, gid: 'asana:1' }), /cannot be deleted/);
+  assert.throws(() => tasksMcpCall(h.runtime, 'delete_task', { project: key, gid: gone.gid, extra: 1 }), /Unknown field/);
+});
+
 test('Import from offers only enabled source browsers that loaded without error', async () => {
   const h = await modules();
   const catalog = (packages, unavailable = []) => ({ packages, resolved: { unavailable: unavailable.map(mod => ({ mod })) } });
