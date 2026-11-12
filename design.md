@@ -33,6 +33,9 @@ titles). Where they conflict, this file wins.
 - Top to bottom: the thread list, the sidebar surfaces (Usage via the thread menu; optional tools via Extensions), and the
   thread history row. The history row is always the last row (its own layout block `sidebar-history`).
 - Sidebar surfaces start hidden the first time they mount; Manage extensions turns them on.
+- Project rows: the current project has a 2px accent left edge; a project without threads has a dim name and no
+  placeholder row. A project row shows how many of its threads are blocked (circle-alert, `blocked`), and while folded
+  also how many are done (circle-check, `done`), so what needs you is visible without opening it.
 - The sidebar width can be dragged horizontally. Its top bar and history row stay 32px high; internal vertical
   boundaries cannot be dragged to resize the thread area.
 

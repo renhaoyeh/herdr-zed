@@ -775,8 +775,18 @@ export default class HerdrZed extends View {
     const visible = groups.filter(group => !this.folded.has(group.space.id)).flatMap(group => group.threads.flatMap(thread => thread.agents));
     setAgentOrder(visible.map(a => a.address));
     const list = (historyOpen() ? this.historyList(t) : SidebarContent()
-        .children(groups.map(({ space, threads }, index) => SidebarGroup(index > 0, t)
+        .children(groups.map(({ space, threads }, index) => {
+          // design.md, Sidebar: what needs you shows on the project row. Blocked threads always; finished ones while
+          // the project is folded, since their rows are hidden.
+          const folded = this.folded.has(space.id), statuses = threads.map(thread => this.agentStatus(thread, live));
+          const blocked = statuses.filter(status => status === 'blocked').length, done = folded ? statuses.filter(status => status === 'done').length : 0;
+          const count = (icon, color, value, label) => h_flex().flex_none().gap(2).items_center().text_size(11).text_color(color)
+            .accessibility_label(`${value} ${label}`).child(glyph(icon, 12)).child(String(value));
+          return SidebarGroup(index > 0, t)
           .child(SidebarGroupLabel(`project-${space.id}`, space.active, t).pr(0)
+            // The current project carries an accent edge; a project without threads stays quiet.
+            .border_l(2).border_color(space.active ? t.accent : '#00000000').pl(10)
+            .when(!threads.length && !space.active, el => el.text_color(t.dim))
             .on_hover((hovered, cx) => { this.hoveredProject = hovered ? space.id : null; cx.notify(); })
             .on_click((event, cx) => {
               const modifier = window()?.platform === 'macos' ? event?.modifiers?.platform : event?.modifiers?.control;
@@ -788,6 +798,8 @@ export default class HerdrZed extends View {
               .child(glyph(this.folded.has(space.id) ? 'chevron-right' : 'chevron-down', 12)))
             .when(Boolean(space.machine), el => el.child(div().text_size(9).text_color(t.muted).child(space.machine)))
             .child(div().flex_1())
+            .when(blocked > 0, el => el.child(count('circle-alert', t.blocked, blocked, blocked === 1 ? 'thread needs you' : 'threads need you')))
+            .when(done > 0, el => el.child(div().pl(blocked ? 6 : 0).child(count('circle-check', t.done, done, 'finished'))))
             .child(DropdownMenuTrigger(ToolbarButton(`new-thread-${space.id}`, t, { icon: true, row: true })
               .tooltip(`New thread in ${space.name}`).accessibility_label(`New thread in ${space.name}`)
               .child(glyph('plus', ROW_GLYPH)).opacity(this.hoveredProject === space.id ? 1 : 0), 280,
@@ -802,8 +814,8 @@ export default class HerdrZed extends View {
                 props: { view: 'project-menu', project: space } }), 'end', SIDEBAR_MENU)
               .child(glyph('ellipsis', ROW_GLYPH)).opacity(this.hoveredProject === space.id ? 1 : 0)))
           .when(!this.folded.has(space.id), el => el
-            .children(this.groupedThreads(space, threads, t, live))
-            .when(!threads.length, el => el.child(h_flex().h(32).flex_none().px(12).items_center().text_size(12).text_color(t.muted).child('No threads yet')))))));
+            .children(this.groupedThreads(space, threads, t, live)));
+        })));
     // design.md, Separators: a divider between the threads and the sidebar surfaces, when one is shown. The history
     // row is its own layout block below them (layouts/herdr-zed.json).
     return Sidebar(t).on_size_change(size => recordSize(SIDEBAR_HEIGHT_KEY, size.height))
