@@ -117,8 +117,8 @@ test('thread decorations label each Agents thread with its account and a quota t
   const agents = [{ key: 'devkits-codex-work', name: 'Codex · work' }, { key: 'devkits-claude-main', name: 'Claude · main' }, { key: 'codex', name: 'Codex' }];
   const threads = { 11: { profile: 'devkits-codex-work', source: 'agents' }, 12: { profile: 'devkits-claude-main', source: 'agents' },
     13: { profile: null, source: 'native' }, 14: { profile: 'removed-account', source: 'agents' }, 15: { profile: 'codex', source: 'agents' } };
-  const usage = [{ key: 'devkits-codex-work', windows: [{ minutes: 300, usedPercent: 93 }] },
-    { key: 'devkits-claude-main', windows: [{ minutes: 10080, usedPercent: 100 }] }, { key: 'codex', email: 'me@example.com', windows: [{ minutes: 300, usedPercent: 12 }] }];
+  const usage = [{ key: 'devkits-codex-work', windows: [{ minutes: 300, usedPercent: 75 }] },
+    { key: 'devkits-claude-main', windows: [{ minutes: 10080, usedPercent: 90 }] }, { key: 'codex', email: 'me@example.com', windows: [{ minutes: 300, usedPercent: 12 }] }];
   assert.deepEqual(threadDecorations(threads, agents, usage), {
     11: { badge: 'work', tone: 'warning' }, 12: { badge: 'main', tone: 'error' }, 15: { badge: 'me@example.com' } });
   assert.deepEqual(threadDecorations(undefined, agents, usage), {});

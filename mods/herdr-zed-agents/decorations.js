@@ -17,7 +17,8 @@ export function threadDecorations(threads = {}, agents = [], usage = []) {
     const label = name === 'Default account' ? (reading?.email || name) : name;
     const usedPercent = Math.max(-Infinity, ...(reading?.windows || [])
       .filter(window => [300, 10080].includes(window.minutes)).map(window => window.usedPercent));
-    const tone = usedPercent >= 100 ? 'error' : usedPercent >= 90 ? 'warning' : null;
+    // The Usage meter's thresholds: warning from 70%, error from 90%.
+    const tone = usedPercent >= 90 ? 'error' : usedPercent >= 70 ? 'warning' : null;
     decorations[tabId] = { badge: label.slice(0, MAX_TEXT), ...(tone ? { tone } : {}) };
   }
   return decorations;
