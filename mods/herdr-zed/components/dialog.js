@@ -34,3 +34,14 @@ export function DiscardPrompt(id, t, { keep, discard }) {
     .child(Button(`${id}-keep`, t, { variant: 'secondary' }).on_click(keep).child('Keep editing'))
     .child(Button(`${id}-discard`, t, { variant: 'destructive' }).on_click(discard).child('Discard'));
 }
+
+// design.md, Saving: the footer of a page whose changes install or run setup (Capabilities, MCP Connections, ECC). One
+// status slot on the left (the error in red, progress, the red "Unsaved changes", or "Applied"), then Discard and Apply.
+export function ApplyFooter(id, t, { dirty, busy = false, progress = 'Applying…', applied = false, error = null, canApply = true, discard, apply }) {
+  const text = error || (busy ? progress : dirty ? 'Unsaved changes' : applied ? 'Applied. New sessions use it.' : '');
+  return h_flex().id(id).flex_none().gap(8).items_center()
+    .child(div().id(`${id}-status`).flex_1().min_w(0).truncate().text_size(12).text_color(error || (dirty && !busy) ? t.ansi1 : t.muted)
+      .when(Boolean(error), el => el.tooltip(error)).child(text))
+    .child(Button(`${id}-discard`, t, { variant: 'secondary' }).disabled(busy || !dirty).on_click(discard).child('Discard'))
+    .child(Button(`${id}-apply`, t).disabled(busy || !dirty || !canApply).on_click(apply).child(busy ? progress : 'Apply'));
+}

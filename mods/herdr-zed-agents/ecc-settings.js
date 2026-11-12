@@ -9,7 +9,7 @@ import { Switch } from './components/switch.js';
 import { Select, SelectState } from './components/select.js';
 import { Button } from './components/button.js';
 import { glyph, AgentIcon } from './components/icon.js';
-import { DialogDescription, DialogFooter } from './components/dialog.js';
+import { DialogDescription, ApplyFooter } from './components/dialog.js';
 
 const eccProviderName = provider => provider === 'claude' ? 'Claude Code' : 'Codex';
 const eccRuntimePath = () => `${appHome()}/mods/herdr-zed-agents/ecc-runtime.js`;
@@ -216,8 +216,8 @@ export const eccSettings = {
           .when(!selected, el => el.child(div().text_size(12).text_color(t.muted).child(items.length ? 'Select a component to read its purpose and change its selection.' : 'No matching components.')))));
   },
   eccNavigation(t) {
-    return v_flex().gap(2).children([{ id: 'overview', label: 'Overview' }, { id: 'claude', label: 'Claude Code' }, { id: 'codex', label: 'Codex' }].map(tab =>
-          Button(`ecc-page-${tab.id}`, t, { variant: 'ghost' }).h(30).w_full().justify_start().gap(8).px(8).bg(this.eccTab === tab.id ? t.selected : t.popover)
+    return h_flex().gap(2).children([{ id: 'overview', label: 'Overview' }, { id: 'claude', label: 'Claude Code' }, { id: 'codex', label: 'Codex' }].map(tab =>
+          Button(`ecc-page-${tab.id}`, t, { variant: 'ghost' }).h(28).gap(8).px(8).bg(this.eccTab === tab.id ? t.selected : t.popover)
             .on_click((_event, cx) => { if (tab.id === 'overview') { this.eccTab = 'overview'; cx.notify(); } else this.selectEccSection(tab.id, eccGroups.some(group => group.id === this.eccSection && group.providers.includes(tab.id)) ? this.eccSection : 'skills', cx); })
             .child(tab.id === 'overview' ? glyph('book-open', 16) : AgentIcon({ icon: `icons/${tab.id}.svg` }, t))
             .child(tab.label)));
@@ -228,7 +228,7 @@ export const eccSettings = {
       .child(h_flex().justify_end().items_center()
         .when(Boolean(draft), el => el.child(h_flex().gap(8).items_center().child(div().text_size(12).child('Enable ECC'))
           .child(Switch('ecc-enabled', draft.enabled, t).disabled(busy).on_change((checked, cx) => { draft.enabled = checked; this.eccSaved = false; this.eccDirty = true; cx.notify(); })))))
-      .child(DialogDescription(t).flex_none().child('Changes are saved when you click Save. Explore the architecture, then choose what Claude Code and Codex use. Settings are global and apply to new sessions.'))
+      .child(DialogDescription(t).flex_none().child('Explore the architecture, then choose what Claude Code and Codex use. Apply prepares the chosen components; settings are global and apply to new sessions.'))
       .when(this.eccLoading, el => el.child(div().text_color(t.muted).child('Loading ECC settings…')))
       .when(Boolean(draft), el => el.child(v_flex().flex_1().min_h(0).gap(10)
         .when(!draft.enabled, body => body.child(div().text_size(12).text_color(t.muted).child('ECC is off. You can prepare selections now; enable ECC and save to apply them.')))
@@ -237,10 +237,8 @@ export const eccSettings = {
         .when(!this.eccCatalogLoading && !this.eccCatalog, body => body.child(Button('ecc-reload-source', t, { variant: 'secondary' }).disabled(busy).on_click((_event, cx) => this.loadEccCatalog(cx)).child('Load source')))
         .when(this.eccTab === 'overview', body => body.child(this.eccOverview(t)))
         .when(this.eccTab !== 'overview', body => body.child(this.eccProviderPage(t)))))
-      .when(Boolean(this.eccError), el => el.child(div().text_size(12).text_color(t.ansi1).child(this.eccError)))
-      .child(DialogFooter().flex_none().child(div().flex_1().text_size(12).text_color(t.muted).child(this.eccSaved ? 'Saved. Applies to new sessions.' : this.eccSaving ? 'Preparing selected components and saving…' : 'Selection switches change the draft. Save to apply.'))
-        .child(Button('ecc-discard', t, { variant: 'secondary' }).disabled(busy).on_click((_event, cx) => this.initEcc(cx)).child('Discard changes'))
-        .child(Button('ecc-save', t).disabled(busy || !draft || Boolean(draft?.enabled && (!this.eccCatalog || this.eccCatalogLoading)))
-          .on_click((_event, cx) => this.saveEcc(cx)).child(this.eccSaving ? 'Saving…' : 'Save changes')));
+      .child(ApplyFooter('ecc', t, { dirty: Boolean(this.eccDirty), busy: Boolean(this.eccSaving), applied: this.eccSaved, error: this.eccError,
+        progress: 'Preparing components…', canApply: Boolean(draft) && !(draft?.enabled && (!this.eccCatalog || this.eccCatalogLoading)),
+        discard: (_event, cx) => this.initEcc(cx), apply: (_event, cx) => this.saveEcc(cx) }));
   },
 };

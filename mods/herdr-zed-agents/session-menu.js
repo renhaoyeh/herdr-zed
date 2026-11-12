@@ -463,20 +463,21 @@ export const sessionMenu = {
       .child('Accounts, profiles, rules, capabilities, MCP connections and ECC are set up on this computer. This project is on another machine.');
     if (page === 'accounts') return this.accountsPage(t, cx);
     if (page === 'profiles') return this.agentProfilesPage(t);
-    if (page === 'global-rules') return this.withSideNav(this.globalRulesNavigation(t), this.globalRulesPage(t));
+    if (page === 'global-rules') return this.withSideNav(this.globalRulesNavigation(t), this.globalRulesPage(t), t);
     if (page === 'mcp') return this.devkitsPage(t);
-    if (page === 'capabilities') return this.withSideNav(this.devkitsNavigation(t), this.devkitsPage(t));
-    if (page === 'ecc') return this.withSideNav(this.eccNavigation(t), this.eccPage(t));
+    if (page === 'capabilities') return this.withSideNav(this.devkitsNavigation(t), this.devkitsPage(t), t);
+    if (page === 'ecc') return this.withSideNav(this.eccNavigation(t), this.eccPage(t), t);
     return v_flex().flex_1().min_w(0).min_h(0).gap(8)
       .child(DialogDescription(t).flex_none().child('Choose what New thread and Usage show, in one order. Drag to reorder; changes save automatically. Agents using the same account share its quota.'))
       .child(this.agentsPage(choices, hidden, toggle, move, cancelDrag, t));
   },
 
-  // A page with its own sub-navigation on the left (Capabilities, ECC): the navigation column, then the page.
-  withSideNav(side, body) {
-    return h_flex().flex_1().min_h(0).gap(16).items_start()
-      .child(v_flex().w(140).flex_none().gap(2).child(side))
-      .child(v_flex().flex_1().min_w(0).min_h(0).h_full().child(body));
+  // A page with its own sections (Capabilities, ECC, Global Rules): a segmented row at its top, then the page. The
+  // dialog's left nav lists the pages, so a page never has a second column of navigation.
+  withSideNav(side, body, t) {
+    return v_flex().flex_1().min_h(0).gap(12)
+      .child(h_flex().id('page-sections').flex_none().p(2).gap(2).self_start().border(1).border_color(t.border).child(side))
+      .child(v_flex().flex_1().min_w(0).min_h(0).child(body));
   },
 
   // Auto in New thread starts one of these accounts, chosen by quota at each launch.

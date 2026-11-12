@@ -33,7 +33,7 @@ export interface ExtensionSurface {
   view: string; title: string; icon: string;
 }
 /** ARCHITECTURE §2.1: a sub-item under a UI extension's Settings entry. */
-export interface ExtensionSettingsPage { id: string; title: string; }
+export interface ExtensionSettingsPage { id: string; title: string; /** Labels the run of pages it starts in a settings nav. */ group?: string; }
 /** ARCHITECTURE §2.1: a UI extension's page in the shell's Settings dialog. */
 export interface ExtensionSettings { view: string; title: string; pages?: ExtensionSettingsPage[]; }
 export interface ExtensionManifest {

@@ -11,14 +11,16 @@ const base = { version: 1, id: 'demo', title: 'Demo', actions: [] };
 const manifestWith = settings => JSON.stringify({ ...base, settings });
 const pages = [{ id: 'accounts', title: 'Accounts' }, { id: 'profiles', title: 'Profiles' }];
 
-test('settings.pages: optional sub-items with unique ids, 1 to 12 of them, exactly {id,title}', () => {
+test('settings.pages: optional sub-items with unique ids, 1 to 12 of them, {id,title} and an optional group label', () => {
   assert.deepEqual(extensionMetadata('herdr-zed-demo', manifestWith({ view: 'settings', title: 'Demo', pages })).settings,
     { view: 'settings', title: 'Demo', pages });
+  const grouped = [{ id: 'a', title: 'A', group: 'First' }, { id: 'b', title: 'B' }];
+  assert.deepEqual(extensionMetadata('herdr-zed-demo', manifestWith({ view: 'settings', title: 'Demo', pages: grouped })).settings.pages, grouped);
   assert.deepEqual(extensionMetadata('herdr-zed-demo', manifestWith({ view: 'settings', title: 'Demo' })).settings,
     { view: 'settings', title: 'Demo', pages: [] });
   const tooMany = Array.from({ length: 13 }, (_, index) => ({ id: `p${index}`, title: 'Page' }));
   for (const bad of [[], tooMany, [{ id: 'a', title: 'A' }, { id: 'a', title: 'B' }], [{ id: 'a' }], [{ id: 'a', title: 'A', extra: 1 }],
-    [{ id: 'Bad', title: 'A' }], [{ id: 'a', title: '  ' }], 'pages', null])
+    [{ id: 'Bad', title: 'A' }], [{ id: 'a', title: '  ' }], [{ id: 'a', title: 'A', group: ' ' }], [{ id: 'a', title: 'A', group: 3 }], 'pages', null])
     assert.throws(() => parseExtensionManifest('herdr-zed-demo', manifestWith({ view: 'settings', title: 'Demo', pages: bad })),
       /Invalid extension settings/, JSON.stringify(bad));
   assert.equal(parseExtensionManifest('herdr-zed-demo', manifestWith({ view: 'settings', title: 'Demo', pages: Array.from({ length: 12 }, (_, i) => ({ id: `p${i}`, title: 'x' })) })).length, 0,

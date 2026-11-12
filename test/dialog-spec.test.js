@@ -100,7 +100,7 @@ test('GitHub account popup is a 560 modal form', async () => {
   assert.deepEqual(github.actions[0].popup, { view: 'account', width: 560, height: 480, modal: true });
 });
 
-test('Agents labels say thread for starting one; save semantics are named on explicit-save pages', async () => {
+test('Agents labels say thread for starting one; Apply is named on pages that install or run setup', async () => {
   const menu = await source('mods/herdr-zed-agents/session-menu.js');
   assert.match(menu, /'manage-column-session', 'New thread'/);
   assert.doesNotMatch(menu, /Add session/);
@@ -111,8 +111,10 @@ test('Agents labels say thread for starting one; save semantics are named on exp
 
   const capabilities = await source('mods/herdr-zed-agents/devkits-settings.js');
   assert.match(capabilities, /Choose Rules and Skills for new local sessions, per provider\./);
-  assert.match(capabilities, /'Save changes'\)/);
+  assert.match(capabilities, /ApplyFooter\('devkits'/, 'pages that install or run setup end in Discard and Apply');
   const ecc = await source('mods/herdr-zed-agents/ecc-settings.js');
-  assert.match(ecc, /child\('Changes are saved when you click Save\./);
-  assert.match(ecc, /'Save changes'\)/);
+  assert.match(ecc, /Apply prepares the chosen components/);
+  assert.match(ecc, /ApplyFooter\('ecc'/);
+  const footer = await source('components/dialog.js');
+  assert.match(footer, /child\('Discard'\)/); assert.match(footer, /child\(busy \? progress : 'Apply'\)/);
 });

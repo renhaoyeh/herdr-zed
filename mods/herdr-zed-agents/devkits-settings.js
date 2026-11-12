@@ -12,7 +12,7 @@ import { Button } from './components/button.js';
 import { Input } from './components/input.js';
 import { Switch } from './components/switch.js';
 import { glyph, AgentIcon } from './components/icon.js';
-import { DialogDescription, DialogFooter } from './components/dialog.js';
+import { DialogDescription, ApplyFooter } from './components/dialog.js';
 
 const providers = [{ id: 'claude', label: 'Claude Code' }, { id: 'codex', label: 'Codex' }];
 const kinds = [{ id: 'rules', label: 'Rules', note: 'Guide every new conversation.' }, { id: 'skills', label: 'Skills', note: 'Loaded when the task needs them.' }];
@@ -162,8 +162,8 @@ export const devkitsSettings = {
   },
 
   devkitsNavigation(t) {
-    return v_flex().gap(2).children([{ id: 'overview', label: 'Overview' }, ...providers].map(tab =>
-      Button(`devkits-page-${tab.id}`, t, { variant: 'ghost' }).h(30).w_full().justify_start().gap(8).px(8)
+    return h_flex().gap(2).children([{ id: 'overview', label: 'Overview' }, ...providers].map(tab =>
+      Button(`devkits-page-${tab.id}`, t, { variant: 'ghost' }).h(28).gap(8).px(8)
         .disabled(Boolean(this.capChecking || this.capSaving || this.capSetup))
         .bg(this.capTab === tab.id ? t.selected : t.popover)
         .on_click((_event, cx) => this.selectDevkitsSection(tab.id, cx))
@@ -293,12 +293,11 @@ export const devkitsSettings = {
             const name = this.capDisable.row.name; this.capDisable = null;
             this.mcpConfig.servers[name] = { ...this.mcpConfig.servers[name], enabled: false }; this.mcpDirty = true; this.mcpSaved = false; cx.notify();
           }).child('Turn off connection')))))
-      .when(Boolean(this.capError), el => el.child(div().text_size(12).text_color(t.ansi1).child(this.capError)))
-      .child(DialogFooter().flex_none()
-        .child(div().flex_1().text_size(12).text_color(t.muted).child(saved ? 'Saved. Applies to new sessions.' : this.capSaving ? 'Saving…' : dirty ? 'Unsaved changes.' : ''))
-        .child(Button('devkits-discard', t, { variant: 'secondary' }).disabled(busy || !dirty).on_click((_event, cx) => this.discardDevkits(mcp ? 'mcp' : 'capabilities', cx)).child('Discard changes'))
-        .child(Button('devkits-save', t).disabled(busy || !dirty || Boolean(this.capSetup) || Boolean(this.capPending) || Boolean(this.capDisable))
-          .on_click((_event, cx) => this.saveDevkits(mcp ? 'mcp' : 'capabilities', cx)).child(this.capSaving ? 'Saving…' : 'Save changes')));
+      .child(ApplyFooter('devkits', t, { dirty, busy, applied: saved, error: this.capError,
+        progress: this.capSaving ? 'Applying…' : 'Checking…',
+        canApply: !this.capSetup && !this.capPending && !this.capDisable,
+        discard: (_event, cx) => this.discardDevkits(mcp ? 'mcp' : 'capabilities', cx),
+        apply: (_event, cx) => this.saveDevkits(mcp ? 'mcp' : 'capabilities', cx) }));
   },
   devkitsSelectionPrompt(t) {
     const plan = this.currentDevkitsPlan();

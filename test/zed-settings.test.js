@@ -74,7 +74,7 @@ function settingsRuntime({ settings = [], memory = {}, closeThrows = [], launche
     shared: key => memory[key], setShared: (key, value) => { memory[key] = value; },
   };
   return { memory, opened, closed, runs, notices, panelCloses, setProps: next => { current = next; },
-    ready: evaluateNative('../mods/herdr-zed/settings.js', host, 'openSettings, settingsOverlay, settingsPage, settingsContext, extensionSettingsPages, settingsPageKey, SettingsNav, SettingsHeader, SettingsPage, SETTINGS_OVERLAY, closeOnEscape, requestSettingsClose, navigateSettings, DiscardChanges') };
+    ready: evaluateNative('../mods/herdr-zed/settings.js', host, 'openSettings, settingsOverlay, settingsPage, settingsContext, extensionSettingsPages, settingsPageKey, SettingsNav, SettingsHeader, SettingsPage, SETTINGS_OVERLAY, closeOnEscape, requestSettingsClose, navigateSettings, DiscardChanges, WorkflowNav') };
 }
 
 const project = { id: 'p', folder: '/work', name: 'Work', machine: undefined, token: 'private' };
@@ -214,15 +214,21 @@ test('launcher configuration has a direct entry and its own dialog, without exte
   const nav = new s.SettingsNav().render(theme);
   assert.equal(find(nav, 'settings-nav-overlay-1-extension-workflow'), null, 'the entry belongs to the main window');
   s.openSettings('extension:workflow', project);
-  assert.equal(r.opened[1].layout.children.length, 1, 'a dedicated dialog replaces preferences');
-  const column = r.opened[1].layout.children[0];
+  assert.equal(r.opened[1].layout.children.length, 2, 'a dedicated dialog replaces preferences');
+  assert.equal(r.opened[1].layout.children[0].content.props.view, 'workflow-nav', 'its pages are in a left nav');
+  const column = r.opened[1].layout.children[1];
   assert.equal(column.children[1].content.props.page, 'accounts');
   r.setProps({ ...column.children[0].content.props, overlay: 'overlay-2' });
   const header = new s.SettingsHeader().render(theme);
   assert.equal(find(header, 'settings-back'), null, 'no route back into extension management');
   assert.equal(find(header, 'settings-enable-herdr-zed-workflow'), null, 'the core workflow is not an optional extension');
   assert.equal(find(header, 'placement-controls'), null, 'Usage visibility is controlled from the thread menu');
-  assert.equal(column.children[0].size.px, 104, 'the removed display row leaves no blank header strip');
+  assert.equal(column.children[0].size.px, 64, 'the standard title bar, with no tab row');
+  assert.ok(String(JSON.stringify(header)).includes('Accounts'), 'the title bar names the open page');
+  assert.equal(find(header, 'settings-subpage-extension:workflow:accounts'), null, 'no tabs: the nav lists the pages');
+  r.setProps({ page: 'extension:workflow:accounts', context, overlay: 'overlay-2' });
+  const workflowNav = new s.WorkflowNav(); workflowNav.init({ focus_handle: () => ({ focus() {} }) });
+  assert.equal(find(workflowNav.render(theme), 'workflow-nav-overlay-2-accounts').__attrs.bg, theme.selected);
 });
 
 test('the Git preferences page contains display filters only; repository identity belongs to Changes', async () => {

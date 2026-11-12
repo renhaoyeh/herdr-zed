@@ -81,8 +81,9 @@ the tests change in the same commit. Unknown keys inside `provides`, surfaces an
 - `settings` (optional, `{ view, title, pages? }`, these keys only): the package's page in the shell's Settings dialog. The
   shell opens `view` embedded in its configuration dialog, with `{ view, embedded: true, page, context }` (the current project,
   or null; `page` is the sub-page ID, or null for an extension without sub-pages); `title` is its configuration title. `pages` (optional, 1–12
-  entries, each exactly `{ id, title }`, ids `[a-z][a-z0-9-]*` and unique within the package, titles non-blank) are
-  tabs inside the extension's configuration page, in declaration order; the first is selected when opening the extension.
+  entries, each `{ id, title, group? }`, ids `[a-z][a-z0-9-]*` and unique within the package, titles and groups
+  non-blank) are tabs inside the extension's configuration page, in declaration order; the first is selected when opening
+  the extension. The launcher workflow's dialog lists them in a left nav instead, under the label of the latest `group`.
   Unknown keys in `settings` or a page are rejected. Its Configure entry in the Extensions overview is available only
   while the package is enabled, error-free and available. Settings opens from the header gear, from the Extensions
   page, or from the provider's own panel with the shell command `herdr-zed.settings:<extension id>` or

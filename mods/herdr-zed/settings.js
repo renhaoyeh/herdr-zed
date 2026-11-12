@@ -48,7 +48,7 @@ export const extensionSettingsPages = () => {
   return [...resolved, ...off].flatMap(entry => [
   { key: extensionPageKey(entry.id), title: entry.title, mod: entry.mod, view: entry.view, page: null, indent: false },
   ...(entry.pages || []).map(page => ({ key: extensionPageKey(entry.id, page.id), title: page.title, mod: entry.mod,
-    view: entry.view, page: page.id, indent: true })),
+    view: entry.view, page: page.id, indent: true, ...(page.group ? { group: page.group } : {}) })),
   ]);
 };
 
@@ -97,13 +97,16 @@ export function settingsOverlay(key, context) {
     : { mod: page.mod, props: { view: page.view, embedded: true, page: page.page, context } };
   const subpages = page.shell ? [] : extensionSettingsPages().filter(item => item.mod === page.mod && item.indent);
   const preferences = page.shell && key !== 'extensions', managed = managedPage(page) || key === 'extensions';
+  // The launcher workflow (Agents) lists its pages in a left nav, like Settings and Extensions.
+  const workflow = launcherSettingsPage(page) && subpages.length > 0;
   const entry = managedPage(page) ? managedExtensions().find(item => item.mod === page.mod) : null;
   return { kind: 'dialog', modal: true, frame: 'none', width: 1040, height: 0.86,
     layout: { type: 'row', resizable: false, background: 'border', padding: 1, children: [
       ...(preferences ? [{ type: 'block', size: { px: 220 }, content: { mod: 'herdr-zed', props: { view: 'settings-nav', page: key, context } } }] : []),
       ...(managed ? [{ type: 'block', size: { px: 220 }, content: { mod: 'herdr-zed', props: { view: 'extensions-nav', page: key, context } } }] : []),
+      ...(workflow ? [{ type: 'block', size: { px: 220 }, content: { mod: 'herdr-zed', props: { view: 'workflow-nav', page: key, context } } }] : []),
       { type: 'column', resizable: false, background: 'popover', children: [
-        { type: 'block', size: { px: launcherSettingsPage(page) && subpages.length ? 104 : 64 }, content: { mod: 'herdr-zed', props: { view: 'settings-header', page: key, context } } },
+        { type: 'block', size: { px: 64 }, content: { mod: 'herdr-zed', props: { view: 'settings-header', page: key, context } } },
         ...(entry ? [{ type: 'block', size: { px: extensionAboutHeight(entry, subpages.length > 0) },
           content: { mod: 'herdr-zed', props: { view: 'settings-header', part: 'about', page: key, context } } }] : []),
         { type: 'block', content },
@@ -227,6 +230,37 @@ export class SettingsNav {
   }
 }
 
+// The launcher workflow's nav (Agents): its title, then its pages under the label of the latest `group`, the open one
+// selected, with the red edge while it has unsaved edits. Choosing one goes through the unsaved-changes check.
+export class WorkflowNav {
+  init(cx) { this.handle = cx.focus_handle(); this.handle.focus(); }
+  render(t) {
+    const { page, context, overlay } = props();
+    const current = settingsPage(page);
+    const items = current ? extensionSettingsPages().filter(item => item.mod === current.mod && item.indent) : [];
+    const root = current ? extensionSettingsPages().find(item => item.mod === current.mod && !item.indent) : null;
+    const unsaved = settingsUnsaved(overlay);
+    const row = item => {
+      const selected = page === item.key;
+      return Button(`workflow-nav-${overlay ? `${overlay}-` : ''}${item.page}`, t, { variant: 'ghost' })
+        .w_full().h(32).px(12).justify_start()
+        .bg(selected ? t.selected : t.chrome).text_color(selected ? t.foreground : t.muted)
+        .hover(el => el.bg(selected ? t.selected : t.hover))
+        .when(selected && unsaved, el => el.border_l(2).border_color(t.ansi1))
+        .accessibility_label(selected && unsaved ? `${item.title}, unsaved changes` : item.title)
+        .on_click(() => { if (!selected) navigateSettings(item.key, context, overlay); })
+        .child(div().min_w(0).truncate().text_size(13).child(item.title));
+    };
+    return closeOnEscape(v_flex().size_full().min_h(0).p(16).gap(2).bg(t.chrome).border_r(1).border_color(t.border)
+      .when(Boolean(this.handle), el => el.track_focus(this.handle)), overlay)
+      .child(h_flex().h(32).flex_none().px(12).mb(16).items_center().font_family('Georgia').text_size(22).child(root?.title || 'Settings'))
+      .children(items.flatMap(item => [
+        ...(item.group ? [div().px(12).pt(item === items[0] ? 0 : 12).pb(4).text_size(11).font_medium().text_color(t.muted).child(item.group.toUpperCase())] : []),
+        row(item),
+      ]));
+  }
+}
+
 // The title bar above every Settings page. Preferences and the launcher workflow: the title and the close control.
 // An optional extension (design.md, Extensions): title with its requirement or problem, its On/Off switch and close; a
 // two-line description; its place switches; and its sub-page tabs.
@@ -235,7 +269,9 @@ export class SettingsHeader {
   init(cx) {
     this.handle = cx.focus_handle();
     const { page, part } = props();
-    if (!part && launcherSettingsPage(settingsPage(page))) this.handle.focus();
+    const current = settingsPage(page);
+    // Agents without sub-pages has no nav to take focus: its title bar does.
+    if (!part && launcherSettingsPage(current) && !extensionSettingsPages().some(item => item.mod === current.mod && item.indent)) this.handle.focus();
   }
   render(t) { return closeOnEscape(this.draw(t).track_focus(this.handle), props().overlay); }
   draw(t) {
@@ -258,9 +294,10 @@ export class SettingsHeader {
     if (!entry) return v_flex().size_full().min_w(0).px(24).pt(16).gap(8).bg(t.popover).text_color(t.foreground)
       .border_b(1).border_color(t.border)
       .child(h_flex().h(32).flex_none().gap(12).items_center()
-        .child(div().flex_1().min_w(0).truncate().font_family('Georgia').text_size(22).child(root?.title || current?.title || 'Settings'))
+        .child(div().flex_1().min_w(0).truncate().font_family('Georgia').text_size(22)
+          .child(launcherSettingsPage(current) && current.indent ? current.title : root?.title || current?.title || 'Settings'))
         .child(marker).child(close))
-      .when(subpages.length > 0, el => el.child(tabs));
+      .when(subpages.length > 0 && !launcherSettingsPage(current), el => el.child(tabs));
     const status = packageStatus(entry, catalog), problem = Boolean(status) && !entry.unsupported;
     const needs = (entry.requires || []).map(id => (catalog.packages || []).find(item => item.id === id)?.title || id);
     // Turning it on or off changes nothing else on the page: its settings stay where they are.

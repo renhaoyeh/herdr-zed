@@ -5,7 +5,8 @@ import { shared, setShared, props, openOverlay, closeOverlay } from 'herdr';
 import { sessionKind, permissionModes, launcherChoices, launcherLabel, launcherOption, sessionChoices, effortLabel, claudeModels } from './components/session-model.js';
 import { Button } from './components/button.js';
 import { Select } from './components/select.js';
-import { DialogContent, DialogTitle, DialogDescription, DialogFooter, DiscardPrompt } from './components/dialog.js';
+import { DialogContent, DialogTitle, DialogHeader, DialogDescription, DialogFooter, DiscardPrompt } from './components/dialog.js';
+import { Autosave } from './components/autosave.js';
 import { DropdownMenuLabel } from './components/dropdown-menu.js';
 import { AgentIcon, glyph } from './components/icon.js';
 import { noAccount } from './components/agents.js';
@@ -33,7 +34,7 @@ export const agentProfiles = {
     closeOverlay(target.overlay);
   },
 
-  initAgentProfileEditor() {
+  initAgentProfileEditor(cx) {
     const key = (props() || {}).configKey;
     const config = (shared('herdr-zed.agent-configs') || []).find(item => item.key === key);
     const session = config && shared('herdr-zed.profile-sessions')?.[key] || {};
@@ -48,13 +49,20 @@ export const agentProfiles = {
     this.configInstructions.on('change', (_event, cx) => { this.profileError = null; cx.notify(); });
     if (key && !config) this.profileError = 'This agent profile no longer exists.';
     this.profileBaseline = this.profileSnapshot();
+    // An existing profile saves itself shortly after the last edit (design.md, Saving); a new one waits for Create.
+    if (key && config) {
+      this.profileAuto = new Autosave({ snapshot: () => this.profileSnapshot(), valid: () => !this.profileProblem(),
+        save: async () => this.writeAgentProfile() });
+      this.profileAuto.reset(); this.profileAuto.attach(cx);
+    }
   },
 
   // What Save would write, to tell whether the editor has unsaved edits.
   profileSnapshot() {
     return JSON.stringify([this.profileDraft, this.configName?.value() || '', this.configInstructions?.value() || '']);
   },
-  profileDirty() { return Boolean(this.profileBaseline) && this.profileSnapshot() !== this.profileBaseline; },
+  // Only a new profile can hold unsaved edits; an existing one saves itself.
+  profileDirty() { return !this.profileAuto && Boolean(this.profileBaseline) && this.profileSnapshot() !== this.profileBaseline; },
 
   chooseProfileAccount(key) {
     const account = this.profileEditorAccounts().find(item => item.key === key);
@@ -65,24 +73,27 @@ export const agentProfiles = {
     this.profileError = null;
   },
 
-  saveAgentProfile(cx) {
-    if (this.profileSaving || this.profileSaved) return;
+  // Why the editor's values cannot be saved yet, or null.
+  profileProblem() {
     const draft = this.profileDraft, account = this.profileEditorAccounts().find(item => item.key === draft.profileKey);
     const name = this.configName.value().trim(), configs = shared('herdr-zed.agent-configs') || [], existing = (props() || {}).configKey;
     const instructions = this.configInstructions.value().trim();
-    let error;
-    if (existing && !configs.some(item => item.key === existing)) error = 'This agent profile no longer exists.';
-    else if (!name || Array.from(name).length > 48 || /[\u0000-\u001f\u007f-\u009f]/.test(name)) error = 'Use a name of 1–48 characters without control characters.';
-    else if (instructions.includes('\u0000')) error = 'Instructions cannot contain null characters.';
-    else if (!account) error = 'Choose an account.';
-    else {
-      const choices = sessionChoices(sessionKind(account), this.profileModels(account), shared('herdr-zed.session-options')?.[sessionKind(account)] || {}, draft.model);
-      if (draft.model && !choices.models.some(model => model.key === draft.model)) error = 'Choose an available model.';
-      else if (draft.effort && !choices.efforts.includes(draft.effort)) error = 'Choose an effort supported by this model.';
-      else if (!permissionModes(account).some(mode => mode.key === draft.permission)) error = 'Choose an available permission mode.';
-    }
-    if (error) { this.profileError = error; cx.notify(); return; }
-    this.profileSaving = true;
+    if (existing && !configs.some(item => item.key === existing)) return 'This agent profile no longer exists.';
+    if (!name || Array.from(name).length > 48 || /[\u0000-\u001f\u007f-\u009f]/.test(name)) return 'Use a name of 1–48 characters without control characters.';
+    if (instructions.includes('\u0000')) return 'Instructions cannot contain null characters.';
+    if (!account) return 'Choose an account.';
+    const choices = sessionChoices(sessionKind(account), this.profileModels(account), shared('herdr-zed.session-options')?.[sessionKind(account)] || {}, draft.model);
+    if (draft.model && !choices.models.some(model => model.key === draft.model)) return 'Choose an available model.';
+    if (draft.effort && !choices.efforts.includes(draft.effort)) return 'Choose an effort supported by this model.';
+    if (!permissionModes(account).some(mode => mode.key === draft.permission)) return 'Choose an available permission mode.';
+    return null;
+  },
+
+  // Writes the editor's values: a new profile, or the one being edited, under its key.
+  writeAgentProfile() {
+    const draft = this.profileDraft, account = this.profileEditorAccounts().find(item => item.key === draft.profileKey);
+    const name = this.configName.value().trim(), configs = shared('herdr-zed.agent-configs') || [], existing = (props() || {}).configKey;
+    const instructions = this.configInstructions.value().trim();
     let number = configs.length + 1, key = existing || `herdr-zed-preset-${Date.now().toString(36)}-${number}`;
     while (!existing && configs.some(item => item.key === key)) key = `herdr-zed-preset-${Date.now().toString(36)}-${++number}`;
     const config = { key, profileKey: account.key, name, ...(instructions ? { instructions } : {}) };
@@ -93,9 +104,32 @@ export const agentProfiles = {
     if (draft.permission === 'default') delete permissions[key]; else permissions[key] = draft.permission;
     setShared('herdr-zed.codex-permissions', permissions);
     setShared('herdr-zed.agent-configs', existing ? configs.map(item => item.key === key ? config : item) : [...configs, config]);
+  },
+
+  // Create: a new profile is written only by this button.
+  saveAgentProfile(cx) {
+    if (this.profileSaving || this.profileSaved) return;
+    const error = this.profileProblem();
+    if (error) { this.profileError = error; cx.notify(); return; }
+    this.profileSaving = true;
+    this.writeAgentProfile();
     this.profileSaved = true;
     this.profileSaving = false;
     this.finishAgentProfileEditor();
+  },
+
+  // Esc or the X: an existing profile writes an edit still waiting, then closes.
+  closeAgentProfileEditor(cx) {
+    if (!this.profileAuto) { this.finishAgentProfileEditor(); return; }
+    this.profileAuto.flush(cx).finally(() => this.finishAgentProfileEditor());
+  },
+
+  // An existing profile's one status line: why it cannot save, saving, saved, or the write error.
+  profileStatus(t) {
+    const auto = this.profileAuto, problem = auto && this.profileProblem() !== null && auto.dirty() ? this.profileProblem() : null;
+    const error = problem || auto?.error || this.profileError;
+    return div().id('agent-profile-status').h(20).flex_none().truncate().text_size(12).text_color(error ? t.destructive || t.ansi1 : t.muted)
+      .child(error || auto?.status() || 'Changes save automatically.');
   },
 
   removeConfiguration(config) {
@@ -115,13 +149,14 @@ export const agentProfiles = {
       .accessibility_label(creating ? 'New agent profile' : 'Edit agent profile')
       .on_key_down((event, cx) => {
         // Esc asks first when there are unsaved edits (design.md, Unsaved changes); Cancel discards on purpose.
-        if (event.key === 'escape') { if (this.profileDirty() && !this.profileAsking) { this.profileAsking = true; cx.notify(); } else this.finishAgentProfileEditor(); }
+        if (event.key === 'escape') { if (this.profileDirty() && !this.profileAsking) { this.profileAsking = true; cx.notify(); } else this.closeAgentProfileEditor(cx); }
         else if (event.key === 'enter' && (event.modifiers?.platform || event.modifiers?.control)) this.saveAgentProfile(cx);
         else return;
         cx.stop_propagation();
       })
       .child(v_flex().id('agent-profile-header').flex_none().gap(6)
-        .child(DialogTitle().child(creating ? 'New agent profile' : 'Edit agent profile'))
+        .child(creating ? DialogTitle().child('New agent profile')
+          : DialogHeader(t, 'Edit agent profile', { id: 'close-agent-profile', label: 'Close', onClose: (_event, cx) => this.closeAgentProfileEditor(cx) }))
         .child(DialogDescription(t).child(creating ? 'Name this setup and choose the account it starts with.' : 'Edit this saved model setup.')))
       .child(v_flex().flex_1().min_h(0).overflow_y_scroll().gap(12)
         .child(h_flex().flex_none().gap(12).items_center()
@@ -141,9 +176,9 @@ export const agentProfiles = {
           .child(Textarea.new(this.configInstructions).id('agent-profile-instructions').accessibility_label('Additional system instructions')
             .w_full().h(112).p(8).border(1).border_color(t.input).rounded(0).text_size(12)))
         .when(!accounts.length, el => el.child(div().text_size(12).text_color(t.muted).child('Install Claude Code or Codex CLI first.')))
-        .when(Boolean(this.profileError), el => el.child(div().id('agent-profile-error').text_size(12)
+        .when(Boolean(this.profileError) && creating, el => el.child(div().id('agent-profile-error').text_size(12)
           .text_color(t.destructive || t.ansi1).child(this.profileError))))
-      .child(this.profileAsking && this.profileDirty()
+      .child(!creating ? this.profileStatus(t) : this.profileAsking && this.profileDirty()
         ? DiscardPrompt('agent-profile-discard', t, { keep: (_event, cx) => { this.profileAsking = false; cx.notify(); }, discard: () => this.finishAgentProfileEditor() })
         : DialogFooter().flex_none().items_center().children([
         div().id('agent-profile-unsaved').flex_1().min_w(0).text_size(12).text_color(t.ansi1).child(this.profileDirty() ? 'Unsaved changes' : ''),

@@ -42,8 +42,8 @@ export const globalRulesSettings = {
   },
 
   globalRulesNavigation(t) {
-    return v_flex().gap(2).children(previewProviders.map(item =>
-      Button(`global-rules-provider-${item.id}`, t, { variant: 'ghost' }).h(30).w_full().justify_start().gap(8).px(8)
+    return h_flex().gap(2).children(previewProviders.map(item =>
+      Button(`global-rules-provider-${item.id}`, t, { variant: 'ghost' }).h(28).gap(8).px(8)
         .bg((this.rulesProvider || 'claude') === item.id ? t.selected : t.popover)
         .on_click((_event, cx) => { this.rulesProvider = item.id; this.rulesOpen = null; cx.notify(); })
         .child(AgentIcon({ icon: `icons/${item.id}.svg` }, t)).child(item.label)));

@@ -16,7 +16,7 @@ import { startPanel, COMPOSE_KEY, startProjectKey } from './start-panel.js';
 import { COMPOSE_TAB } from './workspace-editor.js';
 import { threadArchive, historyEligible } from './thread-archive.js';
 import { startThreadResume } from './thread-resume.js';
-import { SettingsNav, SettingsPage, SettingsHeader, DiscardChanges, openSettings, settingsPageKey, closeOnEscape, navigateSettings, requestSettingsClose, settingsUnsaved } from './settings.js';
+import { SettingsNav, SettingsPage, SettingsHeader, DiscardChanges, WorkflowNav, openSettings, settingsPageKey, closeOnEscape, navigateSettings, requestSettingsClose, settingsUnsaved } from './settings.js';
 import { ExtensionsNav } from './extensions-manager.js';
 import { GitAuthorDialog } from './git-author-settings.js';
 import { ExtensionSlot, ExtensionSurfaceSlot, refreshExtensions, openExtension, extensionCatalog, openGitAction, activeLauncher, publishWorkspaceRect, recordSize, WORK_WIDTH_KEY, SIDEBAR_HEIGHT_KEY, closeWorkspacePanel, visibleSurfaceCount, syncExtensionLayout } from './extensions.js';
@@ -89,6 +89,7 @@ export default class HerdrZed extends View {
     if (view === 'launcher') { this.launcher = new NativeLauncher(); this.launcher.init(cx); return; }
     if (view === IMAGE_PREVIEW_VIEW) return;
     if (view === 'discard-changes') { this.discardChanges = new DiscardChanges(); this.discardChanges.init(cx); return; }
+    if (view === 'workflow-nav') { this.workflowNav = new WorkflowNav(); this.workflowNav.init(cx); return; }
     if (view === 'settings-nav') { this.settingsNav = new SettingsNav(); this.settingsNav.init(cx); return; }
     if (view === 'extensions-nav') { this.extensionsNav = new ExtensionsNav({ openSettings: (key, context) => navigateSettings(key, context, props()?.overlay), pageKey: settingsPageKey, closeOnEscape, unsaved: settingsUnsaved }); this.extensionsNav.init(cx); return; }
     if (view === 'settings-header') { this.settingsHeader = new SettingsHeader(); this.settingsHeader.init(cx); return; }
@@ -738,6 +739,7 @@ export default class HerdrZed extends View {
   renderView(cx) {
     const t = theme();
     if (props()?.view === 'discard-changes') return this.discardChanges.render(t);
+    if (props()?.view === 'workflow-nav') return this.workflowNav.render(t);
     if (props()?.view === 'settings-nav') return this.settingsNav.render(t);
     if (props()?.view === 'extensions-nav') return this.extensionsNav.render(t);
     if (props()?.view === 'settings-header') return this.settingsHeader.render(t);
