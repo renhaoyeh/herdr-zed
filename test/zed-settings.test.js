@@ -187,20 +187,14 @@ test('an extension opens its first declared sub-page, and its contextual tabs an
   assert.equal(r.opened[2].layout.children[0].children[1].content.props.page, 'extensions');
 });
 
-test('the General page binds each preference to its shared key and defaults as before', async () => {
+test('the General page keeps only auto-resume; display options live in the Files and Changes toolbars', async () => {
   const r = settingsRuntime(); const s = await r.ready;
   r.setProps({ page: 'general', context: null });
   const page = new s.SettingsPage(); page.init(cx()); const body = page.render({});
   assert.equal(find(body, 'settings-auto-resume').checked, true, 'Auto-resume defaults to on');
-  assert.equal(find(body, 'settings-files-wrap-tabs').checked, false, 'Tab wrap defaults to off');
-  assert.equal(find(body, 'settings-diff-wrap').checked, true, 'Diff wrap defaults to on');
-  assert.equal(find(body, 'settings-diff-unified').pressed, true);
+  for (const id of ['settings-files-wrap-tabs', 'settings-diff-wrap', 'settings-diff-layout']) assert.equal(find(body, id), null, id);
   find(body, 'settings-auto-resume').__handlers.on_change(false, cx());
-  find(body, 'settings-files-wrap-tabs').__handlers.on_change(true, cx());
-  find(body, 'settings-diff-wrap').__handlers.on_change(false, cx());
-  find(body, 'settings-diff-split').__handlers.on_change(true, cx());
-  find(body, 'settings-diff-unified').__handlers.on_change(false, cx());
-  assert.deepEqual(r.memory, { 'herdr-zed.auto-resume': false, 'herdr-zed.files-wrap-tabs': true, 'herdr-zed.diff-wrap': false, 'herdr-zed.diff-layout': 'split' });
+  assert.deepEqual(r.memory, { 'herdr-zed.auto-resume': false });
 });
 
 test('launcher configuration has a direct entry and its own dialog, without extension management controls', async () => {

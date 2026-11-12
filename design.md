@@ -9,6 +9,7 @@ titles). Where they conflict, this file wins.
 - The main window header has independent Extensions and Settings buttons. Agents opens from the New thread panel's
   header settings button; the project ⋯ menu provides the same entry. Settings opens from its gear
   (and `herdr-zed.settings`), with a fixed 220px nav and General/Git preferences. It has no Agents/Extensions links.
+  A switch already on screen (Files' Wrap tabs, Changes' wrap and Unified/Split) is not repeated in Settings.
   "App settings…" opens Herdr's appearance, keyboard and terminal settings. One management dialog is open
   at a time: navigating replaces it, rather than stacking another modal.
 - Management dialogs are 1040×0.86 and modal, with one shell-owned 1px outer border, a 64px title bar and an X. No Done buttons.

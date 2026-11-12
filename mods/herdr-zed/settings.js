@@ -4,7 +4,6 @@ import { openOverlay, closeOverlay, props, run, shared, setShared, notify } from
 import { Button, ToolbarButton } from './components/button.js';
 import { glyph } from './components/icon.js';
 import { Switch } from './components/switch.js';
-import { ToggleGroup, ToggleGroupItem } from './components/toggle-group.js';
 import { DialogTitle, DialogDescription } from './components/dialog.js';
 import { AUTO_RESUME_KEY } from './thread-identity.js';
 import { extensionCatalog, closeWorkspacePanel, extensionEnabled, setExtensionEnabled } from './extensions.js';
@@ -15,7 +14,7 @@ import { ExtensionsManager } from './extensions-manager.js';
 // layouts; opening a destination replaces the current management dialog instead of stacking another one.
 export const SETTINGS_OVERLAY = 'herdr-zed.settings.overlay';
 const SHELL_PAGES = [
-  { key: 'general', title: 'General', description: 'Preferences for threads, files and Changes. Changes save automatically.' },
+  { key: 'general', title: 'General', description: 'Preferences for threads. Files and Changes keep their display options in their own toolbars. Changes save automatically.' },
   { key: 'git', title: 'Git', description: 'Display rules for Changes across all projects. Commit identity is configured in Changes.' },
   { key: 'extensions', title: 'Extensions', description: 'Choose what appears in your workspace. Open tools from the main window.' },
 ];
@@ -195,24 +194,10 @@ export class SettingsPage {
   close() { this.rules?.close(); }
 
   general(t) {
-    const split = shared('herdr-zed.diff-layout') === 'split';
-    const choose = (key, value) => (pressed, cx) => { if (pressed) setShared(key, value); cx.notify(); };
     return v_flex().flex_1().min_h(0).overflow_y_scroll()
       .child(setting(t, 'Resume agent threads after restart', 'Reopen threads whose terminals were lost on reboot or a crash.',
         Switch('settings-auto-resume', shared(AUTO_RESUME_KEY) !== false, t).accessibility_label('Resume agent threads after restart')
-          .on_change((checked, cx) => { setShared(AUTO_RESUME_KEY, checked); cx.notify(); })))
-      .child(setting(t, 'Wrap tabs', 'Let editor and file tabs wrap onto several lines.',
-        Switch('settings-files-wrap-tabs', shared('herdr-zed.files-wrap-tabs') === true, t).accessibility_label('Wrap tabs')
-          .on_change((checked, cx) => { setShared('herdr-zed.files-wrap-tabs', checked); cx.notify(); })))
-      .child(setting(t, 'Wrap diff lines', 'Wrap long lines in the Changes diff.',
-        Switch('settings-diff-wrap', shared('herdr-zed.diff-wrap') !== false, t).accessibility_label('Wrap diff lines')
-          .on_change((checked, cx) => { setShared('herdr-zed.diff-wrap', checked); cx.notify(); })))
-      .child(setting(t, 'Default diff layout', 'Unified or side by side. A diff can still be switched in its own toolbar.',
-        ToggleGroup('settings-diff-layout', 'Default diff layout', t)
-          .child(ToggleGroupItem('settings-diff-unified', !split, true, t).accessibility_label('Unified')
-            .on_change(choose('herdr-zed.diff-layout', 'unified')).child('Unified'))
-          .child(ToggleGroupItem('settings-diff-split', split, false, t).accessibility_label('Split')
-            .on_change(choose('herdr-zed.diff-layout', 'split')).child('Split'))));
+          .on_change((checked, cx) => { setShared(AUTO_RESUME_KEY, checked); cx.notify(); })));
   }
 
   git(t) {
