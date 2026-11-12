@@ -403,8 +403,6 @@ export default class HerdrZed extends View {
     run('herdr-zed.open-file');
   }
 
-  repeatThread(cx, id) { this.newThread(cx, id); }
-
   cachedAgents(machine) { return knownAgents({ on: machine }).then(items => items.filter(agent => agent.installed)); }
 
   startThread(agent, target) {
@@ -452,7 +450,7 @@ export default class HerdrZed extends View {
     const root = layout(), sidebar = root?.children?.find(node => node.id === 'sidebar');
     const inset = win?.platform === 'macos' && !win.fullscreen && sidebar?.hidden
       ? (root.traffic_lights[0] + 64) / settings().zoom : 12;
-    // Equal columns keep Run centered independently of project names and window controls.
+    // Project and branch switchers on the left, Extensions and Settings on the right.
     return h_flex().size_full().pl(inset - 12).items_center().bg(t.background).text_size(13)
       .on_size_change(size => recordSize(WORK_WIDTH_KEY, size.width))
       .border_b(1).border_color(t.border)
@@ -463,14 +461,12 @@ export default class HerdrZed extends View {
             props: { view: 'project-picker' } }), 'start', { x: 8, y: 9 }) // Clear of the header's 1px bottom border
           .child(div().min_w(0).max_w(220).truncate().child(space?.name || 'Open project'))
           .child(glyph('chevron-down', 12).text_color(t.muted)))
-        // Like Zed, the branch opens a list of the project's branches; it only shows them for now.
+        // Like Zed, the branch opens a list of the project's branches to switch to.
         .when(Boolean(space?.branch), el => el.child(DropdownMenuTrigger(h_flex().id('branch-switcher').min_w(0).h_full().px(8).gap(4).items_center().rounded(0)
           .text_size(12).text_color(t.muted).hover(el => el.bg(t.hover)).cursor_pointer().accessibility_label(`Branches of ${space.name}`), 320,
           (_cx, at) => openOverlay({ mod: 'herdr-zed', kind: 'popup', frame: 'none', width: 320, at,
             props: { view: 'branch-menu', folder: space.folder, machine: space.machine || null, branch: space.branch } }), 'start', { x: 8, y: 9 })
           .child(glyph('branch', 12)).child(div().min_w(0).max_w(200).truncate().child(space.branch)))))
-      .child(h_flex().flex_1().min_w(0).h_full().items_center().justify_center()
-        )
       .child(h_flex().flex_1().min_w(0).h_full().items_center().justify_end()
         .child(ToolbarButton('header-extensions', t, { icon: true }).h_full()
           .tooltip('Extensions').accessibility_label('Extensions')
@@ -519,9 +515,9 @@ export default class HerdrZed extends View {
       .child(div().flex_1())
       .child(h_flex().h_full().flex_none().items_center()
         // + then maximize then ⋯, as in Zed's panel toolbars.
-        .child(DropdownMenuTrigger(ToolbarButton(`new-thread-${p.pane}`, t, { icon: true }).h_full()
-          .tooltip('New thread…').accessibility_label('New thread…').child(glyph('plus', TOOLBAR_GLYPH)), 280,
-          (cx, at) => this.newThread(cx, thread?.space, at), 'end'))
+        .child(ToolbarButton(`new-thread-${p.pane}`, t, { icon: true }).h_full()
+          .tooltip('New thread…').accessibility_label('New thread…').child(glyph('plus', TOOLBAR_GLYPH))
+          .on_click((_event, cx) => { cx.stop_propagation(); this.newThread(cx, thread?.space); }))
         .when(Boolean(project && layoutNode(layout(), 'workspace-view')), el => el.child(
           ToolbarButton(`maximize-thread-${p.pane}`, t, { icon: true }).h_full()
             .tooltip(maximized ? 'Restore thread' : 'Maximize thread').accessibility_label(maximized ? 'Restore thread' : 'Maximize thread')
@@ -837,14 +833,15 @@ export default class HerdrZed extends View {
             .child(div().flex_1())
             .when(blocked > 0, el => el.child(count('circle-alert', t.blocked, blocked, blocked === 1 ? 'thread needs you' : 'threads need you')))
             .when(done > 0, el => el.child(div().pl(blocked ? 6 : 0).child(count('circle-check', t.done, done, 'finished'))))
-            .child(DropdownMenuTrigger(ToolbarButton(`new-thread-${space.id}`, t, { icon: true, row: true })
+            .child(ToolbarButton(`new-thread-${space.id}`, t, { icon: true, row: true })
               .tooltip(`New thread in ${space.name}`).accessibility_label(`New thread in ${space.name}`)
-              .child(glyph('plus', ROW_GLYPH)).opacity(this.hoveredProject === space.id ? 1 : 0), 280,
-              (cx, at) => {
+              .child(glyph('plus', ROW_GLYPH)).opacity(this.hoveredProject === space.id ? 1 : 0)
+              .on_click((_event, cx) => {
+                cx.stop_propagation();
                 this.folded.delete(space.id);
-                cx.spawn(async cx => { await this.repeatThread(cx, space.id, at); });
+                this.newThread(cx, space.id);
                 cx.notify();
-              }, 'start', SIDEBAR_MENU))
+              }))
             .child(DropdownMenuTrigger(ToolbarButton(`project-menu-${space.id}`, t, { icon: true, row: true })
               .tooltip(`More actions for ${space.name}`).accessibility_label(`More actions for ${space.name}`), 200,
               (_cx, at) => openOverlay({ mod: 'herdr-zed', kind: 'popup', frame: 'none', width: 200, at,

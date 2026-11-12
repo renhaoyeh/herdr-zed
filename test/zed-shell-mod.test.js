@@ -122,10 +122,9 @@ test('native sidebar, pane menu, dock controls and empty editor render without e
   const view = new HerdrZed(); view.init(null, cx);
   const sidebar = view.render(cx);
   const launches = [];
-  view.repeatThread = async (_cx, project, at) => { launches.push({ project, at }); };
-  elements(sidebar).find(element => element.attributes.id === 'new-thread-s').click({}, cx);
-  await jobs.pop()(cx);
-  assert.deepEqual(launches, [{ project: 's', at: triggerAnchor }], 'sidebar + opens from the painted trigger, without nonexistent click coordinates');
+  view.newThread = (_cx, project) => { launches.push(project); };
+  elements(sidebar).find(element => element.attributes.id === 'new-thread-s').click({ stop_propagation() {} }, cx);
+  assert.deepEqual(launches, ['s'], 'sidebar + opens that project New thread tab');
   assert.match(text(sidebar), /Native thread/);
   assert.ok(elements(sidebar).some(element => element.attributes.accessibility_label === 'Blocked'));
   for (status of ['working', 'done', 'idle']) assert.doesNotThrow(() => view.render(cx));

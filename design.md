@@ -6,15 +6,15 @@ titles). Where they conflict, this file wins.
 ## Settings
 
 - Switches match Devkits Sera: square 28×16 tracks, 10px square knobs, an outlined off state and a solid on state.
-- The main window header has independent Extensions and Settings buttons. Agents opens from the thread's ⋯ menu;
-  the project ⋯ menu provides the same setup entry before the first thread exists. Settings opens from its gear
+- The main window header has independent Extensions and Settings buttons. Agents opens from the New thread panel's
+  header settings button; the project ⋯ menu provides the same entry. Settings opens from its gear
   (and `herdr-zed.settings`), with a fixed 220px nav and General/Git preferences. It has no Agents/Extensions links.
   "App settings…" opens Herdr's appearance, keyboard and terminal settings. One management dialog is open
   at a time: navigating replaces it, rather than stacking another modal.
 - Management dialogs are 1040×0.86 and modal, with one shell-owned 1px outer border, a 64px title bar and an X. No Done buttons.
 - Extensions manages optional tools: enable switches, display location switches and Configure links. The launcher workflow
   is excluded: Agents has its own dialog with account/launch/rules tabs and no enable or Usage display switches.
-  Its tabbed header is 104px high. Agents pages follow the setup flow: Accounts, Launch menu, Profiles, Capabilities, ECC, MCP Connections, Global Rules. Capabilities, ECC and Global Rules share one side navigation (Overview where present, then Claude Code and Codex). Capabilities lists built-in and your own ("Mine", from data/herdr-zed/capabilities) Rules and Skills per provider, each with a switch, and names required connections; it does not configure or enable MCP servers. MCP Connections manages existing built-in, recommended and user-added shared servers for Codex without a search field or arbitrary add action; built-in servers show no editable fields, connection actions stay above the scrolling details, and it saves its own draft. Global Rules lists, in injection order, each section a new session receives (name, source, text on demand) and ends with the editable Custom section; it has no selection controls. Each page keeps its own Save/Discard, disabled until something changed. Launch menu has no duplicate connection dialog entry. A single checked "Show Usage" item in the thread ⋯ menu controls the Usage sidebar;
+  Its tabbed header is 104px high. Agents pages follow the setup flow: Accounts, Launch menu, Profiles, Capabilities, ECC, MCP Connections, Global Rules. Capabilities, ECC and Global Rules share one side navigation (Overview where present, then Claude Code and Codex). Capabilities lists built-in and your own ("Mine", from data/herdr-zed/capabilities) Rules and Skills per provider, each with a switch, and names required connections; it does not configure or enable MCP servers. MCP Connections manages existing built-in, recommended and user-added shared servers for Codex without a search field or arbitrary add action; built-in servers show no editable fields, connection actions stay above the scrolling details, and it saves its own draft. Global Rules lists, in injection order, each section a new session receives (name, source, text on demand) and ends with the editable Custom section; it has no selection controls. Each page keeps its own Save/Discard, disabled until something changed. Launch menu has no duplicate connection dialog entry. The Show/Hide Usage button in the New thread panel's header controls the Usage sidebar;
   Usage has no status-bar contribution.
   The shell identifies launcher workflows by their declared capability, without provider-specific branches.
 - Tools themselves open from the main window's status bar, sidebar or dock. An extension's configuration has a back button
@@ -25,12 +25,12 @@ titles). Where they conflict, this file wins.
   with `run('herdr-zed.settings:<extension id>')`. A page may declare sub-pages (`pages`), listed as tabs inside
   its detail page and deep-linked with `herdr-zed.settings:<extension id>:<page id>`. An embedded settings view draws no frame, close button
   or Done footer.
-- Agents is the thread menu's configuration entry. Other management dialogs stay out of thread menus and the status bar.
+- Agents is the New thread panel's configuration entry. Other management dialogs stay out of thread headers and the status bar.
 - Optional tools' display switches name their content and position, e.g. "Show System metrics in status bar".
 
 ## Sidebar
 
-- Top to bottom: the thread list, the sidebar surfaces (Usage via the thread menu; optional tools via Extensions), and the
+- Top to bottom: the thread list, the sidebar surfaces (Usage via the New thread panel's header; optional tools via Extensions), and the
   thread history row. The history row is always the last row (its own layout block `sidebar-history`).
 - Sidebar surfaces start hidden the first time they mount; Manage extensions turns them on.
 - Project rows: the current project has a 2px accent left edge; a project without threads has a dim name and no
