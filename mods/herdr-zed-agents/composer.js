@@ -29,13 +29,16 @@ export function composerChoice(agent, codexList, { sessions = {}, options = {}, 
   if (kind === 'claude' || kind === 'codex') {
     const efforts = sessionChoices(kind, codexList, settings, null).efforts;
     const supports = effort => kind === 'claude' ? null : models.filter(model => model.efforts?.includes(effort)).map(model => model.key);
-    fields.push({ id: 'model', label: 'Model', type: 'select', value: models.some(model => model.key === saved.model) ? saved.model : DEFAULT,
-      options: [{ key: DEFAULT, label: 'Default model' }, ...models.map(model => ({ key: model.key, label: model.label }))] });
-    fields.push({ id: 'effort', label: 'Effort', type: 'select', value: efforts.includes(saved.effort) ? saved.effort : DEFAULT,
-      options: [{ key: DEFAULT, label: 'Default effort' }, ...efforts.map(effort => {
+    const model = models.find(model => model.key === saved.model) || models[0];
+    const availableEfforts = sessionChoices(kind, codexList, settings, model?.key).efforts;
+    if (!model || !availableEfforts.length) return null;
+    fields.push({ id: 'model', label: 'Model', type: 'select', value: model.key,
+      options: models.map(model => ({ key: model.key, label: model.label })) });
+    fields.push({ id: 'effort', label: 'Effort', type: 'select', value: availableEfforts.includes(saved.effort) ? saved.effort : availableEfforts[0],
+      options: efforts.map(effort => {
         const only = supports(effort);
-        return { key: effort, label: effortLabel(effort), ...(only ? { only: { model: [DEFAULT, ...only] } } : {}) };
-      })] });
+        return { key: effort, label: effortLabel(effort), ...(only ? { only: { model: only } } : {}) };
+      }) });
     if (kind === 'codex') fields.push({ id: 'fast', label: 'Fast', type: 'toggle', value: saved.serviceTier === 'fast' });
   }
   const quota = quotaDetail(usage.find(item => item?.key === agent.key));
@@ -53,7 +56,7 @@ export function composerEnvelope(cache, codexModelsByHome, userHome, state = {})
       .filter(choice => choice.agent && !hidden.includes(choice.key)).map(choice => choice.agent);
     const usage = state.usage?.contexts?.[JSON.stringify(machine)]?.usage || [];
     machines[machine || ''] = { choices: agents.map(agent => composerChoice(agent,
-      machine ? [] : codexModelsByHome.get(codexHome(agent, userHome)) || [], { ...state, usage })) };
+      machine ? [] : codexModelsByHome.get(codexHome(agent, userHome)) || [], { ...state, usage })).filter(Boolean) };
   }
   return { machines };
 }

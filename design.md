@@ -64,7 +64,8 @@ titles). Where they conflict, this file wins.
   without provider-specific branches. Programs open on the last agent chosen for that project; Terminal is excluded.
 - Each select keeps its own menu and favorites. Starred options come first; every menu row has a star. Favorites use
   `herdr-zed.start-favorites`, `{ [launcher or '']: { [menu]: [option keys] } }`, with `program` or `<choice>:<field>`.
-  Options ruled out by another field are hidden and fall back to Default. Program menus retain account quota readings;
+  Options ruled out by another field are hidden and fall back to the first available value. Model and Effort
+  offer explicit values only, without Default; selections persist immediately and reopen on the last choice. Program menus retain account quota readings;
   the main composer shows a quota reading only when its tone is warning or error. Usage retains full readings.
 - The task becomes the agent's first message. A launcher that has not listed the machine yet uses Start… to open its
   picker. Without an available agent, Start task and keyboard submission are disabled; Terminal remains in the project menu.

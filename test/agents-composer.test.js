@@ -26,23 +26,23 @@ test('the envelope lists each visible program with model, effort and (Codex) Fas
   assert.deepEqual(choices.map(choice => choice.key), ['claude', 'codex']);
   const [, codexChoice] = choices;
   assert.deepEqual(codexChoice.fields.map(field => [field.id, field.value]), [['model', 'gpt'], ['effort', 'high'], ['fast', true]]);
-  assert.deepEqual(codexChoice.fields[1].options.find(option => option.key === 'high').only, { model: ['default', 'gpt'] });
+  assert.deepEqual(codexChoice.fields[1].options.find(option => option.key === 'high').only, { model: ['gpt'] });
   assert.equal(choices[0].fields.some(field => field.id === 'fast'), false, 'Claude has no Fast');
 });
 
 test('an intent launches the chosen program with its task and options, then becomes the default', async () => {
   const memory = { 'herdr-zed.agent-cache': { [JSON.stringify(null)]: [codex] },
     'herdr-zed.launch.intents': [{ id: 'i1', launcher: 'agents', choice: 'codex', target: { space: 's', folder: '/repo' },
-      values: { model: 'mini', effort: 'default', fast: true }, task: 'Fix it', expiresAt: Date.now() + 10000 },
+      values: { model: 'mini', effort: 'low', fast: true }, task: 'Fix it', expiresAt: Date.now() + 10000 },
     { id: 'other', launcher: 'someone', expiresAt: Date.now() + 10000 }] };
   const { Composer, launches, notes } = await composer(memory);
   const spawned = [];
   new Composer().poll({ spawn: fn => spawned.push(fn()) });
   await Promise.all(spawned);
   assert.deepEqual(notes, []);
-  assert.deepEqual(launches, [[codex, { space: 's', folder: '/repo', task: 'Fix it' }, { model: 'mini', effort: null, serviceTier: 'fast' }]]);
+  assert.deepEqual(launches, [[codex, { space: 's', folder: '/repo', task: 'Fix it' }, { model: 'mini', effort: 'low', serviceTier: 'fast' }]]);
   assert.deepEqual(memory['herdr-zed.launch.intents'].map(intent => intent.id), ['other'], 'only its own intents are taken');
-  assert.deepEqual(memory['herdr-zed.profile-sessions'].codex, { model: 'mini', effort: null, serviceTier: 'fast' });
+  assert.deepEqual(memory['herdr-zed.profile-sessions'].codex, { model: 'mini', effort: 'low', serviceTier: 'fast' });
 });
 
 test('the quota reading names each window and warns from 70% and errs from 90%', async () => {
@@ -52,4 +52,16 @@ test('the quota reading names each window and warns from 70% and errs from 90%',
   assert.equal(quotaDetail(windows(75, 27)).tone, 'warning');
   assert.equal(quotaDetail(windows(10, 91)).tone, 'error');
   assert.equal(quotaDetail({ windows: [] }), null);
+});
+
+
+test('composer fields always select explicit available options and reuse saved choices', async () => {
+  const { composerChoice, composerEnvelope } = await composer();
+  const fresh = composerChoice(codex, codexList);
+  assert.deepEqual(fresh.fields.slice(0, 2).map(field => field.value), ['gpt', 'low']);
+  assert.ok(fresh.fields.filter(field => field.type === 'select').every(field => !field.options.some(option => option.key === 'default')));
+  const saved = composerChoice(codex, codexList, { sessions: { codex: { model: 'mini', effort: 'high' } } });
+  assert.deepEqual(saved.fields.slice(0, 2).map(field => field.value), ['mini', 'low'], 'unavailable effort falls back to an explicit supported value');
+  assert.equal(composerChoice(codex, []), null, 'no cached models cannot launch with an implicit default');
+  assert.deepEqual(composerEnvelope({ null: [codex] }, new Map(), '/home/me').machines[''].choices, []);
 });

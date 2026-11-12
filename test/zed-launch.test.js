@@ -204,6 +204,7 @@ test('with a launcher, the composer shows its published fields and hands it a la
   assert.deepEqual(view.startValues(choice), { model: 'default', effort: 'xhigh', fast: false });
   view.pickStartValue(choice, 'model', 'mini', { notify() {} });
   assert.equal(view.startValues(choice).effort, 'default', 'an effort the model lacks falls back');
+  assert.deepEqual(({ ...startPanel }).startValues(choice), view.startValues(choice), 'a new view keeps the last chosen values');
   view.pickStartValue(choice, 'fast', true, { notify() {} });
   view.startTarget = { intent: { launcher: 'agents', choice: 'codex', values: view.startValues(choice) }, takesTask: true, target: { space: 's', folder: '/repo' } };
   view.submitStart({ notify() {} });

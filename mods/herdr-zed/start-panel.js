@@ -123,9 +123,8 @@ export const startPanel = {
   },
   // The values of one launcher choice: its fields' published defaults, then what was picked here. A select whose value
   // the other picks no longer allow falls back to its first offered option.
-  startValues(choice) {
-    this.startPicked ||= {};
-    const picked = this.startPicked[choice.key] || {}, values = {};
+  startValues(choice, picked = (shared('herdr-zed.start-values') || {})[choice.key] || {}) {
+    const values = {};
     for (const field of choice.fields) values[field.id] = field.id in picked ? picked[field.id] : field.value;
     for (const field of choice.fields) {
       if (field.type !== 'select') continue;
@@ -135,8 +134,8 @@ export const startPanel = {
     return values;
   },
   pickStartValue(choice, id, value, cx) {
-    this.startPicked ||= {};
-    this.startPicked[choice.key] = { ...(this.startPicked[choice.key] || {}), [id]: value };
+    const all = shared('herdr-zed.start-values') || {};
+    setShared('herdr-zed.start-values', { ...all, [choice.key]: this.startValues(choice, { ...this.startValues(choice), [id]: value }) });
     cx.notify();
   },
   // The project's Git state for the panel header, read at most every 5 s while the panel is drawn.
@@ -245,10 +244,10 @@ export const startPanel = {
         return;
       }
       const shown = field.options.filter(option => composerOptionShown(option, values))
-        .map((option, n) => ({ key: option.key, label: option.key === field.options[0]?.key ? `Default` : option.label }));
+        .map(option => ({ key: option.key, label: option.label }));
       const current = shown.find(option => option.key === values[field.id]);
       controls.push(this.startControl(`project-start-${field.id}`, i + 1,
-        { text: current && current.key !== field.options[0]?.key ? current.label : field.options[0]?.label || field.label, label: `${field.label}: ${current?.label || 'Default'}` },
+        { text: current?.label || field.label, label: `${field.label}: ${current?.label || field.label}` },
         { launcher, menu: `${choice.key}:${field.id}`, label: field.label, items: shown, value: values[field.id],
           choose: (key, cx) => this.pickStartValue(choice, field.id, key, cx) }, t));
     });
