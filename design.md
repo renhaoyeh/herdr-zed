@@ -54,7 +54,8 @@ titles). Where they conflict, this file wins.
   open after Start: the task and Start lock ("Starting…") until the new thread's tab appears, which clears the task;
   if none appears within 30 s, the task is given back to edit. Closing the tab cancels.
 - The thread options sit in the panel's header, as icon buttons: Show/Hide the launcher's sidebar surface (Usage), its
-  settings, and Close thread for the project's current thread. A thread's own header keeps + and maximize only. Enter adds a line; Ctrl+Enter (Cmd+Enter on macOS) or Start continues. Nothing is
+  settings, and Close thread for the project's current thread. A thread's own header keeps + and maximize; a split
+  terminal's header also has Close terminal (close icon), which closes only that pane. Enter adds a line; Ctrl+Enter (Cmd+Enter on macOS) or Start continues. Nothing is
   sent on plain Enter. The task becomes the agent's first message; a Terminal starts without one.
 - Under the task: the program (Terminal and the programs, opening on the one last chosen in that project), then the
   program's fields from the launcher extension: Model and Effort selects and a Fast toggle (zap icon, selected

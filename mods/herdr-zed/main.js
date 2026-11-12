@@ -529,7 +529,11 @@ export default class HerdrZed extends View {
               cx.stop_propagation();
               maximizeConversation(project, !conversationMaximized(project));
               run('pane.focus', { pane: p.pane });
-            }).child(glyph(maximized ? 'minimize' : 'maximize', TOOLBAR_GLYPH)))));
+            }).child(glyph(maximized ? 'minimize' : 'maximize', TOOLBAR_GLYPH))))
+        // A split terminal in a thread closes on its own; the thread itself closes from the New thread panel.
+        .when(secondary, el => el.child(ToolbarButton(`close-terminal-${p.pane}`, t, { icon: true }).h_full()
+          .tooltip('Close terminal').accessibility_label('Close terminal')
+          .on_click((_event, cx) => { cx.stop_propagation(); closeThreadPane(p.pane); }).child(glyph('close', TOOLBAR_GLYPH)))));
   }
 
   // design.md, Start a thread: the thread options live in the New thread panel's header, beside where threads start:
