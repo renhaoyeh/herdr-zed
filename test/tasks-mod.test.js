@@ -245,7 +245,7 @@ async function modules(records = {}, projects = [{ id: 'p', folder: '/project', 
   const memory = { 'herdr-zed.agent-board': clone(records), 'herdr-zed.agent-cache': { null: [] } }, writes = [], overlays = [], native = [], closed = [];
   const state = { projects, agents: [] };
   const base = { ...sessions, ...identity,
-    sessionDevkits: async () => '',
+    sessionDevkits: async () => null,
     sessionMcpArgv: async (_agent, argv) => argv,
     prepareEcc: async (_agent, argv) => ({ argv, instructions: '' }),
     globalThis: { window: { sessionStorage: { getItem: () => null, setItem() {}, removeItem() {} } } },

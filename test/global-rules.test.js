@@ -67,3 +67,24 @@ test('session injection preserves the exact Guide including Markdown headings', 
   }, 'sessionRules');
   assert.equal((await sessionRules()).text, source);
 });
+
+test('session rules list Devkits capabilities first and the custom Guide last', () => {
+  const text = model.composeSessionRules('# Global rules\n\n## Deployment\nKeep this.\n```\n# not a heading\n```',
+    { summary: '- **Herdr Core** (rule): Use hc.', sections: '## Herdr Core\n\nRead hc.' }, '# ECC\nUse it.');
+  assert.equal(text, '# Global rules\n\n- **Herdr Core** (rule): Use hc.\n\n## Herdr Core\n\nRead hc.\n\n'
+    + '## ECC selected guidance\n\n### ECC\nUse it.\n\n## Custom rules\n\n### Deployment\nKeep this.\n```\n# not a heading\n```\n');
+  assert.equal(model.composeSessionRules('', null), '');
+});
+
+test('Devkits guidance nests skill bodies, skips Codex-only skills for Claude and prints plain paths', async () => {
+  const devkits = await import('../mods/herdr-zed-agents/devkits-model.js');
+  const catalog = devkits.devkitsCatalog('C:\\herdr');
+  catalog.rules = catalog.rules.map(item => ({ ...item, text: '---\nname: x\n---\n\n# Title\n\nBody\n\n## Sub\nMore' }));
+  const config = devkits.parseDevkits(null);
+  const claude = devkits.devkitsGuidance(config, catalog, {}, 'windows', [], 'claude');
+  assert.match(claude.sections, /## Herdr Core\n\nBody\n\n### Sub\nMore/);
+  assert.doesNotMatch(claude.sections + claude.summary, /Shared MCP|# Title|\\|"C:/);
+  assert.match(claude.summary, /^- \*\*Herdr Core\*\* \(rule\)/);
+  const codex = devkits.devkitsGuidance(config, catalog, {}, 'windows', [], 'codex');
+  assert.match(codex.sections, /## Shared MCP installation\n\nRead the skill `C:\/herdr\/mods\/herdr-zed-agents\/assets\/skills\/shared-mcp\/SKILL.md`/);
+});

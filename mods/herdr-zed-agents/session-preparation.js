@@ -4,6 +4,7 @@ import { sessionMcpArgv } from './components/shared-mcp.js';
 import { prepareEcc } from './ecc.js';
 import { sessionDevkits } from './devkits.js';
 import { sessionRules } from './global-rules.js';
+import { composeSessionRules } from './global-rules-model.js';
 
 export async function prepareSession(agent, target = {}, options = {}) {
   const space = spaces().find(item => item.id === target.space);
@@ -44,9 +45,11 @@ export async function prepareSession(agent, target = {}, options = {}) {
     argv = await sessionMcpArgv(current, argv);
     const ecc = await prepareEcc(current, argv);
     argv = ecc.argv;
-    if (ecc.instructions) rules = { ...rules, composed: true, text: [rules?.text, '# ECC selected guidance\n\n' + ecc.instructions].filter(Boolean).join('\n\n') };
     const kits = await sessionDevkits(current);
-    if (kits) rules = { ...rules, composed: true, text: [rules?.text, '# Devkits capabilities\n\n' + kits].filter(Boolean).join('\n\n') };
+    if (kits || ecc.instructions) {
+      const text = composeSessionRules(rules?.text, kits, ecc.instructions);
+      rules = text ? { ...rules, composed: true, text } : rules;
+    }
     argv = rulesArgv(current, argv, rules, config?.instructions);
   }
   if (agent?.profileKey && !(shared('herdr-zed.agent-configs') || []).some(item => item.key === agent.key && item.profileKey === agent.profileKey))

@@ -1,9 +1,10 @@
 import { sharedMcpPlatforms } from './components/shared-mcp-model.js';
+import { demoteHeadings } from './global-rules-model.js';
 
 const devkitsDefinitions = [
   { id: 'core', group: 'rules', name: 'Herdr Core', icon: 'terminal', description: 'Follow the installed Herdr manual when operating terminals.', skill: 'herdr-core', mcps: [] },
   { id: 'tasks', group: 'rules', name: 'Task progress', icon: 'list-todo', description: 'Report progress during actual user work; ordinary chat and discussion need no reports.', skill: 'herdr-tasks', mcps: ['herdr_tasks'] },
-  { id: 'shared-mcp', group: 'skills', name: 'Shared MCP installation', icon: 'settings', description: 'Install or configure shared local Codex MCP connections when requested, preserving existing account settings.', skill: 'shared-mcp', mcps: [] },
+  { id: 'shared-mcp', group: 'skills', name: 'Shared MCP installation', icon: 'settings', description: 'Install or configure shared local Codex MCP connections when requested, preserving existing account settings.', skill: 'shared-mcp', mcps: [], providers: ['codex'] },
   { id: 'visual-studio', group: 'skills', name: 'Visual Studio builds', icon: 'gear', description: 'Build the intended Visual Studio solution and inspect its diagnostics.', skill: 'visual-studio', mcps: ['visual_studio'], platforms: sharedMcpPlatforms.visual_studio },
 ];
 export const devkitsGroups = [
@@ -63,11 +64,22 @@ export function applyDevkitsPlan(config, mcpConfig, plan) {
 export function mcpUsers(name, config, catalog) {
   return ['rules', 'skills'].flatMap(kind => catalog[kind].filter(item => config[kind][item.id] === true && item.mcps.includes(name)).map(item => item.name));
 }
+// Skill bodies start with their own title; under "## <name>" the rest moves down one level.
+const ruleBody = text => demoteHeadings((text || '').replace(/^---\r?\n[\s\S]*?\r?\n---\s*/, '').replace(/^\s*#\s[^\n]*\n/, '').trim(), 1);
 export function devkitsGuidance(config, catalog, servers, platform, missingSkills = [], provider = 'codex') {
   const scoped = item => provider === 'claude' ? { ...item, mcps: item.mcps.filter(name => name === 'herdr_tasks') } : item;
-  const usable = kind => catalog[kind].filter(item => config[kind][item.id] === true && !resourceProblems(scoped(item), config, servers, platform, missingSkills).length);
-  return [
-    ...usable('rules').map(item => `## ${item.name}\n\n${item.description}\n\n${(item.text || '').replace(/^---\r?\n[\s\S]*?\r?\n---\s*/, '')}`),
-    ...usable('skills').map(item => `## ${item.name}\n\n${item.description}${provider === 'claude' && item.mcps.some(name => name !== 'herdr_tasks') ? '\nUse only when the required MCP tools are available in this Claude session. Devkits shared connection setup configures Codex; Claude uses its account MCP configuration.' : ''}\nRead the skill ${JSON.stringify(item.path)} when relevant to the user's task; resolve supporting files relative to it.`),
-  ].join('\n\n');
+  const usable = kind => catalog[kind].filter(item => config[kind][item.id] === true && (!item.providers || item.providers.includes(provider))
+    && !resourceProblems(scoped(item), config, servers, platform, missingSkills).length);
+  const rules = usable('rules'), skills = usable('skills');
+  if (!rules.length && !skills.length) return null;
+  const claudeMcp = item => provider === 'claude' && item.mcps.some(name => name !== 'herdr_tasks')
+    ? ' Use only when the required MCP tools are available in this Claude session.' : '';
+  return {
+    summary: [...rules.map(item => `- **${item.name}** (rule): ${item.description}`),
+      ...skills.map(item => `- **${item.name}** (skill): ${item.description}`)].join('\n'),
+    sections: [
+      ...rules.map(item => [`## ${item.name}`, ruleBody(item.text)].filter(Boolean).join('\n\n')),
+      ...skills.map(item => `## ${item.name}\n\nRead the skill \`${item.path.replace(/\\/g, '/')}\` when relevant to the user's task; resolve supporting files relative to it.${claudeMcp(item)}`),
+    ].join('\n\n'),
+  };
 }

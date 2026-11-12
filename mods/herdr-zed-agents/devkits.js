@@ -13,9 +13,9 @@ export async function readDevkitsSkills(skills) {
 }
 export async function sessionDevkits(agent) {
   const provider = sessionKind(agent);
-  if (!['codex', 'claude'].includes(provider)) return '';
+  if (!['codex', 'claude'].includes(provider)) return null;
   const config = parseDevkits(await readTextFile(devkitsPath()));
-  if (![...Object.values(config.rules), ...Object.values(config.skills)].some(Boolean)) return '';
+  if (![...Object.values(config.rules), ...Object.values(config.skills)].some(Boolean)) return null;
   const catalog = devkitsCatalog(appHome());
   const servers = provider === 'codex' ? parseSharedMcp(await readTextFile(sharedMcpPath())).servers : {};
   const platform = window()?.platform;

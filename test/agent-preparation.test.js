@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { evaluateNative } from './source-harness.js';
 import { configuredAgents } from '../components/session-model.js';
+import { composeSessionRules } from '../mods/herdr-zed-agents/global-rules-model.js';
 
 const profile = { key: 'codex', name: 'Codex', run: ['codex'] };
 const preset = { key: 'devkits-preset-review', profileKey: 'codex', name: 'Review', instructions: 'Use the current profile guide.' };
@@ -17,7 +18,7 @@ async function load({ eccInstructions = '', kitInstructions = '', remote = false
   const host = {
     spaces: () => [{ id: 'local', ...(remote ? { machine: 'host' } : {}) }],
     shared: key => memory[key], appHome: () => '/herdr',
-    configuredAgents,
+    configuredAgents, composeSessionRules,
     settingsKey: agent => agent?.key,
     sessionKind: () => 'codex',
     launcherArgv: (agent, permission) => { calls.push(['launcher', agent?.key, permission, agent?.run]); return agent?.run; },
@@ -101,10 +102,10 @@ test('selected ECC guidance combines with global rules and profile instructions 
 
 
 test('Devkits package guidance joins existing rules and ECC only for local preparation', async () => {
-  const h = await load({ eccInstructions: 'ECC guide', kitInstructions: 'Use frontend skill then browser' });
+  const h = await load({ eccInstructions: 'ECC guide', kitInstructions: { summary: '- **Frontend**', sections: '## Frontend\n\nUse frontend skill then browser' } });
   const result = await h.prepareSession({ key: preset.key, profileKey: 'codex', run: ['codex'] }, h.target);
   assert.ok(result.argv.some(arg => arg.includes('Global rules') && arg.includes('ECC guide') && arg.includes('Use frontend skill then browser')));
-  const remote = await load({ remote: true, kitInstructions: 'Must not load' });
+  const remote = await load({ remote: true, kitInstructions: { summary: 'Must not load' } });
   await remote.prepareSession({ key: profile.key, run: ['codex'] }, remote.target);
   assert.ok(!remote.calls.some(([name]) => name === 'devkits'));
 });
