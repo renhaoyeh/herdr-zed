@@ -240,3 +240,13 @@ test('a launch started with a task resumes without sending the task again', () =
   assert.deepEqual(identity.resumeCommand(codex, ID), ['codex', 'resume', '-c', 'x=1', '--no-daemon', ID]);
   assert.equal(identity.resumeCommand(['claude', 'one', 'two'], ID), null, 'two positional arguments are not a task');
 });
+
+test('a Claude launch with MCP config and a `--` prompt resumes with its options and without the prompt', () => {
+  const id = '11111111-2222-3333-4444-555555555555';
+  const base = ['env', '--', 'CLAUDE_CONFIG_DIR=/account', 'claude', '--mcp-config', '{"mcpServers":{}}', '--effort', 'high'];
+  const expected = [...base, '--resume', id];
+  assert.deepEqual(identity.resumeCommand(base, id), expected, 'the MCP config value is not taken for a prompt');
+  assert.deepEqual(identity.resumeCommand([...base, '--', 'Fix the bug'], id), expected, 'the prompt after -- is dropped');
+  assert.deepEqual(identity.resumeCommand([...base, '--', '--help'], id), expected, 'a flag-like prompt stays a prompt');
+  assert.equal(identity.resumeCommand([...base, '--', 'a', 'b'], id), null, 'several arguments after -- are unknown');
+});

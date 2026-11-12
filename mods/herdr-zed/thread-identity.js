@@ -13,13 +13,19 @@ export const accountEnv = command => command.filter(arg => /^(?:CODEX_HOME|CLAUD
 export const executable = command => command.find(arg => !arg.includes('=') && commandKind([arg]));
 export const hasCredential = command => command.some(arg => /^[A-Z_][A-Z0-9_]*=/.test(arg) && /(?:TOKEN|SECRET|PASSWORD|CREDENTIAL|API[_-]?KEY|AUTH)/i.test(arg.split('=', 1)[0]));
 
-const valuedOptions = new Set(['-m', '--model', '-s', '--sandbox', '-a', '--ask-for-approval', '--profile', '--permission-mode', '-c', '--config']);
+const valuedOptions = new Set(['-m', '--model', '-s', '--sandbox', '-a', '--ask-for-approval', '--profile', '--permission-mode', '-c', '--config',
+  '--effort', '--mcp-config', '--append-system-prompt', '--append-system-prompt-file', '--settings']);
 
 // The launch's argv reopening `id`. A launch started with a task (New thread, Tasks) carries it as the last argument
-// (`claude [options] [prompt]`, `codex [options] [prompt]`): it is dropped, so resuming never sends it again. Any other
-// positional argument is unknown, so the launch is not resumed (null).
+// (`claude [options] [-- prompt]`, `codex [options] [-- prompt]`): it is dropped, so resuming never sends it again. Any
+// other positional argument is unknown, so the launch is not resumed (null).
 export const resumeCommand = (command, id) => {
   const executable = command.findIndex(arg => !arg.includes('=') && commandKind([arg]));
+  const end = command.indexOf('--', executable + 1);
+  if (end >= 0) {
+    if (command.length - end > 2) return null;
+    command = command.slice(0, end);
+  }
   const args = command.slice(executable + 1);
   const positional = args.flatMap((arg, index) => !arg.startsWith('-') && !valuedOptions.has(args[index - 1])
       && arg !== 'resume' && arg !== id && !/^[a-f0-9-]{36}$/i.test(arg) ? [index] : []);
