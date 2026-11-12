@@ -66,7 +66,7 @@ function shell(overrides = {}) {
 const manifests = ['agents', 'github', 'asana', 'mantisbt', 'system'];
 // The Agents extension's pages, as its manifest lists them. The shell mounts one per id with `page` in props.
 const agentsPages = [{ id: 'accounts', title: 'Accounts' }, { id: 'agents', title: 'Launch menu' }, { id: 'profiles', title: 'Profiles' },
-  { id: 'global-rules', title: 'Global Rules' }, { id: 'mcp', title: 'MCP Connections' }, { id: 'capabilities', title: 'Capabilities' }, { id: 'ecc', title: 'ECC' }];
+  { id: 'capabilities', title: 'Capabilities' }, { id: 'ecc', title: 'ECC' }, { id: 'mcp', title: 'MCP Connections' }, { id: 'global-rules', title: 'Global Rules' }];
 
 const expectedSettings = { agents: { view: 'manage-launchers', title: 'Agents', pages: agentsPages }, github: { view: 'settings', title: 'GitHub', pages: [] },
   asana: { view: 'settings', title: 'Asana', pages: [] }, mantisbt: { view: 'settings', title: 'MantisBT', pages: [] },

@@ -27,7 +27,7 @@ test('Agents Settings declares its seven contextual tabs in order with distinct 
   assert.equal(settings.view, 'manage-launchers');
   assert.deepEqual(settings.pages, [
     { id: 'accounts', title: 'Accounts' }, { id: 'agents', title: 'Launch menu' }, { id: 'profiles', title: 'Profiles' },
-    { id: 'global-rules', title: 'Global Rules' }, { id: 'mcp', title: 'MCP Connections' }, { id: 'capabilities', title: 'Capabilities' }, { id: 'ecc', title: 'ECC' },
+    { id: 'capabilities', title: 'Capabilities' }, { id: 'ecc', title: 'ECC' }, { id: 'mcp', title: 'MCP Connections' }, { id: 'global-rules', title: 'Global Rules' },
   ]);
 });
 

@@ -4,7 +4,15 @@ import { Button as NativeButton } from 'gpui-base';
 
 // design.md, Icons and hover: one hover treatment for interactive elements, the background `hover`, with no border or
 // colour shift. Filled buttons (default, destructive) dim to 90% instead. A disabled button never hovers.
-export function Button(id, t, { variant = 'default', size = 'sm', disabled = false } = {}) {
+export function Button(id, t, options = {}) {
+  const el = styledButton(id, t, options), block = el.disabled;
+  // Native `disabled` only blocks activation ("Draw it yourself"): every disabled button dims to 45%, like
+  // ToolbarButton, so an unavailable Save never reads as ready.
+  el.disabled = function (value) { return block.call(this, value).opacity(value ? 0.45 : 1); };
+  return el;
+}
+
+function styledButton(id, t, { variant = 'default', size = 'sm', disabled = false } = {}) {
   const icon = size.startsWith('icon');
   if (t.appearance === 'linear') {
     const primary = variant === 'default', danger = variant === 'destructive', bordered = ['secondary', 'outline'].includes(variant);
