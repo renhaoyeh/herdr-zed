@@ -182,7 +182,7 @@ export default class WorkspaceEditor {
     this.activate(cycle.order[cycle.index], cx, true);
   }
 
-  render(project, cx, { empty, compose } = {}) {
+  render(project, cx, { compose } = {}) {
     this.switchProject(project);
     const dock = shared('herdr-zed.right-panel');
     const files = this.files.render(project, cx, true, false);
@@ -221,8 +221,7 @@ export default class WorkspaceEditor {
         extra, fileActive: kind === 'files', order: this.session.order, closeFile: (path, cx) => this.closeItem(`file:${path}`, cx),
       })))
       .child(div().flex_1().min_w(0).min_h(0).child(kind === 'compose' && compose ? compose() : kind === 'diff' ? diff.content
-        // With nothing open, the editor offers to start a thread, like Zed's empty agent panel.
-        : !this.files.doc && empty ? empty() : files.content));
+        : files.content));
     const body = dock ? SidePanelLayout('workspace-editor-split', this.files.sidePanel, content,
       dock === 'diff' ? diff.panel : files.panel) : content;
     return div().id('workspace-editor').track_focus(this.handle).key_context('HerdrZedFiles').size_full().min_h(0).bg(theme().background)

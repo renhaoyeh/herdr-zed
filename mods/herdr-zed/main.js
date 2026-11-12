@@ -749,8 +749,7 @@ export default class HerdrZed extends View {
     if (props()?.view === 'editor') {
       const project = this.projects().find(project => project.active);
       if (!project) return this.welcomeView(t, cx);
-      const start = () => this.projectStartView(project, t, cx);
-      return this.editor.render(project, cx, { empty: start, compose: start });
+      return this.editor.render(project, cx, { compose: () => this.projectStartView(project, t, cx) });
     }
     if (props()?.view === 'files') return this.files.render(this.projects().find(project => project.active), cx);
     if (props()?.view === 'diff') return this.diff.render(this.projects().find(project => project.active), cx);

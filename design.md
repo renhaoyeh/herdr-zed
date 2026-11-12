@@ -49,7 +49,7 @@ titles). Where they conflict, this file wins.
 
 ## Start a thread
 
-- Every new thread starts in the composer: an empty project shows it, and + / New thread opens it as the editor's
+- Every new thread starts in the composer: only + / New thread opens it (it never shows by itself), as the editor's
   New thread tab (one per project, focused) beside files and Git views; switching tabs keeps the draft. The tab stays
   open after Start: the task and Start lock ("Starting…") until the new thread's tab appears, which clears the task;
   if none appears within 30 s, the task is given back to edit. Closing the tab cancels.

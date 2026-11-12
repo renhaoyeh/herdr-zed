@@ -92,7 +92,7 @@ test('native sidebar, pane menu, dock controls and empty editor render without e
     knownAgents: async () => [program], notify: message => assert.fail(message.body), openOverlay() {}, closeOverlay() {},
     DropdownMenuState: class {}, ProjectLayout: class { sync() {} },
     layoutNode: (node, id) => objects(node).find(value => value.id === id), conversationMaximized: () => false, maximizeConversation() {},
-    WorkspaceEditor: class { init() {} render(_project, context, options) { return options.empty(); } },
+    WorkspaceEditor: class { init() {} render(_project, context, options) { return options.compose(); } },
     NativeLauncher: class {}, createNativeThread() {},
     GitAuthorSettings: class { init() {} render() { return ui(); } close() {} },
     ExtensionSurfaceSlot: () => null,
