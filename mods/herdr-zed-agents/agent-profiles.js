@@ -23,7 +23,7 @@ export const agentProfiles = {
   openAgentProfileEditor(config = null) {
     if (!config && !this.profileAccounts().length) return;
     const target = props();
-    openOverlay({ mod: 'herdr-zed-agents', kind: 'dialog', modal: true, frame: 'none', width: 560, height: 0.8,
+    openOverlay({ mod: 'herdr-zed-agents', kind: 'dialog', modal: true, frame: 'none', width: 560, height: 600,
       props: { view: 'agent-profile-editor', configKey: config?.key || null, space: target.space } });
   },
 
@@ -112,9 +112,10 @@ export const agentProfiles = {
         else return;
         cx.stop_propagation();
       })
-      .child(DialogTitle().flex_none().child(creating ? 'New agent profile' : 'Edit agent profile'))
+      .child(v_flex().id('agent-profile-header').flex_none().gap(6)
+        .child(DialogTitle().child(creating ? 'New agent profile' : 'Edit agent profile'))
+        .child(DialogDescription(t).child(creating ? 'Name this setup and choose the account it starts with.' : 'Edit this saved model setup.')))
       .child(v_flex().flex_1().min_h(0).overflow_y_scroll().gap(12)
-        .child(DialogDescription(t).child(creating ? 'Name this setup and choose the account it starts with.' : 'Edit this saved model setup.'))
         .child(h_flex().flex_none().gap(12).items_center()
           .child(div().w(108).flex_none().text_size(13).child('Name'))
           .child(Input.new(this.configName, t).id('agent-configuration-name').accessibility_label('Agent profile name')

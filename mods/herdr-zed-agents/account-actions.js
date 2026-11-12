@@ -56,9 +56,10 @@ export const accountActions = {
       .child(DialogDescription(t).child('Choose a display name for this account.'))
       .child(Input.new(this.renameInput, t).id('rename-account-name').accessibility_label('Account name')
         )
-      .when(Boolean(this.renameError), el => el.child(div().id('rename-account-error').text_size(12)
-        .text_color(t.destructive || t.foreground).child(this.renameError)))
-      .child(DialogFooter().children([
+      // The error takes a fixed slot left of the buttons: this dialog sizes to its content and must not grow.
+      .child(DialogFooter().items_center().children([
+        div().id('rename-account-error').flex_1().min_w(0).truncate().text_size(12).text_color(t.destructive || t.foreground)
+          .when(Boolean(this.renameError), el => el.tooltip(this.renameError)).child(this.renameError || ''),
         Button('cancel-rename-account', t, { variant: 'secondary' }).disabled(Boolean(this.renaming)).on_click(() => this.finishRename()).child('Cancel'),
         Button('save-rename-account', t).disabled(Boolean(this.renaming)).on_click((_event, cx) => this.saveAccountName(cx)).child(this.renaming ? 'Saving…' : 'Save'),
       ]));

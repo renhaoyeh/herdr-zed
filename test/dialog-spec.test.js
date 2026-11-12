@@ -50,7 +50,7 @@ test('form dialogs are 560 wide and modal with Cancel + Save', async () => {
   assert.doesNotMatch(account, /width: 520|width: 480/);
 
   const profiles = await source('mods/herdr-zed-agents/agent-profiles.js');
-  assert.match(profiles, /modal: true, frame: 'none', width: 560, height: 0\.8,/);
+  assert.match(profiles, /modal: true, frame: 'none', width: 560, height: 600,/);
   assert.match(profiles, /Button\('cancel-agent-profile'.*child\('Cancel'\)/);
 
   const calendar = await source('mods/herdr-zed-calendar/calendar.js');

@@ -17,11 +17,13 @@ export class GitAuthorDialog {
   init(cx) { this.target = props(); this.form = new GitAuthorSettings(this.target.context); this.form.init(cx); }
   close() { this.form.close(); }
   render(t) {
-    return DialogContent('commit-author', t)
-      .child(DialogHeader(t, 'Commit author', { id: 'commit-author-close', label: 'Close commit author',
-        onClose: () => closeOverlay(this.target.overlay) }))
-      .child(DialogDescription(t).child('Name and email for future commits in this repository. Save to apply.'))
-      .child(div().text_size(12).text_color(t.muted).truncate().child(this.target.context.folder))
+    // shadcn Dialog: header (title, description, repository), the fields, and a footer pinned to the bottom.
+    return DialogContent('commit-author', t).min_h(0)
+      .child(v_flex().id('commit-author-header').flex_none().gap(6)
+        .child(DialogHeader(t, 'Commit author', { id: 'commit-author-close', label: 'Close commit author',
+          onClose: () => closeOverlay(this.target.overlay) }))
+        .child(DialogDescription(t).child('Name and email for future commits in this repository. Save to apply.'))
+        .child(div().text_size(12).text_color(t.muted).truncate().child(this.target.context.folder)))
       .child(this.form.render(t));
   }
 }
@@ -66,14 +68,15 @@ export class GitAuthorSettings {
       .child(Input.new(state, t).id(`git-author-${key}`).h(32).px(8).text_size(13)
         .bg(t.background).border_b(1).border_color(t.input).text_color(t.foreground)
         .disabled(this.loading || this.saving || !this.loaded).accessibility_label(label));
-    return v_flex().gap(12)
-      .child(h_flex().gap(12).items_start()
+    // Loading, saving, Saved and errors share one fixed slot left of Save, so the form never shifts.
+    const status = this.error || (this.loading ? 'Loading commit author…' : this.saved && !this.saving ? 'Saved.' : '');
+    return v_flex().flex_1().min_h(0).gap(12)
+      .child(h_flex().id('commit-author-body').flex_1().min_h(0).gap(12).items_start()
         .child(div().flex_1().min_w(0).child(field('name', 'Name', this.name)))
         .child(div().flex_1().min_w(0).child(field('email', 'Email', this.email))))
-      .when(this.loading, el => el.child(div().text_size(12).text_color(t.muted).child('Loading commit author…')))
-      .when(Boolean(this.error), el => el.child(div().text_size(12).text_color(t.ansi1).child(this.error)))
-      .child(h_flex().gap(8).justify_end().items_center()
-        .when(this.saved && !this.saving, el => el.child(div().text_size(12).text_color(t.muted).child('Saved.')))
+      .child(h_flex().id('commit-author-footer').flex_none().gap(8).items_center()
+        .child(div().id('commit-author-status').flex_1().min_w(0).truncate().text_size(12).text_color(this.error ? t.ansi1 : t.muted)
+          .when(Boolean(this.error), el => el.tooltip(this.error)).child(status))
         .child(Button('git-author-save', t).disabled(!this.loaded || this.saving || !this.name.value().trim() || !this.email.value().trim())
           .on_click((_event, cx) => this.save(cx)).child(this.saving ? 'Saving…' : 'Save')));
   }
