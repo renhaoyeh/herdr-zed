@@ -185,10 +185,12 @@ export default class AgentBoard {
     const card = task => {
       const children = taskChildren(tasks, task.gid), completed = children.filter(child => child.status === 'done').length;
       const policy = taskActions(task);
-      const trigger = button(`board-card-actions-${task.gid}`, t, { size: 'icon' })
+      const openMenu = cx => { this.cardMenuTask = task.gid; this.cardMenu.open = true; this.cardMenu.focus?.focus(); cx.notify(); };
+      // A 24px button inside a 16px header row: the negative margin keeps the row as tall as its text.
+      const trigger = button(`board-card-actions-${task.gid}`, t, { size: 'icon-sm' }).my(-4)
         .accessibility_label(`Actions for ${task.name}`).tooltip(`Actions for ${task.name}`).child(glyph('ellipsis', 14))
         .on_mouse_down('left', (_e, cx) => cx.stop_propagation())
-        .on_click((_e, cx) => { cx.stop_propagation(); this.cardMenuTask = task.gid; this.cardMenu.open = true; this.cardMenu.focus?.focus(); cx.notify(); });
+        .on_click((_e, cx) => { cx.stop_propagation(); openMenu(cx); });
       const menu = this.cardMenuTask === task.gid ? DropdownMenu(`board-card-menu-${task.gid}`, this.cardMenu, trigger, [
           ...((task.conversation || task.archiveId) && !task.archived && !task.tabs.length
             ? [{ key: 'resume', label: 'Restore conversation', icon: 'rotate-ccw' }] : []),
@@ -213,6 +215,8 @@ export default class AgentBoard {
           this.drag = { gid: task.gid, x: event.position.x, y: event.position.y, active: false };
         }
       })
+      // Right-click opens the same actions menu as the ··· button.
+      .on_mouse_down('right', (_event, cx) => { cx.stop_propagation(); openMenu(cx); })
       .hover(el => el.bg(this.selected === task.gid ? t.cardSelected : t.cardHover)).on_click((_e, cx) => {
         // Stopping this click can also prevent the lane from receiving the release.
         const dragging = this.drag?.active;
@@ -221,7 +225,7 @@ export default class AgentBoard {
         if (dragging || this.suppressClick === task.gid) { this.suppressClick = null; return; }
         this.show(task, project, cx);
       })
-      .child(h_flex().gap(6).items_center().text_size(10).text_color(t.muted)
+      .child(h_flex().h(16).gap(6).items_center().text_size(10).text_color(t.muted)
         .child(taskIdentifier(task)).child(div().flex_1()).child(menu)
         .when(Boolean(task.priority && task.priority !== 'none'), el => el.child(glyph(boardPriorities.find(priority => priority.key === task.priority)?.icon || 'priority-none', 14).text_color(task.priority === 'urgent' ? '#e4a45c' : t.muted).accessibility_label(`${task.priority} priority`))))
       .child(div().text_size(13).font_medium().child(task.name))

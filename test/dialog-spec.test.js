@@ -85,6 +85,7 @@ test('working panels are 0.9×0.86, non-modal, and close from a header X rather 
   const tasks = JSON.parse(await source('mods/herdr-zed-tasks/extension.json'));
   assert.equal(tasks.actions[0].popup.modal, false);
   assert.match(await source('mods/herdr-zed-tasks/agent-board.js'), /board-close/);
+  assert.match(await source('mods/herdr-zed-tasks/agent-board.js'), /on_mouse_down\('right', \(_event, cx\) => \{ cx\.stop_propagation\(\); openMenu\(cx\); \}\)/, 'a task card opens its actions on right-click');
 });
 
 test('picker popups are 280 wide', async () => {
