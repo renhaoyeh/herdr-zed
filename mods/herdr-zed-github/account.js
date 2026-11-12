@@ -1,6 +1,6 @@
 import { Input } from './components/input.js';
 import { div } from 'gpui-kit';
-import { InputState, v_flex } from 'gpui-base';
+import { InputState, v_flex, h_flex } from 'gpui-base';
 import { props, closeOverlay } from 'herdr';
 import { Button } from './components/button.js';
 import { glyph } from './components/icon.js';
@@ -133,32 +133,37 @@ export class GitHubAccount {
           .when(choice.key === 'default', el => el.child(div().flex_none().text_size(11).text_color(t.muted).child('Use the machine\'s git credentials')))
           .when(Boolean(choice.status), el => el.child(div().flex_none().text_size(11).text_color(t.muted).child(choice.status)));
       }));
-    const body = v_flex().gap(12)
-      .when(!embedded && !this.loading && !this.saving, el => el.child(Select('git-account', this.accountSelect, selected,
-        choices.map(choice => ({ key: choice.key, label: choice.status ? `${choice.label} · ${choice.status}` : choice.label, color: t.foreground })),
-        'GitHub account', (key, cx) => this.chooseAccount(key, cx), t, { fullWidth: true })))
-      .when(embedded && !this.loading && !this.saving, el => el.child(accountList()))
-      .when(this.accountsLoading, el => el.child(div().text_size(12).text_color(t.muted).child('Loading accounts…')))
-      .when(Boolean(this.accountsError), el => el.child(div().text_size(12).text_color(t.ansi1).child(this.visibleError(this.accountsError))))
-      .child(Button('git-accounts-refresh', t, { variant: 'secondary' }).disabled(this.accountsLoading || this.saving)
-        .on_click((_event, cx) => this.loadAccounts(cx)).child(this.accountsError ? 'Retry accounts' : 'Refresh accounts'))
-      .child(DialogDescription(t).child(this.account
-        ? `Use ${this.account.login} (${this.account.host}) for Git operations and future commits. If GitHub does not provide a public email, enter it once; this author will be remembered for the account.`
-        : 'Set the name and email for future commits in this repository. Existing commits stay unchanged.'))
+    // One fixed text: switching accounts must not change the header's height.
+    const description = DialogDescription(t).child('The account this repository uses for Git operations, and the author of future commits. An author entered for an account is remembered for it; existing commits stay unchanged.');
+    const refresh = Button('git-accounts-refresh', t, { variant: 'ghost', size: 'icon' }).disabled(this.accountsLoading || this.saving)
+      .accessibility_label(this.accountsError ? 'Retry accounts' : 'Refresh accounts').tooltip(this.accountsError ? 'Retry accounts' : 'Refresh accounts')
+      .on_click((_event, cx) => this.loadAccounts(cx)).child(glyph('refresh-cw', 14));
+    // shadcn Dialog: header (title, description), a body that scrolls, and a footer pinned to the bottom.
+    const body = v_flex().id('github-account-body').flex_1().min_h(0).gap(12).overflow_y_scroll()
       .child(div().text_size(12).text_color(t.muted).truncate().child(`Repository: ${this.repositoryName()}`))
-      .child(field('name', 'Name', this.name)).child(field('email', 'Email', this.email))
-      .when(this.loading, el => el.child(div().text_size(12).text_color(t.muted).child('Loading commit author…')))
-      .when(Boolean(this.error), el => el.child(div().text_size(12).text_color(t.ansi1).child(this.visibleError(this.error))))
-      .child(DialogFooter()
-        .child(Button('git-author-cancel', t, { variant: 'secondary' }).disabled(Boolean(this.saving)).on_click((_event, cx) => cancel(cx)).child('Cancel'))
-        .child(Button('git-author-save', t).disabled(!this.loaded || this.saving || !this.name.value().trim() || !this.email.value().trim())
-          .on_click((_event, cx) => this.save(cx)).child(this.saving ? 'Saving…' : 'Save')));
+      // Controls stay mounted while loading or saving (dimmed, and chooseAccount ignores them), so nothing jumps.
+      .when(!embedded, el => el.child(h_flex().gap(4).items_center()
+        .child(div().flex_1().min_w(0).opacity(this.loading || this.saving ? 0.45 : 1).child(Select('git-account', this.accountSelect, selected,
+          choices.map(choice => ({ key: choice.key, label: choice.status ? `${choice.label} · ${choice.status}` : choice.label, color: t.foreground })),
+          'GitHub account', (key, cx) => this.chooseAccount(key, cx), t, { fullWidth: true })))
+        .child(refresh)))
+      .when(embedded, el => el.child(accountList()).child(h_flex().child(refresh)))
+      .child(field('name', 'Name', this.name)).child(field('email', 'Email', this.email));
+    // One fixed status slot at the footer's left: progress or the latest error, never a line inserted into the body.
+    const error = this.error || this.accountsError;
+    const status = error ? this.visibleError(error) : this.saving ? 'Saving…' : this.loading ? 'Loading commit author…' : this.accountsLoading ? 'Loading accounts…' : '';
+    const footer = DialogFooter().flex_none().items_center()
+      .child(div().id('github-account-status').flex_1().min_w(0).truncate().text_size(12).text_color(error ? t.ansi1 : t.muted)
+        .when(Boolean(error), el => el.tooltip(this.visibleError(error))).child(status))
+      .child(Button('git-author-cancel', t, { variant: 'secondary' }).disabled(Boolean(this.saving)).on_click((_event, cx) => cancel(cx)).child('Cancel'))
+      .child(Button('git-author-save', t).disabled(!this.loaded || this.saving || !this.name.value().trim() || !this.email.value().trim())
+        .on_click((_event, cx) => this.save(cx)).child(this.saving ? 'Saving…' : 'Save'));
     // Embedded in the shell's Settings dialog the page has no title of its own: the shell's header names it.
-    if (embedded) return v_flex().id('github-account').size_full().min_h(0).p(24).gap(12).text_color(t.foreground).overflow_y_scroll()
-      .child(body);
-    const title = DialogTitle().child('GitHub account');
-    return DialogContent('github-account', t).gap(12).on_key_down((event, cx) => {
+    if (embedded) return v_flex().id('github-account').size_full().min_h(0).p(24).gap(16).text_color(t.foreground)
+      .child(description).child(body).child(footer);
+    return DialogContent('github-account', t).min_h(0).on_key_down((event, cx) => {
       if (event.key === 'escape') { cx.stop_propagation(); cancel(cx); }
-    }).child(title).child(body);
+    }).child(v_flex().id('github-account-header').flex_none().gap(6).child(DialogTitle().child('GitHub account')).child(description))
+      .child(body).child(footer);
   }
 }

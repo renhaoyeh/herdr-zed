@@ -97,7 +97,7 @@ test('picker popups are 280 wide', async () => {
 
 test('GitHub account popup is a 560 modal form', async () => {
   const github = JSON.parse(await source('mods/herdr-zed-github/extension.json'));
-  assert.deepEqual(github.actions[0].popup, { view: 'account', width: 560, height: 0.8, modal: true });
+  assert.deepEqual(github.actions[0].popup, { view: 'account', width: 560, height: 480, modal: true });
 });
 
 test('Agents labels say thread for starting one; save semantics are named on explicit-save pages', async () => {

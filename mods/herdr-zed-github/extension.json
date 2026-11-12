@@ -19,7 +19,7 @@
       "popup": {
         "view": "account",
         "width": 560,
-        "height": 0.8,
+        "height": 480,
         "modal": true
       }
     }

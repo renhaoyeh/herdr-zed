@@ -76,10 +76,12 @@ test('GitHub Cancel discards the draft without writing Git config or account sta
   // Render with the same element stub as the shell tests and invoke the Cancel handler it produced.
   const nodes = new Map(), element = () => { const data = {}; const el = new Proxy(data, { get(obj, key) { if (key === 'when') return (condition, fn) => { if (condition) fn(el); return el; }; return (...args) => { if (key === 'id') nodes.set(args[0], data); if (key === 'on_click') data.click = args[0]; return el; }; } }); return el; };
   const source = await readFile(github('account.js'), 'utf8');
-  const render = new Function('div', 'v_flex', 'Input', 'Button', 'Select', 'DialogContent', 'DialogTitle', 'DialogDescription', 'DialogFooter', 'props', 'closeOverlay', 'theme', 'settings',
+  const render = new Function('div', 'v_flex', 'h_flex', 'glyph', 'Input', 'Button', 'Select', 'DialogContent', 'DialogTitle', 'DialogDescription', 'DialogFooter', 'props', 'closeOverlay', 'theme', 'settings',
     source.replace(/^import .*;\r?\n/gm, '').replace(/^export /gm, '') + '\nreturn GitHubAccount.prototype.render;');
-  const renderFn = render(element, element, { new: element }, (id) => element().id(id), () => element(), element, element, element, element, () => target, id => events.push(['close', id]), () => ({}), {});
-  renderFn.call(view, {}); nodes.get('git-author-cancel').click({}, { notify() {} });
+  const renderFn = render(element, element, element, element, { new: element }, (id) => element().id(id), () => element(), element, element, element, element, () => target, id => events.push(['close', id]), () => ({}), {});
+  renderFn.call(view, {});
+  for (const id of ['github-account-header', 'github-account-body', 'git-accounts-refresh']) assert.ok(nodes.has(id), `${id}: header, body, footer`);
+  nodes.get('git-author-cancel').click({}, { notify() {} });
   assert.deepEqual(events, [['close', 'dialog']]);
 });
 
