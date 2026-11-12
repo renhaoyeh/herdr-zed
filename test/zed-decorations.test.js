@@ -48,7 +48,7 @@ test('disabled or unavailable decorators are simply absent from the list the she
 });
 
 test('tones map to the shell status tokens and default to muted', () => {
-  const t = { muted: 'm', accent: 'a', working: 'w', ansi1: 'e' };
+  const t = { muted: 'm', accent: 'a', blocked: 'w', ansi1: 'e' };
   assert.equal(decorationTone(t, 'accent'), 'a');
   assert.equal(decorationTone(t, 'warning'), 'w');
   assert.equal(decorationTone(t, 'error'), 'e');

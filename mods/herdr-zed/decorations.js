@@ -21,4 +21,4 @@ export function threadDecorations(decorators, read) {
 }
 
 // Tones use the shell's status tokens; `muted` is the default for unknown or absent tones.
-export const decorationTone = (t, tone) => ({ accent: t.accent, warning: t.working, error: t.ansi1 })[tone] || t.muted;
+export const decorationTone = (t, tone) => ({ accent: t.accent, warning: t.blocked, error: t.ansi1 })[tone] || t.muted;
