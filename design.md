@@ -36,6 +36,14 @@ titles). Where they conflict, this file wins.
 - Project rows: the current project has a 2px accent left edge; a project without threads has a dim name and no
   placeholder row. A project row shows how many of its threads are blocked (circle-alert, `blocked`), and while folded
   also how many are done (circle-check, `done`), so what needs you is visible without opening it.
+- A thread row names its branch (branch icon, muted, 11px) only when it differs from its project's, e.g. a worktree.
+  Projects that share a name show their parent folder after it, here and in the project switcher.
+
+## Header
+
+- The project switcher is the way between projects: a search field focused on open (type to filter, Up/Down, Enter),
+  then each project with its status mark (blocked, done, working, else a folder), its parent folder when the name is
+  shared, its machine and its branch, and Open folder… last.
 - The sidebar width can be dragged horizontally. Its top bar and history row stay 32px high; internal vertical
   boundaries cannot be dragged to resize the thread area.
 

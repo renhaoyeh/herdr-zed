@@ -1,6 +1,6 @@
 import { closeThreadTab, closeThreadPane, isProjectPlaceholder } from './thread-close.js';
 import { View, div, svg, image } from 'gpui-kit';
-import { v_flex, h_flex } from 'gpui-base';
+import { v_flex, h_flex, InputState, Input } from 'gpui-base';
 import { agents, spaces, panes, theme, run, props, window, openOverlay, closeOverlay, setAgentOrder, layout, settings, pickFolder, shared, setShared, notify, nextCommand, terminals, knownAgents, hc } from 'herdr';
 import { projectGroups, projectCatalog, folderKey, threadTitle, threadProgram, childTerminals, terminalLabel, agentReportedWorking } from './components/session-model.js';
 import FileViewer, { FileMenu } from './files.js';
@@ -146,6 +146,12 @@ export default class HerdrZed extends View {
     if (['close-project', 'project-menu', 'project-picker'].includes(view)) {
       this.handle = cx.focus_handle(); this.handle.focus(); this.projectIndex = -1;
     }
+    if (view === 'project-picker') {
+      this.projectIndex = 0;
+      this.projectSearch = InputState.new({ placeholder: 'Search projects…' });
+      this.projectSearch.on('change', (_event, cx) => { this.projectIndex = 0; cx.notify(); });
+      this.projectSearch.focus();
+    }
   }
 
   openProject(cx) {
@@ -239,37 +245,57 @@ export default class HerdrZed extends View {
       ]));
   }
 
+  // The header's project switcher (design.md, Header): search, each project's status and branch, and the parent folder
+  // when two projects share a name. Enter switches; the last row opens a folder.
   projectPicker(t) {
-    const projects = this.projects();
+    const all = this.projects(), native = spaces();
+    const query = (this.projectSearch?.value() || '').trim().toLowerCase();
+    const projects = query ? all.filter(project => `${project.name} ${project.folder || ''}`.toLowerCase().includes(query)) : all;
+    const names = new Map(); for (const project of all) names.set(project.name, (names.get(project.name) || 0) + 1);
+    const parent = project => (project.folder || '').replace(/\\/g, '/').replace(/\/+$/, '').split('/').slice(-2, -1)[0] || '';
+    const index = Math.min(Math.max(this.projectIndex, 0), projects.length);
     const choose = (project, cx) => {
       if (project) { closeOverlay(props().overlay); this.selectProject(project); }
       else this.openProject(cx);
     };
-    return DropdownMenuContent('project-picker', Math.min(360, 80 + projects.length * 33), t).track_focus(this.handle)
+    const status = project => {
+      const value = native.find(space => space.id === project.id)?.status;
+      return value === 'blocked' ? glyph('circle-alert', 14).text_color(t.blocked).accessibility_label('Needs you')
+        : value === 'done' ? glyph('circle-check', 14).text_color(t.done).accessibility_label('Done')
+        : value === 'working' ? glyph('loader', 14).text_color(t.working).spin(900).accessibility_label('Working')
+        : glyph('folder', 14).text_color(t.muted);
+    };
+    return DropdownMenuContent('project-picker', Math.min(420, 120 + Math.max(1, projects.length) * 33), t).track_focus(this.handle)
       .on_key_down((event, cx) => {
         if (event.key === 'escape') { cx.stop_propagation(); closeOverlay(props().overlay); return; }
-        if (event.key === 'enter') {
-          cx.stop_propagation();
-          if (this.projectIndex >= 0) choose(projects[this.projectIndex], cx);
-          return;
-        }
-        if (event.key === 'down') this.projectIndex = (this.projectIndex + 1) % (projects.length + 1);
-        else if (event.key === 'up') this.projectIndex = this.projectIndex < 0 ? projects.length : (this.projectIndex + projects.length) % (projects.length + 1);
+        if (event.key === 'enter') { cx.stop_propagation(); choose(projects[index] || null, cx); return; }
+        if (event.key === 'down') this.projectIndex = (index + 1) % (projects.length + 1);
+        else if (event.key === 'up') this.projectIndex = (index + projects.length) % (projects.length + 1);
         else return;
         cx.stop_propagation(); cx.notify();
       })
-      .child(DropdownMenuLabel(t).child('PROJECTS'))
+      .when(Boolean(this.projectSearch), el => el.child(Input.new(this.projectSearch).id('picker-search').accessibility_label('Search projects')
+        .w_full().h(36).px(12).py(0).border(0).border_b(1).border_color(t.border).bg(t.popover).text_size(13)))
       .child(v_flex().id('picker-projects').flex_1().min_h(0).overflow_y_scrollbar().gap(1)
-        .children(projects.map((project, index) => DropdownMenuItem(`picker-project-${project.id}`, t)
-          .bg(this.projectIndex === index ? t.selected : t.popover)
-          .on_hover((inside, cx) => { if (inside) { this.projectIndex = index; cx.notify(); } })
-          .on_click((_event, cx) => choose(project, cx))
-          .child(glyph('folder').text_color(t.muted))
-          .child(div().flex_1().min_w(0).truncate().child(project.name))
-          .child(div().size(14).flex_none().when(project.active, el => el.child(glyph('check').text_color(t.foreground)))))))
+        .when(!projects.length, el => el.child(div().h(32).px(12).flex().items_center().text_size(12).text_color(t.muted).child('No matching projects')))
+        .children(projects.map((project, i) => {
+          const branch = native.find(space => space.id === project.id)?.branch;
+          const where = names.get(project.name) > 1 ? parent(project) : '';
+          return DropdownMenuItem(`picker-project-${project.id}`, t)
+            .bg(index === i ? t.selected : t.popover)
+            .on_hover((inside, cx) => { if (inside) { this.projectIndex = i; cx.notify(); } })
+            .on_click((_event, cx) => choose(project, cx))
+            .child(div().size(14).flex_none().flex().items_center().justify_center().child(status(project)))
+            .child(div().min_w(0).truncate().when(project.active, el => el.font_medium()).child(project.name))
+            .when(Boolean(where), el => el.child(div().flex_none().text_size(11).text_color(t.muted).child(where)))
+            .when(Boolean(project.machine), el => el.child(div().flex_none().text_size(10).text_color(t.muted).child(project.machine)))
+            .child(div().flex_1())
+            .when(Boolean(branch), el => el.child(h_flex().min_w(0).max_w(120).gap(3).items_center().text_size(11).text_color(t.muted)
+              .child(glyph('branch', 11)).child(div().min_w(0).truncate().child(branch))));
+        })))
       .child(DropdownMenuSeparator(t))
       .child(DropdownMenuItem('picker-open-folder', t)
-        .bg(this.projectIndex === projects.length ? t.selected : t.popover)
+        .bg(index === projects.length ? t.selected : t.popover)
         .on_hover((inside, cx) => { if (inside) { this.projectIndex = projects.length; cx.notify(); } })
         .on_click((_event, cx) => choose(null, cx)).child(glyph('folder-plus').text_color(t.muted)).child('Open folder…'));
   }
@@ -575,6 +601,9 @@ export default class HerdrZed extends View {
     const stopping = this.threadBusy(thread, live);
     const archivable = !stopping && historyEligible(thread, live);
     const decoration = (this.renderModel?.decorations || this.decorationsNow()).get(thread.tab.id);
+    const projectBranch = (this.renderModel?.projects || this.projects()).find(project => project.id === thread.space)?.branch
+      ?? spaces().find(space => space.id === thread.space)?.branch;
+    const branch = primary?.branch && primary.branch !== projectBranch ? primary.branch : null;
     const icon = reported === 'working' ? glyph('loader', 14).text_color(t.working).spin(900).accessibility_label('Working')
       : reported === 'blocked' ? glyph('circle-alert', 14).text_color(t.blocked).accessibility_label('Blocked')
       : reported === 'done' ? glyph('circle-check', 14).text_color(t.done).accessibility_label('Done')
@@ -597,6 +626,9 @@ export default class HerdrZed extends View {
       .child(h_flex().flex_1().min_w(0).gap(6).items_center()
         .child(div().min_w(0).truncate().text_size(13).text_color(t.foreground)
           .when(isFocused, el => el.font_medium()).child(thread.title))
+        // design.md, Sidebar: a thread on another branch than its project's (a worktree, say) names it.
+        .when(Boolean(branch), el => el.child(h_flex().flex_none().max_w(120).gap(3).items_center().text_size(11).text_color(t.muted)
+          .accessibility_label(`On branch ${branch}`).child(glyph('branch', 11)).child(div().min_w(0).truncate().child(branch))))
         .when(Boolean(decoration?.subtitle), el => el.child(div().min_w(0).truncate().text_size(11).text_color(t.muted).child(decoration.subtitle)))
         .when(Boolean(decoration?.badge), el => el.child(decorationBadge(decoration, t))))
       .child(ToolbarButton(`${stopping ? 'stop' : archivable ? 'archive' : 'close'}-thread-${thread.tab.id}`, t, { icon: true, row: true })
@@ -794,6 +826,9 @@ export default class HerdrZed extends View {
               else { this.folded.has(space.id) ? this.folded.delete(space.id) : this.folded.add(space.id); cx.notify(); }
             })
             .child(div().min_w(0).truncate().child(space.name))
+            // Two projects with one name: the parent folder tells them apart.
+            .when(groups.filter(group => group.space.name === space.name).length > 1, el => el.child(div().flex_none().text_size(11).font_normal()
+              .text_color(t.muted).child((space.folder || '').replace(/\\/g, '/').replace(/\/+$/, '').split('/').slice(-2, -1)[0] || '')))
             .child(div().opacity(this.hoveredProject === space.id || this.folded.has(space.id) ? 1 : 0)
               .child(glyph(this.folded.has(space.id) ? 'chevron-right' : 'chevron-down', 12)))
             .when(Boolean(space.machine), el => el.child(div().text_size(9).text_color(t.muted).child(space.machine)))
