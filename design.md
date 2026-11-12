@@ -122,7 +122,7 @@ Closing is an X in the header (or Cancel/Esc); there are no Done buttons.
 | Settings | 1040×0.86 | yes | X in the title bar; a page with unsaved edits has its own Save/Discard |
 | Working panel | 0.9×0.86 | no | X at the top-right of the panel header |
 | Menu / picker | 224 or 280 wide | — | Esc |
-| Workspace window (extension `placement: workspace`) | the work area, under the header, above the status bar | no | Esc or its own close control; a click beside it does not close it; a project switch or Settings closes it |
+| Workspace window (extension `placement: workspace`) | the work area, under the header, above the status bar | no | Esc or its own close control; a click beside it does not close it; a project switch, Settings, or showing other work there (a thread, Changes, Files, New thread, a file) closes it |
 
 A picker opened without a pointer (keyboard or the new-thread command) centres at the top of the work area.
 

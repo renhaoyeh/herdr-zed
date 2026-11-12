@@ -98,7 +98,7 @@ test('native sidebar, pane menu, dock controls and empty editor render without e
     ExtensionSurfaceSlot: () => null,
     openSettings: (...args) => commands.push(['open-settings', ...args]), settingsPageKey: id => `extension:${id}`, ExtensionSlot: () => null,
     TOOLBAR_GLYPH: 16, ROW_GLYPH: 14, workspaceRectNow: () => null, publishWorkspaceRect() {}, recordSize() {}, WORK_WIDTH_KEY: 'herdr-zed.work-width',
-    SIDEBAR_HEIGHT_KEY: 'herdr-zed.sidebar-height', closeWorkspacePanel() {}, visibleSurfaceCount: () => 0, syncExtensionLayout() {},
+    SIDEBAR_HEIGHT_KEY: 'herdr-zed.sidebar-height', closeWorkspacePanel() { commands.push(['close-workspace-panel']); }, visibleSurfaceCount: () => 0, syncExtensionLayout() {},
     extensionSurfaceVisible: () => usageVisible, setExtensionSurfaceVisible: (_surface, value) => { usageVisible = value; },
     extensionCatalog: () => ({ ready: true, actions: [], packages: [{ mod: 'herdr-zed-workflow', surfaces: [
       { id: 'usage', mod: 'herdr-zed-workflow', location: 'sidebar.bottom', title: 'Usage', icon: 'chart-column' }] }], errors: [], resolved: { decorators: [],
@@ -125,6 +125,11 @@ test('native sidebar, pane menu, dock controls and empty editor render without e
   view.newThread = (_cx, project) => { launches.push(project); };
   elements(sidebar).find(element => element.attributes.id === 'new-thread-s').click({ stop_propagation() {} }, cx);
   assert.deepEqual(launches, ['s'], 'sidebar + opens that project New thread tab');
+  const panelCloses = () => commands.filter(([name]) => name === 'close-workspace-panel').length;
+  for (const show of [() => view.showConversation(true), () => view.openEditorFile('/workspace/a.js')]) {
+    const before = panelCloses(); show();
+    assert.equal(panelCloses(), before + 1, 'showing other work closes the workspace panel that covers it');
+  }
   assert.match(text(sidebar), /Native thread/);
   assert.ok(elements(sidebar).some(element => element.attributes.accessibility_label === 'Blocked'));
   for (status of ['working', 'done', 'idle']) assert.doesNotThrow(() => view.render(cx));

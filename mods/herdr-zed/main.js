@@ -50,7 +50,9 @@ const workflowSidebar = () => {
 };
 
 // Like Zed's dock buttons: close only the side panel, preserving the central document.
+// design.md, Dialogs: a workspace panel covers the work area, so anything that shows other work there closes it first.
 const toggleEditor = (_editor, name) => {
+  closeWorkspacePanel();
   const maximized = Boolean(shared('herdr-zed.conversation-maximized'));
   maximizeConversation(null, false);
   setShared('herdr-zed.right-panel', !maximized && shared('herdr-zed.right-panel') === name ? null : name);
@@ -355,6 +357,7 @@ export default class HerdrZed extends View {
     const project = this.projects().find(project => id ? project.id === id : project.active);
     if (!project) { this.openProject(cx); return; }
     if (!project.active) this.selectProject(project);
+    closeWorkspacePanel();
     setShared(COMPOSE_KEY, startProjectKey(project));
     // Like opening a file: the editor shows beside the conversation, which stays as it is.
     maximizeConversation(null, false);
@@ -379,6 +382,7 @@ export default class HerdrZed extends View {
 
   showConversation(visible = true, project = this.projects().find(project => project.active)) {
     if (!project) return;
+    closeWorkspacePanel();
     if (!visible) maximizeConversation(null, false);
     setShared('herdr-zed.conversation-visible', { ...(shared('herdr-zed.conversation-visible') || {}), [conversationKey(project)]: visible });
     run(visible && hasConversation(project) ? 'layout.show' : 'layout.hide', { id: 'workspace-view' });
@@ -396,6 +400,7 @@ export default class HerdrZed extends View {
   }
 
   openEditorFile(path, on = null) {
+    closeWorkspacePanel();
     maximizeConversation(null, false);
     run('layout.show', { id: 'editor' });
     run('layout.select', { stack: 'editor', child: 'workspace-editor' });
@@ -769,7 +774,8 @@ export default class HerdrZed extends View {
     if (shared('herdr-zed.native-selection') !== selection) {
       const previous = shared('herdr-zed.native-selection');
       if (typeof previous === 'string') {
-            setShared('herdr-zed.selected-project', null);
+        closeWorkspacePanel();
+        setShared('herdr-zed.selected-project', null);
         run('layout.select', { stack: 'workspace-view', child: 'main' });
       }
       setShared('herdr-zed.native-selection', selection);
