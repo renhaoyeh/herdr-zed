@@ -254,3 +254,34 @@ test('Start a thread opens on the program last chosen in the project and starts 
   view.settleStart({ notify() {} });
   assert.equal(view.startTask.value(), '', 'the new thread clears the task');
 });
+
+test('the panel reads the branch, changes and push state from git status', async () => {
+  const { parseGitStatus } = await evaluateNative('../mods/herdr-zed/start-panel.js', {}, 'parseGitStatus');
+  assert.deepEqual(parseGitStatus('## main...origin/main [ahead 4, behind 1]\n M a.js\n?? b.js\n'), { branch: 'main', changes: 2, ahead: 4, behind: 1 });
+  assert.deepEqual(parseGitStatus('## No commits yet on dev\n'), { branch: 'dev', changes: 0, ahead: 0, behind: 0 });
+  assert.equal(parseGitStatus('').branch, null);
+});
+
+test('a composer choice may carry a toned detail; a bad one drops the choice', async () => {
+  const { composerChoices } = await import('../components/extension-contract.js');
+  const choice = extra => ({ key: 'c', label: 'C', fields: [], ...extra });
+  const read = c => composerChoices({ machines: { '': { choices: [c] } } }, null);
+  assert.equal(read(choice({ detail: '5h 37% · Week 27%', tone: 'warning' })).length, 1);
+  assert.equal(read(choice({ tone: 'loud' })).length, 0);
+  assert.equal(read(choice({ detail: '' })).length, 0);
+});
+
+test('each control keeps its own starred options, listed first in its menu', async () => {
+  const memory = {};
+  const { startPanel, START_FAVORITES_KEY } = await evaluateNative('../mods/herdr-zed/start-panel.js', {
+    shared: key => memory[key], setShared: (key, value) => { memory[key] = value; }, window: () => ({}), spaces: () => [],
+  }, 'startPanel, START_FAVORITES_KEY');
+  const view = { ...startPanel }, cx = { notify() {} };
+  view.toggleStartFavorite('agents', 'codex:model', 'sol', cx);
+  view.toggleStartFavorite('agents', 'program', 'codex', cx);
+  assert.deepEqual(view.startFavorites('agents', 'codex:model'), ['sol']);
+  assert.deepEqual(view.startFavorites('agents', 'program'), ['codex']);
+  assert.deepEqual(view.startFavorites('', 'program'), [], 'kept per launcher');
+  view.toggleStartFavorite('agents', 'codex:model', 'sol', cx);
+  assert.deepEqual(memory[START_FAVORITES_KEY].agents['codex:model'], [], 'starring again unstars');
+});

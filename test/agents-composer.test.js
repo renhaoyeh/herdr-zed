@@ -44,3 +44,12 @@ test('an intent launches the chosen program with its task and options, then beco
   assert.deepEqual(memory['herdr-zed.launch.intents'].map(intent => intent.id), ['other'], 'only its own intents are taken');
   assert.deepEqual(memory['herdr-zed.profile-sessions'].codex, { model: 'mini', effort: null, serviceTier: 'fast' });
 });
+
+test('the quota reading names each window and warns from 70% and errs from 90%', async () => {
+  const { quotaDetail } = await evaluateNative('../mods/herdr-zed-agents/composer.js', { ...model, LAUNCHER_ID: 'agents' }, 'quotaDetail');
+  const windows = (a, b) => ({ windows: [{ slot: 'five_hour', minutes: 300, usedPercent: a }, { slot: 'seven_day', minutes: 10080, usedPercent: b }] });
+  assert.deepEqual(quotaDetail(windows(37, 27)), { detail: '5h 37% · Week 27%', tone: 'muted' });
+  assert.equal(quotaDetail(windows(75, 27)).tone, 'warning');
+  assert.equal(quotaDetail(windows(10, 91)).tone, 'error');
+  assert.equal(quotaDetail({ windows: [] }), null);
+});

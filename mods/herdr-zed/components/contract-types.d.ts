@@ -60,7 +60,8 @@ export interface LaunchRequest {
 export type ComposerField =
   | { id: string; label: string; type: 'select'; value: string; options: { key: string; label: string; only?: Record<string, string[]> }[] }
   | { id: string; label: string; type: 'toggle'; value: boolean };
-export interface ComposerChoice { key: string; label: string; icon?: string; tint?: boolean; fields: ComposerField[]; }
+/** `detail`: a short reading beside the choice (e.g. its account's quota); `tone` colours it. */
+export interface ComposerChoice { key: string; label: string; icon?: string; tint?: boolean; detail?: string; tone?: 'muted' | 'accent' | 'warning' | 'error'; fields: ComposerField[]; }
 export interface ComposerEnvelope { updatedAt: number; machines: Record<string, { choices: ComposerChoice[] }>; }
 /** §3.1 Composer: shell → launcher, appended to `herdr-zed.launch.intents`. */
 export interface LaunchIntent {

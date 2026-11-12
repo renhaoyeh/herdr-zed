@@ -55,7 +55,7 @@ async function sidebar({ tabs, agents = [], panes = [], terminals = [] }) {
     'Empty', 'EmptyTitle', 'EmptyDescription', 'AgentIcon', 'glyph', 'GitResultToast']) host[name] = (...args) => ui(typeof args[0] === 'string' ? args[0] : null);
   Object.assign(host, { TextareaState: { new: () => ({ on() {}, set_auto_grow() {}, value: () => '', set_value() {}, release() {} }) },
     Textarea: { new: () => ui('textarea') }, Select: id => ui(id), SelectState: class {} });
-  host.activeLauncher ||= () => null;
+  host.activeLauncher ||= () => null; host.Popup ||= { new: (id) => ui(id) }; host.projectHistory ||= () => []; host.archivedAge ||= () => ''; host.exec ||= async () => ({ code: 1, stdout: '', stderr: '' });
   Object.assign(host, await evaluateNative('../mods/herdr-zed/start-panel.js', host, 'startPanel, COMPOSE_KEY, startProjectKey'));
   Object.assign(host, await evaluateNative('../mods/herdr-zed/decorations.js', host, 'threadDecorations, decorationTone'));
   Object.assign(host, { threadArchive: { threadBusy: () => false, archiveThread() {}, restoreThread() {}, historyList: () => ui() }, historyEligible: () => false });

@@ -10,6 +10,9 @@ import { glyph } from './components/icon.js';
 
 const HISTORY_KEY = 'herdr-zed.thread-history';
 const history = () => shared(HISTORY_KEY) || [];
+// A project's archived threads, newest first (the New thread panel's Recent list).
+export const projectHistory = (folder, limit = 5) => history().filter(entry => folderKey(entry.folder) === folderKey(folder))
+  .sort((a, b) => (b.at || 0) - (a.at || 0)).slice(0, limit);
 const archiving = new Set();
 const restoring = new Map();
 const timedOutRestores = new Set();

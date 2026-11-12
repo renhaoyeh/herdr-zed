@@ -102,7 +102,9 @@ const validField = field => plain(field) && typeof field.id === 'string' && KEY_
 export function composerChoices(envelope, machine) {
   const entry = plain(envelope) && plain(envelope.machines) ? envelope.machines[machine || ''] : null;
   if (!plain(entry) || !Array.isArray(entry.choices)) return null;
-  return entry.choices.filter(choice => plain(choice) && hasOnlyKeys(choice, ['key', 'label', 'icon', 'tint', 'fields'])
+  return entry.choices.filter(choice => plain(choice) && hasOnlyKeys(choice, ['key', 'label', 'icon', 'tint', 'detail', 'tone', 'fields'])
+    && (choice.detail === undefined || typeof choice.detail === 'string' && choice.detail.length > 0 && choice.detail.length <= MAX_LABEL)
+    && (choice.tone === undefined || DECORATION_TONES.includes(choice.tone))
     && typeof choice.key === 'string' && KEY_PATTERN.test(choice.key) && choice.key !== 'terminal'
     && typeof choice.label === 'string' && choice.label.length > 0 && choice.label.length <= MAX_LABEL
     && (choice.icon === undefined || typeof choice.icon === 'string') && (choice.tint === undefined || typeof choice.tint === 'boolean')

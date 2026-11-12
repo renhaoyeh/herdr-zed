@@ -53,6 +53,17 @@ titles). Where they conflict, this file wins.
   New thread tab (one per project, focused) beside files and Git views; switching tabs keeps the draft. The tab stays
   open after Start: the task and Start lock ("Starting…") until the new thread's tab appears, which clears the task;
   if none appears within 30 s, the task is given back to edit. Closing the tab cancels.
+- Under the header, one row: the session controls, the program's reading, then the project's Git state on the right.
+  The input box holds only the task, the shortcut hint and Start; no selects sit in it.
+  - The controls are split like Zed's: the program, then one control per launcher field. The program and each select
+    open their own menu (Default for the first option; options a pick rules out are hidden); a toggle is an icon
+    button (Fast). Every menu row has a star: starred options are listed first in that menu, a filled star unstars.
+    Program rows show the launcher's `detail` (e.g. the account's quota) coloured by `tone` as thread decorations are;
+    the chosen program's reading also sits after the controls. Favorites are `herdr-zed.start-favorites`,
+    `{ [launcher or '']: { [menu]: [option keys] } }`, the menu being `program` or `<choice>:<field>`.
+  - Git: the branch, the uncommitted changes (a ghost button that opens Changes; "Clean" when none) and commits to
+    push or behind, from `git status` at most every 5 s.
+  Below the composer: RECENT, the project's last five archived threads; a row resumes that conversation.
 - The thread options sit in the panel's header, as icon buttons: Show/Hide the launcher's sidebar surface (Usage), its
   settings, and Close thread for the project's current thread. A thread's own header keeps + and maximize; a split
   terminal's header also has Close terminal (close icon), which closes only that pane. Enter adds a line; Ctrl+Enter (Cmd+Enter on macOS) or Start continues. Nothing is

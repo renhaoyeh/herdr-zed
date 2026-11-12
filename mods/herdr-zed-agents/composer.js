@@ -11,8 +11,18 @@ const DEFAULT = 'default';
 // Saved profiles share their account's key, so a choice adds the profile key.
 export const choiceKey = agent => agent.profileKey ? `${agent.key}#${agent.profileKey}` : agent.key;
 
+// The account's quota as a short reading: each window's used share, warning from 70% and error from 90% (the Usage meter's thresholds).
+export function quotaDetail(usage) {
+  const windows = (usage?.windows || []).filter(window => Number.isFinite(window?.usedPercent));
+  if (!windows.length) return null;
+  const name = window => window.slot === 'five_hour' || window.minutes === 300 ? '5h' : window.slot === 'seven_day' || window.minutes === 10080 ? 'Week' : window.name;
+  const worst = Math.max(...windows.map(window => window.usedPercent));
+  return { detail: windows.map(window => `${name(window)} ${Math.round(window.usedPercent)}%`).join(' · ').slice(0, 80),
+    tone: worst >= 90 ? 'error' : worst >= 70 ? 'warning' : 'muted' };
+}
+
 /** One composer choice per visible program: its fields and the account's saved session defaults. */
-export function composerChoice(agent, codexList, { sessions = {}, options = {} } = {}) {
+export function composerChoice(agent, codexList, { sessions = {}, options = {}, usage = [] } = {}) {
   const kind = sessionKind(agent), settings = options[kind] || {}, saved = sessions[settingsKey(agent)] || {};
   const { models } = sessionChoices(kind, codexList, settings, null);
   const fields = [];
@@ -28,8 +38,9 @@ export function composerChoice(agent, codexList, { sessions = {}, options = {} }
       })] });
     if (kind === 'codex') fields.push({ id: 'fast', label: 'Fast', type: 'toggle', value: saved.serviceTier === 'fast' });
   }
+  const quota = quotaDetail(usage.find(item => item?.key === agent.key));
   return { key: choiceKey(agent), label: (agent.profileKey || isAccountLauncher(agent)) && launcherLabel(agent.name) || agent.name, ...(agent.icon ? { icon: agent.icon } : {}),
-    ...(agent.tint ? { tint: true } : {}), fields };
+    ...(agent.tint ? { tint: true } : {}), ...(quota || {}), fields };
 }
 
 /** The envelope for every discovered machine ('' is this computer), in the picker's order without hidden programs. */
@@ -40,8 +51,9 @@ export function composerEnvelope(cache, codexModelsByHome, userHome, state = {})
     const machine = JSON.parse(key) || null;
     const agents = launcherChoices(availableAgents(profiles, machine), state.order || [])
       .filter(choice => choice.agent && !hidden.includes(choice.key)).map(choice => choice.agent);
+    const usage = state.usage?.contexts?.[JSON.stringify(machine)]?.usage || [];
     machines[machine || ''] = { choices: agents.map(agent => composerChoice(agent,
-      machine ? [] : codexModelsByHome.get(codexHome(agent, userHome)) || [], state)) };
+      machine ? [] : codexModelsByHome.get(codexHome(agent, userHome)) || [], { ...state, usage })) };
   }
   return { machines };
 }
@@ -76,7 +88,8 @@ export class Composer {
     }
     const envelope = composerEnvelope(shared('herdr-zed.agent-cache'), this.codexModelsByHome, home(), {
       sessions: shared('herdr-zed.profile-sessions') || {}, options: shared('herdr-zed.session-options') || {},
-      hidden: shared('herdr-zed.hidden-launchers') || [], order: shared('herdr-zed.launcher-order') || [] });
+      hidden: shared('herdr-zed.hidden-launchers') || [], order: shared('herdr-zed.launcher-order') || [],
+      usage: shared('herdr-zed.usage.snapshot') || {} });
     const text = JSON.stringify(envelope);
     if (text === this.published) return;
     this.published = text;
