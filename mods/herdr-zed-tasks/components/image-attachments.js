@@ -18,25 +18,64 @@ const SAVE_CLIPBOARD = [
   '$picture.Save($file, [Drawing.Imaging.ImageFormat]::Png)',
 ].join('; ');
 
+// AppKit converts clipboard image formats (including TIFF screenshots) to PNG without extra dependencies.
+const SAVE_CLIPBOARD_MAC = `
+ObjC.import('AppKit');
+function run(argv) {
+  const picture = $.NSImage.alloc.initWithPasteboard($.NSPasteboard.generalPasteboard);
+  if (picture.isNil()) return 'no-image';
+  const bitmap = $.NSBitmapImageRep.imageRepWithData(picture.TIFFRepresentation);
+  const png = bitmap.representationUsingTypeProperties($.NSBitmapImageFileTypePNG, $({}));
+  if (png.isNil()) throw new Error('Could not convert the clipboard image to PNG.');
+  const file = $(argv[0]);
+  if (!$.NSFileManager.defaultManager.createDirectoryAtPathWithIntermediateDirectoriesAttributesError(
+      file.stringByDeletingLastPathComponent, true, $(), null)) throw new Error('Could not create the images folder.');
+  if (!png.writeToFileAtomically(file, true)) throw new Error('Could not save the clipboard image.');
+}`;
+
 /**
  * Saves the clipboard's image. Resolves { path (app-relative, for image()), file (absolute, for the agent) }, or null
  * when the clipboard holds no image; rejects with the reason it could not be read.
  */
 export async function pasteClipboardImage(services = { exec, appHome, window }) {
-  if (services.window()?.platform !== 'windows') throw new Error('Pasting images is available on Windows for now.');
+  const platform = services.window()?.platform;
+  if (platform !== 'windows' && platform !== 'macos') throw new Error('Pasting images is available on Windows and macOS.');
   const path = `${ATTACHMENTS_DIR}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.png`;
-  const file = `${services.appHome()}/${path}`.replace(/\//g, '\\');
-  const result = await services.exec('powershell.exe', ['-NoProfile', '-NonInteractive', '-STA', '-Command',
+  const file = platform === 'windows' ? `${services.appHome()}/${path}`.replace(/\//g, '\\') : `${services.appHome()}/${path}`;
+  const result = platform === 'macos'
+    ? await services.exec('/usr/bin/osascript', ['-l', 'JavaScript', '-e', SAVE_CLIPBOARD_MAC, file], { timeout: 15000 })
+    : await services.exec('powershell.exe', ['-NoProfile', '-NonInteractive', '-STA', '-Command',
     `& { ${SAVE_CLIPBOARD} } -file '${file.replace(/'/g, "''")}'`], { timeout: 15000 });
-  if (result.code === 3) return null;
+  if (result.code === 3 || (!result.code && result.stdout?.trim() === 'no-image')) return null;
   if (result.code) throw new Error(result.stderr?.trim() || 'Could not read the image on the clipboard.');
   return { path, file };
 }
 
-const attachmentsFolder = services => `${services.appHome()}/${ATTACHMENTS_DIR}`.replace(/\//g, '\\');
+const attachmentsFolder = services => services.window?.()?.platform === 'macos'
+  ? `${services.appHome()}/${ATTACHMENTS_DIR}` : `${services.appHome()}/${ATTACHMENTS_DIR}`.replace(/\//g, '\\');
 
 /** How many pasted images are kept and their total size in bytes ({ count: 0, bytes: 0 } before the first paste). */
 export async function attachmentsUsage(services = { exec, appHome, window }) {
+  if (services.window()?.platform === 'macos') {
+    const result = await services.exec('/usr/bin/osascript', ['-l', 'JavaScript', '-e', `
+      ObjC.import('Foundation');
+      function run(argv) {
+        const fm = $.NSFileManager.defaultManager;
+        if (!fm.fileExistsAtPath(argv[0])) return '0 0';
+        const files = fm.contentsOfDirectoryAtPathError(argv[0], null);
+        if (files.isNil()) throw new Error('Could not read the images folder.');
+        let count = 0, bytes = 0;
+        for (const name of ObjC.deepUnwrap(files)) {
+          const attrs = fm.attributesOfItemAtPathError($(argv[0]).stringByAppendingPathComponent(name), null);
+          if (attrs.isNil()) throw new Error('Could not read image metadata.');
+          if (ObjC.unwrap(attrs.objectForKey($.NSFileType)) !== ObjC.unwrap($.NSFileTypeRegular)) continue;
+          count++; bytes += Number(ObjC.unwrap(attrs.objectForKey($.NSFileSize)));
+        }
+        return count + ' ' + bytes;
+      }`, attachmentsFolder(services)], { timeout: 15000 });
+    const [count, bytes] = (result.stdout || '').trim().split(/\s+/).map(Number);
+    return result.code || !Number.isFinite(count) || !Number.isFinite(bytes) ? null : { count, bytes };
+  }
   if (services.window()?.platform !== 'windows') return null;
   const result = await services.exec('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
     `& { param($dir) if (-not (Test-Path -LiteralPath $dir)) { '0 0'; return }; $m = Get-ChildItem -LiteralPath $dir -File | Measure-Object -Property Length -Sum; "$($m.Count) $([long]$m.Sum)" } -dir '${attachmentsFolder(services).replace(/'/g, "''")}'`],
@@ -46,8 +85,13 @@ export async function attachmentsUsage(services = { exec, appHome, window }) {
 }
 
 /** Opens the folder of pasted images in the file manager, creating it first so it always opens. */
-export async function openAttachmentsFolder(services = { exec, appHome }) {
+export async function openAttachmentsFolder(services = { exec, appHome, window }) {
   const dir = attachmentsFolder(services);
+  if (services.window?.()?.platform === 'macos') {
+    const result = await services.exec('/bin/mkdir', ['-p', dir], { timeout: 15000 });
+    if (result.code) throw new Error(result.stderr?.trim() || 'Could not create the images folder.');
+    return services.exec('/usr/bin/open', [dir]).catch(() => null);
+  }
   await services.exec('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
     `& { param($dir) New-Item -ItemType Directory -Force -Path $dir | Out-Null } -dir '${dir.replace(/'/g, "''")}'`], { timeout: 15000 });
   return services.exec('explorer.exe', [dir]).catch(() => null);
@@ -60,8 +104,8 @@ export const withAttachments = (text, items = []) => !items.length ? text
   : [text.trim(), items.map(item => item.file).join('\n')].filter(Boolean).join('\n\n');
 
 /** Opens an attached image full size in the system's image viewer, where it can be zoomed. */
-export const viewAttachment = (item, services = { exec }) =>
-  services.exec('explorer.exe', [item.file]).catch(() => null);
+export const viewAttachment = (item, services = { exec, window }) =>
+  services.exec(services.window?.()?.platform === 'macos' ? '/usr/bin/open' : 'explorer.exe', [item.file]).catch(() => null);
 
 // The full-size preview is a dialog of the mod that shows the strip: each such mod routes this view to ImagePreview.
 export const IMAGE_PREVIEW_VIEW = 'image-preview';
