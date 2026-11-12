@@ -129,3 +129,11 @@ test('only status.right surfaces are governed by emptiness; sidebar and dock sta
   assert.equal(find(mounted, 'simulator').hidden, true, 'dock keeps its first-mount hidden');
   assert.equal(find(mounted, 'zed-extension-surface-herdr-zed-system-inline').hidden, true);
 });
+
+test('a sidebar surface the user showed mounts shown again after the layout is rebuilt', () => {
+  const packages = [packageFor('herdr-zed-system', systemText)];
+  const id = 'zed-extension-surface-herdr-zed-system-widgets';
+  assert.equal(find(extensionSurfaceLayout(rootLayout(), packages), id).hidden, true, 'hidden by default');
+  assert.equal(find(extensionSurfaceLayout(rootLayout(), packages, [], [], null, new Set(), { [id]: true }), id).hidden, false);
+  assert.equal(find(extensionSurfaceLayout(rootLayout(), packages, [], [], null, new Set(), { [id]: false }), id).hidden, true);
+});

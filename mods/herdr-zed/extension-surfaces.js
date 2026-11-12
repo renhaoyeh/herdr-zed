@@ -2,8 +2,12 @@ const PREFIX = 'zed-extension-surface-';
 // A status.right reading's width: four labelled percentages (CPU, RAM, GPU, Disk) fit without clipping.
 export const READING_PX = 280;
 const nodeId = surface => surface.location === 'dock.right' ? surface.id : `${PREFIX}${surface.mod}-${surface.id}`;
-// Sidebar and dock surfaces start hidden the first time they mount; status.right surfaces start visible.
-const block = surface => ({ id: nodeId(surface), type: 'block', hidden: surface.location !== 'status.right',
+// Sidebar and dock surfaces start hidden the first time they mount; status.right surfaces start visible. A sidebar or
+// dock surface the user showed or hid keeps that choice (`shown`, SURFACES_SHOWN_KEY) when its block is mounted again,
+// e.g. after the layout is refreshed.
+export const SURFACES_SHOWN_KEY = 'herdr-zed.surfaces-shown';
+const block = (surface, shown = {}) => ({ id: nodeId(surface), type: 'block',
+  hidden: surface.location === 'status.right' ? false : typeof shown[nodeId(surface)] === 'boolean' ? !shown[nodeId(surface)] : true,
   ...(surface.location === 'dock.right' ? { size: { px: 380 }, min: 300, max: 900 } : {}),
   ...(surface.location === 'sidebar.bottom' ? { size: { px: 260 }, min: 96, max: 420 } : {}),
   ...(surface.location === 'status.right' ? { size: { px: READING_PX } } : {}),
@@ -35,7 +39,7 @@ export const emptyStatusSurfaces = (packages, read) => new Set(packages.filter(e
   .flatMap(entry => (entry.surfaces || []).filter(surface => surface.location === 'status.right'
     && read(surfaceEmptyKey(entry.id, surface.id)) === true).map(nodeId)));
 
-export function extensionSurfaceLayout(root, packages, disabled = [], previous = [], status = null, empty = new Set()) {
+export function extensionSurfaceLayout(root, packages, disabled = [], previous = [], status = null, empty = new Set(), shown = {}) {
   if (!root) return null;
   const old = previous.flatMap(entry => entry.surfaces || []);
   const enabled = packages.filter(entry => !entry.error && !disabled.includes(entry.mod)).flatMap(entry => entry.surfaces || []);
@@ -66,7 +70,7 @@ export function extensionSurfaceLayout(root, packages, disabled = [], previous =
       }
       continue;
     }
-    const mount = block(surface);
+    const mount = block(surface, shown);
     const addAt = (node, target, transform) => {
       if (node.id === target) {
         const result = transform(node, mount);

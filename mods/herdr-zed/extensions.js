@@ -3,7 +3,7 @@ import { shared, setShared, appHome, readTextFile, openOverlay, notify, layout, 
 import { ToolbarButton, TOOLBAR_GLYPH } from './components/button.js';
 import { glyph } from './components/icon.js';
 import { parseExtensionRegistry, parseExtensionManifest, extensionPopup, extensionMetadata, extensionServiceLayout, gitActionPopup, resolveProviders, launcherAvailable, platformSupported, workspaceRect, windowHeightFromSidebar } from './extension-model.js';
-import { extensionSurfaceLayout, extensionSurfaceNodeId, surfaceEmptyKey, emptyStatusSurfaces } from './extension-surfaces.js';
+import { extensionSurfaceLayout, extensionSurfaceNodeId, surfaceEmptyKey, emptyStatusSurfaces, SURFACES_SHOWN_KEY } from './extension-surfaces.js';
 import { openWorkspacePanel, WORKSPACE_RECT_KEY, WORKSPACE_PANEL_OVERLAY, WORKSPACE_PANEL_ACTIVE, usableWorkspaceRect } from './components/workspace-overlay.js';
 
 const DISABLED = 'herdr-zed.extensions.disabled';
@@ -70,7 +70,7 @@ function applyExtensionLayout(root, packages, disabled, previous) {
     // Providers report status.right readings with nothing to show (ARCHITECTURE §3.8); those mount hidden and take no width.
     const empty = emptyStatusSurfaces(packages, shared);
     const status = { actions: extensionActions('status.right').length, dock: activeSurfaces('dock.right').length };
-    const next = extensionSurfaceLayout(services, packages, disabled, previous, status, empty) || services;
+    const next = extensionSurfaceLayout(services, packages, disabled, previous, status, empty, shared(SURFACES_SHOWN_KEY) || {}) || services;
     if (next !== root) run('layout.set', { layout: next });
   } catch (error) {
     notify({ title: 'Could not mount extension surfaces', body: error.message, level: 'error' });
@@ -106,6 +106,8 @@ export const extensionSurfaceVisible = surface => {
 };
 export const setExtensionSurfaceVisible = (surface, visible) => {
   const id = extensionSurfaceNodeId(surface), node = layoutNode(layout(), id);
+  // Remembered apart from the layout, which a refresh rebuilds with surfaces hidden.
+  if (shared(SURFACES_SHOWN_KEY)?.[id] !== visible) setShared(SURFACES_SHOWN_KEY, { ...(shared(SURFACES_SHOWN_KEY) || {}), [id]: visible });
   if (!node || Boolean(node.hidden) === !visible) return;
   run(visible ? 'layout.show' : 'layout.hide', { id });
 };
