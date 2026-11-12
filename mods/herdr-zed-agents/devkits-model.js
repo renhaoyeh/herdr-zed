@@ -4,7 +4,7 @@ import { demoteHeadings } from './global-rules-model.js';
 const devkitsDefinitions = [
   { id: 'core', group: 'rules', name: 'Herdr Core', icon: 'terminal', description: 'Follow the installed Herdr manual when operating terminals.', skill: 'herdr-core', mcps: [] },
   { id: 'tasks', group: 'rules', name: 'Task progress', icon: 'list-todo', description: 'Report progress during actual user work; ordinary chat and discussion need no reports.', skill: 'herdr-tasks', mcps: ['herdr_tasks'] },
-  { id: 'shared-mcp', group: 'skills', name: 'Shared MCP installation', icon: 'settings', description: 'Install or configure shared local Codex MCP connections when requested, preserving existing account settings.', skill: 'shared-mcp', mcps: [], providers: ['codex'] },
+  { id: 'shared-mcp', group: 'skills', name: 'Shared MCP installation', icon: 'settings', description: 'Install or configure shared local MCP connections for Codex and Claude Code when requested, preserving existing account settings.', skill: 'shared-mcp', mcps: [], providers: ['codex', 'claude'] },
   { id: 'visual-studio', group: 'skills', name: 'Visual Studio builds', icon: 'gear', description: 'Build the intended Visual Studio solution and inspect its diagnostics.', skill: 'visual-studio', mcps: ['visual_studio'], platforms: sharedMcpPlatforms.visual_studio },
 ];
 export const devkitsMcpPresets = [{ id: 'visual_studio', name: 'Visual Studio', platforms: sharedMcpPlatforms.visual_studio,
@@ -99,16 +99,13 @@ export function withMine(config, catalog, mine) {
 export const providerSupported = (item, provider) => !item.providers || item.providers.includes(provider);
 
 export function devkitsGuidance(config, catalog, servers, platform, missingSkills = [], provider = 'codex') {
-  const scoped = item => provider === 'claude' ? { ...item, mcps: item.mcps.filter(name => name === 'herdr_tasks') } : item;
   const usable = kind => catalog[kind].filter(item => config[kind][item.id] === true && providerSupported(item, provider)
-    && !resourceProblems(scoped(item), config, servers, platform, missingSkills).length);
-  const claudeMcp = item => provider === 'claude' && item.mcps.some(name => name !== 'herdr_tasks')
-    ? ' Use only when the required MCP tools are available in this Claude session.' : '';
+    && !resourceProblems(item, config, servers, platform, missingSkills).length);
   const items = [
     ...usable('rules').map(item => ({ id: item.id, name: item.name, kind: 'rule', source: item.source || 'built-in', description: item.description,
       body: ruleBody(item.text) })),
     ...usable('skills').map(item => ({ id: item.id, name: item.name, kind: 'skill', source: item.source || 'built-in', description: item.description,
-      body: `Read the skill \`${plainPath(item.path)}\` when relevant to the user's task; resolve supporting files relative to it.${claudeMcp(item)}` })),
+      body: `Read the skill \`${plainPath(item.path)}\` when relevant to the user's task; resolve supporting files relative to it.` })),
   ];
   if (!items.length) return null;
   return {

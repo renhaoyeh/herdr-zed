@@ -49,3 +49,17 @@ export const sharedMcpPlatforms = { visual_studio: ['windows'] };
 export const sharedMcpSupported = (name, platform) => !sharedMcpPlatforms[name] || sharedMcpPlatforms[name].includes(platform);
 export const platformSharedMcp = (config, platform) => ({ ...config,
   servers: Object.fromEntries(Object.entries(config.servers).filter(([name]) => sharedMcpSupported(name, platform))) });
+
+// Claude reads mcpServers JSON. Its stdio servers inherit the launch environment, so env_vars needs no forwarding;
+// header variables use Claude's ${VAR} expansion. Codex-only tuning fields have no Claude equivalent and are omitted.
+export function claudeMcpServer(server) {
+  if (server.url !== undefined) {
+    const headers = { ...Object.fromEntries(Object.entries(server.env_http_headers || {}).map(([header, name]) => [header, `\${${name}}`])),
+      ...(server.bearer_token_env_var ? { Authorization: `Bearer \${${server.bearer_token_env_var}}` } : {}) };
+    return { type: 'http', url: server.url, ...(Object.keys(headers).length ? { headers } : {}) };
+  }
+  return { type: 'stdio', command: server.command, ...(server.args ? { args: server.args } : {}) };
+}
+
+export const claudeMcpConfig = servers => ({ mcpServers: Object.fromEntries(Object.entries(servers)
+  .filter(([, server]) => server.enabled !== false).map(([name, server]) => [name, claudeMcpServer(server)])) });

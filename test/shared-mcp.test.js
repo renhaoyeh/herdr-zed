@@ -7,12 +7,12 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { sessionKind, settingsKey, sessionArgv, tasksMcpServer } from '../components/session-model.js';
 import { evaluateNative } from './source-harness.js';
-import { parseSharedMcp, mcpToml, platformSharedMcp } from '../components/shared-mcp-model.js';
+import { parseSharedMcp, mcpToml, platformSharedMcp, claudeMcpConfig } from '../components/shared-mcp-model.js';
 import { syncSharedMcp } from '../mods/herdr-zed-agents/shared-mcp-sync.js';
 
 const config = { version: 1, servers: { vs: { command: 'bridge', args: ['繁體中文', 'C:\\with spaces\\bridge', 'quote"'] }, ic: { url: 'http://127.0.0.1:18765/mcp' } } };
 
-const host = { parseSharedMcp, mcpToml, platformSharedMcp, window: () => ({ platform: 'windows' }), home: () => '/home', exec: async () => ({ code: 0 }), sessionKind, tasksMcpServer, settingsKey, appHome: () => '/herdr', readTextFile: async () => JSON.stringify(config) };
+const host = { parseSharedMcp, mcpToml, platformSharedMcp, claudeMcpConfig, window: () => ({ platform: 'windows' }), home: () => '/home', exec: async () => ({ code: 0 }), sessionKind, tasksMcpServer, settingsKey, appHome: () => '/herdr', readTextFile: async () => JSON.stringify(config) };
 const load = extra => evaluateNative('../components/shared-mcp.js', { ...host, ...extra }, 'parseSharedMcp, sharedMcpArgv, sessionMcpArgv, mcpToml');
 
 test('shared MCP accepts only the current schema and preserves explicit CLI precedence', async () => {
@@ -37,9 +37,11 @@ test('launch preparation synchronizes account defaults before returning argv and
   assert.equal(calls[0][1][1], '/account');
   assert.deepEqual(JSON.parse(calls[0][1][2]), { ...config.servers, herdr_tasks: tasksMcpServer('/herdr') });
   assert.deepEqual(JSON.parse(calls[0][1][2]).herdr_tasks.env_vars, ['HC_TERMINAL_ID']);
-  assert.deepEqual(reads, ['/herdr/data/herdr-zed/codex-mcp.json']);
+  assert.deepEqual(reads, ['/herdr/data/herdr-zed/shared-mcp.json']);
   await sessionMcpArgv({ key: 'claude' }, ['claude']);
-  assert.equal(reads.length, 1);
+  assert.equal(calls.length, 1, 'Claude never synchronizes account files');
+  await sessionMcpArgv({ key: 'shell' }, ['zsh']);
+  assert.equal(reads.length, 2);
   const absent = await load({ readTextFile: async () => null });
   assert.deepEqual(await absent.sessionMcpArgv({ key: 'codex' }, ['codex']), ['codex']);
 });
@@ -184,4 +186,22 @@ test('clearing Zed restores a displaced Devkits MCP connection and removes only 
   assert.deepEqual(state.mcp_servers.herdr_tasks, devkits);
   assert.deepEqual(state.devkits_shared_mcp, { servers: { herdr_tasks: devkits } });
   assert.equal(Object.hasOwn(state, 'herdr_zed_shared_mcp'), false);
+});
+
+test('Claude receives enabled shared servers as one per-launch MCP config before explicit arguments', async () => {
+  const source = { version: 1, servers: {
+    vs: { command: 'bridge', args: ['a b'], env_vars: ['HC_TERMINAL_ID'], startup_timeout_sec: 20 },
+    ic: { url: 'http://127.0.0.1:18765/mcp', bearer_token_env_var: 'IC_TOKEN', env_http_headers: { 'X-Key': 'IC_KEY' } },
+    off: { command: 'off', enabled: false }, herdr_tasks: { command: 'shadow' }, visual_studio: { command: 'C:/VS/bridge.exe' } } };
+  const { sessionMcpArgv } = await load({ window: () => ({ platform: 'macos' }), readTextFile: async () => JSON.stringify(source),
+    exec: async () => { throw new Error('Claude must not synchronize files'); } });
+  const original = ['env', 'CLAUDE_CONFIG_DIR=/account', 'claude', '--mcp-config', '{"mcpServers":{"herdr_tasks":{}}}', '--', 'prompt'];
+  const argv = await sessionMcpArgv({ key: 'claude' }, original);
+  assert.deepEqual(argv.slice(0, 4), ['env', 'CLAUDE_CONFIG_DIR=/account', 'claude', '--mcp-config']);
+  assert.deepEqual(argv.slice(5), original.slice(3));
+  assert.deepEqual(JSON.parse(argv[4]), { mcpServers: {
+    vs: { type: 'stdio', command: 'bridge', args: ['a b'] },
+    ic: { type: 'http', url: 'http://127.0.0.1:18765/mcp', headers: { 'X-Key': '${IC_KEY}', Authorization: 'Bearer ${IC_TOKEN}' } } } });
+  const empty = await load({ readTextFile: async () => null });
+  assert.deepEqual(await empty.sessionMcpArgv({ key: 'claude' }, ['claude']), ['claude']);
 });

@@ -76,14 +76,15 @@ test('session rules list Devkits capabilities first and the custom Guide last', 
   assert.equal(model.composeSessionRules('', null), '');
 });
 
-test('Devkits guidance nests skill bodies, skips Codex-only skills for Claude and prints plain paths', async () => {
+test('Devkits guidance nests skill bodies, offers shared MCP to both providers and prints plain paths', async () => {
   const devkits = await import('../mods/herdr-zed-agents/devkits-model.js');
   const catalog = devkits.devkitsCatalog('C:\\herdr');
   catalog.rules = catalog.rules.map(item => ({ ...item, text: '---\nname: x\n---\n\n# Title\n\nBody\n\n## Sub\nMore' }));
   const config = devkits.parseDevkits(null);
   const claude = devkits.devkitsGuidance(config, catalog, {}, 'windows', [], 'claude');
   assert.match(claude.sections, /## Herdr Core\n\nBody\n\n### Sub\nMore/);
-  assert.doesNotMatch(claude.sections + claude.summary, /Shared MCP|# Title|\\|"C:/);
+  assert.doesNotMatch(claude.sections + claude.summary, /# Title|\\|"C:/);
+  assert.match(claude.sections, /## Shared MCP installation\n\nRead the skill `C:\/herdr\/mods/);
   assert.match(claude.summary, /^- \*\*Herdr Core\*\* \(rule\)/);
   const codex = devkits.devkitsGuidance(config, catalog, {}, 'windows', [], 'codex');
   assert.match(codex.sections, /## Shared MCP installation\n\nRead the skill `C:\/herdr\/mods\/herdr-zed-agents\/assets\/skills\/shared-mcp\/SKILL.md`/);

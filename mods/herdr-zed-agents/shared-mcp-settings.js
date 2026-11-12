@@ -95,7 +95,7 @@ export const sharedMcpSettings = {
     const selected = rows.find(row => row.id === this.mcpSelected) || rows[0];
     return v_flex().h_full().flex_1().min_h(0).gap(12)
       .when(!embedded, el => el.child(DialogHeader(t, 'Shared MCP', { id: 'mcp-close', label: 'Close Shared MCP', onClose: () => this.finishSharedMcp() }))
-        .child(DialogDescription(t).flex_none().child('Shared MCP for all local Codex accounts and Profiles. Enable changes save automatically and apply to new sessions; connection details are read-only.')))
+        .child(DialogDescription(t).flex_none().child('Shared MCP for all local Codex and Claude Code accounts and Profiles. Enable changes save automatically and apply to new sessions; connection details are read-only.')))
       .when(this.mcpLoading, el => el.child(div().text_color(t.muted).child('Loading servers…')))
       .when(!this.mcpLoading && Boolean(this.mcpConfig), el => el.child(h_flex().flex_1().min_h(0).items_stretch().gap(16)
         .child(v_flex().w(embedded ? 160 : 190).h_full().min_h(0).flex_none().gap(8)

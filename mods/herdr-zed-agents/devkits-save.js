@@ -40,7 +40,7 @@ export async function saveDevkitsConfig(root, payload, { write = writeChecked, p
     if (!sharedMcpSupported(name, platform) && JSON.stringify(servers[name]) !== JSON.stringify(oldServers[name])) throw Error(`${name} can only be configured on Windows.`);
   const directory = join(root, 'data', 'herdr-zed'); await mkdir(directory, { recursive: true });
   const lockPath = join(directory, '.capabilities-save.lock'), lock = await acquire(lockPath);
-  const files = [[join(directory, 'codex-mcp.json'), mcp], [join(directory, 'capabilities.json'), capabilities]];
+  const files = [[join(directory, 'shared-mcp.json'), mcp], [join(directory, 'capabilities.json'), capabilities]];
   const changes = files.filter(([, item]) => item.text !== item.expected);
   const written = [];
   try {

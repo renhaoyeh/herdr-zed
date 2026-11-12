@@ -29,7 +29,7 @@ export async function providerDevkits(provider) {
   for (const kind of ['rules', 'skills']) catalog[kind].push(...mine.filter(item => item.group === kind));
   const config = withMine(parseDevkits(text), catalog, selection);
   if (![...Object.values(config.rules), ...Object.values(config.skills)].some(Boolean)) return null;
-  const servers = provider === 'codex' ? parseSharedMcp(await readTextFile(sharedMcpPath())).servers : {};
+  const servers = parseSharedMcp(await readTextFile(sharedMcpPath())).servers;
   const platform = window()?.platform;
   const loaded = await readDevkitsSkills(['rules', 'skills'].flatMap(kind =>
     catalog[kind].filter(item => !item.source && config[kind][item.id] && resourceSupported(item, platform))));
