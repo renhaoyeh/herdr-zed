@@ -15,8 +15,8 @@ titles). Where they conflict, this file wins.
 - Management dialogs are 1040×0.86 and modal, with one shell-owned 1px outer border, a 64px title bar and an X. No Done buttons.
 - Extensions manages optional tools: enable switches, display location switches and Configure links. The launcher workflow
   is excluded: Agents has its own dialog with account/launch/rules tabs and no enable or Usage display switches.
-  Its tabbed header is 104px high. Agents pages follow the setup flow: Accounts, Launch menu, Profiles, Capabilities, ECC, MCP Connections, Global Rules. Capabilities, ECC and Global Rules share one side navigation (Overview where present, then Claude Code and Codex). Capabilities lists built-in and your own ("Mine", from data/herdr-zed/capabilities) Rules and Skills per provider, each with a switch, and names required connections; it does not configure or enable MCP servers. MCP Connections manages existing built-in, recommended and user-added shared servers for Codex without a search field or arbitrary add action; built-in servers show no editable fields, connection actions stay above the scrolling details, and it saves its own draft. Global Rules lists, in injection order, each section a new session receives (name, source, text on demand) and ends with the editable Custom section; it has no selection controls. Each page keeps its own Save/Discard, disabled until something changed. Launch menu has no duplicate connection dialog entry. The project menu's Show/Hide Usage item controls the Usage sidebar;
-  Usage has no status-bar contribution.
+  Its tabbed header is 104px high. Agents pages follow the setup flow: Accounts, Launch menu, Profiles, Capabilities, ECC, MCP Connections, Global Rules. Capabilities, ECC and Global Rules share one side navigation (Overview where present, then Claude Code and Codex). Capabilities lists built-in and your own ("Mine", from data/herdr-zed/capabilities) Rules and Skills per provider, each with a switch, and names required connections; it does not configure or enable MCP servers. MCP Connections manages existing built-in, recommended and user-added shared servers for Codex without a search field or arbitrary add action; built-in servers show no editable fields, connection actions stay above the scrolling details, and it saves its own draft. Global Rules lists, in injection order, each section a new session receives (name, source, text on demand) and ends with the editable Custom section; it has no selection controls. Each page keeps its own Save/Discard, disabled until something changed. Launch menu has no duplicate connection dialog entry. Usage has no
+  visibility toggle and no status-bar contribution.
   The shell identifies launcher workflows by their declared capability, without provider-specific branches.
 - Tools themselves open from the main window's status bar, sidebar or dock. An extension's configuration has a back button
   to the Extensions manager, enable/display controls and contextual tabs. Its header is 96px, or 144px with tabs. The first
@@ -31,7 +31,7 @@ titles). Where they conflict, this file wins.
 
 ## Sidebar
 
-- Top to bottom: the thread list, the sidebar surfaces (Usage via the project menu; optional tools via Extensions), and the
+- Top to bottom: the thread list, the sidebar surfaces (Usage; optional tools via Extensions), and the
   thread history row. The history row is always the last row (its own layout block `sidebar-history`).
 - Sidebar surfaces start hidden the first time they mount; Manage extensions turns them on.
 - Project rows: the current project has a 2px accent left edge; a project without threads has a dim name and no
@@ -73,7 +73,7 @@ titles). Where they conflict, this file wins.
   New thread tab and reveals the new thread when that project is active. A 30-second timeout retains the task for retry.
   The central composer has no Recent list; archived conversations remain in the existing sidebar history.
 - The composer toolbar places Agents settings immediately before Send. Its header has no action buttons.
-  Show/Hide Usage lives in the project menu; a thread closes from its sidebar row.
+  The project menu holds only project actions (Move up/down, Close project); a thread closes from its sidebar row.
   A thread's header keeps + and maximize; a split terminal also has Close terminal, closing only that pane.
 
 ## Status bar

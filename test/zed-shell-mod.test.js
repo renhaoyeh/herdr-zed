@@ -129,11 +129,7 @@ test('native sidebar, pane menu, dock controls and empty editor render without e
   assert.deepEqual(launches, ['s'], 'sidebar + opens New thread directly');
   target = { view: 'project-menu', project: nativeSpaces[0], overlay: 'project-menu' };
   view.init(null, cx);
-  const terminals = [];
-  view.startThread = (...args) => terminals.push(args);
-  elements(view.render(cx)).find(element => element.attributes.id === 'menu-new-terminal').click({}, cx);
-  assert.equal(terminals[0][0], null);
-  assert.equal(terminals[0][1].folder, '/workspace', 'project menu opens Terminal directly');
+  assert.equal(elements(view.render(cx)).some(element => element.attributes.id === 'menu-new-terminal'), false, 'the project menu has no New terminal');
   target = {};
 
   const panelCloses = () => commands.filter(([name]) => name === 'close-workspace-panel').length;
@@ -158,12 +154,8 @@ test('native sidebar, pane menu, dock controls and empty editor render without e
   assert.deepEqual(commands.at(-1).slice(0, 2), ['open-settings', 'extensions']);
   target = { view: 'project-menu', project: nativeSpaces[0], overlay: 'project-menu' };
   const projectMenu = view.render(cx);
-  elements(projectMenu).find(element => element.attributes.id === 'menu-agent-settings').click();
-  assert.equal(commands.at(-1)[1], 'extension:workflow', 'project menu provides the setup entry before starting a thread');
-  elements(view.render(cx)).find(element => element.attributes.id === 'menu-show-usage').click({}, cx);
-  assert.equal(usageVisible, true);
-  elements(view.render(cx)).find(element => element.attributes.id === 'menu-show-usage').click({}, cx);
-  assert.equal(usageVisible, false, 'project menu toggles Usage');
+  for (const id of ['menu-agent-settings', 'menu-show-usage'])
+    assert.equal(elements(projectMenu).some(element => element.attributes.id === id), false, 'the project menu holds only project actions');
   target = { view: 'status' }; const left = view.render(cx);
   assert.ok(elements(left).some(element => element.attributes.id === 'open-conversation'), 'a real thread offers its toggle');
   const savedTabs = nativeSpaces[0].tabs;

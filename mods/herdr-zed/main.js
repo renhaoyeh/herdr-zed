@@ -18,7 +18,7 @@ import { threadArchive, historyEligible } from './thread-archive.js';
 import { startThreadResume } from './thread-resume.js';
 import { SettingsNav, SettingsPage, SettingsHeader, openSettings, settingsPageKey } from './settings.js';
 import { GitAuthorDialog } from './git-author-settings.js';
-import { ExtensionSlot, ExtensionSurfaceSlot, refreshExtensions, openExtension, extensionCatalog, openGitAction, activeLauncher, publishWorkspaceRect, recordSize, WORK_WIDTH_KEY, SIDEBAR_HEIGHT_KEY, closeWorkspacePanel, visibleSurfaceCount, syncExtensionLayout, extensionSurfaceVisible, setExtensionSurfaceVisible } from './extensions.js';
+import { ExtensionSlot, ExtensionSurfaceSlot, refreshExtensions, openExtension, extensionCatalog, openGitAction, activeLauncher, publishWorkspaceRect, recordSize, WORK_WIDTH_KEY, SIDEBAR_HEIGHT_KEY, closeWorkspacePanel, visibleSurfaceCount, syncExtensionLayout } from './extensions.js';
 import { pollLaunchIntake } from './launch-intake.js';
 import { readNewTerminalCommand } from './components/extension-contract.js';
 import { workspaceTopAnchor } from './extension-model.js';
@@ -44,11 +44,6 @@ import { glyph } from './components/icon.js';
 const workflowSettings = () => {
   const catalog = extensionCatalog();
   return catalog.resolved?.settings?.find(entry => entry.mod === catalog.resolved?.launcher?.mod);
-};
-const workflowSidebar = () => {
-  const catalog = extensionCatalog();
-  return catalog.packages?.find(entry => entry.mod === catalog.resolved?.launcher?.mod)
-    ?.surfaces?.find(surface => surface.location === 'sidebar.bottom');
 };
 
 // Like Zed's dock buttons: close only the side panel, preserving the central document.
@@ -213,16 +208,8 @@ export default class HerdrZed extends View {
     const projects = this.projects();
     const index = projects.findIndex(project => project.id === target.project.id);
     const close = () => { closeOverlay(target.overlay); this.closeProject(target.project); };
-    const workflow = workflowSettings(), sidebar = workflowSidebar();
-    const shown = sidebar && extensionSurfaceVisible(sidebar);
     const actions = [
-      { id: 'menu-new-terminal', icon: 'terminal', label: 'New terminal', enabled: true,
-        action: () => this.startThread(null, this.launcherTarget(target.project)) },
-      ...(workflow ? [{ id: 'menu-agent-settings', icon: 'settings', label: `${workflow.title}…`, enabled: true,
-        action: () => openSettings(settingsPageKey(workflow.id), target.project) }] : []),
-      ...(sidebar ? [{ id: 'menu-show-usage', icon: sidebar.icon || 'chart-column', label: `${shown ? 'Hide' : 'Show'} ${sidebar.title}`, enabled: true,
-        action: () => setExtensionSurfaceVisible(sidebar, !shown) }] : []),
-      { id: 'menu-project-up', icon: 'arrow-up', label: 'Move up', enabled: index > 0, separated: Boolean(workflow), action: () => this.moveProject(target.project.id, -1) },
+      { id: 'menu-project-up', icon: 'arrow-up', label: 'Move up', enabled: index > 0, action: () => this.moveProject(target.project.id, -1) },
       { id: 'menu-project-down', icon: 'arrow-down', label: 'Move down', enabled: index >= 0 && index < projects.length - 1, action: () => this.moveProject(target.project.id, 1) },
       { id: 'menu-close-project', icon: 'close', label: 'Close project', enabled: true, action: close, separated: true },
     ];
