@@ -351,6 +351,7 @@ Herdr home = `HERDR_APP_HOME` or `~/.config/herdr-app`.
 | Guide (global rules) | `data/herdr-zed/AGENTS.md` | Own, no migration: its prompt composition differs from Devkits |
 | Your Rules and Skills, their off switches | `data/herdr-zed/capabilities/`, `data/herdr-zed/capabilities.json` | Own |
 | Extension registry | `data/herdr-zed/extensions.json` | Own (was `data/devkits-zed/`) |
+| Images pasted into a prompt (New thread, task Continue) | `data/herdr-zed/attachments/` | Own; written by `components/image-attachments.js`, never cleaned up yet |
 | UI preferences and layout state (shared-state keys such as `devkits.side-panel-width`, `devkits.editor-tabs`, `devkits.diff-layout`, `devkits.projects`, project layouts) | `herdr-zed.*` keys | **Proposed:** own keys, no migration (open question) |
 | Conversation history, diff build filters | to be classified in the same question | |
 | GitHub account per repository, remembered account authors (`devkits.git-accounts`, `devkits.git-account-authors`) | owned by `herdr-zed-github` | Key names follow the same question |

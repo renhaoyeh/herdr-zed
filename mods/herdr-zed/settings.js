@@ -9,6 +9,7 @@ import { AUTO_RESUME_KEY } from './thread-identity.js';
 import { extensionCatalog, closeWorkspacePanel, extensionEnabled, setExtensionEnabled } from './extensions.js';
 import { BuildRulesSettings } from './diff-ignore-settings.js';
 import { ExtensionsManager } from './extensions-manager.js';
+import { attachmentsUsage, openAttachmentsFolder, formatBytes } from './components/image-attachments.js';
 
 // Shell-owned management dialogs (ARCHITECTURE §2.1). Preferences, the launcher workflow and Extensions have distinct
 // layouts; opening a destination replaces the current management dialog instead of stacking another one.
@@ -185,6 +186,7 @@ export class SettingsPage {
     if (page === 'git') {
       this.rules = new BuildRulesSettings(); this.rules.init(cx);
     }
+    if (page === 'general') this.loadAttachments(cx);
     if (page === 'extensions') {
       this.extensions = new ExtensionsManager({ openSettings: id => openSettings(extensionPageKey(id), context) });
       this.extensions.init(cx);
@@ -193,11 +195,25 @@ export class SettingsPage {
 
   close() { this.rules?.close(); }
 
+  // Images pasted into prompts are kept on disk; General shows how much they take and opens their folder.
+  loadAttachments(cx) {
+    cx.spawn(async cx => {
+      try { this.attachments = await attachmentsUsage(); } catch { this.attachments = null; }
+      cx.notify();
+    });
+  }
+
   general(t) {
     return v_flex().flex_1().min_h(0).overflow_y_scroll()
       .child(setting(t, 'Resume agent threads after restart', 'Reopen threads whose terminals were lost on reboot or a crash.',
         Switch('settings-auto-resume', shared(AUTO_RESUME_KEY) !== false, t).accessibility_label('Resume agent threads after restart')
-          .on_change((checked, cx) => { setShared(AUTO_RESUME_KEY, checked); cx.notify(); })));
+          .on_change((checked, cx) => { setShared(AUTO_RESUME_KEY, checked); cx.notify(); })))
+      .child(setting(t, 'Pasted images', this.attachments
+        ? `${this.attachments.count} ${this.attachments.count === 1 ? 'image' : 'images'} · ${formatBytes(this.attachments.bytes)}. Images pasted into New thread and task prompts are kept here; delete any you no longer need.`
+        : 'Images pasted into New thread and task prompts are kept in data/herdr-zed/attachments.',
+        Button('settings-open-attachments', t, { variant: 'secondary' }).h(28).px(10).accessibility_label('Open the pasted images folder')
+          .on_click((_event, cx) => cx.spawn(async cx => { await openAttachmentsFolder(); this.loadAttachments(cx); }))
+          .child('Open folder')));
   }
 
   git(t) {

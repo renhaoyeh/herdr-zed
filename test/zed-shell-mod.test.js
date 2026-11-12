@@ -114,10 +114,12 @@ test('native sidebar, pane menu, dock controls and empty editor render without e
   Object.assign(host, { TextareaState: { new: () => ({ on() {}, set_auto_grow() {}, value: () => '', set_value() {}, release() {} }) },
     Textarea: { new: () => ui('textarea') }, Select: id => ui(id), SelectState: class {} });
   host.activeLauncher ||= () => null; host.Popup ||= { new: (id) => ui(id) }; host.projectHistory ||= () => []; host.archivedAge ||= () => ''; host.exec ||= async () => ({ code: 1, stdout: '', stderr: '' });
+  Object.assign(host, { withAttachments: text => text, AttachmentStrip: () => null, pasteClipboardImage: async () => null });
   Object.assign(host, await evaluateNative('../mods/herdr-zed/start-panel.js', host, 'startPanel, COMPOSE_KEY, startProjectKey'));
   Object.assign(host, await evaluateNative('../mods/herdr-zed/decorations.js', host, 'threadDecorations, decorationTone'));
   Object.assign(host, await evaluateNative('../mods/herdr-zed/thread-close.js', host, 'closeThreadTab, closeThreadPane, isProjectPlaceholder'));
   Object.assign(host, { threadArchive: { threadBusy: () => false, archiveThread() {}, restoreThread() {}, historyList: () => ui() }, historyEligible: () => false });
+  Object.assign(host, { IMAGE_PREVIEW_VIEW: 'image-preview', ImagePreview: () => null });
   const { HerdrZed } = await evaluateNative('../mods/herdr-zed/main.js', host, 'HerdrZed');
   const view = new HerdrZed(); view.init(null, cx);
   const sidebar = view.render(cx);

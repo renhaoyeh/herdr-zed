@@ -400,7 +400,7 @@ test('closing the independent Tasks composer preserves its project-scoped unsave
   Object.assign(h.owner, { InputState: input, TextareaState: input, SelectState: class {}, liveAgents: () => [] });
   const { TaskComposer } = await evaluateNative('../mods/herdr-zed-tasks/task-composer.js', h.owner, 'TaskComposer');
   const target = { view: 'task-composer', project: h.state.projects[0], overlay: 'draft' };
-  const { TasksMod } = await evaluateNative('../mods/herdr-zed-tasks/main.js', { ...h.base, View: class {}, TaskRuntime: class { agentClient = { init() {}, close() {} }; taskAssignees() { return []; } },
+  const { TasksMod } = await evaluateNative('../mods/herdr-zed-tasks/main.js', { ...h.base, IMAGE_PREVIEW_VIEW: 'image-preview', ImagePreview: () => null, View: class {}, TaskRuntime: class { agentClient = { init() {}, close() {} }; taskAssignees() { return []; } },
     TaskComposer, releaseWorkspacePanel() {}, props: () => target }, 'TasksMod');
   const view = new TasksMod(); view.init(null, clock.cx); view.composer.title.set_value('Unfinished'); view.close();
   assert.equal(h.memory['herdr-zed.task-drafts']['["","/project"]'].name, 'Unfinished');
@@ -412,7 +412,7 @@ test('an integration import reopens as a revalidated Tasks draft; a stale or for
   class Composer { init(options) { this.options = options; } render() { return 'composer'; } }
   const snapshot = { source: 'asana', gid: '42', name: 'Imported', notes: 'Body' };
   const load = async target => {
-    const { TasksMod } = await evaluateNative('../mods/herdr-zed-tasks/main.js', { ...h.base, View: class {}, TaskRuntime: function TaskRuntime() { return h.runtime; },
+    const { TasksMod } = await evaluateNative('../mods/herdr-zed-tasks/main.js', { ...h.base, IMAGE_PREVIEW_VIEW: 'image-preview', ImagePreview: () => null, View: class {}, TaskRuntime: function TaskRuntime() { return h.runtime; },
       TaskComposer: Composer, TasksMcpBridge: class {}, AgentBoard: class {}, DeleteTask: class {}, props: () => target }, 'TasksMod');
     const view = new TasksMod(); view.init(null, clock.cx); return view;
   };

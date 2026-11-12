@@ -188,7 +188,7 @@ test('Start a thread hands its task to the agent as the first message; a termina
 test('with a launcher, the composer shows its published fields and hands it a launch intent', async () => {
   const memory = {};
   const contract = await import('../components/extension-contract.js');
-  const { startPanel, LAUNCH_INTENTS } = await evaluateNative('../mods/herdr-zed/start-panel.js', {
+  const { startPanel, LAUNCH_INTENTS } = await evaluateNative('../mods/herdr-zed/start-panel.js', { withAttachments: text => text, AttachmentStrip: () => null, pasteClipboardImage: async () => null, 
     shared: key => memory[key], setShared: (key, value) => { memory[key] = value; }, window: () => ({ platform: 'windows' }), spaces: () => [],
     Button() {}, Select() {}, SelectState: class {}, Empty() {}, EmptyTitle() {}, EmptyDescription() {}, glyph() {}, AgentIcon() {},
     div() {}, v_flex() {}, h_flex() {}, Textarea: {}, activeLauncher: () => ({ id: 'agents' }), COMPOSE_TAB: 'compose', ...contract,
@@ -227,7 +227,7 @@ test('composer choices keep valid entries per machine and drop malformed ones', 
 
 test('Start a thread opens on the program last chosen in the project and starts only on Ctrl/Cmd+Enter', async () => {
   const tabs = [];
-  const { startChoice, startProjectKey, startPanel } = await evaluateNative('../mods/herdr-zed/start-panel.js', {
+  const { startChoice, startProjectKey, startPanel } = await evaluateNative('../mods/herdr-zed/start-panel.js', { withAttachments: text => text, AttachmentStrip: () => null, pasteClipboardImage: async () => null, 
     shared: () => ({}), setShared() {}, window: () => ({ platform: 'windows' }), spaces: () => tabs, Button() {}, Select() {}, SelectState: class {},
     Empty() {}, EmptyTitle() {}, EmptyDescription() {}, glyph() {}, AgentIcon() {}, div() {}, v_flex() {}, h_flex() {}, Textarea: {},
     TextareaState: { new: () => ({ handlers: {}, text: 'Task', on(event, fn) { this.handlers[event] = fn; }, set_auto_grow() {}, value() { return this.text; }, set_value(text) { this.text = text; } }) },
@@ -273,7 +273,7 @@ test('a composer choice may carry a toned detail; a bad one drops the choice', a
 
 test('each control keeps its own starred options, listed first in its menu', async () => {
   const memory = {};
-  const { startPanel, START_FAVORITES_KEY } = await evaluateNative('../mods/herdr-zed/start-panel.js', {
+  const { startPanel, START_FAVORITES_KEY } = await evaluateNative('../mods/herdr-zed/start-panel.js', { withAttachments: text => text, AttachmentStrip: () => null, pasteClipboardImage: async () => null, 
     shared: key => memory[key], setShared: (key, value) => { memory[key] = value; }, window: () => ({}), spaces: () => [],
   }, 'startPanel, START_FAVORITES_KEY');
   const view = { ...startPanel }, cx = { notify() {} };

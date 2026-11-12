@@ -1,6 +1,7 @@
 import { div } from 'gpui-kit';
 import { v_flex, h_flex, TextareaState, Textarea, Popup } from 'gpui-base';
-import { shared, setShared, window, spaces, exec } from 'herdr';
+import { shared, setShared, window, spaces, exec, notify } from 'herdr';
+import { pasteClipboardImage, withAttachments, AttachmentStrip } from './components/image-attachments.js';
 import { Button, ToolbarButton } from './components/button.js';
 import { DropdownMenuContent } from './components/dropdown-menu.js';
 import { Empty, EmptyTitle, EmptyDescription } from './components/empty.js';
@@ -48,6 +49,13 @@ export const startPanel = {
     this.startTask.set_auto_grow(4, 12);
     this.startTask.on('change', (_event, cx) => cx.notify());
     this.startTask.on('submit', (event, cx) => { if (event?.secondary) this.submitStart(cx); });
+    // A pasted image is saved and shown under the task; its path goes to the agent with the task.
+    this.startImages = [];
+    this.startTask.on('paste_other', (_event, cx) => cx.spawn(async cx => {
+      try { const item = await pasteClipboardImage(); if (item) this.startImages = [...this.startImages, item]; }
+      catch (error) { notify({ title: 'Could not paste the image', body: error.message, level: 'error' }); }
+      cx.notify();
+    }));
     // Each control menu's focus handle exists before render (a handle made while drawing is dropped next frame).
     this.startMenuFocus = Array.from({ length: START_MENUS }, () => cx.focus_handle?.());
     // Shared state does not repaint this view: redraw when the launcher republishes its composer choices.
@@ -85,7 +93,7 @@ export const startPanel = {
   submitStart(cx) {
     const start = this.startTarget;
     if (!start || this.startPending) return;
-    const task = start.takesTask ? this.startTask.value().trim() : '';
+    const task = start.takesTask ? withAttachments(this.startTask.value().trim(), this.startImages) : '';
     if (start.intent) {
       // ARCHITECTURE §3.1 Composer: the launcher prepares the account and emits the launch request.
       setShared(LAUNCH_INTENTS, [...(shared(LAUNCH_INTENTS) || []).filter(intent => intent?.expiresAt > Date.now()),
@@ -100,7 +108,7 @@ export const startPanel = {
   settleStart(cx, now = Date.now()) {
     const pending = this.startPending;
     if (!pending) return;
-    if ([...tabIds()].some(id => !pending.known.has(id))) this.startTask.set_value('');
+    if ([...tabIds()].some(id => !pending.known.has(id))) { this.startTask.set_value(''); this.startImages = []; }
     else if (now < pending.until) return;
     this.startPending = null;
     cx.notify();
@@ -293,6 +301,8 @@ export const startPanel = {
         .child(v_flex().border(1).border_color(t.border).bg(t.popover)
           .child(Textarea.new(this.startTask).id('project-start-task').w_full().px(12).py(10).border(0).text_size(13)
             .disabled(!takesTask || Boolean(this.startPending)).accessibility_label('Task for the new thread'))
+          .when(takesTask && this.startImages.length > 0, el => el.child(div().px(12).pb(8).child(AttachmentStrip('project-start-images', this.startImages,
+            (index, cx) => { this.startImages = this.startImages.filter((_item, at) => at !== index); cx.notify(); }, t, 'herdr-zed'))))
           .child(h_flex().px(8).py(6).gap(8).items_center().border_t(1).border_color(t.border)
             .child(div().flex_1())
             .child(div().text_size(11).text_color(t.dim).child(takesTask ? `${shortcut} ${hint}` : 'A terminal starts without a task'))

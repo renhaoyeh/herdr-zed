@@ -17,6 +17,7 @@ async function load(host = {}) {
   Object.assign(host, await evaluateNative('../mods/herdr-zed-asana/components/task-source-model.js', host, 'filterTasks, sourceTaskSnapshot, relativeTime, previewWidthAt, statusKind, avatarColor, initials, dueLabel, sourcePathKey'));
   Object.assign(host, await evaluateNative('../mods/herdr-zed-tasks/task-prompt.js', host, 'taskPrompt, continuationPrompt, taskAttempts'));
   Object.assign(host, await evaluateNative('../mods/herdr-zed-asana/components/task-source.js', host, 'TaskSourceController, TaskSourceProjectPicker'));
+  Object.assign(host, await evaluateNative('../components/image-attachments.js', host, 'withAttachments, AttachmentStrip, pasteClipboardImage'));
   Object.assign(host, await evaluateNative('../mods/herdr-zed-tasks/task-session.js', host, 'TaskSession'));
   Object.assign(host, await evaluateNative('../mods/herdr-zed-asana/ui.js', host, 'AsanaPanel, AsanaProjectPicker, asanaTheme'));
   return { ...host, taskSourceOptions: (_source, target) => sourceOptions(host, 'asana', target) };
@@ -374,9 +375,12 @@ test('Continue prefills the editable prompt with the earlier sessions and sends 
   panel.launchRow(task, agents, (_agent, _task, options) => { started = options; }, {});
   assert.match(panel.promptState.value(), /earlier sessions \(task gid: task\).*list_tasks/);
   panel.promptState.set_value('Only fix the tests.');
+  panel.images = [{ path: 'data/herdr-zed/attachments/a.png', file: 'C:\\home\\a.png' }];
   click();
-  assert.equal(started.instructions, 'Only fix the tests.');
+  assert.equal(started.instructions, 'Only fix the tests.\n\nC:\\home\\a.png',
+    'pasted images go to the agent as paths');
   assert.equal(panel.prompt, null, 'the next session starts from a fresh default');
+  assert.deepEqual(panel.images, []);
 });
 
 test('the composer remembers the agent and drops a model or effort the new agent lacks', async () => {

@@ -262,6 +262,7 @@ test('the header command loop routes herdr-zed.settings, settings:<id> and exten
     settingsPageKey: id => ['general', 'git', 'extensions'].includes(id) ? id : `extension:${id}`,
     theme: () => ({}), window: () => ({}), settings: () => ({ zoom: 1 }), layout: () => null, layoutNode: () => null,
     extensionCatalog: () => ({ resolved: {} }) };
+  Object.assign(host, { IMAGE_PREVIEW_VIEW: 'image-preview', ImagePreview: () => null });
   const { HerdrZed } = await evaluateNative('../mods/herdr-zed/main.js', host, 'HerdrZed');
   const view = new HerdrZed();
   view.init(null, { notify() {}, spawn: fn => jobs.push(fn), timer: { every() {} } });

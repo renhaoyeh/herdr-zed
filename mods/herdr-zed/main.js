@@ -23,6 +23,7 @@ import { readNewTerminalCommand } from './components/extension-contract.js';
 import { workspaceTopAnchor } from './extension-model.js';
 import { usableWorkspaceRect, WORKSPACE_RECT_KEY } from './components/workspace-overlay.js';
 import { threadDecorations, decorationTone } from './decorations.js';
+import { ImagePreview, IMAGE_PREVIEW_VIEW } from './components/image-attachments.js';
 import { DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from './components/dropdown-menu.js';
 import { Button, ToolbarButton, TOOLBAR_GLYPH, ROW_GLYPH } from './components/button.js';
 import { AlertDialogContent, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel } from './components/alert-dialog.js';
@@ -88,6 +89,7 @@ export default class HerdrZed extends View {
   init(_props, cx) {
     const view = props()?.view;
     if (view === 'launcher') { this.launcher = new NativeLauncher(); this.launcher.init(cx); return; }
+    if (view === IMAGE_PREVIEW_VIEW) return;
     if (view === 'settings-nav') { this.settingsNav = new SettingsNav(); return; }
     if (view === 'settings-header') { this.settingsHeader = new SettingsHeader(); return; }
     if (view === 'settings-page') { this.settingsPage = new SettingsPage(); this.settingsPage.init(cx); return; }
@@ -765,6 +767,7 @@ export default class HerdrZed extends View {
     if (props()?.view === 'close-project') return this.closePrompt(t);
     if (props()?.view === 'project-menu') return this.projectMenu(t);
     if (props()?.view === 'project-picker') return this.projectPicker(t);
+    if (props()?.view === IMAGE_PREVIEW_VIEW) return ImagePreview(props(), t);
     const all = agents(), native = spaces(), modelPanes = panes();
     const roots = shared('herdr-zed.project-roots') || {};
     const missing = native.filter(s => roots[s.id] === undefined && s.folder);

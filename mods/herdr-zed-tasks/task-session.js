@@ -1,11 +1,12 @@
 import { div } from 'gpui-kit';
 import { h_flex, v_flex, TextareaState, Textarea } from 'gpui-base';
-import { shared, setShared, home, readTextFile } from 'herdr';
+import { shared, setShared, home, readTextFile, notify } from 'herdr';
 import { effortLabel, claudeModels, claudeEfforts, codexHome, codexModels, isClaudeLauncher, isCodexLauncher, sessionKind, shownOptions, orderedOptions, settingsKey, launcherOption, accountAddresses } from './components/session-model.js';
 import { Select, SelectState } from './components/select.js';
 import { Button } from './components/button.js';
 import { glyph } from './components/icon.js';
 import { continuationPrompt } from './task-prompt.js';
+import { pasteClipboardImage, withAttachments, AttachmentStrip } from './components/image-attachments.js';
 
 const sessionButton = (id, t) => Button(id, t).rounded(t.appearance === 'linear' ? 999 : 6);
 export class TaskSession {
@@ -15,6 +16,12 @@ export class TaskSession {
     // One editor for the shown task (state cannot be created during render); `prompt` records which task it holds.
     this.promptState = TextareaState.new({ placeholder: 'Extra instructions for the agent (optional)…' });
     this.promptState.set_auto_grow(4, 14);
+    this.images = [];
+    this.promptState.on('paste_other', (_event, cx) => cx.spawn(async cx => {
+      try { const item = await pasteClipboardImage(); if (item) this.images = [...this.images, item]; }
+      catch (error) { notify({ title: 'Could not paste the image', body: error.message, level: 'error' }); }
+      cx.notify();
+    }));
     this.prompt = null;
   }
 
@@ -25,6 +32,7 @@ export class TaskSession {
     const current = this.prompt;
     if (current?.gid !== task.gid || (current.base !== base && this.promptState.value() === current.base)) {
       this.promptState.set_value(base);
+      if (current?.gid !== task.gid) this.images = [];
       this.prompt = { gid: task.gid, base };
     }
     return { state: this.promptState };
@@ -97,6 +105,8 @@ export class TaskSession {
       .child(div().text_size(12).font_medium().child(resume ? 'Continue with' : 'Instructions'))
       .child(Textarea.new(prompt.state).id('task-session-prompt').accessibility_label(resume ? 'Prompt for the next session' : 'Extra instructions')
         .w_full().text_size(12))
+      .when(this.images.length > 0, el => el.child(AttachmentStrip('task-session-images', this.images,
+        (index, cx) => { this.images = this.images.filter((_item, at) => at !== index); cx.notify(); }, t, 'herdr-zed-tasks')))
       .child(h_flex().gap(8).items_center().flex_wrap()
       .when(agents.length > 0, el => el.child(Select('task-session-agent', this.selects.agent, current.agent.key,
         agents.map(agent => launcherOption(agent, accountAddresses(shared))).map(option => ({ ...option, color: option.unknown ? t.muted : t.foreground })), 'Agent',
@@ -111,8 +121,8 @@ export class TaskSession {
         .on_click((_event, cx) => { if (current.agent) start(current.agent, task, {
           model: current.model || profile.model || null,
           effort: current.effort || defaultEffort,
-          instructions: prompt.state.value(),
-        }, cx); this.prompt = null; })
+          instructions: withAttachments(prompt.state.value(), this.images),
+        }, cx); this.prompt = null; this.images = []; })
         .child(glyph(resume ? 'play' : 'plus', 12)).child(resume ? 'Continue' : 'Start session')));
   }
 

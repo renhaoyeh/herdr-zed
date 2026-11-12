@@ -11,11 +11,13 @@ import { findProject } from './task-sources.js';
 import { boardTheme } from './components/task-theme.js';
 import { Button } from './components/button.js';
 import { workspacePanel, releaseWorkspacePanel } from './components/workspace-overlay.js';
+import { ImagePreview, IMAGE_PREVIEW_VIEW } from './components/image-attachments.js';
 // Tasks runs as a popup/dialog extension view (see extension.json); the service view runs in the status row.
 export default class TasksMod extends View {
   init(_props, cx) {
     this.runtime = new TaskRuntime(); this.target = props() || {};
     if (this.target.view === 'service') { this.runtime.init(cx); new TasksMcpBridge().init(this.runtime, cx); return; }
+    if (this.target.view === IMAGE_PREVIEW_VIEW) return;
     this.runtime.close = () => { if (this.target.overlay) closeOverlay(this.target.overlay); };
     this.runtime.agentClient.init(cx);
     if (!shared('herdr-zed.agent-cache')?.null) cx.spawn(async cx => {
@@ -40,9 +42,10 @@ export default class TasksMod extends View {
       if (this.target.focus) setShared('herdr-zed.board-focus', this.target.focus);
     }
   }
-  close() { releaseWorkspacePanel(); this.composer?.saveDraft(); this.runtime.agentClient.close(); }
+  close() { if (this.target.view === IMAGE_PREVIEW_VIEW) return; releaseWorkspacePanel(); this.composer?.saveDraft(); this.runtime.agentClient.close(); }
   render(cx) {
     if (this.target.view === 'service') return div().size_full();
+    if (this.target.view === IMAGE_PREVIEW_VIEW) return ImagePreview(this.target, boardTheme());
     const t = boardTheme();
     if (this.archiver) return this.archiver.render();
     if (this.deleter) return this.deleter.render();
