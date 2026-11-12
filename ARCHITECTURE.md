@@ -184,13 +184,17 @@ installed Devkits without reading or consuming Devkits' queues (e.g. `devkits.ag
 
 ```
 user clicks + / New Thread
+ └ shell: the project's editor shows the composer (task text, program, the program's fields); Start / Ctrl+Enter:
  └ shell: catalog has one usable launcher?
-     no  → native picker → createNativeThread(knownAgent)              (argv unchanged)
-     yes (and every service it declares is mounted) → openOverlay({ mod: <launcher mod>, kind: 'popup',
-              props: { view: picker.view, space, folder, projectName, machine } })   (flat, like the native picker)
+     no  → native program → createNativeThread(knownAgent, { …target, task? })          (argv unchanged)
+     yes (and every service it declares is mounted):
+       launcher published this machine in 'herdr-zed.composer.<id>' → shell appends a launch intent to
+              'herdr-zed.launch.intents': { id, launcher, target, choice, values, task?, expiresAt }
+       not yet → openOverlay({ mod: <launcher mod>, kind: 'popup',
+              props: { view: picker.view, space, folder, projectName, machine, task? } })   (flat, like the native picker)
  └ provider: user picks; provider prepares account (may take seconds, shows its own progress/errors)
  └ provider appends to shared 'herdr-zed.launch.requests':
-       { id, source: '<extension id>', target, name, argv, profile, expiresAt, origin? }
+       { id, source: '<extension id>', target, name, argv, profile, expiresAt, origin?, task? }
        and prunes expired entries while appending (the shell never writes this key)
  └ shell (polls in its own view, 100 ms) claims unexpired requests whose id is not in
    'herdr-zed.launch.handled' (ids + expiresAt, pruned at expiry), records them as handled, then validates:
@@ -199,11 +203,18 @@ user clicks + / New Thread
        - target = { space?, folder, projectName?, machine?, overlay? } with folder a non-empty string;
          space, if given, exists; machine matches the space's machine
        - name: non-empty string ≤ 120 chars; argv: non-empty array of strings; profile: string or null
+       - task, if given: non-empty string ≤ 20 000 chars, passed as tab.new / space.new `task` (first message)
      invalid / expired → dropped, notify error once, picker left open
      valid → tab.new / space.new with argv **as given** (no terminalArgv rewrite, no quoting, no
              injection), record { profile, source } for the new tab, close target.overlay, focus main
 ```
 
+- **Composer** (`composerChoices`, `launchIntent` in `extension-contract.js`): the launcher publishes
+  `herdr-zed.composer.<id>` = `{ updatedAt, machines: { [machine | '']: { choices } } }`; a choice is
+  `{ key, label, icon?, tint?, fields }` and a field is a `select` (`{ id, label, value, options: [{ key, label, only? }] }`,
+  `only` = `{ [field id]: keys }` it is offered with) or a `toggle` (`{ id, label, value: boolean }`). The shell draws
+  them without knowing what they mean and drops malformed choices. It only appends intents; the launcher takes its own
+  off the queue, prepares the session from `values` and emits a launch request as above, notifying its own errors.
 - `id` and `profile` let the shell match the new tab when it appears (current `pending-profiles` pattern)
   and expose `{ tabId, profile, source }` in the thread read model (`herdr-zed.threads`) for decorators.
 - Local-shell wrapping (`terminalArgv`) is the provider's job for provider launches; the shell applies it

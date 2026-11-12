@@ -35,6 +35,8 @@ export async function emitLaunch(agent, target = {}, options = {}, origin = null
     id: `launch:${Date.now()}:${Math.random().toString(36).slice(2)}`, source: LAUNCHER_ID, target: location,
     name: agent.name || agent.key, argv, profile: agent.key ?? null, expiresAt: Date.now() + LAUNCH_LIFETIME,
     ...(launchOriginValue ? { origin: launchOriginValue } : {}),
+    // The composer's text becomes the agent's first message.
+    ...(typeof target.task === 'string' && target.task.trim() ? { task: target.task } : {}),
   };
   const checked = validateLaunchRequest(request, { now: Date.now(), launcherId: LAUNCHER_ID, spaces: spaces() });
   if (!checked.ok) throw new Error(checked.error);

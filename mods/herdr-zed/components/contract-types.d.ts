@@ -53,6 +53,19 @@ export interface LaunchOrigin { extension: ExtensionId; ref: string; }
 export interface LaunchRequest {
   id: string; source: ExtensionId; target: LaunchTarget;
   name: string; argv: string[]; profile: string | null; expiresAt: number; origin?: LaunchOrigin;
+  /** The agent's first message (Herdr tab.new/space.new `task`). */
+  task?: string;
+}
+/** §3.1 Composer: launcher → shell, `herdr-zed.composer.<extension id>`. */
+export type ComposerField =
+  | { id: string; label: string; type: 'select'; value: string; options: { key: string; label: string; only?: Record<string, string[]> }[] }
+  | { id: string; label: string; type: 'toggle'; value: boolean };
+export interface ComposerChoice { key: string; label: string; icon?: string; tint?: boolean; fields: ComposerField[]; }
+export interface ComposerEnvelope { updatedAt: number; machines: Record<string, { choices: ComposerChoice[] }>; }
+/** §3.1 Composer: shell → launcher, appended to `herdr-zed.launch.intents`. */
+export interface LaunchIntent {
+  id: string; launcher: ExtensionId; target: LaunchTarget; choice: string;
+  values: Record<string, string | boolean>; task?: string; expiresAt: number;
 }
 export type Validation<T> = { ok: true; value: T } | { ok: false; error: string };
 

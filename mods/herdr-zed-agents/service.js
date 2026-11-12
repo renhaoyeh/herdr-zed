@@ -4,6 +4,7 @@ import { prepareSession } from './session-preparation.js';
 import { ensureRules } from './global-rules.js';
 import { emitLaunch } from './launch.js';
 import { publishDecorations } from './decorations.js';
+import { Composer } from './composer.js';
 
 export class AgentsService {
   pending = new Set();
@@ -15,6 +16,12 @@ export class AgentsService {
       cx.spawn(async cx => { try { const profiles = await discoverAgents(machine); loadAccountIdentities(cx, profiles, machine); } catch {} cx.notify(); });
     cx.timer.every(100, cx => this.poll(cx));
     cx.timer.every(1000, () => publishDecorations());
+    // The shell's composer: programs and session fields per machine, and its launch intents.
+    this.composer = new Composer();
+    const models = () => cx.spawn(async () => { try { await this.composer.loadModels(); } catch {} });
+    models(); cx.timer.every(60000, models);
+    cx.timer.every(500, cx => this.composer.publish(cx));
+    cx.timer.every(100, cx => this.composer.poll(cx));
   }
   poll(cx) {
     const requests = shared('herdr-zed.agents.requests') || [];

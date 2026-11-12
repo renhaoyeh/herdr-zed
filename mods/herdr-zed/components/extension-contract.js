@@ -1,10 +1,11 @@
 // Shared: edit components/extension-contract.js, then npm run sync:shared.
 // Pure validators for provider messages (ARCHITECTURE.md §3). No imports, no native APIs.
 // @ts-check
-/** @import { LaunchRequest, LaunchTarget, LaunchOrigin, Validation, ThreadDecoration, GitCredentialBinding } from './contract-types.js' */
+/** @import { LaunchRequest, LaunchTarget, LaunchOrigin, Validation, ThreadDecoration, GitCredentialBinding, ComposerChoice, ComposerField, LaunchIntent } from './contract-types.js' */
 
 const MAX_LAUNCH_LEAD_MS = 60_000;
 const MAX_NAME_LENGTH = 120;
+const MAX_TASK_LENGTH = 20000;
 const MAX_DECORATION_TEXT = 40;
 const DECORATION_TONES = ['muted', 'accent', 'warning', 'error'];
 const DECORATION_FIELDS = ['badge', 'subtitle', 'tone'];
@@ -63,7 +64,7 @@ export function validateLaunchTarget(target, spaces = []) {
  */
 export function validateLaunchRequest(request, { now, launcherId, spaces = [] }) {
   if (!plain(request)) return fail('Launch request must be an object.');
-  const { id, source, target, name, argv, profile, expiresAt, origin } = request;
+  const { id, source, target, name, argv, profile, expiresAt, origin, task } = request;
   if (typeof id !== 'string' || id.length === 0) return fail('Launch request id must be a non-empty string.');
   if (!launcherId || source !== launcherId) return fail('Launch request source is not the active launcher.');
   if (!Number.isFinite(expiresAt)) return fail('Launch request expiresAt must be a number.');
@@ -77,8 +78,47 @@ export function validateLaunchRequest(request, { now, launcherId, spaces = [] })
     return fail('Launch request argv must be a non-empty array of strings.');
   if (profile !== null && typeof profile !== 'string') return fail('Launch request profile must be a string or null.');
   if (origin !== undefined && !validOrigin(origin)) return fail('Launch request origin must be { extension, ref } with a valid extension ID and a ref of at most 200 characters.');
+  if (task !== undefined && (typeof task !== 'string' || task.trim().length === 0 || task.length > MAX_TASK_LENGTH))
+    return fail(`Launch request task must be a non-empty string of at most ${MAX_TASK_LENGTH} characters.`);
   return { ok: true, value: { id, source, target: checkedTarget.value, name, argv, profile, expiresAt,
-    ...(origin === undefined ? {} : { origin: /** @type {LaunchOrigin} */ (origin) }) } };
+    ...(origin === undefined ? {} : { origin: /** @type {LaunchOrigin} */ (origin) }),
+    ...(task === undefined ? {} : { task }) } };
+}
+
+// §3.1 Composer: the launcher publishes `herdr-zed.composer.<id>` = { updatedAt, machines: { [machine | '']: { choices } } }.
+// Returns the machine's valid choices only; a malformed choice or field is dropped, never repaired.
+const MAX_LABEL = 80, KEY_PATTERN = /^[\w.:@#-]{1,200}$/;
+/** @param {unknown} field @returns {field is ComposerField} */
+const validField = field => plain(field) && typeof field.id === 'string' && KEY_PATTERN.test(field.id)
+  && typeof field.label === 'string' && field.label.length > 0 && field.label.length <= MAX_LABEL
+  && (field.type === 'toggle' ? hasOnlyKeys(field, ['id', 'label', 'type', 'value']) && typeof field.value === 'boolean'
+    : field.type === 'select' && hasOnlyKeys(field, ['id', 'label', 'type', 'value', 'options']) && Array.isArray(field.options)
+      && field.options.length > 0 && field.options.every(option => plain(option) && hasOnlyKeys(option, ['key', 'label', 'only'])
+        && typeof option.key === 'string' && KEY_PATTERN.test(option.key)
+        && typeof option.label === 'string' && option.label.length > 0 && option.label.length <= MAX_LABEL
+        && (option.only === undefined || plain(option.only) && Object.values(option.only).every(keys => Array.isArray(keys) && keys.every(key => typeof key === 'string'))))
+      && field.options.some(option => option.key === field.value));
+/** @param {unknown} envelope @param {string | null | undefined} machine @returns {ComposerChoice[] | null} */
+export function composerChoices(envelope, machine) {
+  const entry = plain(envelope) && plain(envelope.machines) ? envelope.machines[machine || ''] : null;
+  if (!plain(entry) || !Array.isArray(entry.choices)) return null;
+  return entry.choices.filter(choice => plain(choice) && hasOnlyKeys(choice, ['key', 'label', 'icon', 'tint', 'fields'])
+    && typeof choice.key === 'string' && KEY_PATTERN.test(choice.key) && choice.key !== 'terminal'
+    && typeof choice.label === 'string' && choice.label.length > 0 && choice.label.length <= MAX_LABEL
+    && (choice.icon === undefined || typeof choice.icon === 'string') && (choice.tint === undefined || typeof choice.tint === 'boolean')
+    && Array.isArray(choice.fields) && choice.fields.every(validField));
+}
+/** A select option is offered while every field it names holds one of its keys. @param {{ only?: Record<string, string[]> }} option @param {Record<string, unknown>} values */
+export const composerOptionShown = (option, values) => !option.only
+  || Object.entries(option.only).every(([field, keys]) => keys.includes(/** @type {string} */ (values[field])));
+/**
+ * The intent the shell appends to `herdr-zed.launch.intents`; the launcher takes its own off the queue.
+ * @param {{ launcher: string, target: LaunchTarget, choice: string, values: Record<string, string | boolean>, task?: string, now: number }} input
+ * @returns {LaunchIntent}
+ */
+export function launchIntent({ launcher, target, choice, values, task, now }) {
+  return { id: `intent:${now}:${Math.random().toString(36).slice(2)}`, launcher, target, choice, values,
+    ...(task ? { task: task.slice(0, MAX_TASK_LENGTH) } : {}), expiresAt: now + 30_000 };
 }
 
 // Terminal row (ARCHITECTURE §3.1): the Agents picker asks the shell for the native Terminal choice. The mod command

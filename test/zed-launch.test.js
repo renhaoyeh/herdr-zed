@@ -105,6 +105,18 @@ test('valid request opens the tab with argv identical to the one sent, and focus
   assert.deepEqual(store.memory['herdr-zed.launch.pending'][0].known, ['tab-old']);
 });
 
+test('a request task reaches tab.new as the first message; empty or oversize tasks are rejected', () => {
+  const { accepted, errors } = acceptLaunchRequests([request({ task: 'Fix the login bug' })], options());
+  assert.deepEqual(errors, []);
+  assert.equal(accepted[0].task, 'Fix the login bug');
+  const calls = [], store = memoryStore({ [THREADS]: {} });
+  openLaunch(accepted[0], { spaces: () => [{ id: 'space-1', tabs: [] }], shared: store.shared, setShared: store.setShared,
+    run: (command, args) => calls.push([command, args]), closeOverlay() {} });
+  assert.equal(calls.find(([command]) => command === 'tab.new')[1].task, 'Fix the login bug');
+  for (const task of ['  ', 42, 'x'.repeat(20001)])
+    assert.equal(acceptLaunchRequests([request({ id: `t-${String(task).length}`, task })], options()).accepted.length, 0);
+});
+
 test('expired, wrong-source, inactive-launcher and malformed requests are dropped with one message per distinct error', () => {
   const expired = request({ id: 'old', expiresAt: NOW - 1 });
   const wrongSource = request({ id: 'other', source: 'beta' });
@@ -173,6 +185,46 @@ test('Start a thread hands its task to the agent as the first message; a termina
   assert.equal(calls.find(([name]) => name === 'space.new')[1].task, 'Fix the login bug');
 });
 
+test('with a launcher, the composer shows its published fields and hands it a launch intent', async () => {
+  const memory = {};
+  const contract = await import('../components/extension-contract.js');
+  const { startPanel, LAUNCH_INTENTS } = await evaluateNative('../mods/herdr-zed/start-panel.js', {
+    shared: key => memory[key], setShared: (key, value) => { memory[key] = value; }, window: () => ({ platform: 'windows' }),
+    Button() {}, Select() {}, SelectState: class {}, Empty() {}, EmptyTitle() {}, EmptyDescription() {}, glyph() {}, AgentIcon() {},
+    div() {}, v_flex() {}, h_flex() {}, Textarea: {}, activeLauncher: () => ({ id: 'agents' }), COMPOSE_TAB: 'compose', ...contract,
+    TextareaState: { new: () => ({ handlers: {}, text: 'Task', on(event, fn) { this.handlers[event] = fn; }, set_auto_grow() {}, value() { return this.text; }, set_value(text) { this.text = text; } }) },
+  }, 'startPanel, LAUNCH_INTENTS');
+  const choice = { key: 'codex', label: 'Codex', fields: [
+    { id: 'model', label: 'Model', type: 'select', value: 'default', options: [{ key: 'default', label: 'Default' }, { key: 'gpt', label: 'GPT' }, { key: 'mini', label: 'Mini' }] },
+    { id: 'effort', label: 'Effort', type: 'select', value: 'xhigh', options: [{ key: 'default', label: 'Default' },
+      { key: 'xhigh', label: 'XHigh', only: { model: ['default', 'gpt'] } }] },
+    { id: 'fast', label: 'Fast', type: 'toggle', value: false }] };
+  const closed = [], view = { ...startPanel, editor: { session: { compose: true }, closeItem: key => closed.push(key) } };
+  view.initStartPanel({});
+  assert.deepEqual(view.startValues(choice), { model: 'default', effort: 'xhigh', fast: false });
+  view.pickStartValue(choice, 'model', 'mini', { notify() {} });
+  assert.equal(view.startValues(choice).effort, 'default', 'an effort the model lacks falls back');
+  view.pickStartValue(choice, 'fast', true, { notify() {} });
+  view.startTarget = { intent: { launcher: 'agents', choice: 'codex', values: view.startValues(choice) }, takesTask: true, target: { space: 's', folder: '/repo' } };
+  view.submitStart({ notify() {} });
+  const [intent] = memory[LAUNCH_INTENTS];
+  assert.deepEqual({ ...intent, id: null, expiresAt: null }, { id: null, expiresAt: null, launcher: 'agents', choice: 'codex',
+    target: { space: 's', folder: '/repo' }, values: { model: 'mini', effort: 'default', fast: true }, task: 'Task' });
+  assert.deepEqual(closed, ['compose'], 'starting closes the New thread tab');
+});
+
+test('composer choices keep valid entries per machine and drop malformed ones', async () => {
+  const { composerChoices, composerOptionShown } = await import('../components/extension-contract.js');
+  const good = { key: 'claude', label: 'Claude', fields: [{ id: 'model', label: 'Model', type: 'select', value: 'default', options: [{ key: 'default', label: 'Default' }] }] };
+  const envelope = { updatedAt: 1, machines: { '': { choices: [good, { key: 'terminal', label: 'T', fields: [] },
+    { key: 'bad', label: 'Bad', fields: [{ id: 'model', label: 'Model', type: 'select', value: 'missing', options: [{ key: 'a', label: 'A' }] }] },
+    { key: 'x', label: 'X', fields: [], extra: 1 }] } } };
+  assert.deepEqual(composerChoices(envelope, null), [good]);
+  assert.equal(composerChoices(envelope, 'remote'), null, 'an unpublished machine falls back to the picker');
+  assert.equal(composerOptionShown({ only: { model: ['a'] } }, { model: 'b' }), false);
+  assert.equal(composerOptionShown({}, { model: 'b' }), true);
+});
+
 test('Start a thread opens on the program last chosen in the project and starts only on Ctrl/Cmd+Enter', async () => {
   const { startChoice, startProjectKey, startPanel } = await evaluateNative('../mods/herdr-zed/start-panel.js', {
     shared: () => ({}), setShared() {}, window: () => ({ platform: 'windows' }), Button() {}, Select() {}, SelectState: class {},
@@ -185,7 +237,7 @@ test('Start a thread opens on the program last chosen in the project and starts 
   assert.equal(startChoice(programs, project, { [startProjectKey(project)]: 'terminal' }), null);
   const started = [], view = { ...startPanel, startThread: (agent, target) => started.push([agent?.key, target.task]) };
   view.initStartPanel({});
-  view.startTarget = { agent: programs[0], target: { space: 's' } };
+  view.startTarget = { agent: programs[0], takesTask: true, target: { space: 's' } };
   view.startTask.handlers.submit({ secondary: false }, { notify() {} });
   assert.deepEqual(started, [], 'plain Enter only adds a line');
   view.startTask.handlers.submit({ secondary: true }, { notify() {} });

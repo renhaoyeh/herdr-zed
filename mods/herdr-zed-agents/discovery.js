@@ -13,7 +13,9 @@ export async function discoverAgents(machine, refresh = false) {
     const key = JSON.stringify(machine || null);
     const cached = shared('herdr-zed.agent-cache')?.[key];
     if (cached) return availableAgents(cached, machine);
-    if (agentDiscoveryLoads.has(key)) return availableAgents(await agentDiscoveryLoads.get(key), machine);
+    // A native discovery can stall at startup; one older than 15 s is abandoned so a retry asks again.
+    const loading = agentDiscoveryLoads.get(key);
+    if (loading && loading.startedAt > Date.now() - 15000) return availableAgents(await loading, machine);
     const pending = (async () => {
       let agents = (await knownAgents({ on: machine }))
         .filter(agent => agent.installed && (!machine || !isAccountLauncher(agent)));
@@ -35,8 +37,8 @@ export async function discoverAgents(machine, refresh = false) {
       setShared('herdr-zed.agent-cache', { ...(shared('herdr-zed.agent-cache') || {}), [key]: agents });
       return agents;
     })();
-    agentDiscoveryLoads.set(key, pending);
-    try { return availableAgents(await pending, machine); } finally { agentDiscoveryLoads.delete(key); }
+    agentDiscoveryLoads.set(key, Object.assign(pending, { startedAt: Date.now() }));
+    try { return availableAgents(await pending, machine); } finally { if (agentDiscoveryLoads.get(key) === pending) agentDiscoveryLoads.delete(key); }
   }
 
 

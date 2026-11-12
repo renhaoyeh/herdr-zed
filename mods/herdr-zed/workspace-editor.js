@@ -7,9 +7,11 @@ import { gitToastProject } from './git-result-toast.js';
 import { SidePanelLayout } from './components/side-panel.js';
 
 const editorItemKey = item => item.kind === 'commit' ? `commit:${item.commit.sha}` : item.kind;
-const emptyEditorSession = () => ({ git: [], order: [], history: [], active: null });
+const emptyEditorSession = () => ({ git: [], order: [], history: [], active: null, compose: false });
+export const COMPOSE_TAB = 'compose';
 
-// Files, the graph and commit diffs share one tab strip. Dock selection is independent.
+// Files, the graph, commit diffs and the New thread composer share one tab strip. Dock selection is independent.
+// The composer tab (COMPOSE_TAB) is per project and per session; it is not restored after a restart.
 export default class WorkspaceEditor {
   init(cx) {
     this.handle = cx.focus_handle();
@@ -84,7 +86,8 @@ export default class WorkspaceEditor {
   }
 
   syncTabs() {
-    const keys = [...(this.files.tabs || []).map(doc => `file:${doc.path}`), ...this.session.git.map(editorItemKey)];
+    const keys = [...(this.files.tabs || []).map(doc => `file:${doc.path}`), ...this.session.git.map(editorItemKey),
+      ...(this.session.compose ? [COMPOSE_TAB] : [])];
     const valid = new Set(keys);
     this.session.order = [...this.session.order.filter(key => valid.has(key)), ...keys.filter(key => !this.session.order.includes(key))];
     this.session.history = this.session.history.filter(key => valid.has(key));
@@ -120,10 +123,20 @@ export default class WorkspaceEditor {
     setShared('herdr-zed.editor-kind', 'diff');
   }
 
+  // New thread opens the project's composer tab, or returns to it.
+  openCompose(project, cx) {
+    this.switchProject(project);
+    this.capturePreview();
+    this.session.compose = true;
+    this.syncTabs(); this.record(COMPOSE_TAB);
+    cx.notify();
+  }
+
   activate(key, cx, cycling = false) {
     this.capturePreview();
     const cycle = this.tabSwitch;
-    if (key.startsWith('file:')) this.files.activate(key.slice(5), cx);
+    if (key === COMPOSE_TAB) this.record(key);
+    else if (key.startsWith('file:')) this.files.activate(key.slice(5), cx);
     else {
       const item = this.session.git.find(item => editorItemKey(item) === key);
       if (!item) return;
@@ -143,7 +156,8 @@ export default class WorkspaceEditor {
     if (key.startsWith('file:')) {
       this.closingFile = true;
       try { this.files.closeTab(key.slice(5), cx); } finally { this.closingFile = false; }
-    } else {
+    } else if (key === COMPOSE_TAB) this.session.compose = false;
+    else {
       this.session.git = this.session.git.filter(item => editorItemKey(item) !== key);
       if (this.diffItemKey === key) this.diffItemKey = null;
       if (key === 'graph') this.diff.graphMode = false;
@@ -168,7 +182,7 @@ export default class WorkspaceEditor {
     this.activate(cycle.order[cycle.index], cx, true);
   }
 
-  render(project, cx, { empty } = {}) {
+  render(project, cx, { empty, compose } = {}) {
     this.switchProject(project);
     const dock = shared('herdr-zed.right-panel');
     const files = this.files.render(project, cx, true, false);
@@ -182,7 +196,7 @@ export default class WorkspaceEditor {
       }
     }
     const active = this.session.active;
-    const kind = active && !active.startsWith('file:') ? 'diff' : 'files';
+    const kind = active === COMPOSE_TAB ? 'compose' : active && !active.startsWith('file:') ? 'diff' : 'files';
     const diff = kind === 'diff' || dock === 'diff' ? this.diff.render(project, cx, true) : null;
     if (diff) this.diffProjectKey = this.projectKey;
     this.capturePreview();
@@ -200,11 +214,13 @@ export default class WorkspaceEditor {
       return { key, active: key === active, label: item.kind === 'graph' ? 'Git Graph' : item.kind === 'changes' ? 'Changes' : `Commit ${item.commit.shortSha || item.commit.sha.slice(0, 7)}`,
         icon: item.kind === 'graph' ? 'git-graph' : 'git-compare', activate: cx => this.activate(key, cx), close: cx => this.closeItem(key, cx) };
     });
+    if (this.session.compose) extra.push({ key: COMPOSE_TAB, active: active === COMPOSE_TAB, label: 'New thread', icon: 'thread',
+      activate: cx => this.activate(COMPOSE_TAB, cx), close: cx => this.closeItem(COMPOSE_TAB, cx) });
     const content = v_flex().size_full().min_w(0).min_h(0)
       .when(this.session.order.length > 0, el => el.child(this.files.tabBar(theme(), {
         extra, fileActive: kind === 'files', order: this.session.order, closeFile: (path, cx) => this.closeItem(`file:${path}`, cx),
       })))
-      .child(div().flex_1().min_w(0).min_h(0).child(kind === 'diff' ? diff.content
+      .child(div().flex_1().min_w(0).min_h(0).child(kind === 'compose' && compose ? compose() : kind === 'diff' ? diff.content
         // With nothing open, the editor offers to start a thread, like Zed's empty agent panel.
         : !this.files.doc && empty ? empty() : files.content));
     const body = dock ? SidePanelLayout('workspace-editor-split', this.files.sidePanel, content,

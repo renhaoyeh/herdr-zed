@@ -76,16 +76,16 @@ export function reconcileLaunches({ pending = [], threads = {} }, spaces, now) {
  * `api`: { spaces, shared, setShared, run, closeOverlay }.
  */
 export function openLaunch(request, api) {
-  const { target } = request;
+  const { target } = request, task = request.task ? { task: request.task } : {};
   const known = api.spaces().flatMap(space => (space.tabs || []).map(tab => tab.id));
   api.setShared(LAUNCH_PENDING, [...(api.shared(LAUNCH_PENDING) || []), pendingLaunch(request, known)]);
   api.setShared('herdr-zed.conversation-visible', { ...(api.shared('herdr-zed.conversation-visible') || {}),
     [JSON.stringify([target.machine || '', (target.folder || '').replace(/\\/g, '/').replace(/\/+$/, '') || target.space])]: true });
   api.setShared('herdr-zed.selected-project', null);
   api.run('layout.select', { stack: 'workspace-view', child: 'main' });
-  if (target.space) api.run('tab.new', { space: target.space, folder: target.folder, name: request.name, argv: request.argv });
+  if (target.space) api.run('tab.new', { space: target.space, folder: target.folder, name: request.name, argv: request.argv, ...task });
   else api.run('space.new', { name: target.projectName, folder: target.folder, machine: target.machine || '',
-    tab: request.name, argv: request.argv });
+    tab: request.name, argv: request.argv, ...task });
   if (target.overlay) api.closeOverlay(target.overlay);
 }
 

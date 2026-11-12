@@ -53,9 +53,9 @@ export default class AgentsMod extends View {
   // takes it from there. The picker stays open with the error if preparation fails.
   startThread(agent, target = props() || {}, options = {}) {
     if (!agent) { this.openTerminal(target); return; }
-    const { overlay, space, folder, projectName, machine } = target;
+    const { overlay, space, folder, projectName, machine, task } = target;
     this.startError = null;
-    this.agentClient.launch(agent, { overlay, space, folder, projectName, machine }, options)
+    this.agentClient.launch(agent, { overlay, space, folder, projectName, machine, ...(task ? { task } : {}) }, options)
       .then(() => this.remember(agent, { space, folder }, options))
       .catch(error => { this.startError = error.message; this.viewCx?.notify(); });
   }

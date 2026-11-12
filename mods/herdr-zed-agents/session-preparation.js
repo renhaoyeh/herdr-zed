@@ -24,7 +24,7 @@ export async function prepareSession(agent, target = {}, options = {}) {
   const session = {
     model: options.model === undefined ? saved.model : options.model,
     effort: options.effort === undefined ? saved.effort : options.effort,
-    serviceTier: saved.serviceTier,
+    serviceTier: options.serviceTier === undefined ? saved.serviceTier : options.serviceTier,
     permission: shared('herdr-zed.codex-permissions')?.[key] || 'default',
   };
   const hidden = shared('herdr-zed.session-options')?.[sessionKind(current)] || {};

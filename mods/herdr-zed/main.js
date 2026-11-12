@@ -11,7 +11,8 @@ import { BranchMenu } from './branch-menu.js';
 import { ProjectLayout, layoutNode, conversationMaximized, maximizeConversation } from './project-layout.js';
 import { NativeLauncher } from './native-launcher.js';
 import { createNativeThread } from './native-threads.js';
-import { startPanel } from './start-panel.js';
+import { startPanel, COMPOSE_KEY, startProjectKey } from './start-panel.js';
+import { COMPOSE_TAB } from './workspace-editor.js';
 import { threadArchive, historyEligible } from './thread-archive.js';
 import { startThreadResume } from './thread-resume.js';
 import { SettingsNav, SettingsPage, SettingsHeader, openSettings, settingsPageKey } from './settings.js';
@@ -128,6 +129,13 @@ export default class HerdrZed extends View {
             if (project && request) { this.editor.openFile(project, request.path, cx, { on: request.on }); this.editor.focus(); }
           }
           if (command === 'focus' || command === 'focus-editor') this.editor.focus();
+          if (command === 'compose') {
+            const project = this.projects().find(project => project.active);
+            if (project && shared(COMPOSE_KEY) === startProjectKey(project)) {
+              setShared(COMPOSE_KEY, null);
+              this.editor.openCompose(project, cx); this.startTask.focus();
+            }
+          }
         }
       });
       return;
@@ -315,19 +323,32 @@ export default class HerdrZed extends View {
     return threadDecorations(extensionCatalog().resolved?.decorators || [], key => shared(key));
   }
 
-  newThread(cx, id, at) {
+  // Every new thread starts in the composer (design.md, Start a thread): the project's editor opens its New thread tab,
+  // focused. COMPOSE_KEY carries the request to the editor view.
+  newThread(cx, id) {
     const project = this.projects().find(project => id ? project.id === id : project.active);
     if (!project) { this.openProject(cx); return; }
+    if (!project.active) this.selectProject(project);
+    setShared(COMPOSE_KEY, startProjectKey(project));
+    // Like opening a file: the editor shows beside the conversation, which stays as it is.
+    maximizeConversation(null, false);
+    run('layout.show', { id: 'editor' });
+    run('layout.select', { stack: 'editor', child: 'workspace-editor' });
+    run('herdr-zed.compose');
+  }
+
+  // The launcher picker for a composed task: the provider's (account, model, effort) or the native one.
+  openLauncher(project, task, at) {
     const launcher = activeLauncher(), width = launcher ? launcher.picker.width : 280;
     // A keyboard or command open has no pointer anchor: it centres at the top of the work area (review L10).
     const anchor = at ?? workspaceTopAnchor(usableWorkspaceRect(shared(WORKSPACE_RECT_KEY)), width, settings().zoom);
     if (launcher) {
       openOverlay({ mod: launcher.mod, kind: 'popup', frame: 'none', width, at: anchor,
-        props: { view: launcher.picker.view, ...this.launcherTarget(project) } });
+        props: { view: launcher.picker.view, ...this.launcherTarget(project), ...(task ? { task } : {}) } });
       return;
     }
     openOverlay({ mod: 'herdr-zed', kind: 'popup', frame: 'none', width: 280, at: anchor,
-      props: { view: 'launcher', ...this.launcherTarget(project) } });
+      props: { view: 'launcher', ...this.launcherTarget(project), ...(task ? { task } : {}) } });
   }
 
   showConversation(visible = true, project = this.projects().find(project => project.active)) {
@@ -356,7 +377,7 @@ export default class HerdrZed extends View {
     run('herdr-zed.open-file');
   }
 
-  repeatThread(cx, id, at) { this.newThread(cx, id, at); }
+  repeatThread(cx, id) { this.newThread(cx, id); }
 
   cachedAgents(machine) { return knownAgents({ on: machine }).then(items => items.filter(agent => agent.installed)); }
 
@@ -693,7 +714,8 @@ export default class HerdrZed extends View {
     if (props()?.view === 'editor') {
       const project = this.projects().find(project => project.active);
       if (!project) return this.welcomeView(t, cx);
-      return this.editor.render(project, cx, { empty: () => this.projectStartView(project, t, cx) });
+      const start = () => this.projectStartView(project, t, cx);
+      return this.editor.render(project, cx, { empty: start, compose: start });
     }
     if (props()?.view === 'files') return this.files.render(this.projects().find(project => project.active), cx);
     if (props()?.view === 'diff') return this.diff.render(this.projects().find(project => project.active), cx);

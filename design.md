@@ -38,10 +38,14 @@ titles). Where they conflict, this file wins.
 
 ## Start a thread
 
-- An empty project shows a composer: a multi-line task field, the program picker (Terminal and installed programs,
-  opening on the one last chosen in that project) and Start. Enter adds a line; Ctrl+Enter (Cmd+Enter on macOS) or
-  Start begins the thread. Nothing is sent on plain Enter. The task becomes the agent's first message; a Terminal
-  starts without one.
+- Every new thread starts in the composer: an empty project shows it, and + / New thread opens it as the editor's
+  New thread tab (one per project, focused) beside files and Git views; switching tabs keeps the draft. Starting closes
+  the tab; closing it cancels. Enter adds a line; Ctrl+Enter (Cmd+Enter on macOS) or Start continues. Nothing is
+  sent on plain Enter. The task becomes the agent's first message; a Terminal starts without one.
+- Under the task: the program (Terminal and the programs, opening on the one last chosen in that project), then the
+  program's fields from the launcher extension: Model and Effort selects and a Fast toggle (zap icon, selected
+  background when on). Efforts a model lacks are hidden and fall back to Default. Without a launcher, native programs
+  have no fields. A launcher that has not listed the project's machine yet shows Start…, which opens its picker.
 
 ## Status bar
 

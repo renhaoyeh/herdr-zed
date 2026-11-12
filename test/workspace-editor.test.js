@@ -5,7 +5,7 @@ import { readFile } from 'node:fs/promises';
 async function editorSource() {
   const sources = await Promise.all(['git-result-toast.js', 'workspace-editor.js']
     .map(name => readFile(new URL(`../mods/herdr-zed/${name}`, import.meta.url), 'utf8')));
-  return sources.join('\n').replace(/^export (?!default)/gm, '');
+  return "const COMPOSE_KEY = 'herdr-zed.compose';\n" + sources.join('\n').replace(/^export (?!default)/gm, '');
 }
 
 test('dock switches preserve the document; choosing a file or diff changes the content independently', async () => {
