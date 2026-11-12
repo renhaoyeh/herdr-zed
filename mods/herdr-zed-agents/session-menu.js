@@ -217,7 +217,7 @@ export const sessionMenu = {
           .child(state?.loading && data ? 'Refreshing…' : 'Refresh')))
       .child(v_flex().id(`account-storage-breakdown-${agent.key}`).flex_none().border(1).border_color(t.border)
         .child(h_flex().h(36).px(12).items_center().gap(12)
-          .child(div().flex_1().text_size(13).font_medium().child('Total for this account'))
+          .child(div().flex_1().text_size(13).font_medium().child('Space on disk'))
           .child(div().id(`account-storage-total-${agent.key}`).flex_none().text_size(13).font_medium().child(summary)))
         .children(storageGroups.map(([group, label]) => h_flex().h(28).px(12).items_center().gap(12).border_t(1).border_color(t.border)
           .child(div().flex_1().text_size(12).text_color(t.muted).child(label))
@@ -225,8 +225,8 @@ export const sessionMenu = {
       .child(div().text_size(12).text_color(t.muted).child('All profiles using this account share these files. Adding a profile does not duplicate them.'))
       .when(Boolean(data), el => el.child(div().text_size(12).text_color(t.muted).child(data.missing ? 'No saved data yet.'
         : data.partial ? 'Some files could not be counted. Sizes are incomplete.'
-        : data.skippedLinks ? 'Estimated file sizes. Linked files and folders are excluded.'
-        : 'Estimated file sizes. Actual space on disk may differ.')))
+        : data.skippedLinks ? 'Allocated disk space. Linked targets are excluded; shared filesystem blocks may also belong to other files.'
+        : 'Allocated disk space. Shared filesystem blocks may also belong to other files.')))
       .when(Boolean(state?.error), el => el.child(div().text_size(12).text_color(t.destructive || t.ansi1).child(state.error)));
   },
 

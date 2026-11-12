@@ -13,6 +13,7 @@ export async function readAccountStorage(directory, { maxEntries = 200000, maxMi
   catch (error) { if (error.code === 'ENOENT') return { ...result, missing: true }; throw error; }
   const deadline = Date.now() + maxMilliseconds, pending = [{ path: root, group: null }];
   let entries = 0;
+  const counted = new Set();
   while (pending.length) {
     if (entries >= maxEntries || Date.now() >= deadline) { result.partial = true; break; }
     const item = pending.pop();
@@ -21,10 +22,16 @@ export async function readAccountStorage(directory, { maxEntries = 200000, maxMi
     catch (error) { if (error.code !== 'ENOENT') result.partial = true; continue; }
     entries++;
     if (info.isSymbolicLink()) { result.skippedLinks++; continue; }
-    if (info.isFile()) {
-      result.bytes += info.size;
-      result.groups[item.group || 'other'] += info.size;
-    } else if (info.isDirectory()) {
+    if (!info.isFile() && !info.isDirectory()) continue;
+    if (!Number.isFinite(info.blocks) || info.blocks < 0) throw new Error('Allocated disk size is unavailable on this filesystem.');
+    const identity = `${info.dev}:${info.ino}`;
+    if (counted.has(identity)) continue;
+    counted.add(identity);
+    // POSIX st_blocks counts 512-byte units, including sparse files and directory allocation.
+    const bytes = info.blocks * 512;
+    result.bytes += bytes;
+    result.groups[item.group || 'other'] += bytes;
+    if (info.isDirectory()) {
       let children;
       try { children = await readdir(item.path); }
       catch (error) { if (error.code !== 'ENOENT') result.partial = true; continue; }

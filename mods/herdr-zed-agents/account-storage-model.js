@@ -2,8 +2,9 @@ export const storageGroups = [
   ['conversations', 'Chat & file history'],
   ['cache', 'Caches & temp files'],
   ['extensions', 'Plugins and skills'],
+  ['runtime', 'Runtime & tools'],
   ['logs', 'Diagnostic logs'],
-  ['other', 'Other account data'],
+  ['other', 'Other files'],
 ];
 
 export function accountStorageDirectory(agent, home) {
@@ -17,9 +18,11 @@ export function accountStorageDirectory(agent, home) {
 }
 
 export function storageGroup(name) {
-  if (['sessions', 'archived_sessions', 'projects', 'file-history', 'history.jsonl'].includes(name)) return 'conversations';
+  if (['sessions', 'archived_sessions', 'projects', 'file-history', 'history.jsonl'].includes(name)
+    || /^thread_history_\d+\.sqlite(?:-(?:wal|shm))?$/.test(name)) return 'conversations';
   if (['cache', '.cache', 'tmp', '.tmp', 'shell_snapshots', 'shell-snapshots'].includes(name)) return 'cache';
-  if (['plugins', 'skills', 'agents', 'commands', 'rules', 'workflows', 'output-styles'].includes(name)) return 'extensions';
+  if (['plugins', 'skills', 'agents', 'commands', 'rules', 'workflows', 'output-styles', 'vendor_imports'].includes(name)) return 'extensions';
+  if (['packages', 'computer-use'].includes(name)) return 'runtime';
   if (['log', 'logs', 'debug', 'telemetry'].includes(name) || /^logs_.*\.sqlite(?:-(?:wal|shm))?$/.test(name)) return 'logs';
   return 'other';
 }
