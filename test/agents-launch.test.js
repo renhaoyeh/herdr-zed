@@ -151,10 +151,30 @@ test('a composer task is the prompt argument for Claude Code and Codex, and a ta
   const codex = await launcher({ platform: 'windows' });
   await codex.emitLaunch(agent, { ...target, task: 'Fix the login\nbug' }, {});
   const [request] = codex.memory['herdr-zed.launch.requests'];
-  assert.deepEqual(request.argv, terminalArgv(['codex', '--model', 'gpt', 'Fix the login\nbug'], 'windows'));
+  assert.deepEqual(request.argv, terminalArgv(['codex', '--model', 'gpt', '--', 'Fix the login\nbug'], 'windows'));
   assert.equal(Object.hasOwn(request, 'task'), false, 'not sent twice');
   const other = await launcher({ prepare: async () => ({ argv: ['copilot'], session: {} }) });
   await other.emitLaunch({ key: 'copilot', name: 'Copilot' }, { ...target, task: 'Hi' }, {});
   assert.deepEqual(other.memory['herdr-zed.launch.requests'][0].argv, ['copilot']);
   assert.equal(other.memory['herdr-zed.launch.requests'][0].task, 'Hi');
+});
+
+
+test('Claude prompts end variadic MCP options and remain literal even when they look like flags', async () => {
+  const claude = { key: 'herdr-zed-claude-account-one', name: 'Claude · one' };
+  const base = ['env', '--', 'CLAUDE_CONFIG_DIR=/account', 'claude'];
+  const prepared = sessions.sessionArgv(claude, base, { tasksMcpHome: '/herdr' });
+  const mcp = prepared.indexOf('--mcp-config');
+  assert.ok(mcp > 0);
+  for (const task of ['測試', '--help', 'Fix the login\nbug']) {
+    const h = await launcher({ prepare: async () => ({ argv: prepared, session: {} }) });
+    await h.emitLaunch(claude, { ...target, task }, {});
+    const argv = h.memory['herdr-zed.launch.requests'][0].argv;
+    const configs = argv.slice(mcp + 1, argv.lastIndexOf('--'));
+    assert.deepEqual(configs.map(value => Object.keys(JSON.parse(value).mcpServers)), [['herdr_tasks']], 'the task is never parsed as an MCP config');
+    assert.deepEqual(argv.slice(-2), ['--', task]);
+  }
+  const h = await launcher({ prepare: async () => ({ argv: [...prepared, '--'], session: {} }) });
+  await h.emitLaunch(claude, { ...target, task: '測試' }, {});
+  assert.deepEqual(h.memory['herdr-zed.launch.requests'][0].argv, [...prepared, '--', '測試'], 'existing option terminator is kept once');
 });

@@ -32,7 +32,12 @@ export async function emitLaunch(agent, target = {}, options = {}, origin = null
   // `codex [options] [prompt]`); other programs still get it as `task`.
   const task = typeof target.task === 'string' && target.task.trim() ? target.task : null;
   const prompted = Boolean(task) && ['claude', 'codex'].includes(sessionKind(agent));
-  const command = prompted ? [...prepared, task] : prepared;
+  let command = prepared;
+  if (prompted) {
+    const executable = prepared.findIndex(arg => /(?:^|[/\\])(?:claude|codex)(?:\.exe|\.cmd)?$/i.test(arg));
+    // Claude's variadic --mcp-config otherwise consumes the task as another config path.
+    command = [...prepared, ...(prepared.slice(executable + 1).includes('--') ? [] : ['--']), task];
+  }
   // Local shells need the platform wrapper; remote launches run as given.
   const argv = machine ? command : terminalArgv(command, window()?.platform);
   const location = Object.fromEntries(Object.entries({
