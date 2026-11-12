@@ -425,11 +425,16 @@ export const sessionMenu = {
       .on_mouse_up('left', (_event, cx) => cancelDrag(cx))
       .on_hover((inside, cx) => { if (!inside) cancelDrag(cx); })
       .track_focus(this.handle).on_key_down((event, cx) => {
-        // Escape cancels a drag; otherwise it is left to the shell, which closes Settings.
+        // Escape cancels a drag; otherwise it closes Settings, unless the page has edits to Save or Discard first.
+        // The dialog is a layout overlay, so Esc reaches this page instead of closing the dialog natively.
         if (event.key === 'escape') {
-          if (this.dragKey || this.modelDrag) { cancelDrag(cx); cx.stop_propagation(); }
+          cx.stop_propagation();
+          if (this.dragKey || this.modelDrag) { cancelDrag(cx); return; }
+          if (this.settingsUnsaved()) { this.settingsEscBlocked = true; cx.notify(); return; }
+          closeOverlay((props() || {}).overlay);
           return;
         }
+        this.settingsEscBlocked = false;
         if (page !== 'agents') return;
         if (event.modifiers?.alt && ['up', 'down'].includes(event.key)) {
           move(this.manageIndex, this.manageIndex + (event.key === 'up' ? -1 : 1), cx);
@@ -439,7 +444,14 @@ export const sessionMenu = {
         else return;
         cx.stop_propagation(); cx.notify();
       })
+      .when(Boolean(this.settingsEscBlocked) && this.settingsUnsaved(), el => el.child(div().id('settings-unsaved-hint').flex_none()
+        .text_size(12).text_color(t.blocked).child('Unsaved changes. Save or discard them, then press Esc to close.')))
       .child(this.settingsPageBody(page, { choices, hidden, toggle, move, cancelDrag }, t, cx));
+  },
+
+  // Edits on the open Settings page that Esc would lose: each page with Save/Discard reports its own draft.
+  settingsUnsaved() {
+    return Boolean(this.capDirty || this.mcpDirty || this.eccDirty || this.globalRulesDirty?.());
   },
 
   // One shell page of the Agents extension. Projects on a remote machine only get Agents: the other pages read this computer.

@@ -27,7 +27,7 @@ const eccDescriptionMarkdown = (item, text) => ['hooks', 'mcp', 'workflows'].inc
 
 export const eccSettings = {
   initEcc(cx) {
-    this.eccLoading = true; this.eccSaving = false; this.eccError = null; this.eccDraft = null; this.eccSaved = false; this.eccClosed = false;
+    this.eccLoading = true; this.eccSaving = false; this.eccError = null; this.eccDraft = null; this.eccSaved = false; this.eccDirty = false; this.eccClosed = false;
     this.eccTab = 'overview'; this.eccProvider = 'claude'; this.eccSection = 'skills'; this.eccListPage = 0;
     this.eccCatalog = null; this.eccCatalogError = null; this.eccSelected = null; this.eccShowSource = false;
     this.eccSource = `${appHome()}/data/devkits/ecc-source`;
@@ -74,7 +74,7 @@ export const eccSettings = {
   },
   changeEccItem(item, enabled, cx) {
     if (this.eccSaving || (item.unavailable && enabled) || !item.providers.includes(this.eccProvider)) return;
-    chooseEccItem(this.eccDraft, this.eccProvider, item, enabled); this.eccSaved = false; cx.notify();
+    chooseEccItem(this.eccDraft, this.eccProvider, item, enabled); this.eccSaved = false; this.eccDirty = true; cx.notify();
   },
   showEccSource(item, cx) {
     this.eccShowSource = !this.eccShowSource;
@@ -115,7 +115,7 @@ export const eccSettings = {
         }
         const text = `${JSON.stringify(config, null, 2)}\n`;
         await writeTextFile(eccPath(), text, this.eccOriginal);
-        this.eccOriginal = text; this.eccDraft = config; this.eccSaved = true;
+        this.eccOriginal = text; this.eccDraft = config; this.eccSaved = true; this.eccDirty = false;
       } catch (error) { this.eccError = error.message; }
       finally { if (draftWritten) { try { await unlink(draftPath); } catch {} } this.eccSaving = false; if (!this.eccClosed) cx.notify(); }
     });
@@ -182,7 +182,7 @@ export const eccSettings = {
           .child(AgentIcon({ icon: `icons/${provider}.svg` }, t))
           .child(div().text_size(13).child(`Use ECC with ${eccProviderName(provider)}`)))
         .child(Switch('ecc-provider-enabled', this.eccDraft.providerEnabled[provider], t).disabled(Boolean(this.eccSaving))
-          .on_change((checked, cx) => { this.eccDraft.providerEnabled[provider] = checked; this.eccSaved = false; cx.notify(); })))
+          .on_change((checked, cx) => { this.eccDraft.providerEnabled[provider] = checked; this.eccSaved = false; this.eccDirty = true; cx.notify(); })))
       .when(!this.eccDraft.providerEnabled[provider], el => el.child(div().text_size(12).text_color(t.muted).child('Off for this provider. Your component selections are retained.')))
       .child(div().text_size(12).text_color(t.muted).child(`${eccProviderName(provider)} global components · selected ${all.filter(item => eccItemEnabled(this.eccDraft, provider, item)).length} / ${all.length}`))
       .child(h_flex().flex_none().flex_wrap().gap(4).children(groups.map(group =>
@@ -193,14 +193,14 @@ export const eccSettings = {
           .child(glyph(eccCategoryIcons[group.id])).child(group.label.split(' · ')[0]))))
       .when(this.eccSection === 'hooks' && provider === 'claude', el => el.child(Select('ecc-hook-profile', this.eccSelect, this.eccDraft.claudeHooks,
         [{ key: 'off', label: 'Hooks off' }, { key: 'minimal', label: 'Minimal · essential actions' }, { key: 'standard', label: 'Standard · normal checks' }, { key: 'strict', label: 'Strict · includes stricter checks' }].map(item => ({ ...item, color: t.foreground })),
-        'Hook mode', (value, cx) => { if (!this.eccSaving) { this.eccDraft.claudeHooks = value; this.eccSaved = false; } cx.notify(); }, t, { fullWidth: true, boxed: true })))
+        'Hook mode', (value, cx) => { if (!this.eccSaving) { this.eccDraft.claudeHooks = value; this.eccSaved = false; this.eccDirty = true; } cx.notify(); }, t, { fullWidth: true, boxed: true })))
       .when(this.eccSection === 'hooks' && provider === 'codex', el => el.child(div().text_size(12).text_color(t.muted).child('This source provides only SessionStart for Codex. Codex owns the native hook trust decision.')))
       .when(this.eccSection === 'contexts', el => el.child(div().text_size(12).text_color(t.muted).child('Select one working mode, or leave all modes off.')))
       .child(h_flex().gap(8).items_center().child(Input.new(this.eccSearch, t).h(30).px(8).text_size(12).flex_1().min_w(0).border(1).border_color(t.input).accessibility_label('Search ECC components'))
         .when(this.eccSection !== 'contexts', el => el.child(Button('ecc-group-enable', t, { variant: 'secondary' }).h(30).disabled(Boolean(this.eccSaving || !catalog))
-          .on_click((_event, cx) => { for (const item of items.filter(item => !item.unavailable)) chooseEccItem(this.eccDraft, provider, item, true); this.eccSaved = false; cx.notify(); }).child(query ? 'Use search results' : 'Use all')))
+          .on_click((_event, cx) => { for (const item of items.filter(item => !item.unavailable)) chooseEccItem(this.eccDraft, provider, item, true); this.eccSaved = false; this.eccDirty = true; cx.notify(); }).child(query ? 'Use search results' : 'Use all')))
         .child(Button('ecc-group-disable', t, { variant: 'secondary' }).h(30).disabled(Boolean(this.eccSaving || !catalog))
-          .on_click((_event, cx) => { for (const item of items) chooseEccItem(this.eccDraft, provider, item, false); this.eccSaved = false; cx.notify(); }).child(query ? 'Turn off search results' : 'Turn off all')))
+          .on_click((_event, cx) => { for (const item of items) chooseEccItem(this.eccDraft, provider, item, false); this.eccSaved = false; this.eccDirty = true; cx.notify(); }).child(query ? 'Turn off search results' : 'Turn off all')))
       .child(h_flex().flex_1().min_h(0).items_stretch().gap(12)
         .child(v_flex().w(224).h_full().min_h(0).flex_none().gap(8)
           .child(v_flex().id(`ecc-component-list-${provider}-${this.eccSection}-${page}-${query}`).flex_1().min_h(0).overflow_y_scroll().border(1).border_color(t.border)
@@ -227,7 +227,7 @@ export const eccSettings = {
     return v_flex().h_full().flex_1().min_h(0).gap(10)
       .child(h_flex().justify_end().items_center()
         .when(Boolean(draft), el => el.child(h_flex().gap(8).items_center().child(div().text_size(12).child('Enable ECC'))
-          .child(Switch('ecc-enabled', draft.enabled, t).disabled(busy).on_change((checked, cx) => { draft.enabled = checked; this.eccSaved = false; cx.notify(); })))))
+          .child(Switch('ecc-enabled', draft.enabled, t).disabled(busy).on_change((checked, cx) => { draft.enabled = checked; this.eccSaved = false; this.eccDirty = true; cx.notify(); })))))
       .child(DialogDescription(t).flex_none().child('Changes are saved when you click Save. Explore the architecture, then choose what Claude Code and Codex use. Settings are global and apply to new sessions.'))
       .when(this.eccLoading, el => el.child(div().text_color(t.muted).child('Loading ECC settings…')))
       .when(Boolean(draft), el => el.child(v_flex().flex_1().min_h(0).gap(10)

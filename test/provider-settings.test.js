@@ -86,22 +86,25 @@ function agentsView(sessionMenu, overrides = {}) {
     withSideNav: sessionMenu.withSideNav, accountName: sessionMenu.accountName, pickerName: sessionMenu.pickerName, ...overrides };
 }
 
-test('Agents Settings embedded draws only its page: padded, with no frame, title, page list or close control, and leaves Escape to the shell', async () => {
+test('Agents Settings embedded draws only its page: padded, with no frame, title, page list or close control, and closes on Escape unless a draft is unsaved', async () => {
   const { host, log, events, closed, factory } = shell({ props: () => ({ view: 'manage-launchers', embedded: true, overlay: 'shell', page: 'agents' }),
     ...sessions, availableAgents: () => [], spaces: () => [] });
   const { sessionMenu } = await evaluateNative('../mods/herdr-zed-agents/session-menu.js', host, 'sessionMenu');
   const page = factory('page')();
-  sessionMenu.manageLaunchers.call(agentsView(sessionMenu, { settingsPage: 'agents', agentsPage: () => page }), theme(), ctx([]));
+  const view = agentsView(sessionMenu, { settingsPage: 'agents', agentsPage: () => page, settingsUnsaved: sessionMenu.settingsUnsaved });
+  sessionMenu.manageLaunchers.call(view, theme(), ctx([]));
   assert.ok(!names(log).some(name => name.startsWith('DialogContent')), 'no dialog frame');
   assert.ok(names(log).includes('v_flex#manage-launchers'), 'the shell owns the frame');
   assert.ok(log.some(([name, method, arg]) => name === 'v_flex#manage-launchers' && method === 'p' && arg === '24'), 'the page has 24px padding');
   assert.ok(!log.some(([name, method, arg]) => name === 'DialogTitle' && method === 'child'), 'no title of its own');
   assert.ok(!names(log).some(name => name.startsWith('Button#settings-page-') || name.startsWith('v_flex#settings-section-')), 'no page list');
   assert.ok(!names(log).some(name => name.startsWith('Button#manage-launchers-close')), 'no close control of its own');
-  let stopped = false;
-  events['v_flex#manage-launchers'].on_key_down({ key: 'escape' }, { stop_propagation() { stopped = true; } });
-  assert.deepEqual(closed, [], 'Escape is left to the shell');
-  assert.equal(stopped, false);
+  const escape = () => events['v_flex#manage-launchers'].on_key_down({ key: 'escape' }, { stop_propagation() {}, notify() {} });
+  view.capDirty = true; escape();
+  assert.deepEqual(closed, [], 'Escape keeps Settings open while a draft is unsaved');
+  assert.equal(view.settingsEscBlocked, true, 'and says why');
+  view.capDirty = false; escape();
+  assert.deepEqual(closed, ['shell'], 'Escape closes the Settings dialog it is embedded in');
 });
 
 test('Agents Settings mounts exactly the page its props name, and remote projects only get Agents', async () => {

@@ -76,10 +76,12 @@ export const globalRulesSettings = {
         .child(TextView.markdown(`global-rules-body-${row.id}`, row.body).text_size(12).selectable(true).scrollable(false))));
   },
 
+  globalRulesDirty() { return Boolean(this.rulesLoaded && this.rulesCustom) && this.rulesCustom.value() !== (this.rulesOriginal ?? defaultRules); },
+
   globalRulesPage(t) {
     if (!this.rulesCustom || this.rulesLoading) return DialogDescription(t).child('Loading global rules…');
     const busy = Boolean(this.rulesSaving), provider = this.rulesProvider || 'claude';
-    const dirty = this.rulesLoaded && this.rulesCustom.value() !== (this.rulesOriginal ?? defaultRules);
+    const dirty = this.globalRulesDirty();
     const rows = [
       ...(this.rulesKits?.[provider]?.items || []).map(item => ({ ...item,
         source: `Capabilities · ${item.kind === 'rule' ? 'Rule' : 'Skill'}${item.source === 'mine' ? ' · Mine' : ''}` })),
