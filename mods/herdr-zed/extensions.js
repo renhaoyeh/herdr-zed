@@ -3,7 +3,8 @@ import { shared, setShared, appHome, readTextFile, openOverlay, notify, layout, 
 import { ToolbarButton, TOOLBAR_GLYPH } from './components/button.js';
 import { glyph } from './components/icon.js';
 import { parseExtensionRegistry, parseExtensionManifest, extensionPopup, extensionMetadata, extensionServiceLayout, gitActionPopup, resolveProviders, launcherAvailable, platformSupported, workspaceRect, windowHeightFromSidebar } from './extension-model.js';
-import { extensionSurfaceLayout, extensionSurfaceNodeId, surfaceEmptyKey, emptyStatusSurfaces, SURFACES_SHOWN_KEY } from './extension-surfaces.js';
+import { extensionSurfaceLayout, extensionSurfaceNodeId, surfaceEmptyKey, emptyStatusSurfaces, SURFACES_SHOWN_KEY, reportedSurfaceHeights } from './extension-surfaces.js';
+import { surfaceHeightKey } from './components/extension-contract.js';
 import { openWorkspacePanel, WORKSPACE_RECT_KEY, WORKSPACE_PANEL_OVERLAY, WORKSPACE_PANEL_ACTIVE, usableWorkspaceRect } from './components/workspace-overlay.js';
 
 const DISABLED = 'herdr-zed.extensions.disabled';
@@ -52,6 +53,7 @@ function clearExtensionState(mod) {
   setShared(`herdr-zed.decorations.${id}`, null);
   setShared(`herdr-zed.git-credentials.${id}`, null);
   for (const surface of entry.surfaces || []) if (surface.location === 'status.right') setShared(surfaceEmptyKey(id, surface.id), null);
+  for (const surface of entry.surfaces || []) if (surface.location === 'sidebar.bottom') setShared(surfaceHeightKey(id, surface.id), null);
 }
 
 // Mods whose services and surfaces must not mount: disabled, or unavailable because a required extension is not active.
@@ -70,7 +72,8 @@ function applyExtensionLayout(root, packages, disabled, previous) {
     // Providers report status.right readings with nothing to show (ARCHITECTURE §3.8); those mount hidden and take no width.
     const empty = emptyStatusSurfaces(packages, shared);
     const status = { actions: extensionActions('status.right').length, dock: activeSurfaces('dock.right').length };
-    const next = extensionSurfaceLayout(services, packages, disabled, previous, status, empty, shared(SURFACES_SHOWN_KEY) || {}) || services;
+    const next = extensionSurfaceLayout(services, packages, disabled, previous, status, empty, shared(SURFACES_SHOWN_KEY) || {},
+      reportedSurfaceHeights(packages, shared)) || services;
     if (next !== root) run('layout.set', { layout: next });
   } catch (error) {
     notify({ title: 'Could not mount extension surfaces', body: error.message, level: 'error' });

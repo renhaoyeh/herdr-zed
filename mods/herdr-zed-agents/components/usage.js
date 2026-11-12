@@ -64,6 +64,15 @@ export class UsageClient {
   }
   readableEntries(snapshot = this.snapshot()) { return this.entries(snapshot).filter(entry => entry.readable); }
 
+  // The sidebar's content height in px (ARCHITECTURE §3.10), from the same fixed row heights render uses: the 32px
+  // header, then one 32px line when nothing is readable, or per account 24px of padding and name plus 15px per window.
+  contentHeight(snapshot = this.snapshot()) {
+    const entries = this.readableEntries(snapshot);
+    if (!entries.length) return 32 + 32;
+    const slots = [300, 10080].filter(minutes => entries.some(entry => entry.windows.some(window => window.minutes === minutes))).length;
+    return 32 + entries.length * (24 + 15 * slots);
+  }
+
   // One status-bar item per account with readable quota: icon, short name and 5h/W percentages.
   // With none, the item draws nothing and takes no width.
   renderStatus(t, { openMenu = null } = {}) {
@@ -123,11 +132,11 @@ export class UsageClient {
               .on_click(() => openUsageDetails(account))
               .child(AgentIcon(choice.agent, t).self_center())
               .child(v_flex().flex_1().min_w(0).gap(3).line_height('12px')
-                .child(div().id(`usage-name-${choice.key}`).truncate().text_size(12).font_semibold().text_color(nameColor).child(name))
+                .child(div().id(`usage-name-${choice.key}`).h(12).flex_none().truncate().text_size(12).font_semibold().text_color(nameColor).child(name))
                 .children(slots.map(minutes => {
                   const window = windows.find(item => item.minutes === minutes);
                   // A window another account has but this one lacks keeps its line, blank, so rows align.
-                  if (!window) return h_flex().w_full().gap(4).items_center().text_size(10).whitespace_nowrap().text_color(t.muted)
+                  if (!window) return h_flex().w_full().h(12).flex_none().gap(4).items_center().text_size(10).whitespace_nowrap().text_color(t.muted)
                     .child(div().w(30).flex_none().child(minutes === 300 ? '5h' : 'Week')).child(div().flex_1().child('—'));
                   const elapsed = quotaElapsedPercent(window);
                   const label = window.minutes === 300 ? '5h' : 'Week';
@@ -135,7 +144,7 @@ export class UsageClient {
                   const time = reset === 'Reset time unavailable' ? '—' : reset.startsWith('Reset due')
                     ? 'Reset due' : reset.replace(/^Resets (?:in )?/, '');
                   const displayTime = time.replace(/\b(\d)([dhm])\b/g, '0$1$2');
-                  return h_flex().w_full().gap(4).items_center().text_size(10).whitespace_nowrap()
+                  return h_flex().w_full().h(12).flex_none().gap(4).items_center().text_size(10).whitespace_nowrap()
                     .child(div().w(30).flex_none().child(label))
                     .child(Progress(`usage-meter-${choice.key}-${window.minutes}`, window.usedPercent, t, elapsed, window.minutes === 300 ? 5 : 7)
                       .flex_1().w_auto().min_w(0).accessibility_label(`${choice.name} ${label} used${elapsed === null ? '' : `; ${Math.round(elapsed)}% of window elapsed`}`))

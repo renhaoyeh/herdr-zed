@@ -321,6 +321,14 @@ when the key clears. Hidden readings take no space in the row.
   triggers that sync. Disabling the extension clears its keys.
 - Only `status.right` surfaces are governed; the shell never hides a sidebar or dock surface through this key.
 
+### 3.10 Surface height (provider → shell)
+
+`herdr-zed.surface-height.<extension id>.<surface id>` = the px height of a `sidebar.bottom` surface's content
+(`surfaceHeightKey` in `extension-contract.js`). The provider writes it from a timer, only when it changes, never during
+render; the shell sizes the surface's block to it, clamped to 96–420px, on each layout sync. Without a report the block
+keeps its size (260px when first mounted). Disabling the extension clears its keys. Usage reports from fixed row
+heights (`UsageClient.contentHeight`).
+
 ### 3.9 Unsaved changes (page → shell)
 
 `herdr-zed.unsaved.<overlay id>` = `true` while a page in a Settings, Extensions or Agents dialog (`props().overlay`)

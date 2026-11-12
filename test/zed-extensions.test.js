@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseExtensionRegistry, parseExtensionManifest, extensionPopup, extensionMetadata, extensionServiceLayout, gitActionPopup, resolveProviders,
   platformSupported, workspaceRect, windowHeightFromSidebar } from '../mods/herdr-zed/extension-model.js';
-import { extensionSurfaceLayout, extensionSurfaceNodeId, surfaceEmptyKey, emptyStatusSurfaces, SURFACES_SHOWN_KEY } from '../mods/herdr-zed/extension-surfaces.js';
+import { extensionSurfaceLayout, extensionSurfaceNodeId, surfaceEmptyKey, emptyStatusSurfaces, SURFACES_SHOWN_KEY, reportedSurfaceHeights } from '../mods/herdr-zed/extension-surfaces.js';
+import { surfaceHeightKey } from '../components/extension-contract.js';
 import { evaluateNative } from './source-harness.js';
 import { asanaManifest as manifestText, systemManifest as systemText } from './extension-fixtures.js';
 
@@ -61,7 +62,7 @@ const runtime = async (readTextFile, initialLayout = null, platform = 'linux') =
   const host = { shared: key => memory[key], setShared,
     appHome: () => '/herdr', readTextFile, layout: () => root, run: (command, args) => { assert.equal(command, 'layout.set'); root = args.layout; layoutUpdates.push(root); }, openOverlay, notify: value => notices.push(value),
     parseExtensionRegistry, parseExtensionManifest, extensionPopup, extensionMetadata, extensionServiceLayout,
-    extensionSurfaceLayout, extensionSurfaceNodeId, surfaceEmptyKey, emptyStatusSurfaces, SURFACES_SHOWN_KEY, gitActionPopup, resolveProviders,
+    extensionSurfaceLayout, extensionSurfaceNodeId, surfaceEmptyKey, emptyStatusSurfaces, SURFACES_SHOWN_KEY, reportedSurfaceHeights, surfaceHeightKey, gitActionPopup, resolveProviders,
     platformSupported, workspaceRect, windowHeightFromSidebar, window: () => ({ platform }), settings: () => ({ zoom: 1 }), ...panel };
   return { memory, opened, notices, layoutUpdates, ...await evaluateNative('../mods/herdr-zed/extensions.js', host,
     'refreshExtensions, openExtension, extensionCatalog, extensionEnabled, setExtensionEnabled, extensionActive, extensionActions, openGitAction, workspaceRectNow, recordSize, visibleSurfaceCount, WORK_WIDTH_KEY, SIDEBAR_HEIGHT_KEY, closeWorkspacePanel') };
@@ -278,4 +279,22 @@ test('git.actions lists only enabled, active providers; disabling a provider cle
   assert.deepEqual(r.extensionActions('git.actions'), []);
   r.openGitAction('github.account', { machine: null, folder: '/repo' });
   assert.equal(r.opened.length, 1, 'a disabled provider action does not open');
+});
+
+test('a sidebar surface that reports its content height is sized to it, within the sidebar bounds', () => {
+  const surface = { id: 'usage', location: 'sidebar.bottom', view: 'usage-sidebar', title: 'Usage', icon: 'chart-column', mod: 'herdr-zed-agents' };
+  const packages = [{ mod: 'herdr-zed-agents', id: 'agents', surfaces: [surface] }];
+  const root = { id: 'root', children: [{ id: 'sidebar', children: [{ id: 'sidebar-history' }] }] };
+  const mounted = extensionSurfaceLayout(root, packages);
+  const id = extensionSurfaceNodeId(surface), block = node => node.children[0].children[0];
+  assert.equal(block(mounted).id, id); assert.equal(block(mounted).size.px, 260, 'no report: the default size');
+  const memory = { [surfaceHeightKey('agents', 'usage')]: 151 };
+  const heights = reportedSurfaceHeights(packages, key => memory[key]);
+  const sized = extensionSurfaceLayout(mounted, packages, [], packages, null, new Set(), {}, heights);
+  assert.equal(block(sized).size.px, 151);
+  assert.equal(extensionSurfaceLayout(sized, packages, [], packages, null, new Set(), {}, heights), null, 'an unchanged height changes nothing');
+  memory[surfaceHeightKey('agents', 'usage')] = 9999;
+  assert.equal(reportedSurfaceHeights(packages, key => memory[key]).get(id), 420, 'clamped to the sidebar maximum');
+  memory[surfaceHeightKey('agents', 'usage')] = 10;
+  assert.equal(reportedSurfaceHeights(packages, key => memory[key]).get(id), 96, 'and minimum');
 });

@@ -211,3 +211,8 @@ export function gitCredentialArgs(binding) {
 /** @param {string} overlay @returns {string} */
 export const unsavedKey = overlay => `herdr-zed.unsaved.${overlay}`;
 export const SETTINGS_CLOSE_COMMAND = 'settings-close';
+
+// Surface height (ARCHITECTURE §3.10): a sidebar.bottom surface reports the px height of its content here, from a timer
+// and only when it changes; the shell sizes the surface's block to it (96-420px).
+/** @param {string} extension @param {string} surface @returns {string} */
+export const surfaceHeightKey = (extension, surface) => `herdr-zed.surface-height.${extension}.${surface}`;

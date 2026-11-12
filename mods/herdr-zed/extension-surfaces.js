@@ -1,3 +1,4 @@
+import { surfaceHeightKey } from './components/extension-contract.js';
 const PREFIX = 'zed-extension-surface-';
 // A status.right reading's width: four labelled percentages (CPU, RAM, GPU, Disk) fit without clipping.
 export const READING_PX = 280;
@@ -9,7 +10,7 @@ export const SURFACES_SHOWN_KEY = 'herdr-zed.surfaces-shown';
 const block = (surface, shown = {}) => ({ id: nodeId(surface), type: 'block',
   hidden: surface.location === 'status.right' ? false : typeof shown[nodeId(surface)] === 'boolean' ? !shown[nodeId(surface)] : true,
   ...(surface.location === 'dock.right' ? { size: { px: 380 }, min: 300, max: 900 } : {}),
-  ...(surface.location === 'sidebar.bottom' ? { size: { px: 260 }, min: 96, max: 420 } : {}),
+  ...(surface.location === 'sidebar.bottom' ? { size: { px: 260 }, min: SIDEBAR_MIN, max: SIDEBAR_MAX } : {}),
   ...(surface.location === 'status.right' ? { size: { px: READING_PX } } : {}),
   content: { mod: surface.mod, props: { view: surface.view } } });
 const find = (node, id) => node?.id === id ? node : (node?.children || []).map(child => find(child, id)).find(Boolean) || null;
@@ -35,11 +36,19 @@ export function statusToolsWidth({ actions = 0, dock = 0 } = {}) {
 // Provider-reported emptiness (ARCHITECTURE §3.8): the shared key a provider sets to true while a status.right reading
 // has nothing to show. `read` is the shell's shared-state reader; the result holds the node IDs to hide.
 export const surfaceEmptyKey = (extension, surface) => `herdr-zed.surface-empty.${extension}.${surface}`;
+// Provider-reported height (ARCHITECTURE §3.10): a sidebar.bottom surface may report the px height of its content; the
+// shell sizes its block to it, within the sidebar surface bounds. Without a report the block keeps its size.
+export const SIDEBAR_MIN = 96, SIDEBAR_MAX = 420;
+export const reportedSurfaceHeights = (packages, read) => new Map(packages.filter(entry => entry.id)
+  .flatMap(entry => (entry.surfaces || []).filter(surface => surface.location === 'sidebar.bottom')
+    .map(surface => [nodeId(surface), read(surfaceHeightKey(entry.id, surface.id))])
+    .filter(([, px]) => Number.isFinite(px) && px > 0)
+    .map(([id, px]) => [id, Math.round(Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, px)))])));
 export const emptyStatusSurfaces = (packages, read) => new Set(packages.filter(entry => entry.id)
   .flatMap(entry => (entry.surfaces || []).filter(surface => surface.location === 'status.right'
     && read(surfaceEmptyKey(entry.id, surface.id)) === true).map(nodeId)));
 
-export function extensionSurfaceLayout(root, packages, disabled = [], previous = [], status = null, empty = new Set(), shown = {}) {
+export function extensionSurfaceLayout(root, packages, disabled = [], previous = [], status = null, empty = new Set(), shown = {}, heights = new Map()) {
   if (!root) return null;
   const old = previous.flatMap(entry => entry.surfaces || []);
   const enabled = packages.filter(entry => !entry.error && !disabled.includes(entry.mod)).flatMap(entry => entry.surfaces || []);
@@ -93,6 +102,14 @@ export function extensionSurfaceLayout(root, packages, disabled = [], previous =
       });
     } else if (surface.location === 'dock.right') {
       if (find(next, 'workspace-row')) next = addAt(next, 'workspace-row', (node, item) => copyChildren(node, [...(node.children || []), item]));
+    }
+  }
+  // A sidebar surface that reports its content height is sized to it.
+  for (const surface of enabled.filter(item => item.location === 'sidebar.bottom')) {
+    const id = nodeId(surface), px = heights.get(id), node = find(next, id);
+    if (node && px && node.size?.px !== px) {
+      next = update(next, id, item => ({ ...item, size: { px } }));
+      changed = true;
     }
   }
   // A status.right reading is hidden while its provider reports it empty; the status row closes up around it.

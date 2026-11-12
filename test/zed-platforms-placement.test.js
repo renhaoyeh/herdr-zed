@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseExtensionRegistry, parseExtensionManifest, extensionMetadata, extensionPopup, extensionServiceLayout, gitActionPopup, resolveProviders,
   launcherAvailable, platformSupported, workspaceRect, workspaceTopAnchor, windowHeightFromSidebar } from '../mods/herdr-zed/extension-model.js';
-import { extensionSurfaceLayout, extensionSurfaceNodeId, surfaceEmptyKey, emptyStatusSurfaces, SURFACES_SHOWN_KEY } from '../mods/herdr-zed/extension-surfaces.js';
+import { reportedSurfaceHeights, extensionSurfaceLayout, extensionSurfaceNodeId, surfaceEmptyKey, emptyStatusSurfaces, SURFACES_SHOWN_KEY } from '../mods/herdr-zed/extension-surfaces.js';
+import { surfaceHeightKey } from '../components/extension-contract.js';
 import { evaluateNative } from './source-harness.js';
 
 const action = (popup = {}) => ({ id: 'open', title: 'Open', icon: 'globe', location: 'status.right',
@@ -107,6 +108,7 @@ const runtime = async (manifest, platform, layout = null) => {
     openOverlay: value => { opened.push(value); return 'overlay'; }, notify() {},
     parseExtensionRegistry, parseExtensionManifest, extensionMetadata, extensionPopup, extensionServiceLayout, gitActionPopup,
     resolveProviders, launcherAvailable, platformSupported, workspaceRect, extensionSurfaceLayout, extensionSurfaceNodeId, surfaceEmptyKey, emptyStatusSurfaces, SURFACES_SHOWN_KEY,
+    reportedSurfaceHeights, surfaceHeightKey,
     ToolbarButton() {}, TOOLBAR_GLYPH: 16, glyph() {}, DropdownMenu() {}, h_flex() {},
     ...await evaluateNative('../components/workspace-overlay.js', { shared: key => memory[key], settings: () => ({ zoom: 1 }),
       openOverlay: value => { opened.push(value); return 'overlay'; }, setShared: (key, value) => { memory[key] = structuredClone(value); } },

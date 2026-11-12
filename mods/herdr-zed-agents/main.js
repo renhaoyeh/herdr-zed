@@ -1,6 +1,6 @@
 import { View, div } from 'gpui-kit';
 import { props, theme, shared, setShared, spaces, run } from 'herdr';
-import { newTerminalCommand } from './components/extension-contract.js';
+import { newTerminalCommand, surfaceHeightKey } from './components/extension-contract.js';
 import AccountLogin from './account-login.js';
 import { sessionMenu } from './session-menu.js';
 import { accountActions } from './account-actions.js';
@@ -18,6 +18,7 @@ import { discoverAgents } from './discovery.js';
 import { AgentsService } from './service.js';
 import { UsageService } from './usage/service.js';
 import { UsageDetails } from './usage/details.js';
+import { LAUNCHER_ID } from './launch.js';
 import Analytics from './usage/analytics.js';
 
 // One provider mod: the Agents views (picker, settings, accounts) and the Usage views (sidebar, details,
@@ -34,6 +35,10 @@ export default class AgentsMod extends View {
     // Usage surfaces mount as native blocks (extension.json); each keeps its own lease with the Usage service.
     if (target.view === 'usage-sidebar') {
       this.usageClient = new UsageClient(); this.usageClient.init(cx);
+      // ARCHITECTURE §3.10: report the content height so the shell sizes the sidebar block to it.
+      const key = surfaceHeightKey(LAUNCHER_ID, 'usage');
+      const report = () => { const px = this.usageClient.contentHeight(); if (shared(key) !== px) setShared(key, px); };
+      report(); cx.timer.every(500, report);
       return;
     }
     if (target.view === 'usage-details') { this.details = new UsageDetails(); this.details.init(cx); return; }

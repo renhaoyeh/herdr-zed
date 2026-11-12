@@ -42,7 +42,7 @@ async function harness(memory = { 'herdr-zed.usage.snapshot': snapshot }) {
   const { UsageDetails } = await evaluateNative('../mods/herdr-zed-agents/usage/details.js', base, 'UsageDetails');
   const host = { ...base, View: class {}, AccountLogin: class {}, AgentClient: class {},
     AgentsService: class { init() {} poll() {} }, UsageService: class { init() {} },
-    Analytics: class {}, UsageClient, UsageDetails, newTerminalCommand: () => '', discoverAgents: async () => [],
+    Analytics: class {}, UsageClient, UsageDetails, newTerminalCommand: () => '', surfaceHeightKey: (e, s) => `herdr-zed.surface-height.${e}.${s}`, LAUNCHER_ID: 'agents', discoverAgents: async () => [],
     autoLauncherKey: 'auto', folderKey: () => '', sessionMenu: {}, accountActions: {}, agentProfiles: {}, mcpSetupSettings: {},
     devkitsSettings: {}, eccSettings: {}, sharedMcpSettings: {}, globalRulesSettings: {}, agentSelection: {} };
   const { AgentsMod } = await evaluateNative('../mods/herdr-zed-agents/main.js', host, 'AgentsMod');
@@ -95,4 +95,19 @@ test('the service does not keep a removed status surface subscription or emptine
   assert.deepEqual(h.runs, [], 'no status view registers a lease');
   assert.deepEqual(h.writes, [], 'no status emptiness is published');
   assert.deepEqual(h.ticks, [], 'no status reporter runs in the background');
+});
+
+test('Usage reports its sidebar content height from its fixed rows: header, then each account and its windows', async () => {
+  const stub = () => null;
+  const { UsageClient } = await evaluateNative('../components/usage.js', { div: stub, v_flex: stub, h_flex: stub, shared: () => null,
+    openOverlay() {}, run() {}, layout: () => null, launcherLabel: name => name, quotaResetLabel: () => '', quotaElapsedPercent: () => null,
+    Button: stub, Progress: stub, glyph: stub, AgentIcon: stub }, 'UsageClient');
+  const client = new UsageClient();
+  const choice = key => ({ key, name: key, agent: { key }, provider: 'claude' });
+  const windows = minutes => minutes.map(m => ({ bucket: 'claude', minutes: m, usedPercent: 10, resetsAt: null }));
+  assert.equal(client.contentHeight({ choices: [], usage: [] }), 64, 'header and the one empty line');
+  assert.equal(client.contentHeight({ choices: [choice('a')], usage: [{ key: 'a', windows: windows([300, 10080]) }] }), 32 + 24 + 30);
+  assert.equal(client.contentHeight({ choices: [choice('a'), choice('b')],
+    usage: [{ key: 'a', windows: windows([10080]) }, { key: 'b', windows: windows([300, 10080]) }] }), 32 + 2 * (24 + 30),
+    'every account lists every window any account has');
 });
