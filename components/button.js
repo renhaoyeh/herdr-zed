@@ -8,7 +8,8 @@ export function Button(id, t, options = {}) {
   const el = styledButton(id, t, options), block = el.disabled;
   // Native `disabled` only blocks activation ("Draw it yourself"): every disabled button dims to 45%, like
   // ToolbarButton, so an unavailable Save never reads as ready.
-  el.disabled = function (value) { return block.call(this, value).opacity(value ? 0.45 : 1); };
+  // Enabling never touches opacity, so a caller's own opacity (e.g. a row action hidden until hover) survives.
+  el.disabled = function (value) { const next = block.call(this, value); return value ? next.opacity(0.45) : next; };
   return el;
 }
 

@@ -352,7 +352,7 @@ export default class LocalCalendar {
         .when(Boolean(this.editing), el => el.child(Button('calendar-delete', t, { variant: 'ghost' }).text_color(t.destructive).child('Delete event').on_click((_event, cx) => this.remove(cx))))
         .child(div().flex_1())
         .child(Button('calendar-cancel', t, { variant: 'outline' }).child('Cancel').on_click((_event, cx) => this.cancel(cx)))
-        .child(Button('calendar-save', t).disabled(titleBlank).when(titleBlank, el => el.opacity(0.45))
+        .child(Button('calendar-save', t).disabled(titleBlank)
           .child(this.editing ? 'Save' : 'Create event').on_click((_event, cx) => this.save(cx))));
   }
 

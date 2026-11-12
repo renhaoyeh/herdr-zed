@@ -109,7 +109,7 @@ export default class TaskComposer {
       .child(h_flex().h(60).flex_none().px(24).gap(12).items_center().border_t(1).border_color(t.border)
         .child(div().text_size(11).text_color(t.muted).child('⌘ / Ctrl Enter'))
         .child(div().flex_1())
-        .child(Button('composer-submit', t).h(28).disabled(!this.title.value().trim() || !editable).when(!this.title.value().trim() || !editable, el => el.opacity(0.45))
+        .child(Button('composer-submit', t).h(28).disabled(!this.title.value().trim() || !editable)
           .on_click((_event, cx) => this.submit(agents, cx)).child(this.task ? 'Save task' : this.parent ? 'Create subtask' : 'Create task')));
   }
 }
