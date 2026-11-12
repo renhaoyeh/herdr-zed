@@ -6,6 +6,14 @@ import { gitCredentialArgs, projectKey } from './components/extension-contract.j
  * Returns ['-c', 'key=value', …] for the repository, or [] when there is no provider or no binding for it.
  * `read(key)` returns a shared value; `report(message)` is called once per invalid binding.
  */
+/** The repository's bound account `{ host, login }` for display, or null; an invalid binding shows nothing. */
+export function credentialAccountFor(provider, repository, read) {
+  if (!provider) return null;
+  const binding = read(`herdr-zed.git-credentials.${provider.id}`)?.repositories?.[projectKey(repository.machine, repository.folder)];
+  if (!binding) return null;
+  try { gitCredentialArgs(binding); return { host: binding.host, login: binding.login }; } catch { return null; }
+}
+
 export function credentialArgsFor(provider, repository, read, report) {
   if (!provider) return [];
   const envelope = read(`herdr-zed.git-credentials.${provider.id}`);

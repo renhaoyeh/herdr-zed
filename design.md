@@ -20,8 +20,10 @@ titles). Where they conflict, this file wins.
   The shell identifies launcher workflows by their declared capability, without provider-specific branches.
 - Tools themselves open from the main window's status bar, sidebar or dock. An extension's configuration has a back button
   to the Extensions manager, enable/display controls and contextual tabs. Its header is 96px, or 144px with tabs. The first
-  declared sub-page is selected on entry. Git preferences contain all-project display filters; Commit author opens from
-  the Changes Git menu as a repository-scoped 760×400 form, with its own Save and close control.
+  declared sub-page is selected on entry. Git preferences contain all-project display filters; Changes shows the repository's
+  commit identity (author name · bound account login) in its own row directly above the branch/Push row, divided by a
+  border; clicking it opens the credential provider's account dialog, or without one the repository-scoped 760×400
+  Commit author form with its own Save and close control. The Git menu holds only Git operations.
 - Providers never create the management dialogs themselves. They declare `settings: { view, title }` and deep-link
   with `run('herdr-zed.settings:<extension id>')`. A page may declare sub-pages (`pages`), listed as tabs inside
   its detail page and deep-linked with `herdr-zed.settings:<extension id>:<page id>`. An embedded settings view draws no frame, close button

@@ -16,7 +16,8 @@ import { GitGraph } from './git-graph.js';
 import { SidePanelLayout, SidePanelState } from './components/side-panel.js';
 import { showGitToast, clearGitToast } from './git-result-toast.js';
 import { extensionCatalog, extensionActions, openGitAction } from './extensions.js';
-import { credentialArgsFor } from './git-credentials.js';
+import { credentialArgsFor, credentialAccountFor } from './git-credentials.js';
+import { readGitAuthor } from './git-author.js';
 
 const icon = name => svg(`mods/herdr-zed/assets/icons/${name}.svg`).size(12).flex_none();
 // Native virtual lists accept at most 10,000 per-item sizes, including chrome rows.
@@ -584,6 +585,7 @@ export default class DiffViewer {
     this.close();
     this.project = project ? { ...project } : null;
     this.repositories = selection?.repositories || [];
+    this.author = null;
     this.context = project ? { ...project } : null;
     if (selection) {
       this.context.allRepositories = selection.name === ALL_REPOSITORIES;
@@ -718,6 +720,10 @@ export default class DiffViewer {
           this.pushState = state.value; this.pushStateError = state.error || null; changed = true;
           if (changedHead && this.panelTab === 'history') this.history.load(cx);
           if (changedHead) this.loadLatestCommit(state.value?.revision, cx);
+        }
+        if (!this.allRepositories) {
+          const author = await readGitAuthor(context.folder, context.machine).catch(() => null);
+          if (request === this.request && this.context === context && JSON.stringify(author) !== JSON.stringify(this.author)) { this.author = author; changed = true; }
         }
         // Like Zed, keep what is shown until the result actually differs; most events change nothing.
         if (diff.files !== this.files || diff.truncated !== this.truncated || (diff.error || null) !== this.error) {
@@ -859,9 +865,10 @@ export default class DiffViewer {
     const counts = `${behind > 0 ? `↓${behind} ` : ''}${ahead > 0 ? `↑${ahead} ` : ''}`;
     const pushUnavailable = Boolean(this.pushUnavailable('push'));
     const page = this.gitMenu.page;
-    // Provider actions for the repository come first; the shell's own commit author item always stays available.
-    const providerActions = extensionActions('git.actions').map((action, index) => ({ key: `ext:${action.id}`, icon: 'git-compare', label: action.title,
-      separator: index === 0, disabled: Boolean(this.pushing) }));
+    // The credential provider's own action opens from the identity row; other provider actions stay in the menu.
+    const identityAction = this.identityAction();
+    const providerActions = extensionActions('git.actions').filter(action => action.id !== identityAction?.id)
+      .map((action, index) => ({ key: `ext:${action.id}`, icon: 'git-compare', label: action.title, separator: index === 0, disabled: Boolean(this.pushing) }));
     const items = page ? [
       { key: 'back', icon: 'chevron-left', label: 'Git operations' },
       ...(this.pushState?.remotes || []).map(remote => ({ key: `remote:${remote}`, icon: 'server', label: remote })),
@@ -876,17 +883,16 @@ export default class DiffViewer {
       { key: 'push-tags', icon: 'tag', label: 'Push Tags', description: 'All local tags', disabled: Boolean(this.pushUnavailable('push-tags')) },
       { key: 'force-push', icon: 'arrow-up', label: 'Force Push (with lease)', disabled: pushUnavailable },
       ...providerActions,
-      { key: 'commit-author', icon: 'user-round', label: 'Commit author…', separator: providerActions.length === 0, disabled: Boolean(this.pushing || this.allRepositories) },
     ];
     const choose = (key, cx) => {
-      if (key === 'commit-author') openGitAuthor(this.context);
-      else if (key.startsWith('ext:')) openGitAction(key.slice('ext:'.length), this.context);
+      if (key.startsWith('ext:')) openGitAction(key.slice('ext:'.length), this.context);
       else if (key === 'back' || key === 'fetch-from' || key === 'push-to') {
         this.gitMenu.page = key === 'back' ? null : key === 'fetch-from' ? 'fetch' : 'push';
         this.gitMenu.index = 0; this.gitMenu.open = true;
       } else this.remoteAction(page || key, cx, page && key !== 'all' ? key.slice(7) : undefined);
     };
     return v_flex().id('diff-git-footer').flex_none().border_t(1).border_color(t.border)
+      .child(this.identityRow(t))
       .child(h_flex().h(38).px(8).gap(8).items_center()
         .child(icon('branch').text_color(t.muted))
         .child(div().flex_1().min_w(0).truncate().text_size(12).text_color(t.foreground)
@@ -902,6 +908,27 @@ export default class DiffViewer {
             Button('diff-git-menu', t, { size: 'icon' }).h(26).w(26).border_l(1).border_color(t.chrome)
               .disabled(Boolean(this.pushing)).accessibility_label('More Git operations')
               .child(icon('chevron-down').text_color(t.solid_foreground)), items, choose, t, { side: 'top', offset: { x: 0, y: 15 } })))); // 8px above the footer's top border
+  }
+
+  // The credential provider's git.actions entry, if it declares one; the shell does not know which provider it is.
+  identityAction() {
+    const provider = extensionCatalog().resolved?.gitCredentials;
+    return provider ? extensionActions('git.actions').find(action => action.mod === provider.mod) || null : null;
+  }
+  // design.md, Changes: who this repository commits and pushes as, above the branch row. It opens the credential
+  // provider's account dialog (which also saves the commit author), or the shell's Commit author form without one.
+  identityRow(t) {
+    const author = this.author, action = this.identityAction();
+    const account = credentialAccountFor(extensionCatalog().resolved?.gitCredentials, this.context || {}, shared);
+    const name = author?.name || author?.email || '';
+    const label = name ? account ? `${name} · ${account.login}` : name : 'Set commit identity';
+    return Button('diff-git-identity', t, { variant: 'ghost' }).w_full().h(32).px(8).gap(8).justify_start()
+      .border_b(1).border_color(t.border).disabled(Boolean(this.pushing))
+      .accessibility_label(name ? `Commit identity: ${label}. Change` : 'Set commit identity')
+      .on_click(() => action ? openGitAction(action.id, this.context) : openGitAuthor(this.context))
+      .child(icon('user-round').text_color(t.muted))
+      .child(div().flex_1().min_w(0).truncate().text_size(12).text_color(name ? t.foreground : t.muted).child(label))
+      .child(icon('chevron-right').text_color(t.muted));
   }
 
   toggle(path, cx) {

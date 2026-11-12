@@ -285,7 +285,7 @@ test('header destinations are independent; Changes opens its own repository auth
   assert.match(main, /ToolbarButton\('header-extensions'/);
   assert.doesNotMatch(main, /manage-extensions|Manage extensions|openLauncherSettings|openExtensions|Herdr settings|diff-ignore-settings/);
   assert.match(diff, /if \(key === 'filter-rules'\) openSettings\('git', this\.context\);/);
-  assert.match(diff, /if \(key === 'commit-author'\) openGitAuthor\(this\.context\);/);
+  assert.match(diff, /action \? openGitAction\(action\.id, this\.context\) : openGitAuthor\(this\.context\)/, 'the identity row opens the provider account or the shell author form');
   assert.match(diff, /if \(key === 'list' \|\| key === 'tree'\) this\.setFileView/, 'Changes keeps List and Tree');
   assert.doesNotMatch(diff, /openBuildRules/);
 });

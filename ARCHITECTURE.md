@@ -71,7 +71,8 @@ the tests change in the same commit. Unknown keys inside `provides`, surfaces an
 - `actions` open a popup with the originating project captured at click time. `status.right` places an icon-only
   status-bar button (the title is its tooltip and accessible label, `iconColor` is kept); every active action is shown
   directly. `git.actions` (new) places an item in the
-  shell's Git actions menu, with the selected repository (`{ machine, folder }`) as context.
+  shell's Git actions menu, with the selected repository (`{ machine, folder }`) as context. The active
+  `gitCredentials` provider's own `git.actions` entry opens from the Changes identity row instead of the menu.
 - `requires`: the Extensions manager shows a package as *unavailable* while a required extension is missing,
   failed or disabled; disabling a required extension shows which dependents become unavailable. Calendar
   declares `requires: ["tasks"]`; Asana and MantisBT do **not** require Tasks (import is optional, §2.2.3).
@@ -272,7 +273,8 @@ the key is removed when the extension is disabled (shell clears it). Providers p
   `insteadOf` values are `git@<host>:` or `ssh://git@<host>/`. Valid pairs become `-c key=value` in order.
 - The shell never switches gh's active account and never writes credential settings to disk.
 - Disabling the extension clears its key; the next Git command runs without the binding.
-- The account picker opens from the `git.actions` menu entry; Save/Cancel ordering and credential
+- The Changes identity row (above the branch row) shows the repository's commit author and the binding's `login`;
+  it opens the provider's `git.actions` entry, or the shell's Commit author form when no provider declares one. Save/Cancel ordering and credential
   isolation follow the current `git-author-settings.js` behavior.
 
 ### 3.6 Lifecycle

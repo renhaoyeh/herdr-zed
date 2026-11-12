@@ -12,7 +12,7 @@ async function load(host = {}) {
     v_virtual_list: (_id, count, _sizes, _key, render) => { render({ start: 0, end: count }); return host.div(); },
     Scrollbar: { vertical: () => host.div() },
     // Provider-facing shell functions used by the Git panel; no provider is active unless a test supplies one.
-    extensionActions: () => [], extensionCatalog: () => ({ resolved: {} }), openGitAction() {}, credentialArgsFor: () => [],
+    extensionActions: () => [], extensionCatalog: () => ({ resolved: {} }), openGitAction() {}, credentialArgsFor: () => [], credentialAccountFor: () => null, readGitAuthor: async () => null,
     ...host };
   const source = await readFile(new URL('../mods/herdr-zed/diff.js', import.meta.url), 'utf8');
   const sidePanel = await readFile(new URL('../components/side-panel.js', import.meta.url), 'utf8');
@@ -591,12 +591,12 @@ test('split button menu exposes Git operations, counts and keyboard navigation w
   view.render({ ...view.context, branch: 'native/next' }, cx);
   assert.ok(painted.includes('native/next'), 'Branch follows the same live project data as the status bar');
   assert.ok(!painted.includes('Loading branch…'));
-  assert.equal(nodes.get('diff-git-footer').children.length, 1);
+  assert.equal(nodes.get('diff-git-footer').children.length, 2, 'identity row above the branch row');
   view.loaded = true;
   view.pushState = { branch: 'main', committed: true, remote: true, remotes: ['origin', 'back'], ahead: 3, behind: 2 };
   view.remoteAction = (...args) => actions.push(args);
   view.pushFooter({});
-  assert.equal(nodes.get('diff-git-footer').children.length, 1);
+  assert.equal(nodes.get('diff-git-footer').children.length, 2);
   assert.ok(nodes.get('diff-push').children.includes('↓2 ↑3 Pull'));
   nodes.get('diff-push').click({}, cx);
   assert.deepEqual(actions.pop(), ['pull', cx]);
@@ -648,7 +648,7 @@ test('split button menu exposes Git operations, counts and keyboard navigation w
   showGitToast(view.context, view.resultTitle, true);
   painted.length = 0;
   view.render(view.context, cx);
-  assert.equal(nodes.get('diff-git-footer').children.length, 1, 'Failures never expand the footer');
+  assert.equal(nodes.get('diff-git-footer').children.length, 2, 'Failures never expand the footer');
   assert.ok(!painted.includes('Push failed'), 'Git results are rendered outside the diff content');
   assert.ok(!painted.includes(view.pushResult.message), 'Raw Git output stays out of the notification');
   view.openLog(cx);
@@ -662,8 +662,9 @@ test('split button menu exposes Git operations, counts and keyboard navigation w
   assert.equal(view.output, null);
   assert.equal(view.pushResult.failed, true, 'Dismissal retains the result');
   view.pushFooter({});
-  // The shell's menu keeps Commit author; GitHub account comes from the git.actions catalog (see git-actions tests).
-  nodes.get('diff-git-actions-commit-author').click({}, cx);
+  // Without a credential provider the identity row opens the shell's Commit author form; the menu has no such item.
+  assert.ok(!nodes.has('diff-git-actions-commit-author'));
+  nodes.get('diff-git-identity').click({}, cx);
   assert.deepEqual(actions.at(-1), ['author', view.context]);
   assert.equal(accountSettings, undefined, 'Opening the commit author does not change any account');
 });
@@ -1530,9 +1531,9 @@ test('Git menu lists git.actions providers, opens them with the repository conte
   view.loaded = true;
   view.pushState = { branch: 'main', committed: true, remote: true, remotes: ['origin'], ahead: 0, behind: 0 };
   view.pushFooter({});
-  assert.ok(nodes.has('diff-git-actions-ext:github.account'), 'the provider action is a menu item');
-  assert.ok(nodes.has('diff-git-actions-commit-author'), 'the shell keeps its own Commit author item');
-  nodes.get('diff-git-actions-ext:github.account').click({}, cx);
+  assert.ok(!nodes.has('diff-git-actions-ext:github.account'), 'the credential provider\'s action leaves the menu');
+  assert.ok(!nodes.has('diff-git-actions-commit-author'));
+  nodes.get('diff-git-identity').click({}, cx);
   assert.deepEqual(opened, [['github.account', { id: 'project', folder: '/project', machine: 'box' }]]);
   assert.deepEqual(view.credentialArgs({ folder: '/project', machine: 'box' }), []);
   assert.deepEqual(view.credentialArgs({ folder: '/project', machine: 'box' }), []);
