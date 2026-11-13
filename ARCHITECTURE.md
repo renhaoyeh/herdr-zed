@@ -235,6 +235,11 @@ user clicks + / invokes New Thread (New terminal opens directly from the project
 - When auto-resume reopens a conversation after a restart, the new tab's record carries `replaces: <old tab id>` (and the
   old record's profile, source and origin), so a provider moves what it linked to the old tab across. Providers may read
   the shell's resume records (`herdr-zed.thread-sessions`, `{ [tabId]: { sessionId, command, ... } }`) and never write them.
+- Archived conversations have one source: the shell's history `herdr-zed.thread-history` =
+  `[{ id, tab, kind, sessionId, folder, argv, at, ... }]` (`tab` = the closed tab id). Sidebar Archive appends an entry before
+  closing the tab; the shell removes it once another live tab runs the same `kind`/`sessionId`, however it was resumed.
+  Providers read it and never write it: Tasks shows the card of `tab` (its linked task, else its thread card) as archived,
+  and its Restore launches the entry's `argv`.
 - Local-shell wrapping (`terminalArgv`) is the provider's job for provider launches; the shell applies it
   only on the native knownAgents path, as today.
 - **Terminal**: a launcher's picker opens a plain terminal with the shell command `herdr-zed.new-terminal`

@@ -53,16 +53,15 @@ test('history restore matching requires a local matching account, project and li
   assert.equal(historyRestoreCandidate(entry, [local], [{ ...terminal(), argv: [...command.slice(0, 1), 'CLAUDE_CONFIG_DIR=/accounts/other', ...command.slice(2)] }], [project]), false);
 });
 
-test('archive preserves the exact safe launch command and keeps Zed history independent', async () => {
+test('archive preserves the exact safe launch command and records the closed tab', async () => {
   const live = [terminal()], { threadArchive, memory, commands } = await load({ live });
-  memory['herdr-zed.archived-threads'] = [{ id: 'task-owned' }];
   const owner = Object.assign({ projects: () => [project] }, threadArchive);
   await owner.archiveThread(thread());
   const entry = memory['herdr-zed.thread-history'][0];
   assert.deepEqual(entry.argv, model.resumeArgv(command, '11111111-1111-4111-8111-111111111111'));
   assert.deepEqual(entry.accountEnv, ['CLAUDE_CONFIG_DIR=/accounts/work']);
   assert.match(entry.id, /accounts\/work/);
-  assert.deepEqual(memory['herdr-zed.archived-threads'], [{ id: 'task-owned' }]);
+  assert.equal(entry.tab, thread().tab.id, 'Tasks finds the archived card by its closed tab');
   assert.ok(commands.some(([name]) => name === 'tab.close'));
 });
 

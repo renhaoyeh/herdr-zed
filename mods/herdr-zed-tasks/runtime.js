@@ -152,9 +152,8 @@ export class TaskRuntime {
         if (exists && Date.now() - resumed.at >= 2000 && currentAgents.some(agent => agent.tab === resumed.tab && ['idle', 'working', 'done', 'blocked'].includes(agent.status))) {
           if (resumed.task) {
             const project = { folder: resumed.folder }, current = boardRecords(project)[resumed.task.gid];
-            if (current) setTaskArchived(project, current, false);
+            if (current?.archived) setTaskArchived(project, current, false);
           }
-          setShared('herdr-zed.archived-threads', (shared('herdr-zed.archived-threads') || []).filter(entry => entry.id !== resumed.id));
         } else if (exists && Date.now() - resumed.at < 60000) remaining.push(resumed);
       }
       if (remaining.length !== confirming.length) setShared('herdr-zed.pending-resumes', remaining);
@@ -294,7 +293,7 @@ export class TaskRuntime {
 
   boardPanel(project, cx) {
     const launchers = this.taskAssignees(project);
-    return this.agentBoard.render(project, agents(), launchers, {
+    const actions = {
       archive: (task, eventCx) => {
         const currentProject = this.projects().find(item => item.id === project.id) || project;
         const current = projectBoardTasks(currentProject, agents()).find(item => item.gid === task.gid);
@@ -302,16 +301,18 @@ export class TaskRuntime {
         if (taskNeedsArchiveChoice(current)) openArchiveTask(project, current);
         else setTaskArchived(project, current, true);
       },
+      // An archived conversation is restored like the sidebar's Restore: it runs again, and the shell then drops it from history.
       restore: task => {
         const current = projectBoardTasks(project, agents()).find(item => item.gid === task.gid);
-        if (current?.archived) setTaskArchived(project, current, false);
+        if (current?.conversationArchived) actions.resume(current);
+        else if (current?.archived) setTaskArchived(project, current, false);
       },
-      // Reopens the task's last conversation (its archive, else the one its agent recorded) in a new tab of this project.
-      // pending-profiles links the new tab back to the task; an archive is consumed only once its agent starts.
+      // Reopens the task's last conversation (its archived one, else the one its agent recorded) in a new tab of this project.
+      // pending-profiles links the new tab back to the task.
       resume: task => {
         const current = projectBoardTasks(project, agents()).find(item => item.gid === task.gid);
-        if (!current || current.archived || current.tabs.length) return;
-        const saved = (shared('herdr-zed.archived-threads') || []).find(entry => entry.id === current.archiveId);
+        if (!current || current.archived && !current.conversationArchived || current.tabs.length) return;
+        const saved = (shared('herdr-zed.thread-history') || []).find(entry => entry.id === current.archiveId);
         const argv = saved?.argv || current.conversation?.argv;
         const space = spaces().find(item => item.id === project.id);
         if (!space || !Array.isArray(argv) || !argv.length) {
@@ -347,6 +348,7 @@ export class TaskRuntime {
         catch (error) { this.agentBoard.setTaskError(task.gid, error.message); }
         cx.notify();
       }),
-    }, cx);
+    };
+    return this.agentBoard.render(project, agents(), launchers, actions, cx);
   }
 }

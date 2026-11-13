@@ -51,13 +51,11 @@ test('agent-thread parents can have local subtasks without starting or changing 
   assert.equal(board.canAddSubtask({ archived: true }), false); assert.equal(board.canAddSubtask(null), false);
 });
 
-test('deleting a parent detaches direct subtasks and archived links while preserving descendants and other projects', async () => {
+test('deleting a parent detaches direct subtasks and thread links while preserving descendants and other projects', async () => {
   const s = await state(), parent = s.createLocalTask(project, 'Parent');
   const child = s.createLocalTask(project, 'Child', 'Keep instructions', { parentId: parent.gid, status: 'done', manual: true });
   const grandchild = s.createLocalTask(project, 'Grandchild', '', { parentId: child.gid });
   s.memory['herdr-zed.thread-tasks'] = { childTab: { ...child, folder: project.folder }, otherTab: { ...child, folder: '/other' } };
-  s.memory['herdr-zed.archived-threads'] = [{ id: 'archive', folder: project.folder, task: { ...child }, boardTask: { ...child } },
-    { id: 'other', folder: '/other', task: { ...child } }];
   assert.equal(s.deleteLocalTask(project, parent.gid), true);
   const tasks = s.projectBoardTasks(project), retained = tasks.find(task => task.gid === child.gid);
   assert.equal(retained.parentId, null); assert.equal(retained.parentTask, undefined);
@@ -65,9 +63,6 @@ test('deleting a parent detaches direct subtasks and archived links while preser
   assert.equal(tasks.find(task => task.gid === grandchild.gid).parentId, child.gid);
   assert.equal(s.memory['herdr-zed.thread-tasks'].childTab.parentId, null);
   assert.equal(s.memory['herdr-zed.thread-tasks'].otherTab.parentId, parent.gid);
-  assert.equal(s.memory['herdr-zed.archived-threads'][0].task.parentId, null);
-  assert.equal(s.memory['herdr-zed.archived-threads'][0].boardTask.parentId, null);
-  assert.equal(s.memory['herdr-zed.archived-threads'][1].task.parentId, parent.gid);
   assert.equal(tasks.some(task => task.gid === parent.gid), false);
 });
 

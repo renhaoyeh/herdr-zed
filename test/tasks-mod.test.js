@@ -98,42 +98,38 @@ test('reported work stays Doing across native idle/done, separates attention and
 test('Board restore never launches a session; due dates and deletion preserve unrelated events and conversations', async () => {
   const key = '["","/project"]', task = { gid: 'local:dates', source: 'local', name: 'Plan', status: 'done', archived: true, archiveId: 'saved' };
   const h = await modules({ [key]: { [task.gid]: task } }), project = h.state.projects[0];
-  h.memory['herdr-zed.archived-threads'] = [{ id: 'saved', folder: project.folder, task, boardTask: task, argv: ['claude', '--resume', 'conversation'] }];
+  const saved = { id: 'saved', folder: project.folder, argv: ['claude', '--resume', 'conversation'] };
+  h.memory['herdr-zed.thread-history'] = [saved];
   h.memory['herdr-zed.calendar-events'] = { meeting: { title: 'Meeting', taskLink: { id: 'kept' } } };
   h.runtime.agentBoard = { render: (_p, _a, _l, actions) => actions };
   h.runtime.boardPanel(project, context().cx).restore(task);
   assert.equal(h.owner.boardRecords(project)[task.gid].archived, false);
-  assert.deepEqual(h.launches, []);
-  assert.equal(h.memory['herdr-zed.archived-threads'].length, 1);
+  assert.deepEqual(h.launches, []); assert.deepEqual(h.native, []);
   const current = h.owner.projectBoardTasks(project)[0];
   h.owner.setTaskDueDate(project, current, '2028-02-29');
   assert.throws(() => h.owner.setTaskDueDate(project, current, '2026-02-29'), /valid date/);
   assert.equal(h.owner.boardRecords(project)[task.gid].dueDate, '2028-02-29');
   assert.equal(h.owner.deleteLocalTask(project, task.gid), true);
   assert.deepEqual(h.memory['herdr-zed.calendar-events'], { meeting: { title: 'Meeting', taskLink: { id: 'kept' } } });
-  assert.equal(h.memory['herdr-zed.archived-threads'][0].boardTask, null);
-  assert.equal(h.memory['herdr-zed.archived-threads'][0].argv[2], 'conversation');
+  assert.deepEqual(h.memory['herdr-zed.thread-history'], [saved], 'Tasks never writes the shell archive');
   assert.equal(h.owner.projectBoardTasks(project).length, 0);
   assert.equal(h.memory['herdr-zed.deleted-tasks'][key][task.gid].name, 'Plan');
 });
 
-test('explicit resume keeps the archive on launch failure and removes it only after a matching native tab appears', async () => {
+test('explicit resume keeps the task archived on launch failure and restores it only after a matching native tab appears', async () => {
   const key = '["","/project"]', task = { gid: 'local:resume', source: 'local', name: 'Saved', archived: true, status: 'fail', archiveId: 'archive' };
   const h = await modules({ [key]: { [task.gid]: task } });
-  const entry = { id: 'archive', folder: '/project', task, boardTask: task };
-  h.memory['herdr-zed.archived-threads'] = [entry];
-  h.memory['herdr-zed.pending-profiles'] = [{ key: 'old-profile', folder: '/project', before: [], at: Date.now(), restoreArchiveId: entry.id,
+  h.memory['herdr-zed.pending-profiles'] = [{ key: 'old-profile', folder: '/project', before: [], at: Date.now(), restoreArchiveId: 'archive',
     task: { gid: task.gid, name: task.name, folder: '/project', source: 'local' } }];
   h.runtime.resolveSessions();
-  assert.deepEqual(h.memory['herdr-zed.archived-threads'], [entry]);
   assert.equal(h.owner.boardRecords(h.state.projects[0])[task.gid].archived, true);
   h.state.projects[0].tabs = [{ id: 'resumed', name: 'Saved' }];
   h.runtime.resolveSessions();
-  assert.deepEqual(h.memory['herdr-zed.archived-threads'], [entry], 'Creating a tab alone does not prove the CLI started');
+  assert.equal(h.owner.boardRecords(h.state.projects[0])[task.gid].archived, true, 'Creating a tab alone does not prove the CLI started');
   h.memory['herdr-zed.pending-resumes'][0].at -= 2001;
   h.state.agents = [{ address: 'resumed-agent', tab: 'resumed', app: 'pi', status: 'idle' }];
   h.runtime.resolveSessions(); h.runtime.refresh(context().cx);
-  assert.deepEqual(h.memory['herdr-zed.archived-threads'], []);
+  assert.equal(h.memory['herdr-zed.thread-history'], undefined, 'Tasks never writes the shell archive');
   assert.equal(h.memory['herdr-zed.thread-profiles'].resumed, 'old-profile');
   assert.equal(h.memory['herdr-zed.thread-tasks'].resumed.gid, task.gid);
   assert.equal(h.client.listTasks()[0].status, 'doing'); assert.equal(h.client.listTasks()[0].archived, false);
@@ -180,16 +176,34 @@ test('a refused launch restores the task and rethrows so the board can show the 
   assert.equal(h.launches.length, 1); assert.deepEqual(h.native, []);
 });
 
-test('a resumed tab that exits before its agent starts never consumes the archive', async () => {
+test('a resumed tab that exits before its agent starts keeps the task archived', async () => {
   const task = { gid: 'local:failed-start', source: 'local', name: 'Saved', archived: true, status: 'fail' };
   const h = await modules({ '["","/project"]': { [task.gid]: task } });
-  const archive = { id: 'saved', folder: '/project', boardTask: task };
-  h.memory['herdr-zed.archived-threads'] = [archive];
   h.memory['herdr-zed.pending-resumes'] = [{ id: 'saved', folder: '/project', task, tab: 'exited', at: Date.now() - 3000 }];
   h.runtime.resolveSessions();
   assert.deepEqual(h.memory['herdr-zed.pending-resumes'], []);
-  assert.deepEqual(h.memory['herdr-zed.archived-threads'], [archive]);
   assert.equal(h.owner.boardRecords(h.state.projects[0])[task.gid].archived, true);
+});
+
+test('a conversation archived from the sidebar archives its card through the shell history, and Restore resumes it', async () => {
+  const key = '["","/project"]', card = { gid: 'thread:closed', source: 'thread', threadId: 'closed', name: 'Explain ECC', status: 'doing', hasInput: true };
+  const linked = { gid: 'local:linked', source: 'local', name: 'Linked', status: 'doing' };
+  const h = await modules({ [key]: { [card.gid]: card, [linked.gid]: linked } }), project = h.state.projects[0];
+  const entry = { id: 'codex:s1', tab: 'closed', kind: 'codex', sessionId: 's1', folder: '/project', argv: ['codex', 'resume', 's1'], at: 2 };
+  h.memory['herdr-zed.thread-tasks'] = { linkedTab: { gid: linked.gid, name: linked.name, folder: '/project', source: 'local' } };
+  h.memory['herdr-zed.thread-history'] = [entry, { id: 'claude:s2', tab: 'linkedTab', kind: 'claude', sessionId: 's2', folder: '/project', argv: ['claude', '--resume', 's2'], at: 1 },
+    { id: 'other', tab: 'closed', folder: '/elsewhere', argv: ['codex'] }];
+  const tasks = h.owner.projectBoardTasks(project);
+  assert.deepEqual(tasks.map(task => [task.gid, task.archived]).sort(), [[linked.gid, true], [card.gid, true]]);
+  assert.equal(h.owner.boardRecords(project)[card.gid].archived, undefined, 'the archive is read, never copied into task records');
+  assert.equal(h.owner.taskActions(tasks.find(task => task.gid === card.gid)).canRestore, true);
+  h.runtime.agentBoard = { render: (_p, _a, _l, actions) => actions, setTaskError: assert.fail, clearTaskError() {} };
+  h.runtime.boardPanel(project, context().cx).restore(card);
+  assert.deepEqual(h.native.at(-1), ['run', 'tab.new', { space: 'p', folder: '/project', name: card.name, argv: entry.argv }]);
+  assert.equal(h.memory['herdr-zed.pending-profiles'].at(-1).restoreArchiveId, entry.id);
+  assert.equal(h.memory['herdr-zed.thread-history'].length, 3, 'only the shell removes the entry once the conversation runs');
+  h.memory['herdr-zed.thread-history'] = [];
+  assert.equal(h.owner.projectBoardTasks(project).find(task => task.gid === card.gid).archived, undefined);
 });
 
 test('task rendering reads one native snapshot and releases it after each frame or error', async () => {

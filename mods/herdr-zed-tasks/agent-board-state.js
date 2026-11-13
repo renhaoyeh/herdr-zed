@@ -21,20 +21,28 @@ export function rememberBoardTask(project, task, change = {}) {
   setShared('herdr-zed.agent-board', { ...all, [key]: { ...records,
     [task.gid]: { ...records[task.gid], gid: task.gid, name: task.name, source: task.source || 'asana', threadId: task.threadId || null, notes: task.notes || records[task.gid]?.notes || '', parent: task.parent?.name || task.parent || null, ...change } } });
 }
-export function projectBoardTasks(project, agents = []) {
-  const records = { ...boardRecords(project) };
-  // Current archives carry a complete task snapshot. Deleted or absent snapshots
-  // never synthesize a task from a conversation title.
-  for (const entry of shared('herdr-zed.archived-threads') || []) {
-    if (project.machine || folderKey(entry.folder) !== folderKey(project.folder)) continue;
-    const snapshot = entry.boardTask;
-    if (!snapshot?.gid || records[snapshot.gid]) continue;
-    records[snapshot.gid] = { ...snapshot, archived: true, archiveId: entry.id };
+// Archived conversations are the shell's sidebar history (§3.1, read-only here), the same list the sidebar shows:
+// the card of an archived tab (its linked task, else its thread card) is archived until the conversation runs again.
+// Newest entry wins. Board Archive stays the task's own flag.
+export function archivedConversations(project) {
+  if (project.machine) return {};
+  const links = shared('herdr-zed.thread-tasks') || {}, archived = {};
+  for (const entry of shared('herdr-zed.thread-history') || []) {
+    if (typeof entry?.tab !== 'string' || folderKey(entry.folder) !== folderKey(project.folder)) continue;
+    const link = links[entry.tab];
+    const gid = link && folderKey(link.folder) === folderKey(project.folder) ? link.gid : threadTaskId(entry.tab);
+    if (!archived[gid] || (entry.at || 0) > (archived[gid].at || 0)) archived[gid] = entry;
   }
+  return archived;
+}
+export function projectBoardTasks(project, agents = []) {
+  const stored = boardRecords(project), records = { ...stored };
+  for (const [gid, entry] of Object.entries(archivedConversations(project)))
+    if (records[gid] && !records[gid].archived) records[gid] = { ...records[gid], archived: true, conversationArchived: true, archiveId: entry.id };
   const deleted = shared('herdr-zed.deleted-tasks')?.[boardKey(project)] || {};
   const tasks = boardTasks(project, [], records, shared('herdr-zed.thread-tasks') || {}, project.tabs || [], withTaskInputEvidence(agentsWithTurns(agents, terminals()), terminals()), sessionThreadTitle)
     .filter(task => !deleted[task.gid]);
-  const next = reconcileBoardRecords(records, tasks);
+  const next = reconcileBoardRecords(stored, tasks);
   if (JSON.stringify(next) !== JSON.stringify(boardRecords(project)))
     setShared('herdr-zed.agent-board', { ...(shared('herdr-zed.agent-board') || {}), [boardKey(project)]: next });
   return tasks;
@@ -99,11 +107,6 @@ export function deleteLocalTask(project, gid, agents = []) {
   const nextLinks = Object.fromEntries(Object.entries(links).filter(([_tab, link]) => !matches(link))
     .map(([tab, link]) => [tab, folderKey(link.folder) === folderKey(project.folder) ? detach(link) : link]));
   if (JSON.stringify(nextLinks) !== JSON.stringify(links)) setShared('herdr-zed.thread-tasks', nextLinks);
-  const archived = shared('herdr-zed.archived-threads') || [];
-  const attached = entry => folderKey(entry.folder) === folderKey(project.folder) && (entry.task?.gid === gid || entry.boardTask?.gid === gid);
-  const nextArchived = archived.map(entry => attached(entry) ? { ...entry, task: null, boardTask: null }
-    : folderKey(entry.folder) === folderKey(project.folder) ? { ...entry, task: detach(entry.task), boardTask: detach(entry.boardTask) } : entry);
-  if (JSON.stringify(nextArchived) !== JSON.stringify(archived)) setShared('herdr-zed.archived-threads', nextArchived);
   return true;
 }
 export function threadBoardTask(project, thread) {

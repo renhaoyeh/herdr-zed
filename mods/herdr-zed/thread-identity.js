@@ -5,6 +5,11 @@ import { commandKind, codexSessionId, resumeArgv } from './components/session-mo
 
 // Shared-state keys. Records are keyed by tab id; the preference defaults to on (only `false` turns it off).
 export const RESUME_RECORDS_KEY = 'herdr-zed.thread-sessions';
+// Archived conversations (§3.1): the one archive both the sidebar history and Tasks read. Only the shell writes it.
+export const HISTORY_KEY = 'herdr-zed.thread-history';
+// A conversation running again in another tab is no longer archived, however it was resumed.
+export const historyWithoutLive = (history, records, liveTabs) => (history || []).filter(entry => !Object.entries(records || {})
+  .some(([tabId, record]) => tabId !== entry.tab && liveTabs.has(tabId) && record?.kind === entry.kind && record?.sessionId === entry.sessionId));
 export const AUTO_RESUME_KEY = 'herdr-zed.auto-resume';
 
 const UUID = /^[a-f0-9-]{36}$/i;

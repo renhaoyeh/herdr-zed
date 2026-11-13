@@ -14,7 +14,7 @@
 // replacement terminal may keep its original creation time and a reboot must not erase the record.
 import { shared, setShared, run, notify, exec, readTextFile, home, appHome, window, machines, spaces, agents, terminals, panes } from 'herdr';
 import { commandKind, agentCommand, threadTitle, terminalWorking } from './components/session-model.js';
-import { RESUME_RECORDS_KEY, AUTO_RESUME_KEY, sessionIdentity, windowsSessionIdentity, resumeCommand, hasCredential } from './thread-identity.js';
+import { RESUME_RECORDS_KEY, HISTORY_KEY, historyWithoutLive, AUTO_RESUME_KEY, sessionIdentity, windowsSessionIdentity, resumeCommand, hasCredential } from './thread-identity.js';
 
 export const RESUME_TICK_MS = 2000;
 export const RESUME_REFRESH_MS = 10000;
@@ -173,6 +173,10 @@ export function createThreadResume(api) {
       remove.forEach(id => delete next[id]);
       const pruned = Object.fromEntries(Object.entries(next).slice(-MAX_RECORDS));
       if (JSON.stringify(pruned) !== JSON.stringify(latest)) api.setShared(RESUME_RECORDS_KEY, pruned);
+      const history = api.shared(HISTORY_KEY) || [];
+      const liveTabs = new Set(api.spaces().flatMap(space => space.tabs.map(tab => tab.id)));
+      const current = historyWithoutLive(history, pruned, liveTabs);
+      if (current.length !== history.length) api.setShared(HISTORY_KEY, current);
     } catch (error) {
       api.notify({ title: 'Conversation resume failed', body: error.message, level: 'error' });
     } finally { state.busy = false; }

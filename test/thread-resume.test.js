@@ -250,3 +250,11 @@ test('a Claude launch with MCP config and a `--` prompt resumes with its options
   assert.deepEqual(identity.resumeCommand([...base, '--', '--help'], id), expected, 'a flag-like prompt stays a prompt');
   assert.equal(identity.resumeCommand([...base, '--', 'a', 'b'], id), null, 'several arguments after -- are unknown');
 });
+
+test('an archived conversation leaves the history once another live tab runs the same session', () => {
+  const entry = { id: 'codex:s1', tab: 'closed', kind: 'codex', sessionId: 's1' }, other = { id: 'claude:s2', tab: 'gone', kind: 'claude', sessionId: 's2' };
+  const records = { closed: { kind: 'codex', sessionId: 's1' }, fresh: { kind: 'codex', sessionId: 's1' }, stale: { kind: 'claude', sessionId: 's2' } };
+  assert.deepEqual(identity.historyWithoutLive([entry, other], records, new Set(['fresh'])), [other]);
+  assert.deepEqual(identity.historyWithoutLive([entry], { closed: records.closed }, new Set(['closed'])), [entry], 'its own closing tab never restores it');
+  assert.deepEqual(identity.historyWithoutLive([entry], { fresh: { kind: 'claude', sessionId: 's1' } }, new Set(['fresh'])), [entry]);
+});

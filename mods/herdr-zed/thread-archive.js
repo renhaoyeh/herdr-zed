@@ -3,12 +3,11 @@ import { div, image } from 'gpui-kit';
 import { h_flex } from 'gpui-base';
 import { agents, spaces, shared, setShared, run, notify, exec, readTextFile, home, appHome, terminals, window } from 'herdr';
 import { agentCommand, commandKind, archivedAge, folderKey, projectGroups, threadTitle } from './components/session-model.js';
-import { RESUME_RECORDS_KEY, recordsWithout, sessionIdentity, windowsSessionIdentity, resumeCommand, accountEnv, executable, hasCredential } from './thread-identity.js';
+import { RESUME_RECORDS_KEY, HISTORY_KEY, recordsWithout, sessionIdentity, windowsSessionIdentity, resumeCommand, accountEnv, executable, hasCredential } from './thread-identity.js';
 import { Button, ToolbarButton } from './components/button.js';
 import { SidebarContent, SidebarGroup, SidebarMenuButton } from './components/sidebar.js';
 import { glyph } from './components/icon.js';
 
-const HISTORY_KEY = 'herdr-zed.thread-history';
 const history = () => shared(HISTORY_KEY) || [];
 // A project's archived threads, newest first (the New thread panel's Recent list).
 export const projectHistory = (folder, limit = 5) => history().filter(entry => folderKey(entry.folder) === folderKey(folder))
@@ -91,7 +90,7 @@ export const threadArchive = {
       const project = this.projects().find(item => item.id === thread.space);
       const folder = project?.folder || terminal.cwd;
       const env = accountEnv(command);
-      const entry = { id: `${kind}:${id}:${JSON.stringify([executable(command), env])}`, kind, sessionId: id,
+      const entry = { id: `${kind}:${id}:${JSON.stringify([executable(command), env])}`, kind, sessionId: id, tab,
         accountEnv: env, executable: executable(command),
         title: thread.title, folder, projectName: project?.name || folder, argv, at: Date.now(),
         icon: agent.program?.icon || null, tint: Boolean(agent.program?.tint) };
