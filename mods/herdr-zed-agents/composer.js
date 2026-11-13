@@ -1,10 +1,12 @@
 // The shell's composer (ARCHITECTURE §3.1, Composer): this service publishes the programs and their session fields
 // (model, effort, Fast) per machine, and takes the composer's launch intents, preparing each like the picker does.
-import { shared, setShared, home, readTextFile, notify } from 'herdr';
+import { shared, setShared, home, readTextFile, notify, spaces } from 'herdr';
 import { availableAgents, discoverAgents } from './discovery.js';
 import { launcherChoices, launcherLabel, isAccountLauncher, sessionKind, settingsKey, sessionChoices, effortLabel, codexHome, codexModels } from './components/session-model.js';
 import { emitLaunch, LAUNCHER_ID } from './launch.js';
 import { UsageClient } from './components/usage.js';
+import { COMPOSER_COMMAND_REQUESTS, COMPOSER_COMMAND_RESULTS, validComposerCommandRequest, composerCommands } from './components/extension-contract.js';
+import { providerCommands } from './devkits.js';
 
 export const COMPOSER_KEY = `herdr-zed.composer.${LAUNCHER_ID}`;
 export const LAUNCH_INTENTS = 'herdr-zed.launch.intents';
@@ -72,6 +74,36 @@ export class Composer {
   codexModelsByHome = new Map();
   claimed = new Set();
   published = '';
+  pendingCommands = new Set();
+  pollCommands(cx) {
+    const now = Date.now(), queued = shared(COMPOSER_COMMAND_REQUESTS) || [], results = shared(COMPOSER_COMMAND_RESULTS) || {};
+    const requests = queued.filter(request => request?.expiresAt > now);
+    if (requests.length !== queued.length) setShared(COMPOSER_COMMAND_REQUESTS, requests);
+    const recent = Object.fromEntries(Object.entries(results).filter(([, result]) => result?.expiresAt > now));
+    if (Object.keys(recent).length !== Object.keys(results).length) setShared(COMPOSER_COMMAND_RESULTS, recent);
+    for (const request of requests.filter(request => request.launcher === LAUNCHER_ID)) {
+      if (this.pendingCommands.has(request.id)) continue;
+      this.pendingCommands.add(request.id);
+      cx.spawn(async () => {
+        let result;
+        try {
+          if (!validComposerCommandRequest(request, Date.now(), spaces())) throw Error('Invalid skill list request.');
+          const cache = shared('herdr-zed.agent-cache')?.[JSON.stringify(request.target.machine || null)] || [];
+          const agent = availableAgents(cache, request.target.machine).find(item => choiceKey(item) === request.choice);
+          if (!agent) throw Error('This program is no longer available.');
+          const items = await providerCommands(agent, request.target);
+          if (!composerCommands({ items, expiresAt: request.expiresAt })) throw Error('Invalid skill list response.');
+          result = { items };
+        } catch (error) { result = { items: [], error: error.message }; }
+        finally { this.pendingCommands.delete(request.id); }
+        const alive = shared(COMPOSER_COMMAND_REQUESTS) || [];
+        if (!alive.some(item => item.id === request.id)) return;
+        setShared(COMPOSER_COMMAND_REQUESTS, alive.filter(item => item.id !== request.id));
+        if (request.expiresAt <= Date.now()) return;
+        setShared(COMPOSER_COMMAND_RESULTS, { ...(shared(COMPOSER_COMMAND_RESULTS) || {}), [request.id]: { ...result, expiresAt: request.expiresAt } });
+      });
+    }
+  }
   async loadModels() {
     const cache = shared('herdr-zed.agent-cache')?.[JSON.stringify(null)] || [];
     const dirs = [...new Set(cache.filter(agent => sessionKind(agent) === 'codex').map(agent => codexHome(agent, home())))];
@@ -101,6 +133,7 @@ export class Composer {
   }
   // Intents addressed to this launcher are taken off the queue once; the shell only appends.
   poll(cx) {
+    this.pollCommands(cx);
     const queued = shared(LAUNCH_INTENTS) || [], now = Date.now();
     const mine = queued.filter(intent => intent?.launcher === LAUNCHER_ID);
     const rest = queued.filter(intent => intent?.launcher !== LAUNCHER_ID && intent?.expiresAt > now);
@@ -115,7 +148,9 @@ export class Composer {
           const cache = shared('herdr-zed.agent-cache')?.[JSON.stringify(machine)] || [];
           const agent = availableAgents(cache, machine).find(item => choiceKey(item) === intent.choice);
           if (!agent) throw new Error('This program is no longer available. Choose another.');
-          await emitLaunch(agent, { ...intent.target, ...(intent.task ? { task: intent.task } : {}) }, intentOptions(intent.values));
+          if (intent.command !== undefined && (typeof intent.command !== 'string' || !intent.command || intent.command.length > 200)) throw Error('Invalid selected skill.');
+          await emitLaunch(agent, { ...intent.target, ...(intent.task ? { task: intent.task } : {}) },
+            { ...intentOptions(intent.values), ...(intent.command ? { command: intent.command } : {}) });
           // The composer's last choice becomes the account's default, like the picker's menus.
           const key = settingsKey(agent), sessions = shared('herdr-zed.profile-sessions') || {}, options = intentOptions(intent.values);
           setShared('herdr-zed.profile-sessions', { ...sessions, [key]: { ...sessions[key], model: options.model, effort: options.effort,

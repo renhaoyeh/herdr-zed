@@ -52,6 +52,18 @@ test('project-aware ECC preparation receives the launch folder rather than the c
   assert.equal(h.calls.find(([name]) => name === 'ecc')[1].folder, target.folder);
 });
 
+test('slash-selected skill expands against this launch snapshot and preserves the task suffix', async () => {
+  const command = { id: 'mine:skills:review', name: 'review', path: 'C:\\snapshot\\review\\SKILL.md' };
+  const h = await load({ kitInstructions: { commands: [command], summary: 'Review', sections: 'Read skill.' } });
+  const result = await h.prepareSession(profile, { folder: '/project', task: '/review Check src/main.js' }, { command: command.id });
+  assert.match(result.task, /Use the skill at `C:\/snapshot\/review\/SKILL.md`/);
+  assert.match(result.task, /Check src\/main.js$/);
+  const missing = await load();
+  await assert.rejects(missing.prepareSession(profile, { task: '/review Check' }, { command: command.id }), /no longer available/);
+  const remote = await load({ remote: true });
+  await assert.rejects(remote.prepareSession(profile, { space: 'local', task: '/review Check' }, { command: command.id }), /only for local/);
+});
+
 test('either remote target marker omits local rules, profile instructions and both MCP sources', async () => {
   for (const target of [{ machine: 'host', space: 'local' }, { space: 'local' }]) {
     const h = await load({ remote: target.machine === undefined, target });

@@ -269,6 +269,21 @@ user clicks + / invokes New Thread (New terminal opens directly from the project
   Agents offers this only for local Codex/Claude accounts, for their saved session defaults. Thread headers stay data-only.
   Offered models/efforts and order use `herdr-zed.session-options[claude|codex]`, managed only on the root Models page.
   Every account and named profile shares its provider's list. Agents preparation, the profile editor, New thread and Tasks read the same scope.
+- **Composer slash commands**: the shell appends read-only requests to `herdr-zed.composer-command.requests`:
+  `{ id, launcher, choice, target, expiresAt }`, scoped to the chosen program and project (same target validation as
+  launches; expiry within 60 s). The launcher consumes its own requests and publishes expiring results in
+  `herdr-zed.composer-command.results[id]`: `{ items: [{ id, name, description }], error?, expiresAt }`.
+  Command IDs are opaque to the shell; names are slash-safe identifiers, unique within each result, with bounded
+  descriptions and at most 1,000 entries. The shell validates results and ignores late results from other scopes.
+  Typing `/` at the start of New thread filters the active project's commands in a native `Popup` anchored above
+  the task input, outside layout flow (it never grows the composer), with loading/error/empty states;
+  Up/Down navigate, Enter/Tab select and Escape dismisses without changing the draft. Choosing inserts `/name `
+  and does not launch. A subsequent launch intent may include `command: <id>`; the launcher resolves it against
+  the actual launch snapshot, rejects unavailable selections and expands the leading command into a skill
+  instruction while retaining the task suffix. Discovery never starts an agent or installs native plugins.
+  Agents offers selected Shared Skills and built-in skills whose platform/MCP requirements are satisfied,
+  independent of ECC. Remote or unsupported programs return an empty list. No provider names, paths or
+  skill parsing enter the shell; no manifest schema changes are required.
 - `id` and `profile` let the shell match the new tab when it appears (current `pending-profiles` pattern)
   and expose `{ tabId, profile, source }` in the thread read model (`herdr-zed.threads`) for decorators.
 - When auto-resume reopens a conversation after a restart, the new tab's record carries `replaces: <old tab id>` (and the
@@ -443,7 +458,8 @@ Herdr home = `HERDR_APP_HOME` or `~/.config/herdr-app`.
 | --- | --- | --- |
 | Accounts, credentials, MCP, ECC settings/packages, usage caches, source connections, diff filters | `data/herdr-zed/` | Own; never reads or migrates Devkits data |
 | Guide (global rules) | `data/herdr-zed/AGENTS.md` | Own |
-| Your Rules and Skills, their off switches | `data/herdr-zed/capabilities/`, `data/herdr-zed/capabilities.json` | Own |
+| Shared Rules and Skills source, provider choices | `data/herdr-zed/capabilities/`, `data/herdr-zed/shared-skills.json` | Own; independent of built-in `capabilities.json` |
+| Immutable skill snapshots and native launch packages | `data/herdr-zed/skill-snapshots/`, `data/herdr-zed/skill-packages/` | Own; retain old versions used by running sessions |
 | Project ECC and shared MCP choices | `data/herdr-zed/project-capabilities/<sha256 canonical local folder>.json` | Own, separate Claude/Codex selections; absent provider inherits global choices |
 | Extension registry | `data/herdr-zed/extensions.json` | Own |
 | Images pasted into a prompt | `data/herdr-zed/attachments/` | Own; removed by full reset |
@@ -548,3 +564,39 @@ Agents also supplies the built-in `herdr_ecc` stdio MCP (`ecc-mcp-server.cjs`) t
 For a project override, launch preparation compiles an immutable ECC package with a distinct `herdr-zed-project-ecc-` marketplace and supplies native invocation flags (Claude `--plugin-dir` and settings overrides; Codex marketplace/plugin config overrides). It suppresses only Herdr Zed's account-level ECC plugins for that invocation and preserves other plugins. Claude uses the package directly. Codex requires a native cache installation: preparation installs a new project package through its plugin manager, restores that package's account entry to disabled, and enables it only in the invocation. This shares the existing account setup lock with global ECC preparation; a failed installation also attempts to restore the disabled state before reporting failure. Existing account plugin selections are preserved. No project file is written. ECC choices replace the provider's global selection snapshot; shared MCP switches patch existing shared connections for this invocation, while account synchronization continues to store global defaults. Built-in Tasks/ECC management endpoints cannot be switched off through project policy. Reset removes only the chosen provider override and restores inheritance. Running conversations do not reload, unrelated account-authorized MCP services remain account-owned, and remote sessions do not consume local project policy.
 
 Tasks keeps workflow stage (`todo`, `doing`, `review`, `done`) separate from run status (`starting`, `doing`, `waiting`, `done`, `fail`, `stopped`). The existing report_task wire states are unchanged: a successful `done` report stores a finished execution and a `review` board stage, while `fail` retains `doing` with an error. User status controls accept review into done. Archived background runs explicitly retain report access; ordinary archives reject further reports. Archive/restore never launches, commits or discards changes.
+
+### Shared Skills library
+
+Agents owns the shared library independently of ECC. `capabilities/rules/*.md` supplies custom rules;
+`capabilities/skills/<folder>/SKILL.md` and its supporting files supply skills. An optional adjacent
+`herdr.json` has `version: 1`, `providers` (claude/codex), `platforms` (windows/macos/linux), `mcps`
+(shared connection names), and `origin: { source, revision }` for imported sources. Omitted provider/platform
+lists support all; omitted mcps has no dependencies. Missing, disabled or unsupported dependencies keep
+selected skills inactive without installing or enabling a server. Built-in Tasks/ECC endpoints need no setup.
+
+`shared-skills.json` stores `{ version: 1, disabled: [], providers: { claude: {}, codex: {} } }`;
+provider boolean maps patch the default-on shared items by `mine:rules:<name>` / `mine:skills:<folder>` ID.
+Built-in selections remain in `capabilities.json`; coordinated saving checks all three settings revisions
+(built-ins, shared library choices, MCP) under one lock and rolls back only unchanged writes on failure.
+Project policies add an optional `sharedSkills` boolean map per provider, patching these shared choices
+independently of ECC selection/master switches. The existing ECC MCP lists/reads both catalogs and exposes
+shared selections, dependency problems and origins in overview/project results. Preview revisions include
+the entire shared library (supporting files included). A missing ECC source is reported without preventing
+shared-library-only choices; enabling ECC still requires its valid catalog.
+
+Capabilities Overview imports a local skill folder, including a checkout obtained from an external source,
+and offers revision-checked updates from its saved origin. Import copies files without running scripts or
+fetching/pulling source repositories. Duplicate names require an explicit update using the current revision;
+per-skill locks serialize imports, staged replacement preserves the previous tree on failure. Symlinks and
+special files are rejected; each skill is limited to 2,000 files/directories and 32 MB. Source hashes, rather
+than a guessed upstream release number, identify imported versions.
+
+New local launches snapshot selected skills into content-addressed immutable directories. Rules are embedded
+in the composed guide; skill guidance points to its snapshot with relative supporting files preserved.
+Shared skills also form a provider-native plugin package: Claude receives one combined `--plugin-dir`
+argument alongside any ECC package; Codex installs the immutable package into its native cache under the
+existing account setup lock, restores the registration to disabled even after installer errors, and enables
+only the selected package through invocation flags. Only `shared-skills@herdr-zed-shared-skills-*` entries
+are overridden; unrelated native plugins/account settings are retained. Existing sessions keep their paths;
+no startup cleanup removes old snapshots. Remote launches do not use this local library. No shell contract
+or manifest schema changes are required.

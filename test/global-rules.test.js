@@ -108,5 +108,5 @@ test('user Rules and Skills read their name and description and stay on unless d
   const guidance = devkits.devkitsGuidance(config, catalog, {}, 'windows', [], 'claude');
   assert.deepEqual(guidance.items.map(item => [item.name, item.source]), [['Team conventions', 'mine'], ['deploy', 'mine']]);
   assert.match(guidance.sections, /## Team conventions\n\nBody/);
-  assert.throws(() => devkits.parseMineSelection('{"disabled":"x"}'), /Invalid capabilities\.json/);
+  assert.throws(() => devkits.parseMineSelection('{"disabled":"x"}'), /Invalid shared-skills\.json/);
 });

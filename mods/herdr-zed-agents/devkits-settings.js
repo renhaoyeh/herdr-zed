@@ -1,9 +1,8 @@
 import { div } from 'gpui-kit';
 import { h_flex, v_flex, TextView, InputState } from 'gpui-base';
-import { appHome, readTextFile, writeTextFile, exec } from 'herdr';
+import { appHome, readTextFile, exec, pickFolder, run } from 'herdr';
 import { devkitsPath, readDevkitsSkills, readMineItems } from './devkits.js';
-import { parseDevkits, devkitsCatalog, devkitsMcpPresets, resourceSupported, resourceProblems, devkitsPlan, applyDevkitsPlan, mcpUsers,
-  mineRoot, mineSelectionPath, parseMineSelection, providerSupported } from './devkits-model.js';
+import { parseDevkits, devkitsCatalog, devkitsMcpPresets, resourceSupported, resourceProblems, devkitsPlan, applyDevkitsPlan, mcpUsers, mineRoot, mineSelectionPath, parseMineSelection, providerSupported, mineEnabled, withMine } from './devkits-model.js';
 import { parseSharedMcp, sharedMcpSupported } from './components/shared-mcp-model.js';
 import { sharedMcpPath } from './components/shared-mcp.js';
 import { tasksMcpServer } from './components/session-model.js';
@@ -36,9 +35,10 @@ export const devkitsSettings = {
     this.capTab = tab; this.capItem = null; this.capSearch.set_value(''); this.capShowSource = false;
     cx.notify();
   },
-  enabled(kind, item) { return item.source === 'mine' ? !this.capMine.disabled.includes(item.id) : this.capConfig[kind][item.id] === true; },
+  enabled(kind, item, provider = this.capTab) { return item.source === 'mine' ? mineEnabled(this.capMine, item.id, provider) : this.capConfig[kind][item.id] === true; },
   setEnabled(kind, item, on) {
-    if (item.source === 'mine') this.capMine = { ...this.capMine, disabled: on ? this.capMine.disabled.filter(id => id !== item.id) : [...this.capMine.disabled, item.id] };
+    if (item.source === 'mine') this.capMine = { ...this.capMine, providers: { ...this.capMine.providers,
+      [this.capTab]: { ...this.capMine.providers[this.capTab], [item.id]: on } } };
     else this.capConfig[kind][item.id] = on;
     this.capDirty = true; this.capSaved = false;
   },
@@ -52,9 +52,8 @@ export const devkitsSettings = {
     if (this.capSaving || this.capLoading || this.capChecking || this.capSetup || this.capPending) return;
     const items = this.providerItems(this.capTab).filter(({ item }) => resourceSupported(item, this.capPlatform) && (!checked || !this.capMissing.includes(item.path)));
     if (!items.length) return;
-    const builtin = items.filter(({ item }) => item.source !== 'mine');
-    for (const { kind, item } of items.filter(({ item }) => item.source === 'mine' || !checked)) this.setEnabled(kind, item, checked);
-    if (checked && builtin.length) this.requestDevkitsSelection(Object.fromEntries(kinds.map(kind => [kind.id, builtin.filter(entry => entry.kind === kind.id).map(entry => entry.item.id)])), cx);
+    for (const { kind, item } of items.filter(() => !checked)) this.setEnabled(kind, item, checked);
+    if (checked && items.length) this.requestDevkitsSelection(Object.fromEntries(kinds.map(kind => [kind.id, items.filter(entry => entry.kind === kind.id).map(entry => entry.item.id)])), cx);
     else cx.notify();
   },
   loadDevkits(cx) {
@@ -101,11 +100,11 @@ export const devkitsSettings = {
     this.capSaving = true; this.capError = null; cx.notify();
     cx.spawn(async cx => {
       try {
-        const payload = { capabilities: { expected: this.capOriginal, text }, mcp: { expected: this.mcpOriginal, text: mcp } };
+        const payload = { capabilities: { expected: this.capOriginal, text }, mcp: { expected: this.mcpOriginal, text: mcp },
+          sharedSkills: { expected: this.mineOriginal, text: mineText } };
         const result = await exec('node', [`${appHome()}/mods/herdr-zed-agents/devkits-save.js`, appHome(), JSON.stringify(payload)], { timeout: 15000 });
         if (result.code !== 0) throw Error(result.stderr?.trim() || 'Could not save. The draft is retained.');
         if (JSON.parse(result.stdout || '{}').saved !== true) throw Error('Save returned no confirmation. Reload before retrying.');
-        if (mineText !== this.mineOriginal) await writeTextFile(mineSelectionPath(appHome()), mineText, this.mineOriginal);
         if (this.capClosed) return;
         this.capOriginal = text; this.mcpOriginal = mcp; this.mineOriginal = mineText;
         if (mcpScope) { this.mcpDirty = false; this.mcpSaved = true; } else { this.capDirty = false; this.capSaved = true; }
@@ -119,7 +118,7 @@ export const devkitsSettings = {
     else { this.capConfig = parseDevkits(this.capOriginal); this.capMine = parseMineSelection(this.mineOriginal); this.capPending = null; this.capDirty = false; this.capSaved = false; }
     this.capError = null; cx.notify();
   },
-  currentDevkitsPlan() { return devkitsPlan(this.capConfig, this.capCatalog, this.capPending, this.mcpConfig.servers, this.capPlatform, this.capMissing); },
+  currentDevkitsPlan() { return devkitsPlan(withMine(this.capConfig, this.capCatalog, this.capMine, this.capTab), this.capCatalog, this.capPending, this.mcpConfig.servers, this.capPlatform, this.capMissing); },
   requestDevkitsSelection(request, cx) {
     if (this.capSaving || this.capLoading || this.capChecking || !this.capConfig) return;
     this.capPending = request; this.capDisable = null; this.capError = null;
@@ -132,18 +131,20 @@ export const devkitsSettings = {
     try {
       const plan = this.currentDevkitsPlan();
       if (plan.enable.length || plan.missing.length) throw Error('Set up and enable the required connections in MCP Connections first.');
-      this.capConfig = applyDevkitsPlan(this.capConfig, this.mcpConfig, plan).config; this.capPending = null;
+      applyDevkitsPlan(this.capConfig, this.mcpConfig, plan);
+      for (const kind of ['rules', 'skills']) for (const id of plan[kind]) this.setEnabled(kind, this.capCatalog[kind].find(item => item.id === id), true);
+      this.capPending = null;
       this.capDirty = true; this.capSaved = false; cx.notify();
     } catch (error) { this.capError = error.message; cx.notify(); }
   },
   toggleDevkitsResource(kind, item, checked, cx) {
     if (this.capSaving || this.capLoading || this.capChecking || !resourceSupported(item, this.capPlatform)) return;
-    if (checked && item.source !== 'mine') this.requestDevkitsSelection({ [kind]: [item.id] }, cx);
+    if (checked) this.requestDevkitsSelection({ [kind]: [item.id] }, cx);
     else { this.setEnabled(kind, item, checked); cx.notify(); }
   },
   setDevkitsMcp(row, checked, cx) {
     if (this.capSaving || this.capChecking || row.builtin || row.missing || !sharedMcpSupported(row.name, this.capPlatform)) return;
-    const users = mcpUsers(row.name, this.capConfig, this.capCatalog);
+    const users = this.sharedMcpUsers(row.name);
     if (!checked && users.length) { this.capDisable = { row, users }; cx.notify(); return; }
     this.mcpConfig = { ...this.mcpConfig, servers: { ...this.mcpConfig.servers, [row.name]: { ...row.server, enabled: checked } } };
     this.mcpDirty = true; this.mcpSaved = false; cx.notify();
@@ -156,9 +157,30 @@ export const devkitsSettings = {
     });
   },
   devkitsStatus(kind, item) {
-    if (!resourceSupported(item, this.capPlatform)) return 'Windows only';
-    const problems = item.source === 'mine' ? [] : resourceProblems(item, this.capConfig, this.mcpConfig.servers, this.capPlatform, this.capMissing);
+    if (!resourceSupported(item, this.capPlatform)) return `Requires ${item.platforms.join(' / ')}`;
+    const problems = resourceProblems(item, this.capConfig, this.mcpConfig.servers, this.capPlatform, this.capMissing);
     return this.enabled(kind, item) ? problems.length ? 'On · Unavailable' : 'On' : problems.length ? 'Needs setup' : 'Off';
+  },
+  sharedMcpUsers(name) {
+    return [...new Set(providers.flatMap(provider => {
+      const catalog = Object.fromEntries(kinds.map(kind => [kind.id, this.capCatalog[kind.id].filter(item => providerSupported(item, provider.id))]));
+      return mcpUsers(name, withMine(this.capConfig, catalog, this.capMine, provider.id), catalog);
+    }))];
+  },
+  importSharedSkill(cx, item = null) {
+    if (this.capSaving || this.capLoading || this.capChecking || this.capDirty || this.mcpDirty) return;
+    this.capSaving = true; this.capError = null; cx.notify();
+    cx.spawn(async cx => {
+      try {
+        const source = item?.origin?.source || await pickFolder({ prompt: 'Choose a skill folder containing SKILL.md' });
+        if (!source || this.capClosed) return;
+        const result = await exec('node', [`${appHome()}/mods/herdr-zed-agents/shared-skills-cli.js`, 'import', appHome(), source, item?.revision || ''], { timeout: 30000 });
+        if (result.code !== 0) throw Error(result.stderr?.trim() || 'Could not import shared skill.');
+        if (!JSON.parse(result.stdout || '{}').imported) throw Error('Import returned no confirmation.');
+        if (!this.capClosed) { this.capSaving = false; this.loadDevkits(cx); }
+      } catch (error) { if (!this.capClosed) this.capError = error.message; }
+      finally { this.capSaving = false; if (!this.capClosed) cx.notify(); }
+    });
   },
 
   devkitsNavigation(t) {
@@ -173,7 +195,7 @@ export const devkitsSettings = {
     const root = mineRoot(appHome());
     return v_flex().id('devkits-overview').flex_1().min_h(0).overflow_y_scroll().gap(12)
       .children(providers.map(provider => {
-        const items = this.providerItems(provider.id), on = items.filter(({ kind, item }) => this.enabled(kind, item)).length;
+        const items = this.providerItems(provider.id), on = items.filter(({ kind, item }) => this.enabled(kind, item, provider.id)).length;
         return h_flex().p(12).gap(12).items_center().border(1).border_color(t.border)
           .child(AgentIcon({ icon: `icons/${provider.id}.svg` }, t))
           .child(v_flex().flex_1().min_w(0).gap(2).child(div().text_size(13).child(provider.label))
@@ -181,8 +203,13 @@ export const devkitsSettings = {
           .child(Button(`devkits-open-${provider.id}`, t, { variant: 'secondary' }).h(28).on_click((_event, cx) => this.selectDevkitsSection(provider.id, cx)).child('Browse'));
       }))
       .child(v_flex().p(12).gap(6).border(1).border_color(t.border)
-        .child(div().text_size(13).child('Your Rules and Skills'))
-        .child(div().text_size(12).text_color(t.muted).child('Add a Markdown file to rules/, or a folder with SKILL.md to skills/. New files are on; reopen this page to list them.'))
+        .child(h_flex().justify_between().items_center().gap(8)
+          .child(div().text_size(13).child('Shared Skills library'))
+          .child(Button('shared-skills-import', t, { variant: 'secondary' }).h(28)
+            .disabled(this.capSaving || this.capLoading || this.capDirty || this.mcpDirty)
+            .on_click((_event, cx) => this.importSharedSkill(cx)).child('Import skill…')))
+        .child(div().text_size(12).text_color(t.muted).child('Import a local or checked-out skill folder, including supporting files. Shared Skills have separate Claude Code and Codex switches; project choices can override them. Apply pending edits before importing.'))
+        .child(div().text_size(12).text_color(t.muted).child('New files are on by default. Optional herdr.json declares providers, platforms and MCP dependencies. New sessions use a fixed snapshot; existing sessions keep their version.'))
         .child(div().text_size(11).text_color(t.dim).child(root)));
   },
   devkitsList(t) {
@@ -195,7 +222,7 @@ export const devkitsSettings = {
             ...group.map(({ item }) => Button(`devkits-item-${item.id}`, t, { variant: 'ghost' }).w_full().h_auto().min_h(44).px(10).py(6).justify_start()
               .bg(item.id === selected?.item.id ? t.selected : t.popover).on_click((_event, cx) => { this.capItem = item.id; this.capShowSource = false; cx.notify(); })
               .child(v_flex().min_w(0).gap(2).child(h_flex().gap(6).items_center().child(div().text_size(12).child(item.name))
-                .when(item.source === 'mine', el => el.child(div().text_size(10).text_color(t.muted).child('Mine'))))
+                .when(item.source === 'mine', el => el.child(div().text_size(10).text_color(t.muted).child('Shared'))))
                 .child(div().text_size(11).text_color(t.muted).child(this.devkitsStatus(kind.id, item)))))] : [];
         }))
         .when(!entries.length, el => el.child(div().p(10).text_size(12).text_color(t.muted).child('No matching items.'))))
@@ -205,7 +232,7 @@ export const devkitsSettings = {
   },
   devkitsResourceDetails(kind, selected, t) {
     const supported = resourceSupported(selected, this.capPlatform);
-    const problems = selected.source === 'mine' ? [] : resourceProblems(selected, this.capConfig, this.mcpConfig.servers, this.capPlatform, this.capMissing);
+    const problems = resourceProblems(selected, this.capConfig, this.mcpConfig.servers, this.capPlatform, this.capMissing);
     const project = devkitsMcpPresets.find(preset => selected.mcps.includes(preset.id));
     const available = providers.filter(provider => providerSupported(selected, provider.id)).map(provider => provider.label).join(' · ');
     return v_flex().gap(10)
@@ -218,9 +245,16 @@ export const devkitsSettings = {
           .disabled(!supported || this.capSaving || this.capChecking || this.capMissing.includes(selected.path))
           .accessibility_label(`Use ${selected.name}`).on_change((checked, cx) => this.toggleDevkitsResource(kind, selected, checked, cx))))
       .child(div().text_size(13).child(selected.description || '—'))
-      .child(div().text_size(11).text_color(t.muted).child([kind === 'rules' ? 'Rule' : 'Skill', selected.source === 'mine' ? 'Mine' : 'Built-in', available,
-        selected.platforms ? 'Windows only' : null, ...selected.mcps.filter(name => name !== 'herdr_tasks').map(name => `Requires MCP: ${name}`)].filter(Boolean).join(' · ')))
+      .child(div().text_size(11).text_color(t.muted).child([kind === 'rules' ? 'Rule' : 'Skill', selected.source === 'mine' ? 'Shared' : 'Built-in', available,
+        selected.platforms?.join(' / '), ...selected.mcps.filter(name => name !== 'herdr_tasks').map(name => `Requires MCP: ${name}`)].filter(Boolean).join(' · ')))
       .children(problems.map(problem => div().text_size(12).text_color(t.ansi3).child(problem)))
+      .when(selected.mcps.length > 0, el => el.child(Button('shared-skill-mcp', t, { variant: 'secondary' }).h(28).self_start()
+        .on_click(() => run('herdr-zed.settings:agents:mcp')).child('MCP Connections…')))
+      .when(Boolean(selected.origin), el => el
+        .child(div().text_size(11).text_color(t.dim).child(`Source: ${selected.origin.source} · ${selected.origin.revision.slice(0, 12)}`))
+        .child(Button('shared-skill-update', t, { variant: 'secondary' }).h(28).self_start()
+          .disabled(this.capSaving || this.capLoading || this.capDirty || this.mcpDirty)
+          .on_click((_event, cx) => this.importSharedSkill(cx, selected)).child('Update from source')))
       .child(div().text_size(11).text_color(t.dim).child(selected.path))
       .child(Button('devkits-read-description', t, { variant: 'secondary' }).h(28).self_start()
         .on_click((_event, cx) => { this.capShowSource = !this.capShowSource; cx.notify(); }).child(this.capShowSource ? 'Hide content' : 'Show content'))
@@ -244,7 +278,7 @@ export const devkitsSettings = {
         .when(!this.capSetup && !row, el => el.child(div().text_size(12).text_color(t.muted).child('Select a connection.'))));
   },
   devkitsMcpDetails(row, t) {
-    const supported = sharedMcpSupported(row.name, this.capPlatform), users = mcpUsers(row.name, this.capConfig, this.capCatalog);
+    const supported = sharedMcpSupported(row.name, this.capPlatform), users = this.sharedMcpUsers(row.name);
     const verification = this.capVerified[row.name], verified = row.server && verification?.fingerprint === mcpFingerprint(row.server);
     const busy = Boolean(this.capSaving || this.capChecking);
     const project = devkitsMcpPresets.find(preset => preset.id === row.name);
@@ -273,7 +307,7 @@ export const devkitsSettings = {
     const provider = providers.find(item => item.id === this.capTab);
     return v_flex().id('devkits-capabilities').h_full().flex_1().min_h(0).gap(10)
       .child(DialogDescription(t).flex_none().child(mcp
-        ? 'Shared connections for new local Codex sessions. Claude Code uses the connections in its own account.'
+        ? 'Shared connections for new local Claude Code and Codex sessions.'
         : 'Choose Rules and Skills for new local sessions, per provider.'))
       .when(Boolean(provider) && Boolean(this.capConfig), el => el.child(h_flex().flex_none().gap(8).items_center()
         .child(Input.new(this.capSearch, t).h(30).px(8).text_size(12).flex_1().min_w(0).border(1).border_color(t.input).disabled(busy).accessibility_label('Search Capabilities'))

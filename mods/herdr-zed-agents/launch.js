@@ -24,13 +24,13 @@ export async function emitLaunch(agent, target = {}, options = {}, origin = null
   const launchOriginValue = launchOrigin(origin);
   const project = spaces().find(space => space.id === target.space);
   const machine = target.machine || project?.machine || null;
-  const { argv: prepared, session = {} } = await prepareSession(agent, target, options);
+  const { argv: prepared, session = {}, task: preparedTask } = await prepareSession(agent, target, options);
   if (!Array.isArray(prepared) || !prepared.length || prepared.some(arg => typeof arg !== 'string'))
     throw new Error('This program has no launch command.');
   // The composer's text becomes the agent's first message. Herdr's tab.new `task` is not delivered to a wrapped launch
   // command, so Claude Code and Codex take it as their prompt argument (`claude [options] [prompt]`,
   // `codex [options] [prompt]`); other programs still get it as `task`.
-  const task = typeof target.task === 'string' && target.task.trim() ? target.task : null;
+  const task = preparedTask || (typeof target.task === 'string' && target.task.trim() ? target.task : null);
   const prompted = Boolean(task) && ['claude', 'codex'].includes(sessionKind(agent));
   let command = prepared;
   if (prompted) {

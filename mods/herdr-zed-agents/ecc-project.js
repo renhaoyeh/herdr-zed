@@ -3,8 +3,10 @@ import { readFile, realpath, stat, mkdir, writeFile, rename, unlink } from 'node
 import { join, isAbsolute } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { eccHash, readEccCatalog, eccCatalogForUi, readEccDetail } from './ecc-catalog.js';
-import { parseEcc, eccItemEnabled, chooseEccItem } from './ecc-model.js';
+import { parseEcc, eccItemEnabled, chooseEccItem, eccGroups } from './ecc-model.js';
 import { parseSharedMcp, sharedMcpSupported } from './components/shared-mcp-model.js';
+import { readSharedState } from './shared-skills.js';
+import { mineEnabled, providerSupported, resourceProblems } from './devkits-model.js';
 
 export async function optionalText(path) {
   try { return await readFile(path, 'utf8'); } catch (error) { if (error.code === 'ENOENT') return null; throw error; }
@@ -28,11 +30,13 @@ export function parseProjectPolicy(text, folder) {
   if (value.version !== 1 || value.folder !== folder) throw Error('Invalid project policy identity.');
   fields(value.providers, ['claude', 'codex']);
   for (const policy of Object.values(value.providers)) {
-    fields(policy, ['enabled', 'claudeHooks', 'selection', 'mcp']);
+    fields(policy, ['enabled', 'claudeHooks', 'selection', 'mcp', 'sharedSkills']);
     if (typeof policy.enabled !== 'boolean' || !['off', 'minimal', 'standard', 'strict'].includes(policy.claudeHooks)) throw Error('Invalid project ECC switches.');
     for (const key of ['selection', 'mcp']) {
       if (!object(policy[key]) || Object.values(policy[key]).some(value => typeof value !== 'boolean')) throw Error('Project selections must be boolean maps.');
     }
+    if (policy.sharedSkills !== undefined && (!object(policy.sharedSkills) || Object.values(policy.sharedSkills).some(value => typeof value !== 'boolean')))
+      throw Error('Shared skills selections must be a boolean map.');
   }
   return value;
 }
@@ -47,17 +51,23 @@ async function readGlobalSettings(home) {
   return { globalText, mcpText, config, mcp: parseSharedMcp(mcpText) };
 }
 
+async function catalogState(source, reader) {
+  try { return await reader(source); }
+  catch (error) { return { source, sourceRevision: eccHash(error.message), version: null, groups: eccGroups, items: [], error: error.message }; }
+}
+
 export async function readProjectState(home, folder, { catalogReader = readEccCatalog } = {}) {
   const identity = await projectIdentity(folder), path = projectPolicyPath(home, identity);
   const [{ config, mcp, globalText, mcpText }, policyText] = await Promise.all([readGlobalSettings(home), optionalText(path)]);
-  const catalog = await catalogReader(config.source);
+  const [catalog, sharedSkills] = await Promise.all([catalogState(config.source, catalogReader), readSharedState(home)]);
   return { identity, path, config, catalog, mcp, policy: parseProjectPolicy(policyText, identity),
-    revision: eccHash(JSON.stringify([globalText, mcpText, policyText, catalog.sourceRevision])) };
+    sharedSkills, revision: eccHash(JSON.stringify([globalText, mcpText, policyText, catalog.sourceRevision, sharedSkills.revision])) };
 }
 
 const hostPlatform = () => process.platform === 'win32' ? 'windows' : process.platform === 'darwin' ? 'macos' : 'linux';
 export async function globalOverview(home, { catalogReader = readEccCatalog } = {}) {
   const { config, mcp } = await readGlobalSettings(home);
+  const sharedSkills = await readSharedState(home);
   let catalog = null, catalogError = null;
   try { catalog = await catalogReader(config.source); } catch (error) { catalogError = error.message; }
   return {
@@ -71,6 +81,11 @@ export async function globalOverview(home, { catalogReader = readEccCatalog } = 
           truncated: selected.length > 12,
         }];
       })) },
+    sharedSkills: { revision: sharedSkills.revision, items: sharedSkills.items.map(({ text, path, ...item }) => {
+      const selected = Object.fromEntries(['claude', 'codex'].map(provider => [provider, providerSupported(item, provider) && mineEnabled(sharedSkills.selection, item.id, provider)]));
+      const problems = resourceProblems(item, {}, mcp.servers, hostPlatform());
+      return { ...item, selected, active: Object.fromEntries(Object.entries(selected).map(([provider, on]) => [provider, on && !problems.length])), problems };
+    }) },
     mcp: [
       { name: 'herdr_tasks', builtin: true, enabled: true, supported: true, description: 'Local task progress and task management.' },
       { name: 'herdr_ecc', builtin: true, enabled: true, supported: true, description: 'Explain this layout’s ECC, skills and MCP configuration; inspect and configure project choices.' },
@@ -97,15 +112,26 @@ export function projectSummary(state, provider) {
   const policy = effectiveProjectPolicy(state, provider);
   const config = { selection: { [provider]: policy.selection } };
   return { folder: state.identity, provider, revision: state.revision, scope: state.policy.providers[provider] ? 'project' : 'global',
-    policy, selected: state.catalog.items.filter(item => eccItemEnabled(config, provider, item)).map(item => item.id),
+    policy, catalogError: state.catalog.error || null, selected: state.catalog.items.filter(item => eccItemEnabled(config, provider, item)).map(item => item.id),
+    sharedSkills: sharedSkillSummary(state, provider, policy),
     builtins: ['herdr_tasks', 'herdr_ecc'],
     mcp: Object.entries(state.mcp.servers).filter(([name]) => !['herdr_tasks', 'herdr_ecc'].includes(name)).map(([name, server]) => ({ name, enabled: policy.mcp[name] ?? server.enabled !== false,
       supported: sharedMcpSupported(name, process.platform === 'win32' ? 'windows' : process.platform === 'darwin' ? 'macos' : 'linux') })),
     appliesTo: 'New local sessions only. Running sessions and global/account settings are unchanged.' };
 }
 
+function sharedSkillSummary(state, provider, policy = effectiveProjectPolicy(state, provider)) {
+  const servers = Object.fromEntries(Object.entries(state.mcp.servers).map(([name, server]) => [name, { ...server, enabled: policy.mcp[name] ?? server.enabled !== false }]));
+  return (state.sharedSkills?.items || []).filter(item => providerSupported(item, provider)).map(item => {
+    const selected = policy.sharedSkills?.[item.id] ?? mineEnabled(state.sharedSkills.selection, item.id, provider);
+    const problems = resourceProblems(item, {}, servers, hostPlatform());
+    return { id: item.id, name: item.name, group: item.group, description: item.description, mcps: item.mcps,
+      origin: item.origin || null, revision: item.revision || null, selected, active: selected && !problems.length, problems };
+  });
+}
+
 export function previewProjectPolicy(state, provider, changes) {
-  fields(changes, ['enabled', 'selection', 'mcp', 'claudeHooks', 'replaceSelection']);
+  fields(changes, ['enabled', 'selection', 'mcp', 'claudeHooks', 'replaceSelection', 'sharedSkills']);
   const current = effectiveProjectPolicy(state, provider), next = structuredClone(current);
   if (changes.enabled !== undefined) {
     if (typeof changes.enabled !== 'boolean') throw Error('enabled must be boolean.');
@@ -137,11 +163,22 @@ export function previewProjectPolicy(state, provider, changes) {
       next.mcp[name] = enabled;
     }
   }
+  if (changes.sharedSkills !== undefined) {
+    if (!object(changes.sharedSkills)) throw Error('sharedSkills must be a boolean map of shared library IDs.');
+    next.sharedSkills = { ...next.sharedSkills };
+    for (const [id, enabled] of Object.entries(changes.sharedSkills)) {
+      const item = state.sharedSkills?.items.find(item => item.id === id && providerSupported(item, provider));
+      if (!item || typeof enabled !== 'boolean') throw Error(`Unknown or unsupported shared skill: ${id}`);
+      next.sharedSkills[id] = enabled;
+    }
+  }
+  if (next.enabled && state.catalog.error) throw Error(`ECC source is unavailable: ${state.catalog.error}`);
   const policy = { ...state.policy, providers: { ...state.policy.providers, [provider]: next } };
   const summary = projectSummary({ ...state, policy }, provider);
   const requirements = state.catalog.items.filter(item => next.enabled && summary.selected.includes(item.id) && item.group === 'mcp')
     .map(item => ({ id: item.id, requirements: item.requirements || [], unavailable: item.unavailable || null }));
   if (requirements.some(item => item.unavailable)) throw Error('Selected ECC MCP templates still need configuration.');
+  requirements.push(...summary.sharedSkills.filter(item => item.selected && item.problems.length).map(item => ({ id: item.id, requirements: item.problems })));
   return { ...summary, requirements, policyFile: policy };
 }
 
@@ -189,14 +226,16 @@ export async function projectMcpCall(home, name, args, options = {}) {
   if ((!browsing || args.provider !== undefined) && !['claude', 'codex'].includes(args.provider)) throw Error('Choose claude or codex.');
   if (name === 'apply_project' || name === 'reset_project') return saveProjectPolicy(home, args.folder, args.provider, name === 'reset_project' ? null : args.changes, args.revision, options);
   const state = browsing && args.folder === undefined ? await (async () => {
-    const settings = await readGlobalSettings(home), catalog = await (options.catalogReader || readEccCatalog)(settings.config.source);
-    return { ...settings, catalog, revision: eccHash(JSON.stringify([settings.globalText, settings.mcpText, catalog.sourceRevision])) };
+    const settings = await readGlobalSettings(home), catalog = await catalogState(settings.config.source, options.catalogReader || readEccCatalog), sharedSkills = await readSharedState(home);
+    return { ...settings, catalog, sharedSkills, revision: eccHash(JSON.stringify([settings.globalText, settings.mcpText, catalog.sourceRevision, sharedSkills.revision])) };
   })() : await readProjectState(home, args.folder, options);
   if (name === 'get_project') return projectSummary(state, args.provider);
   if (name === 'preview_project') {
     const { policyFile, ...preview } = previewProjectPolicy(state, args.provider, args.changes); return preview;
   }
   if (name === 'read_component') {
+    const shared = state.sharedSkills.items.find(item => item.id === args.id && (!args.provider || providerSupported(item, args.provider)));
+    if (shared) return { id: shared.id, text: shared.text, mcps: shared.mcps, origin: shared.origin || null, revision: shared.revision || null };
     const item = state.catalog.items.find(item => item.id === args.id && (!args.provider || item.providers.includes(args.provider)));
     if (!item) throw Error('Unknown component for this provider.');
     // MCP templates may have literal credentials in a custom source; expose setup metadata only.
@@ -206,16 +245,22 @@ export async function projectMcpCall(home, name, args, options = {}) {
   const { query = '', offset = 0, limit = 40, group } = args;
   if (typeof query !== 'string' || !Number.isInteger(offset) || offset < 0 || !Number.isInteger(limit) || limit < 1 || limit > 100
     || (group !== undefined && !state.catalog.groups.some(item => item.id === group))) throw Error('Invalid catalog filter or pagination.');
-  const items = eccCatalogForUi(state.catalog).items.filter(item => (!args.provider || item.providers.includes(args.provider)) && (!group || item.group === group)
+  const sharedItems = state.sharedSkills.items.map(({ text, path, ...item }) => ({ ...item, providers: item.providers || ['claude', 'codex'] }));
+  const items = [...eccCatalogForUi(state.catalog).items, ...sharedItems].filter(item => (!args.provider || item.providers.includes(args.provider)) && (!group || item.group === group)
     && `${item.name} ${item.description} ${item.modules?.join(' ') || ''}`.toLowerCase().includes(query.toLowerCase()));
-  return { revision: state.revision, total: items.length, offset, items: items.slice(offset, offset + limit).map(item => {
+  return { revision: state.revision, catalogError: state.catalog.error || null, total: items.length, offset, items: items.slice(offset, offset + limit).map(item => {
     const selected = {}, active = {};
     for (const provider of ['claude', 'codex']) {
       const policy = state.policy ? effectiveProjectPolicy(state, provider) : {
-        enabled: state.config.enabled && state.config.providerEnabled[provider], selection: state.config.selection[provider],
+        enabled: state.config.enabled && state.config.providerEnabled[provider], selection: state.config.selection[provider], mcp: {},
       };
-      selected[provider] = eccItemEnabled({ selection: { [provider]: policy.selection } }, provider, item);
-      active[provider] = policy.enabled && selected[provider];
+      if (item.source === 'mine') {
+        const shared = sharedSkillSummary(state, provider, policy).find(shared => shared.id === item.id);
+        selected[provider] = shared?.selected || false; active[provider] = shared?.active || false;
+      } else {
+        selected[provider] = eccItemEnabled({ selection: { [provider]: policy.selection } }, provider, item);
+        active[provider] = policy.enabled && selected[provider];
+      }
     }
     return { ...item, selected, active };
   }) };

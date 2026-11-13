@@ -3,10 +3,11 @@ import assert from 'node:assert/strict';
 import { evaluateNative } from './source-harness.js';
 import * as model from '../mods/herdr-zed-agents/components/session-model.js';
 import { composerChoices, composerUsage as readUsage } from '../components/extension-contract.js';
+import * as contract from '../components/extension-contract.js';
 
 async function composer(memory = {}) {
   const launches = [], notes = [];
-  const host = { ...model, shared: key => memory[key], setShared: (key, value) => { memory[key] = value; }, home: () => '/home/me',
+  const host = { ...model, ...contract, spaces: () => [], shared: key => memory[key], setShared: (key, value) => { memory[key] = value; }, home: () => '/home/me',
     readTextFile: async () => null, notify: note => notes.push(note), LAUNCHER_ID: 'agents',
     availableAgents: profiles => profiles, discoverAgents: async () => [], emitLaunch: async (...args) => { launches.push(args); return {}; } };
   return { ...(await evaluateNative('../mods/herdr-zed-agents/composer.js', host,

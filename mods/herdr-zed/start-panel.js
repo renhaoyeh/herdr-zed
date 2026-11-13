@@ -7,7 +7,7 @@ import { DropdownMenuContent, DropdownMenuTrigger } from './components/dropdown-
 import { Empty, EmptyTitle, EmptyDescription } from './components/empty.js';
 import { glyph, AgentIcon } from './components/icon.js';
 import { activeLauncher } from './extensions.js';
-import { composerChoices, composerUsage, composerOptionShown, launchIntent } from './components/extension-contract.js';
+import { composerChoices, composerUsage, composerOptionShown, launchIntent, composerCommands, COMPOSER_COMMAND_REQUESTS, COMPOSER_COMMAND_RESULTS } from './components/extension-contract.js';
 import { Progress } from './components/progress.js';
 import { quotaElapsedPercent, quotaResetLabel } from './components/session-model.js';
 
@@ -44,9 +44,14 @@ export function startChoice(programs, project, remembered = {}) {
 // publishes, and Start hands it a launch intent (ARCHITECTURE §3.1 Composer); without one, native programs start as is.
 export const startPanel = {
   initStartPanel(cx) {
-    this.startTask = TextareaState.new({ placeholder: 'What would you like to do?' });
+    this.startTask = TextareaState.new({ placeholder: 'What would you like to do? Type / for skills.' });
     this.startTask.set_auto_grow(4, 12);
-    this.startTask.on('change', (_event, cx) => cx.notify());
+    this.startTask.on('change', (_event, cx) => {
+      this.startCommandDismissed = null; this.startCommandIndex = 0;
+      if (this.startCommandSelection && !this.startTask.value().trimStart().startsWith(`/${this.startCommandSelection.name} `)) this.startCommandSelection = null;
+      this.refreshStartCommands(cx); cx.notify();
+    });
+    cx.bind_keys?.(['up', 'down', 'enter', 'tab', 'escape'].map(key => ({ keystroke: key, action: `herdr-composer-command-${key}`, context: 'HerdrComposerCommands' })));
     this.startTask.on('submit', (event, cx) => {
       const modified = shared('herdr-zed.ctrl-enter-submit') !== false;
       if (!event?.shift && Boolean(event?.secondary) === modified) this.submitStart(cx);
@@ -64,6 +69,7 @@ export const startPanel = {
     cx.timer?.every(500, cx => {
       const launcher = activeLauncher(), seen = launcher ? shared(`herdr-zed.composer.${launcher.id}`)?.updatedAt ?? null : null;
       if (seen !== this.startSeen) { this.startSeen = seen; cx.notify(); }
+      this.refreshStartCommands(cx);
       this.settleStart(cx);
     });
   },
@@ -89,18 +95,21 @@ export const startPanel = {
           .on_click((_event, cx) => this.openProject(cx)).child(glyph('folder-open')).child('Open folder…')));
   },
   chooseStartAgent(project, key, cx) {
+    this.startCommandSelection = null; this.startCommandCache = null;
     setShared(START_AGENT_KEY, { ...(shared(START_AGENT_KEY) || {}), [startProjectKey(project)]: key });
     cx.notify();
   },
   submitStart(cx) {
     const start = this.startTarget;
     if (!start || !start.takesTask || this.startPending) return;
+    if (this.startCommandOpen()) { this.chooseStartCommand(this.startCommandItems()[this.startCommandIndex || 0], cx); return; }
     const task = start.takesTask ? withAttachments(this.startTask.value().trim(), this.startImages) : '';
     this.startPending = { known: tabIds(), target: start.target, editorKey: this.editor?.projectKey, until: Date.now() + START_WAIT_MS };
     if (start.intent) {
       // ARCHITECTURE §3.1 Composer: the launcher prepares the account and emits the launch request.
       setShared(LAUNCH_INTENTS, [...(shared(LAUNCH_INTENTS) || []).filter(intent => intent?.expiresAt > Date.now()),
-        launchIntent({ ...start.intent, target: start.target, ...(task ? { task } : {}), now: Date.now() })]);
+        launchIntent({ ...start.intent, target: start.target, ...(task ? { task } : {}),
+          ...(this.startCommandSelection?.scope === this.startCommandScope() ? { command: this.startCommandSelection.id } : {}), now: Date.now() })]);
     } else if (start.picker) this.openLauncher(start.project, task || null);
     else this.startThread(start.agent, { ...start.target, ...(task ? { task } : {}) });
     // The panel stays. Its task is kept until the new thread's tab appears, so a launch that fails loses nothing.
@@ -115,12 +124,85 @@ export const startPanel = {
       && (space.machine || '') === (pending.target.machine || ''));
     const thread = project?.tabs?.find(tab => !pending.known.has(tab.id));
     if (thread) {
-      this.startTask.set_value(''); this.startImages = [];
+      this.startTask.set_value(''); this.startImages = []; this.startCommandSelection = null;
       this.editor?.finishCompose(pending.editorKey, cx);
       if (project.active) this.showConversation?.(true, { ...project, tabs: [{ ...thread, active: true }] });
     } else if (now < pending.until) return;
     this.startPending = null;
     cx.notify();
+  },
+  startCommandScope() {
+    const start = this.startTarget;
+    return start?.intent ? JSON.stringify([start.intent.launcher, start.intent.choice, startProjectKey(start.target)]) : null;
+  },
+  startCommandQuery() { return /^\s*\/([a-zA-Z0-9_-]*)$/.exec(this.startTask?.value() || '')?.[1] ?? null; },
+  startCommandOpen() {
+    return Boolean(this.startTarget?.intent && !this.startPending && this.startCommandQuery() !== null && this.startCommandDismissed !== this.startTask.value());
+  },
+  startCommandItems() {
+    if (this.startCommandCache?.scope !== this.startCommandScope()) return [];
+    const query = (this.startCommandQuery() || '').toLowerCase();
+    return (this.startCommandCache?.items || []).filter(item => `${item.name} ${item.description}`.toLowerCase().includes(query)).slice(0, 30);
+  },
+  refreshStartCommands(cx, now = Date.now()) {
+    const scope = this.startCommandScope();
+    if (this.startCommandSelection && this.startCommandSelection.scope !== scope) this.startCommandSelection = null;
+    const cache = this.startCommandCache;
+    if (cache?.scope === scope && cache.items === null) {
+      const result = shared(COMPOSER_COMMAND_RESULTS)?.[cache.id];
+      if (result) {
+        const items = composerCommands(result, now);
+        cache.items = items || [];
+        cache.error = typeof result.error === 'string' ? result.error.slice(0, 800) : items ? null : 'Could not read skills. Try again.';
+        cx.notify();
+      } else if (cache.expiresAt <= now) { cache.items = []; cache.error = 'Could not load skills. Try again.'; cx.notify(); }
+    }
+    if (this.startCommandOpen() && cache?.scope === scope && cache.items !== null && !cache.error && cache.expiresAt <= now) {
+      this.startCommandCache = null; this.refreshStartCommands(cx, now); return;
+    }
+    if (!this.startCommandOpen() || !scope || cache?.scope === scope) return;
+    const start = this.startTarget, id = `commands:${now}:${Math.random().toString(36).slice(2)}`, expiresAt = now + 30000;
+    this.startCommandCache = { id, scope, expiresAt, items: null, error: null }; this.startCommandIndex = 0;
+    const queued = shared(COMPOSER_COMMAND_REQUESTS) || [];
+    setShared(COMPOSER_COMMAND_REQUESTS, [...queued.filter(item => item?.expiresAt > now).slice(-31),
+      { id, launcher: start.intent.launcher, choice: start.intent.choice, target: start.target, expiresAt }]);
+    cx.notify();
+  },
+  chooseStartCommand(item, cx) {
+    if (!item || this.startCommandCache?.scope !== this.startCommandScope()) return;
+    const text = `/${item.name} `;
+    this.startTask.set_value(text);
+    this.startTask.set_selected_range?.({ start: text.length, end: text.length });
+    this.startCommandSelection = { id: item.id, name: item.name, scope: this.startCommandScope() };
+    this.startTask.focus?.(); cx.notify();
+  },
+  startCommandAction(key, cx) {
+    if (!this.startCommandOpen()) return;
+    cx.stop_propagation();
+    const items = this.startCommandItems();
+    if (key === 'escape') this.startCommandDismissed = this.startTask.value();
+    else if (key === 'enter' || key === 'tab') this.chooseStartCommand(items[this.startCommandIndex || 0], cx);
+    else if (items.length) this.startCommandIndex = ((this.startCommandIndex || 0) + (key === 'up' ? -1 : 1) + items.length) % items.length;
+    cx.notify();
+  },
+  startCommandMenu(t) {
+    const cache = this.startCommandCache?.scope === this.startCommandScope() ? this.startCommandCache : null;
+    const items = this.startCommandItems(), index = Math.min(this.startCommandIndex || 0, Math.max(0, items.length - 1));
+    return v_flex().id('project-start-commands').role('menu').accessibility_label('Skills').w(420).max_h(220).overflow_y_scroll()
+      .border(1).border_color(t.border).bg(t.popover).shadow_md().mb(4).py(4)
+      .on_mouse_down_out((_event, cx) => { this.startCommandDismissed = this.startTask.value(); cx.notify(); })
+      .child(div().px(12).py(4).text_size(11).text_color(t.muted).child('SKILLS'))
+      .when(!cache || cache.items === null, el => el.child(div().px(12).py(6).text_size(12).text_color(t.muted).child('Loading skills…')))
+      .when(Boolean(cache?.error), el => el
+        .child(div().px(12).py(6).text_size(12).text_color(t.ansi1).child(cache.error))
+        .child(Button('project-start-commands-retry', t, { variant: 'ghost' }).h(28).on_click((_event, cx) => { this.startCommandCache = null; this.refreshStartCommands(cx); }).child('Retry')))
+      .when(Boolean(cache && cache.items !== null && !cache.error && !items.length), el => el.child(div().px(12).py(6).text_size(12).text_color(t.muted).child('No matching skills available for this project and program.')))
+      .children(items.map((item, at) => Button(`project-start-command-${item.id}`, t, { variant: 'ghost' }).role('menu_item').w_full().h_auto().min_h(42).px(12).py(6).justify_start()
+        .bg(index === at ? t.selected : t.popover).accessibility_label(`Use /${item.name}`)
+        .on_hover((inside, cx) => { if (inside) { this.startCommandIndex = at; cx.notify(); } })
+        .on_click((_event, cx) => this.chooseStartCommand(item, cx))
+        .child(v_flex().min_w(0).gap(2).child(div().text_size(12).child(`/${item.name}`))
+          .child(div().text_size(11).text_color(t.muted).truncate().child(item.description)))));
   },
   // The values of one launcher choice: its fields' published defaults, then what was picked here. A select whose value
   // the other picks no longer allow falls back to its first offered option.
@@ -337,8 +419,17 @@ export const startPanel = {
             .child(div().min_w(0).truncate().tooltip(project.name).child(project.name))
             .when(Boolean(git), el => el.child(git))))
         .child(v_flex().border(1).border_color(t.border).bg(t.popover)
-          .child(Textarea.new(this.startTask).id('project-start-task').w_full().px(12).py(10).border(0).text_size(13)
-            .disabled(!takesTask || Boolean(this.startPending)).accessibility_label('Task for the new thread'))
+          .when(this.startCommandOpen(), el => el.key_context('HerdrComposerCommands'))
+          .on_action('herdr-composer-command-up', (_event, cx) => this.startCommandAction('up', cx))
+          .on_action('herdr-composer-command-down', (_event, cx) => this.startCommandAction('down', cx))
+          .on_action('herdr-composer-command-enter', (_event, cx) => this.startCommandAction('enter', cx))
+          .on_action('herdr-composer-command-tab', (_event, cx) => this.startCommandAction('tab', cx))
+          .on_action('herdr-composer-command-escape', (_event, cx) => this.startCommandAction('escape', cx))
+          .child(Popup.new('project-start-command-popup',
+            Textarea.new(this.startTask).id('project-start-task').w_full().px(12).py(10).border(0).text_size(13)
+              .disabled(!takesTask || Boolean(this.startPending)).accessibility_label('Task for the new thread'))
+            .relative().w_full().min_w(0).anchor('bottom_left')
+            .when(this.startCommandOpen(), el => el.content(this.startCommandMenu(t))))
           .when(takesTask && this.startImages.length > 0, el => el.child(div().px(12).pb(8).child(AttachmentStrip('project-start-images', this.startImages,
             (index, cx) => { this.startImages = this.startImages.filter((_item, at) => at !== index); cx.notify(); }, t, 'herdr-zed'))))
           .child(h_flex().id('project-start-toolbar').px(8).py(6).gap(8).items_center().border_t(1).border_color(t.border)

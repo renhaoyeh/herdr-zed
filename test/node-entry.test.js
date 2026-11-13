@@ -20,7 +20,7 @@ async function linkedHelpers(t) {
 
 test('finite helpers execute through symlinked paths and report missing arguments rather than silently succeeding', async t => {
   const { alias } = await linkedHelpers(t);
-  for (const name of ['ecc-runtime', 'ecc-sync', 'account-storage-reader', 'devkits-save', 'shared-mcp-sync', 'mcp-probe']) {
+  for (const name of ['ecc-runtime', 'ecc-sync', 'account-storage-reader', 'devkits-save', 'shared-mcp-sync', 'shared-skills-cli', 'mcp-probe']) {
     await assert.rejects(run(process.execPath, [join(alias, `${name}.js`)], { windowsHide: true }), error => {
       assert.equal(error.code, 1, name);
       assert.ok(error.stderr.trim(), `${name} reports why it failed`);

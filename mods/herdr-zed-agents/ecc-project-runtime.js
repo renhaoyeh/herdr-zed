@@ -13,6 +13,7 @@ export async function prepareProjectEcc(home, folder, provider, directory, { con
   const state = await readProjectState(home, folder, options);
   if (!state.policy.providers[provider]) return null;
   const policy = effectiveProjectPolicy(state, provider);
+  if (policy.enabled && state.catalog.error) throw Error(`ECC source is unavailable: ${state.catalog.error}`);
   const config = { ...state.config, enabled: policy.enabled, claudeHooks: policy.claudeHooks,
     providerEnabled: { claude: true, codex: true }, selection: { ...state.config.selection, [provider]: policy.selection } };
   const bundle = policy.enabled ? await packageBuilder(config, provider, join(home, 'data', 'herdr-zed', 'ecc-packages'), state.catalog, { project: true }) : null;

@@ -6,6 +6,16 @@ import { sessionDevkits } from './devkits.js';
 import { sessionRules } from './global-rules.js';
 import { composeSessionRules } from './global-rules-model.js';
 
+// Resolve a chosen slash entry against this launch's active snapshot, preserving the task suffix.
+export function skillCommandTask(task, selected, commands = []) {
+  const match = /^\s*\/([^\s]+)(?:\s+|$)/.exec(task || '');
+  const command = selected ? commands.find(item => item.id === selected) : match && commands.find(item => item.name === match[1]);
+  if (selected && !command) throw Error('The selected skill is no longer available for this project and program. Choose it again.');
+  if (!command) return null;
+  if (!match || match[1] !== command.name) throw Error('The selected skill command changed. Choose it again.');
+  return `Use the skill at \`${command.path.replaceAll('\\', '/')}\` for this task. Read its SKILL.md and resolve supporting files relative to it.\n\n${task.slice(match[0].length)}`;
+}
+
 export async function prepareSession(agent, target = {}, options = {}) {
   const space = spaces().find(item => item.id === target.space);
   const machine = target.machine || space?.machine || null;
@@ -32,6 +42,8 @@ export async function prepareSession(agent, target = {}, options = {}) {
   if (hidden.efforts?.includes(session.effort)) session.effort = null;
 
   const remote = Boolean(machine);
+  if (remote && options.command) throw Error('This skill is available only for local sessions.');
+  let task = null;
   let argv = current && sessionArgv(current, launcherArgv(current, session.permission), {
     ...session, tasksMcpHome: remote ? null : appHome(),
   });
@@ -44,7 +56,9 @@ export async function prepareSession(agent, target = {}, options = {}) {
     }
     const ecc = await prepareEcc(current, argv, { ...target, folder: target.folder || space?.folder });
     argv = await sessionMcpArgv(current, ecc.argv, ecc.mcp);
-    const kits = await sessionDevkits(current);
+    const kits = await sessionDevkits(current, { ...target, folder: target.folder || space?.folder }, ecc.mcp, argv);
+    task = skillCommandTask(target.task, options.command, kits?.commands);
+    if (kits?.argv) argv = kits.argv;
     if (kits || ecc.instructions) {
       const text = composeSessionRules(rules?.text, kits, ecc.instructions);
       rules = text ? { ...rules, composed: true, text } : rules;
@@ -53,5 +67,5 @@ export async function prepareSession(agent, target = {}, options = {}) {
   }
   if (agent?.profileKey && !(shared('herdr-zed.agent-configs') || []).some(item => item.key === agent.key && item.profileKey === agent.profileKey))
     throw new Error('Agent configuration is unavailable. Choose another agent configuration.');
-  return { argv, session };
+  return { argv, session, ...(task ? { task } : {}) };
 }

@@ -6,6 +6,7 @@ const folder = { type: 'string', description: 'Absolute local project folder; us
 const provider = { type: 'string', enum: ['claude', 'codex'] };
 const booleans = { type: 'object', additionalProperties: { type: 'boolean' } };
 const changes = { type: 'object', properties: { enabled: { type: 'boolean' }, selection: booleans, mcp: booleans,
+  sharedSkills: { ...booleans, description: 'Patch shared library Rules/Skills for this project/provider, using mine:rules:* or mine:skills:* IDs. Independent of the ECC master switch.' },
   replaceSelection: { type: 'boolean', description: 'Start with all ECC components off before applying selection; use for a minimal project setup.' },
   claudeHooks: { type: 'string', enum: ['off', 'minimal', 'standard', 'strict'] } }, additionalProperties: false };
 const revision = { type: 'string', description: 'Exact revision returned by the latest preview/get_project. Conflicting edits are rejected.' };
@@ -15,10 +16,10 @@ const definition = (name, description, properties = {}, required = [], write = f
   annotations: { readOnlyHint: !write, destructiveHint: false, idempotentHint: true } });
 const tools = [
   definition('get_overview', 'Explain this Herdr layout’s ECC (Everything Claude Code), skills and MCP configuration. Read saved global selections for both providers, component purposes and shared connection switches without a project folder. Start here when the user asks what ECC is, what they have enabled or which MCPs are configured. Read-only; does not report live connection health.'),
-  definition('get_project', 'Read effective project ECC selections and shared MCP switches. No credentials or transports are returned.'),
-  definition('list_components', 'Search the layout’s ECC catalog with provider support and setup requirements. Folder and provider are optional for general explanations. This does not enable anything.', {
+  definition('get_project', 'Read effective project ECC selections, shared library Skills/Rules and shared MCP switches, including unmet skill dependencies. No credentials or transports are returned.'),
+  definition('list_components', 'Search ECC and the shared Skills/Rules library with provider support and setup requirements. Folder and provider are optional for general explanations. This does not enable anything.', {
     group: { type: 'string', enum: ['rules', 'skills', 'agents', 'commands', 'hooks', 'contexts', 'workflows', 'mcp'] }, query: { type: 'string' }, offset: { type: 'integer', minimum: 0 }, limit: { type: 'integer', minimum: 1, maximum: 100 } }),
-  definition('read_component', 'Read an ECC component to explain its purpose or recommend it. Folder and provider are optional. MCP entries return requirements rather than transport credentials.', { id: { type: 'string' } }, ['id']),
+  definition('read_component', 'Read an ECC or shared library component to explain its purpose or recommend it. Folder and provider are optional. MCP entries return requirements rather than transport credentials.', { id: { type: 'string' } }, ['id']),
   definition('preview_project', 'Preview a project change and return a revision. No settings are saved. Shared MCP names must already be configured.', { changes }, ['changes']),
   definition('apply_project', 'Save a reviewed project change when the user asks to apply it. Affects new local sessions only; never changes global or account settings. Use preview_project first. Do not apply recommendations without user authorization.', { changes, revision }, ['changes', 'revision'], true),
   definition('reset_project', 'Remove this provider’s project override and inherit global settings again, only when requested. Other providers and projects are preserved.', { revision }, ['revision'], true),

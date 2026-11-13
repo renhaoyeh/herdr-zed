@@ -15,6 +15,8 @@ import { parseSharedMcp, platformSharedMcp, claudeMcpConfig, mcpToml } from '../
 import { sessionKind, tasksMcpServer } from '../components/session-model.js';
 import { commandArgv } from '../components/session-shell.js';
 import { parseEcc, eccAccount } from '../mods/herdr-zed-agents/ecc-model.js';
+import { prepareSharedGuidance } from '../mods/herdr-zed-agents/shared-skills.js';
+import { prepareSharedPlugin } from '../mods/herdr-zed-agents/shared-skills-runtime.js';
 
 async function listNativeSkills(directory, folder, flags) {
   const [command, ...args] = commandArgv(['codex', '--no-daemon', ...flags, 'app-server', '--listen', 'stdio://'], process.platform === 'win32' ? 'windows' : process.platform);
@@ -56,6 +58,32 @@ async function fixture(fn) {
   const call = (name, args = {}) => projectMcpCall(home, name, { folder, provider: 'codex', ...args });
   try { await fn({ root, home, folder, other, source, data, call }); } finally { await rm(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); }
 }
+
+test('shared library project choices are provider-specific, independent of ECC, revision checked and used at launch', async () => fixture(async ({ home, folder, data, call }) => {
+  const root = join(data, 'capabilities', 'skills', 'build'); await mkdir(root, { recursive: true });
+  await writeFile(join(root, 'SKILL.md'), '---\nname: build\ndescription: Build project\n---\nUse browser.');
+  await writeFile(join(root, 'herdr.json'), JSON.stringify({ version: 1, mcps: ['browser'] }));
+  await writeFile(join(data, 'shared-skills.json'), JSON.stringify({ version: 1, disabled: [], providers: { codex: { 'mine:skills:build': false } } }));
+  const overview = await projectMcpCall(home, 'get_overview', {});
+  assert.equal(overview.sharedSkills.items[0].selected.codex, false);
+  assert.equal((await call('list_components', { query: 'build' })).items[0].id, 'mine:skills:build');
+  assert.match((await call('read_component', { id: 'mine:skills:build' })).text, /Use browser/);
+  const changes = { sharedSkills: { 'mine:skills:build': true }, mcp: { browser: true } };
+  const preview = await call('preview_project', { changes });
+  assert.equal(preview.policy.enabled, false); assert.equal(preview.sharedSkills[0].active, true);
+  await writeFile(join(root, 'helper.txt'), 'New supporting file');
+  await assert.rejects(call('apply_project', { changes, revision: preview.revision }), /changed/);
+  const updated = await call('preview_project', { changes });
+  await call('apply_project', { changes, revision: updated.revision });
+  assert.equal((await call('get_project', { provider: 'claude' })).sharedSkills[0].active, false);
+  const guidance = await prepareSharedGuidance(home, 'codex', folder, { browser: true });
+  assert.match(guidance.summary, /build/);
+  assert.equal(await prepareSharedGuidance(home, 'codex'), null);
+  const current = await call('get_project');
+  await call('reset_project', { revision: current.revision });
+  assert.equal((await call('get_project')).sharedSkills[0].selected, false);
+  await assert.rejects(call('preview_project', { changes: { sharedSkills: { missing: true } } }), /Unknown or unsupported/);
+}));
 
 test('ECC MCP reads catalog and effective defaults without modifying project, account or global settings', async () => fixture(async ({ call, folder, data }) => {
   const summary = await call('get_project');
@@ -184,6 +212,35 @@ test('installed Codex discovers the project marketplace using invocation flags i
   assert.match(await readFile(join(directory, 'config.toml'), 'utf8'), /enabled = false/);
   const withoutOverrides = await listNativeSkills(directory, folder, []);
   assert.ok(!withoutOverrides.data.some(row => row.skills.some(skill => skill.name === 'alpha' && skill.enabled)));
+}));
+
+test('installed Codex discovers shared skills and their references through invocation-only native packages', async () => fixture(async ({ home, folder, root, data }) => {
+  const source = join(data, 'capabilities', 'skills', 'shared-review'); await mkdir(source, { recursive: true });
+  await writeFile(join(source, 'SKILL.md'), '---\nname: shared-review\ndescription: Review using the shared library\n---\nRead check.md.');
+  await writeFile(join(source, 'check.md'), 'Keep this version.');
+  const guidance = await prepareSharedGuidance(home, 'codex'), directory = join(root, 'shared-account'); await mkdir(directory);
+  const flags = await prepareSharedPlugin(home, 'codex', directory, guidance.nativeSkills);
+  const discovered = await listNativeSkills(directory, folder, flags);
+  const skill = JSON.stringify(discovered);
+  assert.match(skill, /shared-review/);
+  assert.match(skill, /skill-packages|plugins/);
+  const without = await listNativeSkills(directory, folder, []);
+  assert.ok(!JSON.stringify(without).includes('shared-review'), 'Cached package stays disabled outside this invocation');
+  const config = await readFile(join(directory, 'config.toml'), 'utf8');
+  assert.match(config, /enabled = false/);
+}));
+
+test('shared catalog and project selection remain usable when the independent ECC source is missing', async () => fixture(async ({ home, source, folder, data }) => {
+  await rm(source, { recursive: true, force: true });
+  const root = join(data, 'capabilities', 'skills', 'local'); await mkdir(root, { recursive: true });
+  await writeFile(join(root, 'SKILL.md'), '---\nname: local\ndescription: Local workflow\n---\nWork locally.');
+  const list = await projectMcpCall(home, 'list_components', { group: 'skills' });
+  assert.ok(list.catalogError); assert.equal(list.items[0].id, 'mine:skills:local');
+  const changes = { sharedSkills: { 'mine:skills:local': false } };
+  const preview = await projectMcpCall(home, 'preview_project', { folder, provider: 'codex', changes });
+  await projectMcpCall(home, 'apply_project', { folder, provider: 'codex', changes, revision: preview.revision });
+  assert.equal(await prepareSharedGuidance(home, 'codex', folder), null);
+  await assert.rejects(projectMcpCall(home, 'preview_project', { folder, provider: 'codex', changes: { enabled: true } }), /ECC source is unavailable/);
 }));
 
 test('failed native project installation restores disabled activation and preserves existing plugins', async () => fixture(async ({ call, home, folder, root }) => {

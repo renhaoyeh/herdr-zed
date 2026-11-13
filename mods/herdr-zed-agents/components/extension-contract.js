@@ -1,7 +1,7 @@
 // Shared: edit components/extension-contract.js, then npm run sync:shared.
 // Pure validators for provider messages (ARCHITECTURE.md §3). No imports, no native APIs.
 // @ts-check
-/** @import { LaunchRequest, LaunchTarget, LaunchOrigin, Validation, ThreadDecoration, GitCredentialBinding, ComposerChoice, ComposerField, ComposerUsage, ComposerUsageWindow, LaunchIntent } from './contract-types.js' */
+/** @import { LaunchRequest, LaunchTarget, LaunchOrigin, Validation, ThreadDecoration, GitCredentialBinding, ComposerChoice, ComposerField, ComposerUsage, ComposerUsageWindow, LaunchIntent, ComposerCommand, ComposerCommandRequest } from './contract-types.js' */
 
 const MAX_LAUNCH_LEAD_MS = 60_000;
 const MAX_NAME_LENGTH = 120;
@@ -132,12 +132,36 @@ export const composerOptionShown = (option, values) => !option.only
   || Object.entries(option.only).every(([field, keys]) => keys.includes(/** @type {string} */ (values[field])));
 /**
  * The intent the shell appends to `herdr-zed.launch.intents`; the launcher takes its own off the queue.
- * @param {{ launcher: string, target: LaunchTarget, choice: string, values: Record<string, string | boolean>, task?: string, now: number }} input
+ * @param {{ launcher: string, target: LaunchTarget, choice: string, values: Record<string, string | boolean>, task?: string, command?: string, now: number }} input
  * @returns {LaunchIntent}
  */
-export function launchIntent({ launcher, target, choice, values, task, now }) {
+export function launchIntent({ launcher, target, choice, values, task, command, now }) {
   return { id: `intent:${now}:${Math.random().toString(36).slice(2)}`, launcher, target, choice, values,
-    ...(task ? { task: task.slice(0, MAX_TASK_LENGTH) } : {}), expiresAt: now + 30_000 };
+    ...(task ? { task: task.slice(0, MAX_TASK_LENGTH) } : {}), ...(command ? { command } : {}), expiresAt: now + 30_000 };
+}
+
+export const COMPOSER_COMMAND_REQUESTS = 'herdr-zed.composer-command.requests';
+export const COMPOSER_COMMAND_RESULTS = 'herdr-zed.composer-command.results';
+/** @param {unknown} value @param {number} now @param {{id:string, machine?:string|null}[]} spaces @returns {value is ComposerCommandRequest} */
+export function validComposerCommandRequest(value, now, spaces) {
+  return plain(value) && hasOnlyKeys(value, ['id', 'launcher', 'choice', 'target', 'expiresAt'])
+    && typeof value.id === 'string' && KEY_PATTERN.test(value.id)
+    && typeof value.launcher === 'string' && EXTENSION_ID_PATTERN.test(value.launcher)
+    && typeof value.choice === 'string' && KEY_PATTERN.test(value.choice)
+    && typeof value.expiresAt === 'number' && value.expiresAt > now && value.expiresAt <= now + 60_000
+    && validateLaunchTarget(value.target, spaces).ok;
+}
+/** Reject malformed command results; the shell never interprets provider IDs. @param {unknown} value @param {number} [now] @returns {ComposerCommand[] | null} */
+export function composerCommands(value, now = Date.now()) {
+  if (!plain(value) || typeof value.expiresAt !== 'number' || value.expiresAt <= now || !Array.isArray(value.items) || value.items.length > 1000) return null;
+  const ids = new Set(), names = new Set();
+  for (const item of value.items) {
+    if (!plain(item) || !hasOnlyKeys(item, ['id', 'name', 'description']) || typeof item.id !== 'string' || !KEY_PATTERN.test(item.id)
+      || typeof item.name !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}$/.test(item.name)
+      || typeof item.description !== 'string' || item.description.length > 500 || ids.has(item.id) || names.has(item.name)) return null;
+    ids.add(item.id); names.add(item.name);
+  }
+  return value.items;
 }
 
 // Terminal row (ARCHITECTURE §3.1): the Agents picker asks the shell for the native Terminal choice. The mod command

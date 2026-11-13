@@ -33,9 +33,10 @@ export function parseDevkits(text) {
 }
 export function resourceProblems(item, config, servers, platform, missingSkills = []) {
   return [
-    ...(!resourceSupported(item, platform) ? ['Windows only'] : []),
-    ...item.mcps.filter(name => name !== 'herdr_tasks' && !servers[name]).map(name => `Setup required: ${name}`),
-    ...item.mcps.filter(name => name !== 'herdr_tasks' && servers[name]?.enabled === false).map(name => `MCP is off: ${name}`),
+    ...(!resourceSupported(item, platform) ? [`Requires ${item.platforms.join(' / ')}`] : []),
+    ...item.mcps.filter(name => !['herdr_tasks', 'herdr_ecc'].includes(name) && !servers[name]).map(name => `Setup required: ${name}`),
+    ...item.mcps.filter(name => !['herdr_tasks', 'herdr_ecc'].includes(name) && servers[name]?.enabled === false).map(name => `MCP is off: ${name}`),
+    ...item.mcps.filter(name => sharedMcpPlatforms[name] && !sharedMcpPlatforms[name].includes(platform)).map(name => `MCP unavailable on this platform: ${name}`),
     ...(item.path && missingSkills.includes(item.path) ? ['Bundled skill unavailable'] : []),
   ];
 }
@@ -44,10 +45,11 @@ export function devkitsPlan(config, catalog, request, servers, platform, missing
   const items = [...rules.map(id => catalog.rules.find(item => item.id === id)), ...skills.map(id => catalog.skills.find(item => item.id === id))];
   if (items.some(item => !item)) throw Error('Unknown Devkits resource.');
   const blocked = items.flatMap(item => [
-    ...(!resourceSupported(item, platform) ? [`${item.name}: Windows only`] : []),
+    ...(!resourceSupported(item, platform) ? [`${item.name}: requires ${item.platforms.join(' / ')}`] : []),
+    ...item.mcps.filter(name => sharedMcpPlatforms[name] && !sharedMcpPlatforms[name].includes(platform)).map(name => `${name}: unavailable on this platform`),
     ...(missingSkills.includes(item.path) ? [`${item.name}: resource unavailable`] : []),
   ]);
-  const mcps = [...new Set(items.flatMap(item => item.mcps))].filter(name => name !== 'herdr_tasks');
+  const mcps = [...new Set(items.flatMap(item => item.mcps))].filter(name => !['herdr_tasks', 'herdr_ecc'].includes(name));
   return { rules, skills, blocked, missing: mcps.filter(name => !servers[name]), enable: mcps.filter(name => servers[name]?.enabled === false),
     addedRules: rules.filter(id => config.rules[id] !== true), addedSkills: skills.filter(id => config.skills[id] !== true) };
 }
@@ -66,9 +68,9 @@ const stripFrontmatter = text => (text || '').replace(/^---\r?\n[\s\S]*?\r?\n---
 const plainPath = path => path.replace(/\\/g, '/');
 
 // The user's own Rules and Skills: data/herdr-zed/capabilities/rules/*.md and skills/<name>/SKILL.md.
-// They are on unless listed in data/herdr-zed/capabilities.json, so a new file takes effect without a switch.
+// Shared items default on; shared-skills.json stores common defaults and provider overrides.
 export const mineRoot = root => `${root}/data/herdr-zed/capabilities`;
-export const mineSelectionPath = root => `${root}/data/herdr-zed/capabilities.json`;
+export const mineSelectionPath = root => `${root}/data/herdr-zed/shared-skills.json`;
 export function frontmatter(text) {
   const head = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text || '')?.[1] || '';
   const field = key => new RegExp(`^${key}:[ \\t]*(.+)$`, 'm').exec(head)?.[1].trim().replace(/^(['"])(.*)\1$/, '$2') || '';
@@ -80,21 +82,27 @@ export function mineItems(found) {
     const slug = kind === 'rules' ? base.at(-1).replace(/\.md$/i, '') : base.at(-2);
     const lead = stripFrontmatter(file.text).split(/\r?\n/).map(line => line.trim()).find(line => line && !line.startsWith('#')) || '';
     return { id: `mine:${kind}:${slug}`, group: kind, source: 'mine', name: meta.name || slug, icon: 'file',
-      description: meta.description || lead, path: file.path, text: file.text, mcps: [] };
+      description: meta.description || lead, path: file.path, text: file.text, mcps: [], ...file.metadata };
   }));
 }
 export function parseMineSelection(text) {
-  if (text == null) return { version: 1, disabled: [] };
+  if (text == null) return { version: 1, disabled: [], providers: { claude: {}, codex: {} } };
   const value = JSON.parse(text);
   if (value?.version !== 1 || !Array.isArray(value.disabled) || value.disabled.some(id => typeof id !== 'string'))
-    throw Error('Invalid capabilities.json. Expected { "version": 1, "disabled": [ids] }.');
-  return { version: 1, disabled: value.disabled };
+    throw Error('Invalid shared-skills.json. Expected version 1 and a disabled list.');
+  if (Object.keys(value).some(key => !['version', 'disabled', 'providers'].includes(key))
+    || (value.providers !== undefined && (!value.providers || typeof value.providers !== 'object' || Array.isArray(value.providers)
+      || Object.entries(value.providers).some(([provider, choices]) => !['claude', 'codex'].includes(provider)
+        || !choices || typeof choices !== 'object' || Array.isArray(choices) || Object.values(choices).some(on => typeof on !== 'boolean')))))
+    throw Error('Invalid shared-skills.json provider selections.');
+  return { version: 1, disabled: value.disabled, providers: { claude: {}, codex: {}, ...value.providers } };
 }
+export const mineEnabled = (selection, id, provider) => selection.providers?.[provider]?.[id] ?? !selection.disabled.includes(id);
 /** Built-in selections plus the user's items, which are on unless disabled. */
-export function withMine(config, catalog, mine) {
+export function withMine(config, catalog, mine, provider = 'codex', project = {}) {
   const merged = { ...config, rules: { ...config.rules }, skills: { ...config.skills } };
   for (const kind of ['rules', 'skills']) for (const item of catalog[kind].filter(item => item.source === 'mine'))
-    merged[kind][item.id] = !mine.disabled.includes(item.id);
+    merged[kind][item.id] = project[item.id] ?? mineEnabled(mine, item.id, provider);
   return merged;
 }
 export const providerSupported = (item, provider) => !item.providers || item.providers.includes(provider);

@@ -1,7 +1,6 @@
-import { appHome, readTextFile, exec, window } from 'herdr';
+import { appHome, home, readTextFile, exec } from 'herdr';
 import { sessionKind } from './components/session-model.js';
-import { sharedMcpPath, parseSharedMcp } from './components/shared-mcp.js';
-import { parseDevkits, devkitsCatalog, devkitsGuidance, resourceSupported, mineRoot, mineSelectionPath, mineItems, parseMineSelection, withMine } from './devkits-model.js';
+import { eccAccount } from './ecc-model.js';
 
 export const devkitsPath = () => `${appHome()}/data/herdr-zed/capabilities.json`;
 export async function readDevkitsSkills(skills) {
@@ -13,30 +12,32 @@ export async function readDevkitsSkills(skills) {
 }
 // The user's own Rules and Skills with their text, read from data/herdr-zed/capabilities.
 export async function readMineItems() {
-  const result = await exec('node', [`${appHome()}/mods/herdr-zed-agents/capabilities-scan.js`, mineRoot(appHome())], { timeout: 10000 });
+  const result = await exec('node', [`${appHome()}/mods/herdr-zed-agents/shared-skills-cli.js`, 'list', appHome()], { timeout: 15000 });
   if (result.code !== 0) throw Error(result.stderr?.trim() || 'Could not list your Rules and Skills.');
-  const found = JSON.parse(result.stdout || '{}');
-  const read = paths => Promise.all((paths || []).map(async path => ({ path, text: await readTextFile(path) })));
-  return mineItems({ rules: await read(found.rules), skills: await read(found.skills) });
+  return JSON.parse(result.stdout || '[]');
 }
-export const readMineSelection = async () => parseMineSelection(await readTextFile(mineSelectionPath(appHome())));
-
-export const sessionDevkits = agent => providerDevkits(sessionKind(agent));
-export async function providerDevkits(provider) {
+export async function sessionDevkits(agent, target = {}, switches = {}, argv = []) {
+  const provider = sessionKind(agent), account = eccAccount(provider, argv, home());
+  const guidance = await providerDevkits(provider, target, switches, account?.directory);
+  if (!guidance?.flags?.length) return guidance;
+  const executable = argv.findIndex(arg => new RegExp(`(?:^|[/\\\\])${provider}(?:\\.exe|\\.cmd)?$`, 'i').test(arg));
+  if (executable < 0) throw Error('Could not find the shared Skills agent executable.');
+  const pluginDir = provider === 'claude' ? argv.indexOf('--plugin-dir', executable + 1) : -1;
+  if (pluginDir >= 0) return { ...guidance, argv: [...argv.slice(0, pluginDir + 1), guidance.flags[1], ...argv.slice(pluginDir + 1)] };
+  return { ...guidance, argv: [...argv.slice(0, executable + 1), ...guidance.flags, ...argv.slice(executable + 1)] };
+}
+export async function providerDevkits(provider, target = {}, switches = {}, directory = '') {
   if (!['codex', 'claude'].includes(provider)) return null;
-  const [text, mine, selection] = await Promise.all([readTextFile(devkitsPath()), readMineItems(), readMineSelection()]);
-  const catalog = devkitsCatalog(appHome());
-  for (const kind of ['rules', 'skills']) catalog[kind].push(...mine.filter(item => item.group === kind));
-  const config = withMine(parseDevkits(text), catalog, selection);
-  if (![...Object.values(config.rules), ...Object.values(config.skills)].some(Boolean)) return null;
-  const servers = parseSharedMcp(await readTextFile(sharedMcpPath())).servers;
-  const platform = window()?.platform;
-  const loaded = await readDevkitsSkills(['rules', 'skills'].flatMap(kind =>
-    catalog[kind].filter(item => !item.source && config[kind][item.id] && resourceSupported(item, platform))));
-  for (const kind of ['rules', 'skills']) catalog[kind] = catalog[kind].map(item => {
-    const resource = loaded.find(resource => resource.id === item.id);
-    return resource ? { ...item, path: resource.path, text: resource.text } : item;
-  });
-  const missing = loaded.filter(skill => skill.text == null).map(skill => skill.path);
-  return devkitsGuidance(config, catalog, servers, platform, missing, provider);
+  const result = await exec('node', [`${appHome()}/mods/herdr-zed-agents/shared-skills-cli.js`, 'prepare', appHome(), provider,
+    target.folder || '', JSON.stringify(switches), directory], { timeout: 240000 });
+  if (result.code !== 0) throw Error(result.stderr?.trim() || 'Could not prepare shared skills.');
+  return JSON.parse(result.stdout || 'null');
+}
+
+export async function providerCommands(agent, target = {}) {
+  const provider = sessionKind(agent);
+  if (target.machine || !['claude', 'codex'].includes(provider)) return [];
+  const result = await exec('node', [`${appHome()}/mods/herdr-zed-agents/shared-skills-cli.js`, 'commands', appHome(), provider, target.folder || ''], { timeout: 30000 });
+  if (result.code !== 0) throw Error(result.stderr?.trim() || 'Could not read available skills.');
+  return JSON.parse(result.stdout || '[]');
 }

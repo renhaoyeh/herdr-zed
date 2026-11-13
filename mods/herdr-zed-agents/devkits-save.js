@@ -1,7 +1,7 @@
 import { isMain } from './node-main.js';
 import { readFile, writeFile, rename, unlink, mkdir, open, stat } from 'node:fs/promises';
 import { join } from 'node:path';
-import { parseDevkits, devkitsCatalog, resourceSupported } from './devkits-model.js';
+import { parseDevkits, devkitsCatalog, resourceSupported, parseMineSelection, mineSelectionPath } from './devkits-model.js';
 import { parseSharedMcp, sharedMcpSupported } from './components/shared-mcp-model.js';
 
 const read = async path => { try { return await readFile(path, 'utf8'); } catch (error) { if (error.code === 'ENOENT') return null; throw error; } };
@@ -15,7 +15,7 @@ export async function writeChecked(path, text, expected) {
     await rename(temporary, path);
   } finally { await unlink(temporary).catch(error => { if (error.code !== 'ENOENT') throw error; }); }
 }
-async function acquire(path) {
+export async function acquireFileLock(path) {
   try { const lock = await open(path, 'wx'); await lock.writeFile(String(process.pid)); return lock; }
   catch (error) {
     if (error.code !== 'EEXIST') throw error;
@@ -30,8 +30,9 @@ async function acquire(path) {
   }
 }
 export async function saveDevkitsConfig(root, payload, { write = writeChecked, platform = process.platform === 'win32' ? 'windows' : process.platform === 'darwin' ? 'macos' : 'linux' } = {}) {
-  const { capabilities, mcp } = payload;
-  for (const item of [capabilities, mcp]) if (!item || !(typeof item.text === 'string' || item.text === null) || !(typeof item.expected === 'string' || item.expected === null)) throw Error('Invalid settings save request.');
+  const { capabilities, mcp, sharedSkills } = payload;
+  for (const item of [capabilities, mcp, ...(sharedSkills ? [sharedSkills] : [])]) if (!item || !(typeof item.text === 'string' || item.text === null) || !(typeof item.expected === 'string' || item.expected === null)) throw Error('Invalid settings save request.');
+  if (sharedSkills) { parseMineSelection(sharedSkills.text); parseMineSelection(sharedSkills.expected); }
   const config = parseDevkits(capabilities.text), previous = parseDevkits(capabilities.expected), servers = parseSharedMcp(mcp.text).servers, oldServers = parseSharedMcp(mcp.expected).servers;
   const catalog = devkitsCatalog(root);
   for (const kind of ['rules', 'skills']) for (const item of catalog[kind])
@@ -39,8 +40,9 @@ export async function saveDevkitsConfig(root, payload, { write = writeChecked, p
   for (const name of new Set([...Object.keys(servers), ...Object.keys(oldServers)]))
     if (!sharedMcpSupported(name, platform) && JSON.stringify(servers[name]) !== JSON.stringify(oldServers[name])) throw Error(`${name} can only be configured on Windows.`);
   const directory = join(root, 'data', 'herdr-zed'); await mkdir(directory, { recursive: true });
-  const lockPath = join(directory, '.capabilities-save.lock'), lock = await acquire(lockPath);
+  const lockPath = join(directory, '.capabilities-save.lock'), lock = await acquireFileLock(lockPath);
   const files = [[join(directory, 'shared-mcp.json'), mcp], [join(directory, 'capabilities.json'), capabilities]];
+  if (sharedSkills) files.push([mineSelectionPath(root), sharedSkills]);
   const changes = files.filter(([, item]) => item.text !== item.expected);
   const written = [];
   try {

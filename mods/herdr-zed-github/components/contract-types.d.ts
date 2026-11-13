@@ -73,8 +73,11 @@ export interface ComposerEnvelope { updatedAt: number; machines: Record<string, 
 /** §3.1 Composer: shell → launcher, appended to `herdr-zed.launch.intents`. */
 export interface LaunchIntent {
   id: string; launcher: ExtensionId; target: LaunchTarget; choice: string;
-  values: Record<string, string | boolean>; task?: string; expiresAt: number;
+  values: Record<string, string | boolean>; task?: string; command?: string; expiresAt: number;
 }
+/** §3.1 Read-only composer command discovery, scoped to one launcher choice and project. */
+export interface ComposerCommand { id: string; name: string; description: string; }
+export interface ComposerCommandRequest { id: string; launcher: ExtensionId; choice: string; target: LaunchTarget; expiresAt: number; }
 export type Validation<T> = { ok: true; value: T } | { ok: false; error: string };
 
 /** §3.3 provider → shell, `herdr-zed.decorations.<extension id>`. */
