@@ -151,8 +151,8 @@ export class UsageClient {
                     .child(div().w(30).flex_none().child(label))
                     .child(Progress(`usage-meter-${choice.key}-${window.minutes}`, window.usedPercent, t, elapsed, window.minutes === 300 ? 5 : 7)
                       .flex_1().w_auto().min_w(0).accessibility_label(`${choice.name} ${label} used${elapsed === null ? '' : `; ${Math.round(elapsed)}% of window elapsed`}`))
-                    .child(div().w(24).flex_none().font_family('Geist Mono').text_right().child(`${Math.round(window.usedPercent)}%`))
-                    .child(div().id(`usage-reset-${choice.key}-${window.minutes}`).w(54).flex_none().font_family('Geist Mono').text_right()
+                    .child(div().w(28).flex_none().font_family('Geist Mono').text_right().child(`${Math.round(window.usedPercent)}%`))
+                    .child(div().id(`usage-reset-${choice.key}-${window.minutes}`).w(64).flex_none().font_family('Geist Mono').text_right()
                       .accessibility_label(reset).child(displayTime));
                 })));
           })));

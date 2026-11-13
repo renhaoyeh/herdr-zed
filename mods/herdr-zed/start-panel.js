@@ -359,8 +359,8 @@ export const startPanel = {
       return row
         .child(Progress(`project-start-usage-${account.key}-${window.minutes}`, window.usedPercent, t, elapsed, window.minutes === 300 ? 5 : window.minutes === 10080 ? 7 : 0)
           .flex_1().w_auto().min_w(0).accessibility_label(`${account.label} ${window.label} used`))
-        .child(div().w(28).flex_none().font_family('Geist Mono').text_right().child(`${Math.round(window.usedPercent)}%`))
-        .child(div().w(54).flex_none().font_family('Geist Mono').text_right().accessibility_label(reset).child(time.replace(/\b(\d)([dhm])\b/g, '0$1$2')));
+        .child(div().w(32).flex_none().font_family('Geist Mono').text_right().child(`${Math.round(window.usedPercent)}%`))
+        .child(div().w(68).flex_none().font_family('Geist Mono').text_right().accessibility_label(reset).child(time.replace(/\b(\d)([dhm])\b/g, '0$1$2')));
     };
     const program = account => (session.choices || []).find(item => item.key.split('#')[0] === account.key);
     const defaultsButton = account => DropdownMenuTrigger(
@@ -373,6 +373,8 @@ export const startPanel = {
         });
     const card = account => v_flex().id(`project-start-usage-${account.key}`).w_full().min_w(0).gap(6).px(12).py(8).border(1)
       .border_color(account.key === current ? t.accent : t.border)
+      .bg(account.key === current ? t.selected : t.background)
+      .accessibility_label(`${account.label}${account.key === current ? ', selected' : ''}`)
       .on_hover((inside, cx) => {
         if (!inside && this.startUsageHovered !== account.key) return;
         this.startUsageHovered = inside ? account.key : null; cx.notify();

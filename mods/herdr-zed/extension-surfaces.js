@@ -19,9 +19,9 @@ const update = (node, id, change) => node.id === id ? change(node)
   : node.children ? copyChildren(node, node.children.map(child => update(child, id, change))) : node;
 
 // The status row is [status (context), status.right surfaces (live readings)..., status-tools]. Herdr sizes blocks only
-// in px or weight, so status-tools is sized to its content: 28px icon buttons and 8px gaps between groups.
+// in px or weight, so status-tools is sized to its content: 28px icons, 12px group gaps and 12px/4px edge insets.
 // Every active extension action has its own button, followed by dock toggles, Changes and Files.
-export const ICON_PX = 28, GAP_PX = 8, PAD_PX = 4;
+export const ICON_PX = 28, GAP_PX = 12, PAD_PX = 16;
 export function statusToolsWidth({ actions = 0, dock = 0 } = {}) {
   const actionButtons = actions;
   const parts = [];

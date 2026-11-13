@@ -213,6 +213,11 @@ test('native sidebar, pane menu, dock controls and empty editor render without e
   view.startSession = () => ({ launcher: 'agents', choices: [choice, { ...choice, key: 'claude#fast', label: 'Work · fast' }], usage, choice, values: view.startValues(choice), ready: true });
   elements(view.projectStartView(nativeSpaces[0], {}, cx)).find(element => element.attributes.id === 'project-start-usage-claude').click({}, cx);
   assert.deepEqual(chosen, ['claude#fast'], 'a card switches to its account\'s program');
+  const selectionCards = view.startUsageView(nativeSpaces[0], view.startSession(), { selected: 'selected', background: 'background' });
+  const accountCard = key => elements(selectionCards).find(element => element.attributes.id === `project-start-usage-${key}`);
+  assert.equal(accountCard('codex').attributes.bg, 'selected');
+  assert.match(accountCard('codex').attributes.accessibility_label, /selected/);
+  assert.equal(accountCard('claude').attributes.bg, 'background');
   const cardSession = { launcher: 'agents', launcherMod: 'herdr-zed-workflow', choices: [choice], choice,
     usage: [{ ...usage[0], menu: { view: 'profile-defaults', width: 400 } }] };
   const cards = view.startUsageView(nativeSpaces[0], cardSession, {});

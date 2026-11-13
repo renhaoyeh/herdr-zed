@@ -607,7 +607,7 @@ export default class HerdrZed extends View {
     const actions = ExtensionSlot('status.right', t, space), dock = ExtensionSurfaceSlot('dock.right', t);
     // Groups use spacing only; the layout owns the status bar's top boundary.
     syncExtensionLayout();
-    return h_flex().id('herdr-zed-status-tools').relative().h_full().flex_none().pr(4).gap(8).items_center().bg(t.background)
+    return h_flex().id('herdr-zed-status-tools').relative().h_full().flex_none().pl(12).pr(4).gap(12).items_center().bg(t.background)
       .text_size(11).text_color(t.muted)
       .children([actions, dock].filter(Boolean))
       // The toast is an absolute layer anchored to this block; it sits in the zero-gap group so it adds no spacing.
