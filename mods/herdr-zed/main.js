@@ -214,6 +214,8 @@ export default class HerdrZed extends View {
     const index = projects.findIndex(project => project.id === target.project.id);
     const close = () => { closeOverlay(target.overlay); this.closeProject(target.project); };
     const actions = [
+      { id: 'menu-new-terminal', icon: 'terminal', label: 'New terminal', enabled: true,
+        action: () => this.newTerminal({ ok: true, value: this.launcherTarget(target.project) }), divider: true },
       { id: 'menu-project-up', icon: 'arrow-up', label: 'Move up', enabled: index > 0, action: () => this.moveProject(target.project.id, -1) },
       { id: 'menu-project-down', icon: 'arrow-down', label: 'Move down', enabled: index >= 0 && index < projects.length - 1, action: () => this.moveProject(target.project.id, 1) },
       { id: 'menu-close-project', icon: 'close', label: 'Close project', enabled: true, action: close, separated: true },

@@ -99,7 +99,7 @@ titles). Where they conflict, this file wins.
   New thread tab and reveals the new thread when that project is active. A 30-second timeout retains the task for retry.
   The central composer has no Recent list; archived conversations remain in the existing sidebar history.
 - The composer toolbar places Agents settings immediately before Send. Its header has no action buttons.
-  The project menu holds only project actions (Move up/down, Close project); a thread closes from its sidebar row.
+  The project menu holds New terminal and project actions (Move up/down, Close project); a thread closes from its sidebar row.
   A thread's header keeps + and maximize; a split terminal also has Close terminal, closing only that pane.
 
 ## Status bar

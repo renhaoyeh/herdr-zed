@@ -93,7 +93,7 @@ test('native sidebar, pane menu, dock controls and empty editor render without e
     DropdownMenuState: class {}, ProjectLayout: class { sync() {} },
     layoutNode: (node, id) => objects(node).find(value => value.id === id), conversationMaximized: () => false, maximizeConversation() {},
     WorkspaceEditor: class { init() {} render(_project, context, options) { return options.compose(); } },
-    NativeLauncher: class {}, createNativeThread() {},
+    NativeLauncher: class {}, createNativeThread: (...args) => commands.push(['create-native-thread', ...args]),
     GitAuthorSettings: class { init() {} render() { return ui(); } close() {} },
     ExtensionSurfaceSlot: () => null,
     openSettings: (...args) => commands.push(['open-settings', ...args]), settingsPageKey: id => `extension:${id}`, ExtensionSlot: () => null,
@@ -129,7 +129,16 @@ test('native sidebar, pane menu, dock controls and empty editor render without e
   assert.deepEqual(launches, ['s'], 'sidebar + opens New thread directly');
   target = { view: 'project-menu', project: nativeSpaces[0], overlay: 'project-menu' };
   view.init(null, cx);
-  assert.equal(elements(view.render(cx)).some(element => element.attributes.id === 'menu-new-terminal'), false, 'the project menu has no New terminal');
+  for (const project of [nativeSpaces[0], { id: 'remote/s', name: 'remote', folder: '/remote/workspace', machine: 'remote' },
+    { id: 'pending', name: 'new', folder: '/new', pending: true }]) {
+    target = { view: 'project-menu', project, overlay: 'project-menu' };
+    const item = elements(view.render(cx)).find(element => element.attributes.id === 'menu-new-terminal');
+    assert.ok(item, 'the project menu offers New terminal');
+    item.click({}, cx);
+    assert.deepEqual(commands.at(-1), ['create-native-thread', null, {
+      space: project.pending ? null : project.id, folder: project.folder, projectName: project.name, machine: project.machine || null,
+    }], 'Terminal opens directly in the selected project without a composer or launcher');
+  }
   target = {};
 
   const panelCloses = () => commands.filter(([name]) => name === 'close-workspace-panel').length;
