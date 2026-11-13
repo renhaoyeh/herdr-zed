@@ -14,7 +14,7 @@ test('the iOS Simulator is a macOS-only package; the other providers declare no 
 });
 
 test('working panels open over the work area; Simulator uses its dock entry only', async () => {
-  for (const id of ['tasks', 'calendar', 'asana', 'mantisbt']) {
+  for (const id of ['tasks', 'calendar']) {
     const [action] = parseExtensionManifest(`herdr-zed-${id}`, await load(id));
     assert.equal(action.popup.placement, 'workspace', `${id} popup placement`);
   }

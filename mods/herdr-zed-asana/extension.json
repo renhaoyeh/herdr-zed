@@ -6,20 +6,5 @@
   "description": "Browse Asana projects and import their tasks into Tasks.",
   "category": "sources",
   "settings": { "view": "settings", "title": "Asana" },
-  "actions": [
-    {
-      "id": "open",
-      "title": "Asana",
-      "icon": "asana",
-      "iconColor": "#F06A6A",
-      "popup": {
-        "view": "browser",
-        "width": 0.9,
-        "height": 0.86,
-        "modal": false,
-        "placement": "workspace"
-      },
-      "location": "status.right"
-    }
-  ]
+  "actions": []
 }

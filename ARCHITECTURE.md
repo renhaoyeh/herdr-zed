@@ -182,6 +182,7 @@ for a repository, Git runs with the machine's own credential configuration, unch
 ### Tasks workspace
 
 Tasks has one status action opening a retained workspace with Tasks, Asana and MantisBT tabs (enabled sources only).
+Asana and MantisBT declare no separate status actions; their browsers open through the Tasks tabs.
 The redirect view builds the layout without constructing a runtime. The local Tasks block owns AgentBoard and its
 AgentClient; the always-mounted service remains the owner of progress reporting and the shared read model. Tasks
 uses existing local records, run IDs, policies, source snapshots and thread associations, with List as the default
@@ -319,7 +320,7 @@ the key is removed when the extension is disabled (shell clears it). Providers p
 
 - Source-channel requests remain a generic source-browser contract for external receivers; Tasks no longer opens
   a separate channel browser or polls its events.
-- Hosted under Tasks or opened standalone from the status bar: the integration finds an enabled importer in the catalog and opens
+- Hosted under Tasks: the integration finds an enabled importer in the catalog and opens
   `openOverlay({ mod: <importer mod>, kind: 'dialog', props: { view: provides.importer.view,
   kind: 'task-snapshot', source: <extension id>, context, snapshot } })`. The snapshot holds explicit domain
   fields only (no credentials, no callbacks).

@@ -95,10 +95,10 @@ for (const provider of providers) {
     assert.equal(opened.length, 0);
   });
 
-  test(`${provider.id} manifest parses with its existing action, no requirements and no provider contracts`, async () => {
+  test(`${provider.id} manifest parses without status actions, requirements or provider contracts`, async () => {
     const text = await readFile(new URL(`../mods/${provider.mod}/extension.json`, import.meta.url), 'utf8');
     const actions = parseExtensionManifest(provider.mod, text);
-    assert.deepEqual(actions.map(action => action.id), [`${provider.id}.open`]);
+    assert.deepEqual(actions, []);
     const metadata = extensionMetadata(provider.mod, text);
     assert.equal(metadata.id, provider.id);
     assert.deepEqual(metadata.requires, []); assert.deepEqual(metadata.provides, {});
