@@ -22,8 +22,11 @@ async function shell() {
 
 test('slash menu requests scoped commands, filters, selects by keyboard and hands an opaque command ID to the launcher', async () => {
   const h = await shell(); h.edit('/');
-  assert.equal(h.bindings.length, 5);
-  assert.ok(h.bindings.every(binding => binding.context === 'HerdrComposerCommands > Input'));
+  assert.equal(h.bindings.length, 7);
+  assert.ok(h.bindings.slice(0, 5).every(binding => binding.context === 'HerdrComposerCommands > Input'));
+  assert.deepEqual(h.bindings.slice(5), ['ctrl-enter', 'cmd-enter'].map(keystroke => ({
+    keystroke, action: 'herdr-composer-submit', context: 'HerdrComposerSubmit > Input',
+  })));
   const request = h.memory[contract.COMPOSER_COMMAND_REQUESTS][0];
   assert.equal(request.launcher, 'custom-provider'); assert.equal(request.choice, 'account'); assert.equal(request.target.folder, '/project');
   h.memory[contract.COMPOSER_COMMAND_RESULTS] = { [request.id]: { items: commands, expiresAt: request.expiresAt } };
@@ -153,6 +156,7 @@ test('the provider launches with the resolved skill task as the actual first pro
 });
 
 test('slash results live in a native popup content slot, outside the composer layout flow', async () => {
+  const memory = {};
   const make = (type, id) => {
     const data = { type, name: id, nodes: [], styles: {} }; let proxy;
     proxy = new Proxy(data, { get(target, key) {
@@ -167,13 +171,22 @@ test('slash results live in a native popup content slot, outside the composer la
   };
   const { startPanel } = await evaluateNative('../mods/herdr-zed/start-panel.js', { ...contract,
     div: () => make('div'), h_flex: () => make('row'), v_flex: () => make('column'), glyph: () => make('icon'),
-    Textarea: { new: () => make('textarea') }, Popup: { new: (id, trigger) => make('popup', id).child(trigger) },
+    shared: key => memory[key], Textarea: { new: () => make('textarea') }, Popup: { new: (id, trigger) => make('popup', id).child(trigger) },
     Button: id => make('button', id), ToolbarButton: id => make('button', id) }, 'startPanel');
   const view = { ...startPanel, startTask: { value: () => '/' }, startImages: [], startGitView: () => null,
     startTarget: { intent: { launcher: 'fixture', choice: 'fixture' }, target: { folder: '/fixture' } } };
   const manyCommands = Array.from({ length: 8 }, (_, i) => ({ id: `skill:${i}`, name: `skill-${i}`, description: 'Description' }));
   view.startCommandCache = { scope: view.startCommandScope(), items: manyCommands };
   const tree = view.composerView({ name: 'Fixture' }, {}, {}, { ready: true, takesTask: true });
+  assert.deepEqual(tree.styles.key_context, ['HerdrComposerSubmit']);
+  let submitted = 0, stopped = 0;
+  view.submitStart = () => submitted++;
+  const [action, submit] = tree.styles.on_action;
+  assert.equal(action, 'herdr-composer-submit');
+  submit({}, { stop_propagation() { stopped++; } });
+  assert.equal(submitted, 1); assert.equal(stopped, 1, 'submission consumes the key instead of inserting a newline');
+  memory['herdr-zed.ctrl-enter-submit'] = false;
+  assert.equal(view.composerView({ name: 'Fixture' }, {}, {}, { ready: true, takesTask: true }).styles.key_context, undefined);
   const walk = node => node && typeof node === 'object' && node.nodes ? [node, ...node.nodes.flatMap(walk)] : [];
   const layout = walk(tree), popup = layout.find(node => node.name === 'project-start-command-popup');
   assert.ok(popup); assert.deepEqual(popup.styles.anchor, ['top_left']);

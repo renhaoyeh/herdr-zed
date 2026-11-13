@@ -54,6 +54,7 @@ export const startPanel = {
       this.refreshStartCommands(cx); cx.notify();
     });
     cx.bind_keys?.(['up', 'down', 'enter', 'tab', 'escape'].map(key => ({ keystroke: key, action: `herdr-composer-command-${key}`, context: 'HerdrComposerCommands > Input' })));
+    cx.bind_keys?.(['ctrl-enter', 'cmd-enter'].map(keystroke => ({ keystroke, action: 'herdr-composer-submit', context: 'HerdrComposerSubmit > Input' })));
     this.startTask.on('submit', (event, cx) => {
       const modified = shared('herdr-zed.ctrl-enter-submit') !== false;
       if (!event?.shift && Boolean(event?.secondary) === modified) this.submitStart(cx);
@@ -453,6 +454,8 @@ export const startPanel = {
           .on_click((_event, cx) => this.submitStart(cx))
           .child(glyph(this.startPending ? 'loader' : 'arrow-up', 16))));
     return v_flex().id('project-start').size_full().bg(t.background).text_color(t.foreground).items_center().p(24).overflow_y_scroll()
+      .when(shared('herdr-zed.ctrl-enter-submit') !== false, el => el.key_context('HerdrComposerSubmit'))
+      .on_action('herdr-composer-submit', (_event, cx) => { cx.stop_propagation(); this.submitStart(cx); })
       .child(div().flex_1().min_h(0))
       .child(v_flex().w_full().max_w(680).flex_none().gap(10)
         .child(h_flex().id('project-start-heading').gap(8).items_center()
