@@ -187,6 +187,7 @@ test('ECC provider filters render through the real Select with valid colors and 
       if (key === 'when' && args[0]) args[1](proxy);
       if (key === 'id') nodes.set(args[0], node);
       if (key === 'on_click') node.click = args[0];
+      if (key === 'overflow_y_scroll') node.scrollable = true;
       if (['text_color', 'border_color', 'bg'].includes(key)) assert.equal(typeof args[0], 'string', key);
       return proxy;
     } });
@@ -204,7 +205,10 @@ test('ECC provider filters render through the real Select with valid colors and 
     eccProfileSelect: new SelectState(cx), eccSelect: new SelectState(cx), eccFilterSelect: new SelectState(cx) };
   for (const color of ['#ffffff', '#111111']) {
     const theme = Object.fromEntries(['foreground', 'muted', 'border', 'popover', 'input', 'hover', 'selected', 'ansi3'].map(key => [key, color]));
-    for (const profile of [null, 'basic', 'supervisor']) for (const filter of ['all', 'selected', 'off']) { view.eccProfileChoice = profile; view.eccFilter = filter; view.eccProviderPage(theme); }
+    for (const profile of [null, 'basic', 'supervisor']) for (const filter of ['all', 'selected', 'off']) {
+      view.eccProfileChoice = profile; view.eccFilter = filter;
+      view.eccProviderPage(theme); view.eccProfilePanel(theme);
+    }
   }
   nodes.get('ecc-selection-filter').click(null, cx);
   assert.equal(view.eccFilterSelect.open, true);
@@ -216,7 +220,24 @@ test('ECC provider filters render through the real Select with valid colors and 
   nodes.get('ecc-apply-cost').click(null, cx);
   assert.deepEqual(view.eccDraft.selection, { claude: { existing: true, [profiles.eccCostSkill]: true }, codex: { other: true } });
   assert.equal(view.eccDirty, true);
-
+  const theme = Object.fromEntries(['foreground', 'muted', 'border', 'popover', 'input', 'hover', 'selected'].map(key => [key, '#ffffff']));
+  nodes.clear(); view.eccProviderPage(theme);
+  assert.equal(nodes.has('ecc-profile-panel'), false, 'profile previews do not take space above the component list');
+  nodes.get('ecc-choose-profile').click(null, cx);
+  const before = JSON.stringify(view.eccDraft);
+  nodes.clear(); view.eccProfileChoice = 'basic'; view.eccProviderPage(theme);
+  assert.equal(nodes.get('ecc-profile-panel').scrollable, true, 'the complete profile page scrolls');
+  assert.equal(nodes.has('ecc-selection-filter'), false, 'profile preview replaces the browser instead of squeezing it');
+  assert.equal(JSON.stringify(view.eccDraft), before, 'preview does not change selections');
+  nodes.get('ecc-back-components').click(null, cx);
+  assert.equal(view.eccShowProfiles, false);
+  assert.equal(JSON.stringify(view.eccDraft), before, 'returning preserves selections');
+  view.eccShowProfiles = true;
+  nodes.get('ecc-apply-profile').click(null, cx);
+  assert.equal(view.eccShowProfiles, false, 'using a profile returns to component customization');
+  assert.equal(view.eccDraft.selection.claude.existing, undefined);
+  assert.equal(view.eccDraft.selection.claude[profiles.eccCostSkill], true, 'profile keeps selected cost guidance');
+  assert.equal(view.eccDraft.selection.codex.other, true, 'other provider is unchanged');
 });
 
 test('functional profiles are explicit, provider-specific and become Custom after manual changes', async () => {

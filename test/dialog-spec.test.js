@@ -113,7 +113,7 @@ test('Agents labels say thread for starting one; Apply is named on pages that in
   assert.match(capabilities, /Choose Rules and Skills for new local sessions, per provider\./);
   assert.match(capabilities, /ApplyFooter\('devkits'/, 'pages that install or run setup end in Discard and Apply');
   const ecc = await source('mods/herdr-zed-agents/ecc-settings.js');
-  assert.match(ecc, /Apply prepares the chosen components/);
+  assert.match(ecc, /then Apply\. Changes affect new sessions across all local accounts/);
   assert.match(ecc, /ApplyFooter\('ecc'/);
   const footer = await source('components/dialog.js');
   assert.match(footer, /child\('Discard'\)/); assert.match(footer, /child\(busy \? progress : 'Apply'\)/);

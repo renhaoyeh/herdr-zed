@@ -36,7 +36,7 @@ export const eccSettings = {
     this.eccSearch.on('change', (_event, cx) => { this.eccListPage = 0; cx.notify(); });
     this.eccSelect = new SelectState(cx);
     this.eccFilterSelect = new SelectState(cx);
-    this.eccProfileSelect = new SelectState(cx); this.eccProfileChoice = null;
+    this.eccProfileSelect = new SelectState(cx); this.eccProfileChoice = null; this.eccShowProfiles = false;
     cx.spawn(async cx => {
       try {
         this.eccOriginal = await readTextFile(eccPath());
@@ -68,7 +68,7 @@ export const eccSettings = {
     });
   },
   selectEccSection(provider, section, cx) {
-    this.eccProfileChoice = null;
+    this.eccProfileChoice = null; this.eccShowProfiles = false;
     this.eccTab = provider; this.eccProvider = provider; this.eccSection = section;
     this.eccSearch.set_value(''); this.eccListPage = 0; this.eccSelected = null; this.eccShowSource = false; this.eccDetailText = null; cx.notify();
   },
@@ -180,8 +180,12 @@ export const eccSettings = {
     const plan = this.eccProfileChoice ? eccProfilePlan(items, provider, this.eccProfileChoice, costSelected) : null;
     const current = eccProfileName(this.eccDraft, provider, items);
     const removed = plan ? items.filter(item => eccItemEnabled(this.eccDraft, provider, item) && !plan.ids.includes(item.id)) : [];
-    return v_flex().gap(6).p(10).border(1).border_color(t.border)
-      .child(div().text_size(12).child(`Current profile: ${current}`))
+    return v_flex().id('ecc-profile-panel').flex_1().min_h(0).overflow_y_scroll().gap(10)
+      .child(Button('ecc-back-components', t, { variant: 'secondary' }).h(28).flex_none().self_start()
+        .on_click((_event, cx) => { this.eccShowProfiles = false; cx.notify(); }).child('Back to components'))
+      .child(div().text_size(16).font_semibold().child(`${eccProviderName(provider)} component profiles`))
+      .child(div().text_size(12).text_color(t.muted).child('A profile is a starting set of ECC components, not an agent account. Preview a set, use it, then customize individual components. Apply at the bottom saves your changes for new sessions.'))
+      .child(div().text_size(12).child(`Current selection: ${current}`))
       .child(h_flex().gap(10).items_center()
         .child(Select('ecc-profile', this.eccProfileSelect, this.eccProfileChoice || 'choose',
           [{ key: 'choose', label: 'Preview a profile…' }, ...eccProfiles.map(profile => ({ key: profile.id, label: profile.name }))].map(item => ({ ...item, color: t.foreground })),
@@ -192,21 +196,21 @@ export const eccSettings = {
             if (this.eccSaving || !costItem || costItem.unavailable || costSelected) return;
             chooseEccItem(this.eccDraft, provider, costItem, true);
             this.eccSaved = false; this.eccDirty = true; cx.notify();
-          }).child(costSelected ? 'Cost conscious applied' : 'Apply cost conscious')))
-      .child(div().text_size(12).text_color(t.muted).child('Adds cost-aware-llm-pipeline to your current selection. Save to use in new sessions.'))
+          }).child(costSelected ? 'Cost guidance selected' : 'Add cost guidance')))
+      .child(div().text_size(12).text_color(t.muted).child('Cost guidance adds cost-aware-llm-pipeline without replacing your other components.'))
       .when(Boolean(plan), el => el
         .child(div().text_size(12).text_color(t.muted).child(plan.profile.description))
-        .child(div().text_size(12).text_color(t.muted).child(`Replaces this provider’s selection: ${plan.ids.length} selected, ${removed.length} removed. Save to use in new sessions.`))
-        .child(v_flex().max_h(160).overflow_y_scroll().gap(4).children(plan.items.map(item => div().text_size(12).child(`${item.name}: ${item.description || item.group}`))))
+        .child(div().text_size(12).text_color(t.muted).child(`Using this profile replaces ${eccProviderName(provider)}’s draft selection: ${plan.ids.length} selected, ${removed.length} removed.`))
+        .child(v_flex().flex_none().gap(4).children(plan.items.map(item => div().text_size(12).child(`${item.name}: ${item.description || item.group}`))))
         .when(!plan.ids.length, body => body.child(div().text_size(12).text_color(t.muted).child('No ECC components selected.')))
         .when(plan.missing.length > 0, body => body.child(div().text_size(12).text_color(t.ansi3).child(`Unavailable: ${plan.missing.join(', ')}`)))
         .child(Button('ecc-apply-profile', t, { variant: 'secondary' }).h(28).self_start().disabled(Boolean(this.eccSaving || !this.eccCatalog || plan.missing.length))
           .on_click((_event, cx) => {
             if (this.eccSaving) return;
-            try { applyEccProfile(this.eccDraft, provider, items, plan.profile.id, costSelected); this.eccSaved = false; this.eccDirty = true; this.eccListPage = 0; this.eccError = null; }
+            try { applyEccProfile(this.eccDraft, provider, items, plan.profile.id, costSelected); this.eccSaved = false; this.eccDirty = true; this.eccListPage = 0; this.eccError = null; this.eccShowProfiles = false; }
             catch (error) { this.eccError = error.message; }
             cx.notify();
-          }).child('Apply profile')))
+          }).child('Use this profile')))
       .when(costSelected, el => el.child(div().text_size(12).text_color(t.muted).child('Adds cost guidance; does not change models or enforce a spending limit.')));
   },
   eccVisibleItems(all) {
@@ -217,6 +221,7 @@ export const eccSettings = {
       .sort((a, b) => Number(selected(b)) - Number(selected(a)));
   },
   eccProviderPage(t) {
+    if (this.eccShowProfiles) return this.eccProfilePanel(t);
     const provider = this.eccProvider, catalog = this.eccCatalog, groups = eccGroups.filter(group => group.providers.includes(provider));
     const all = (catalog?.items || []).filter(item => item.group === this.eccSection && item.providers.includes(provider));
     const query = this.eccSearch.value().trim().toLowerCase();
@@ -231,7 +236,10 @@ export const eccSettings = {
         .child(Switch('ecc-provider-enabled', this.eccDraft.providerEnabled[provider], t).disabled(Boolean(this.eccSaving))
           .on_change((checked, cx) => { this.eccDraft.providerEnabled[provider] = checked; this.eccSaved = false; this.eccDirty = true; cx.notify(); })))
       .when(!this.eccDraft.providerEnabled[provider], el => el.child(div().text_size(12).text_color(t.muted).child('Off for this provider. Your component selections are retained.')))
-      .child(this.eccProfilePanel(t))
+      .child(h_flex().flex_none().items_center().justify_between().gap(8)
+        .child(div().text_size(12).child(`Component profile: ${eccProfileName(this.eccDraft, provider, catalog?.items || [])}`))
+        .child(Button('ecc-choose-profile', t, { variant: 'secondary' }).h(28)
+          .on_click((_event, cx) => { this.eccShowProfiles = true; cx.notify(); }).child('Choose profile…')))
       .child(div().text_size(12).text_color(t.muted).child(`${eccProviderName(provider)} global components · selected ${all.filter(item => eccItemEnabled(this.eccDraft, provider, item)).length} / ${all.length}`))
       .child(h_flex().flex_none().flex_wrap().gap(4).children(groups.map(group =>
         Button(`ecc-category-${group.id}`, t, { variant: 'ghost' }).h(30).gap(6)
@@ -279,10 +287,10 @@ export const eccSettings = {
       .child(h_flex().justify_end().items_center()
         .when(Boolean(draft), el => el.child(h_flex().gap(8).items_center().child(div().text_size(12).child('Enable ECC'))
           .child(Switch('ecc-enabled', draft.enabled, t).disabled(busy).on_change((checked, cx) => { draft.enabled = checked; this.eccSaved = false; this.eccDirty = true; cx.notify(); })))))
-      .child(DialogDescription(t).flex_none().child('Explore the architecture, then choose what Claude Code and Codex use. Apply prepares the chosen components; settings are global and apply to new sessions.'))
+      .child(DialogDescription(t).flex_none().child('Choose Claude Code or Codex, start with a component profile or select components individually, then Apply. Changes affect new sessions across all local accounts.'))
       .when(this.eccLoading, el => el.child(div().text_color(t.muted).child('Loading ECC settings…')))
       .when(Boolean(draft), el => el.child(v_flex().flex_1().min_h(0).gap(10)
-        .when(!draft.enabled, body => body.child(div().text_size(12).text_color(t.muted).child('ECC is off. You can prepare selections now; enable ECC and save to apply them.')))
+        .when(!draft.enabled, body => body.child(div().text_size(12).text_color(t.muted).child('ECC is off. Choose components, turn on Enable ECC, then Apply to use them.')))
         .when(Boolean(this.eccCatalogLoading), body => body.child(div().text_size(12).text_color(t.muted).child('Loading the component catalog…')))
         .when(Boolean(this.eccCatalogError), body => body.child(div().text_size(12).text_color(t.ansi1).child(this.eccCatalogError)))
         .when(!this.eccCatalogLoading && !this.eccCatalog, body => body.child(Button('ecc-reload-source', t, { variant: 'secondary' }).disabled(busy).on_click((_event, cx) => this.loadEccCatalog(cx)).child('Load source')))
