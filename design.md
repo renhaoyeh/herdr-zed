@@ -249,3 +249,5 @@ Usage visibility controls are available only for programs supported by the quota
   Restore only unchanged owned integrations in default accounts; native plugin managers retain their
   caches, with Zed ECC integrations disabled before managed package removal.
 - Close Herdr after a successful reset to discard in-memory caches. Reload/restart never replays reset.
+
+ECC offers Basic, Development, Supervisor and Code review profiles per provider, with an additional Apply cost conscious action that adds its skill without replacing other selections. Applied cost guidance is retained when switching profiles; remove it through the component list. Choosing a profile previews its components and purpose before replacing that provider’s draft selection; Save persists it. Manual differences display Custom. Basic selects no ECC components; Hooks, Workflows and MCP templates require separate explicit selection. Existing Herdr task progress remains independent.

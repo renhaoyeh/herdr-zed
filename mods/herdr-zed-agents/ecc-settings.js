@@ -1,3 +1,4 @@
+import { eccProfiles, eccCostSkill, eccProfilePlan, eccProfileName, applyEccProfile } from './ecc-profiles.js';
 import { Input } from './components/input.js';
 import { div } from 'gpui-kit';
 import { h_flex, v_flex, InputState, TextView } from 'gpui-base';
@@ -28,12 +29,14 @@ const eccDescriptionMarkdown = (item, text) => ['hooks', 'mcp', 'workflows'].inc
 export const eccSettings = {
   initEcc(cx) {
     this.eccLoading = true; this.eccSaving = false; this.eccError = null; this.eccDraft = null; this.eccSaved = false; this.eccDirty = false; this.eccClosed = false;
-    this.eccTab = 'overview'; this.eccProvider = 'claude'; this.eccSection = 'skills'; this.eccListPage = 0;
+    this.eccFilter = 'all'; this.eccTab = 'overview'; this.eccProvider = 'claude'; this.eccSection = 'skills'; this.eccListPage = 0;
     this.eccCatalog = null; this.eccCatalogError = null; this.eccSelected = null; this.eccShowSource = false;
     this.eccSource = `${appHome()}/mods/herdr-zed-agents/ecc-source`;
     this.eccSearch = InputState.new({ placeholder: 'Search names, descriptions, languages or modules…' });
     this.eccSearch.on('change', (_event, cx) => { this.eccListPage = 0; cx.notify(); });
     this.eccSelect = new SelectState(cx);
+    this.eccFilterSelect = new SelectState(cx);
+    this.eccProfileSelect = new SelectState(cx); this.eccProfileChoice = null;
     cx.spawn(async cx => {
       try {
         this.eccOriginal = await readTextFile(eccPath());
@@ -65,6 +68,7 @@ export const eccSettings = {
     });
   },
   selectEccSection(provider, section, cx) {
+    this.eccProfileChoice = null;
     this.eccTab = provider; this.eccProvider = provider; this.eccSection = section;
     this.eccSearch.set_value(''); this.eccListPage = 0; this.eccSelected = null; this.eccShowSource = false; this.eccDetailText = null; cx.notify();
   },
@@ -169,11 +173,54 @@ export const eccSettings = {
         .when(this.eccDetailText !== null && !this.eccDetailLoading, body => body.child(TextView.markdown(`ecc-source-${item.id}`, eccDescriptionMarkdown(item, this.eccDetailText))
           .text_size(13).line_height('20px').font_family('Geist').selectable(true).scrollable(false)))));
   },
+  eccProfilePanel(t) {
+    const items = this.eccCatalog?.items || [], provider = this.eccProvider;
+    const costItem = items.find(item => item.id === eccCostSkill && item.providers.includes(provider));
+    const costSelected = Boolean(costItem && eccItemEnabled(this.eccDraft, provider, costItem));
+    const plan = this.eccProfileChoice ? eccProfilePlan(items, provider, this.eccProfileChoice, costSelected) : null;
+    const current = eccProfileName(this.eccDraft, provider, items);
+    const removed = plan ? items.filter(item => eccItemEnabled(this.eccDraft, provider, item) && !plan.ids.includes(item.id)) : [];
+    return v_flex().gap(6).p(10).border(1).border_color(t.border)
+      .child(div().text_size(12).child(`Current profile: ${current}`))
+      .child(h_flex().gap(10).items_center()
+        .child(Select('ecc-profile', this.eccProfileSelect, this.eccProfileChoice || 'choose',
+          [{ key: 'choose', label: 'Preview a profile…' }, ...eccProfiles.map(profile => ({ key: profile.id, label: profile.name }))].map(item => ({ ...item, color: t.foreground })),
+          'ECC profile', (value, cx) => { this.eccProfileChoice = value === 'choose' ? null : value; cx.notify(); }, t, { width: 190, boxed: true }))
+        .child(Button('ecc-apply-cost', t, { variant: 'secondary' }).h(28)
+          .disabled(Boolean(this.eccSaving || !costItem || costItem.unavailable || costSelected))
+          .on_click((_event, cx) => {
+            if (this.eccSaving || !costItem || costItem.unavailable || costSelected) return;
+            chooseEccItem(this.eccDraft, provider, costItem, true);
+            this.eccSaved = false; this.eccDirty = true; cx.notify();
+          }).child(costSelected ? 'Cost conscious applied' : 'Apply cost conscious')))
+      .child(div().text_size(12).text_color(t.muted).child('Adds cost-aware-llm-pipeline to your current selection. Save to use in new sessions.'))
+      .when(Boolean(plan), el => el
+        .child(div().text_size(12).text_color(t.muted).child(plan.profile.description))
+        .child(div().text_size(12).text_color(t.muted).child(`Replaces this provider’s selection: ${plan.ids.length} selected, ${removed.length} removed. Save to use in new sessions.`))
+        .child(v_flex().max_h(160).overflow_y_scroll().gap(4).children(plan.items.map(item => div().text_size(12).child(`${item.name}: ${item.description || item.group}`))))
+        .when(!plan.ids.length, body => body.child(div().text_size(12).text_color(t.muted).child('No ECC components selected.')))
+        .when(plan.missing.length > 0, body => body.child(div().text_size(12).text_color(t.ansi3).child(`Unavailable: ${plan.missing.join(', ')}`)))
+        .child(Button('ecc-apply-profile', t, { variant: 'secondary' }).h(28).self_start().disabled(Boolean(this.eccSaving || !this.eccCatalog || plan.missing.length))
+          .on_click((_event, cx) => {
+            if (this.eccSaving) return;
+            try { applyEccProfile(this.eccDraft, provider, items, plan.profile.id, costSelected); this.eccSaved = false; this.eccDirty = true; this.eccListPage = 0; this.eccError = null; }
+            catch (error) { this.eccError = error.message; }
+            cx.notify();
+          }).child('Apply profile')))
+      .when(costSelected, el => el.child(div().text_size(12).text_color(t.muted).child('Adds cost guidance; does not change models or enforce a spending limit.')));
+  },
+  eccVisibleItems(all) {
+    const query = this.eccSearch.value().trim().toLowerCase();
+    const selected = item => eccItemEnabled(this.eccDraft, this.eccProvider, item);
+    return all.filter(item => (!this.eccFilter || this.eccFilter === 'all' || selected(item) === (this.eccFilter === 'selected'))
+      && (!query || [item.name, item.description, item.path, ...(item.modules || [])].join(' ').toLowerCase().includes(query)))
+      .sort((a, b) => Number(selected(b)) - Number(selected(a)));
+  },
   eccProviderPage(t) {
     const provider = this.eccProvider, catalog = this.eccCatalog, groups = eccGroups.filter(group => group.providers.includes(provider));
     const all = (catalog?.items || []).filter(item => item.group === this.eccSection && item.providers.includes(provider));
     const query = this.eccSearch.value().trim().toLowerCase();
-    const items = all.filter(item => !query || [item.name, item.description, item.path, ...(item.modules || [])].join(' ').toLowerCase().includes(query));
+    const items = this.eccVisibleItems(all);
     const page = Math.min(this.eccListPage, Math.max(0, Math.ceil(items.length / eccPageSize) - 1));
     const selected = items.find(item => item.id === this.eccSelected);
     return v_flex().h_full().flex_1().min_h(0).gap(10)
@@ -184,6 +231,7 @@ export const eccSettings = {
         .child(Switch('ecc-provider-enabled', this.eccDraft.providerEnabled[provider], t).disabled(Boolean(this.eccSaving))
           .on_change((checked, cx) => { this.eccDraft.providerEnabled[provider] = checked; this.eccSaved = false; this.eccDirty = true; cx.notify(); })))
       .when(!this.eccDraft.providerEnabled[provider], el => el.child(div().text_size(12).text_color(t.muted).child('Off for this provider. Your component selections are retained.')))
+      .child(this.eccProfilePanel(t))
       .child(div().text_size(12).text_color(t.muted).child(`${eccProviderName(provider)} global components · selected ${all.filter(item => eccItemEnabled(this.eccDraft, provider, item)).length} / ${all.length}`))
       .child(h_flex().flex_none().flex_wrap().gap(4).children(groups.map(group =>
         Button(`ecc-category-${group.id}`, t, { variant: 'ghost' }).h(30).gap(6)
@@ -197,13 +245,16 @@ export const eccSettings = {
       .when(this.eccSection === 'hooks' && provider === 'codex', el => el.child(div().text_size(12).text_color(t.muted).child('This source provides only SessionStart for Codex. Codex owns the native hook trust decision.')))
       .when(this.eccSection === 'contexts', el => el.child(div().text_size(12).text_color(t.muted).child('Select one working mode, or leave all modes off.')))
       .child(h_flex().gap(8).items_center().child(Input.new(this.eccSearch, t).h(30).px(8).text_size(12).flex_1().min_w(0).border(1).border_color(t.input).accessibility_label('Search ECC components'))
+        .child(Select('ecc-selection-filter', this.eccFilterSelect, this.eccFilter || 'all',
+          [{ key: 'all', label: 'All · selected first' }, { key: 'selected', label: 'Selected only' }, { key: 'off', label: 'Not selected' }].map(item => ({ ...item, color: t.foreground })),
+          'Filter selection', (value, cx) => { this.eccFilter = value; this.eccListPage = 0; cx.notify(); }, t, { width: 180, boxed: true }))
         .when(this.eccSection !== 'contexts', el => el.child(Button('ecc-group-enable', t, { variant: 'secondary' }).h(30).disabled(Boolean(this.eccSaving || !catalog))
-          .on_click((_event, cx) => { for (const item of items.filter(item => !item.unavailable)) chooseEccItem(this.eccDraft, provider, item, true); this.eccSaved = false; this.eccDirty = true; cx.notify(); }).child(query ? 'Use search results' : 'Use all')))
+          .on_click((_event, cx) => { for (const item of items.filter(item => !item.unavailable)) chooseEccItem(this.eccDraft, provider, item, true); this.eccSaved = false; this.eccDirty = true; cx.notify(); }).child(query || this.eccFilter !== 'all' ? 'Use results' : 'Use all')))
         .child(Button('ecc-group-disable', t, { variant: 'secondary' }).h(30).disabled(Boolean(this.eccSaving || !catalog))
-          .on_click((_event, cx) => { for (const item of items) chooseEccItem(this.eccDraft, provider, item, false); this.eccSaved = false; this.eccDirty = true; cx.notify(); }).child(query ? 'Turn off search results' : 'Turn off all')))
+          .on_click((_event, cx) => { for (const item of items) chooseEccItem(this.eccDraft, provider, item, false); this.eccSaved = false; this.eccDirty = true; cx.notify(); }).child(query || this.eccFilter !== 'all' ? 'Turn off results' : 'Turn off all')))
       .child(h_flex().flex_1().min_h(0).items_stretch().gap(12)
         .child(v_flex().w(224).h_full().min_h(0).flex_none().gap(8)
-          .child(v_flex().id(`ecc-component-list-${provider}-${this.eccSection}-${page}-${query}`).flex_1().min_h(0).overflow_y_scroll().border(1).border_color(t.border)
+          .child(v_flex().id(`ecc-component-list-${provider}-${this.eccSection}-${page}-${query}-${this.eccFilter}`).flex_1().min_h(0).overflow_y_scroll().border(1).border_color(t.border)
             .children(items.slice(page * eccPageSize, (page + 1) * eccPageSize).map(item => Button(`ecc-component-${item.id}`, t, { variant: 'ghost' }).h_auto().min_h(48).w_full().px(10).py(8).justify_start()
               .bg(item.id === this.eccSelected ? t.selected : t.popover).on_click((_event, cx) => this.selectEccItem(item, cx))
               .child(v_flex().min_w(0).gap(3).child(div().text_size(12).child(item.pack ? `${item.pack} / ${item.title || item.name}` : item.title || item.name))

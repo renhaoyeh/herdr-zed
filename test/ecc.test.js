@@ -1,3 +1,4 @@
+import * as profiles from '../mods/herdr-zed-agents/ecc-profiles.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, writeFile, rm, access } from 'node:fs/promises';
@@ -31,6 +32,8 @@ async function fixture(fn) {
   await put('.mcp.json', JSON.stringify({ mcpServers: { echo: { command: process.execPath, args: ['-e', 'process.stdout.write(process.env.TEST_API_TOKEN)'], env: { TEST_API_TOKEN: 'YOUR_API_TOKEN' } } } }));
   await put('mcp-configs/mcp-servers.json', JSON.stringify({ mcpServers: { unfinished: { command: 'node', args: ['/path/to/server.js'] } } }));
   const config = parseEcc(JSON.stringify({ version: 1, enabled: true, source, claudeHooks: 'standard' }));
+  const catalog = await readEccCatalog(source);
+  for (const provider of ['claude', 'codex']) config.selection[provider] = Object.fromEntries(catalog.items.filter(item => item.providers.includes(provider) && item.defaultEnabled).map(item => [item.id, true]));
   try { await fn({ root, source, directory, output, config, put }); } finally { await rm(root, { recursive: true, force: true }); }
 }
 
@@ -144,4 +147,97 @@ test('catalog requests ignore older sources and results arriving after the panel
   view.eccSource = '/late'; view.loadEccCatalog(cx); view.eccClosed = true;
   gates[2]({ code: 0, stdout: '{"items":[],"version":"late"}' }); await tasks[2];
   assert.equal(view.eccCatalogInput, '/new'); assert.equal(view.eccCatalog, null);
+});
+
+test('missing ECC settings use the bundled enabled default; explicit disable stays disabled', async () => {
+  const { readEccConfig } = await import('../mods/herdr-zed-agents/ecc-sync.js');
+  const directory = await mkdtemp(join(tmpdir(), 'ecc-default-'));
+  try {
+    const path = join(directory, 'ecc.json');
+    const config = await readEccConfig(path);
+    assert.equal(config.enabled, true);
+    assert.deepEqual(config.providerEnabled, { claude: true, codex: true });
+    assert.match(config.source, /herdr-zed-agents[/\\]ecc-source$/);
+    await writeFile(path, JSON.stringify({ ...config, enabled: false }));
+    assert.equal((await readEccConfig(path)).enabled, false);
+    await writeFile(path, '{broken');
+    await assert.rejects(readEccConfig(path), SyntaxError);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test('ECC selection filter combines search and provider choices, sorting selected first without mutating catalog', async () => {
+  const { eccSettings } = await evaluateNative('../mods/herdr-zed-agents/ecc-settings.js', { eccItemEnabled }, 'eccSettings');
+  const items = ['off', 'on', 'other'].map(name => ({ id: name, name, providers: ['claude', 'codex'], defaultEnabled: false }));
+  const view = { ...eccSettings, eccProvider: 'claude', eccFilter: 'all', eccSearch: { value: () => '' },
+    eccDraft: { selection: { claude: { on: true }, codex: { other: true } } } };
+  const ids = () => view.eccVisibleItems(items).map(item => item.id);
+  assert.deepEqual(ids(), ['on', 'off', 'other']);
+  assert.deepEqual(items.map(item => item.id), ['off', 'on', 'other']);
+  view.eccFilter = 'selected'; assert.deepEqual(ids(), ['on']);
+  view.eccProvider = 'codex'; assert.deepEqual(ids(), ['other']);
+  view.eccSearch.value = () => 'ON'; assert.deepEqual(ids(), []);
+  view.eccFilter = 'off'; assert.deepEqual(ids(), ['on']);
+});
+
+test('ECC provider filters render through the real Select with valid colors and independent popup state', async () => {
+  const nodes = new Map();
+  const element = () => {
+    const node = {};
+    const proxy = new Proxy(node, { get: (_, key) => (...args) => {
+      if (key === 'when' && args[0]) args[1](proxy);
+      if (key === 'id') nodes.set(args[0], node);
+      if (key === 'on_click') node.click = args[0];
+      if (['text_color', 'border_color', 'bg'].includes(key)) assert.equal(typeof args[0], 'string', key);
+      return proxy;
+    } });
+    return proxy;
+  };
+  const base = { div: element, svg: element, image: element, h_flex: element, v_flex: element,
+    DropdownMenuContent: element, DropdownMenuItem: element, NativeSelect: { new: element }, NativePopup: { new: element } };
+  const { Select, SelectState } = await evaluateNative('../components/select.js', base, 'Select, SelectState');
+  const { eccGroups } = await import('../mods/herdr-zed-agents/ecc-model.js');
+  const { eccSettings } = await evaluateNative('../mods/herdr-zed-agents/ecc-settings.js',
+    { ...base, ...profiles, Select, SelectState, eccGroups, eccItemEnabled, chooseEccItem, Button: id => element().id(id), Switch: element, AgentIcon: element, glyph: element, Input: { new: element } }, 'eccSettings');
+  const cx = { focus_handle: () => ({ focus() {} }), notify() {}, stop_propagation() {} };
+  const view = { ...eccSettings, eccProvider: 'claude', eccSection: 'hooks', eccFilter: 'all', eccListPage: 0,
+    eccDraft: { providerEnabled: { claude: true }, claudeHooks: 'standard', selection: { claude: {}, codex: {} } }, eccCatalog: { items: [] }, eccSearch: { value: () => '' },
+    eccProfileSelect: new SelectState(cx), eccSelect: new SelectState(cx), eccFilterSelect: new SelectState(cx) };
+  for (const color of ['#ffffff', '#111111']) {
+    const theme = Object.fromEntries(['foreground', 'muted', 'border', 'popover', 'input', 'hover', 'selected', 'ansi3'].map(key => [key, color]));
+    for (const profile of [null, 'basic', 'supervisor']) for (const filter of ['all', 'selected', 'off']) { view.eccProfileChoice = profile; view.eccFilter = filter; view.eccProviderPage(theme); }
+  }
+  nodes.get('ecc-selection-filter').click(null, cx);
+  assert.equal(view.eccFilterSelect.open, true);
+  assert.equal(view.eccSelect.open, false);
+  const cost = { id: profiles.eccCostSkill, name: 'Cost', providers: ['claude', 'codex'], group: 'skills' };
+  view.eccCatalog.items.push(cost); view.eccProfileChoice = null;
+  view.eccDraft.selection.claude.existing = true; view.eccDraft.selection.codex.other = true;
+  view.eccProfilePanel(Object.fromEntries(['foreground', 'muted', 'border', 'popover', 'input', 'hover', 'selected'].map(key => [key, '#ffffff'])));
+  nodes.get('ecc-apply-cost').click(null, cx);
+  assert.deepEqual(view.eccDraft.selection, { claude: { existing: true, [profiles.eccCostSkill]: true }, codex: { other: true } });
+  assert.equal(view.eccDirty, true);
+
+});
+
+test('functional profiles are explicit, provider-specific and become Custom after manual changes', async () => {
+  const catalog = await readEccCatalog(new URL('../vendor/everything-claude-code/', import.meta.url).pathname);
+  const config = parseEcc(null);
+  assert.equal(config.claudeHooks, 'off');
+  assert.ok(catalog.items.every(item => !eccItemEnabled(config, 'claude', item)));
+  for (const provider of ['claude', 'codex']) for (const profile of profiles.eccProfiles) {
+    const plan = profiles.eccProfilePlan(catalog.items, provider, profile.id, true);
+    assert.deepEqual(plan.missing, []);
+    assert.ok(plan.items.every(item => item.providers.includes(provider) && !['hooks', 'workflows', 'mcp'].includes(item.group)));
+    const before = JSON.stringify(config.selection[provider === 'claude' ? 'codex' : 'claude']);
+    profiles.applyEccProfile(config, provider, catalog.items, profile.id, true);
+    assert.equal(profiles.eccProfileName(config, provider, catalog.items), profile.name + ' + Cost conscious');
+    assert.equal(JSON.stringify(config.selection[provider === 'claude' ? 'codex' : 'claude']), before);
+  }
+  config.selection.codex['skills:unknown'] = true;
+  assert.equal(profiles.eccProfileName(config, 'codex', catalog.items), 'Custom');
+  const before = JSON.stringify(config);
+  assert.throws(() => profiles.applyEccProfile(config, 'codex', [], 'development', false), /unavailable/);
+  assert.equal(JSON.stringify(config), before);
+  profiles.applyEccProfile(config, 'codex', catalog.items, 'basic', false);
+  assert.equal(profiles.eccProfileName(config, 'codex', catalog.items), 'Basic');
 });

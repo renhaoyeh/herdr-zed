@@ -601,3 +601,7 @@ only the selected package through invocation flags. Only `shared-skills@herdr-ze
 are overridden; unrelated native plugins/account settings are retained. Existing sessions keep their paths;
 no startup cleanup removes old snapshots. Remote launches do not use this local library. No shell contract
 or manifest schema changes are required.
+
+ECC is enabled by default for new local Claude/Codex sessions when no global configuration exists; explicit saved switches and project overrides remain authoritative. The bundled source supplies native specialist roles and workflows. Tasks owns progress and user acceptance, not a separate supervisor/worker dispatcher.
+
+ECC component selection is opt-in (missing IDs are off), independent of upstream catalog defaults. Functional profiles resolve bundled component IDs for each provider and replace only its selection map after preview; profile identity is derived from the selection, with no new persisted schema. Profile application does not start agents or enable Hooks, Workflows or MCP templates. The default is Basic with hook mode off; explicit saved choices remain authoritative.

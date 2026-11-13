@@ -68,7 +68,7 @@ test('shared library project choices are provider-specific, independent of ECC, 
   assert.equal(overview.sharedSkills.items[0].selected.codex, false);
   assert.equal((await call('list_components', { query: 'build' })).items[0].id, 'mine:skills:build');
   assert.match((await call('read_component', { id: 'mine:skills:build' })).text, /Use browser/);
-  const changes = { sharedSkills: { 'mine:skills:build': true }, mcp: { browser: true } };
+  const changes = { enabled: false, sharedSkills: { 'mine:skills:build': true }, mcp: { browser: true } };
   const preview = await call('preview_project', { changes });
   assert.equal(preview.policy.enabled, false); assert.equal(preview.sharedSkills[0].active, true);
   await writeFile(join(root, 'helper.txt'), 'New supporting file');
@@ -87,7 +87,7 @@ test('shared library project choices are provider-specific, independent of ECC, 
 
 test('ECC MCP reads catalog and effective defaults without modifying project, account or global settings', async () => fixture(async ({ call, folder, data }) => {
   const summary = await call('get_project');
-  assert.equal(summary.scope, 'global'); assert.equal(summary.policy.enabled, false);
+  assert.equal(summary.scope, 'global'); assert.equal(summary.policy.enabled, true);
   assert.deepEqual(summary.mcp, [{ name: 'browser', enabled: false, supported: true }]);
   const catalog = await call('list_components', { group: 'skills', query: 'alpha', limit: 1 });
   assert.equal(catalog.total, 1); assert.equal(catalog.items[0].id, 'skills:alpha');
@@ -102,7 +102,7 @@ test('ECC MCP reads catalog and effective defaults without modifying project, ac
 
 test('any layout conversation can explain global ECC and browse components without a project or provider', async () => fixture(async ({ home, source, data }) => {
   const globalText = JSON.stringify({ version: 1, enabled: true, source, claudeHooks: 'off',
-    providerEnabled: { claude: false, codex: true }, selection: { codex: { 'skills:alpha': false, 'rules:common/style.md': true } } });
+    providerEnabled: { claude: false, codex: true }, selection: { claude: { 'skills:alpha': true }, codex: { 'skills:alpha': false, 'rules:common/style.md': true } } });
   await writeFile(join(data, 'ecc.json'), globalText);
   const overview = await projectMcpCall(home, 'get_overview', {});
   assert.equal(overview.scope, 'global'); assert.equal(overview.ecc.name, 'Everything Claude Code');
@@ -126,7 +126,7 @@ test('layout overview still explains MCP choices when the ECC source is unavaila
   const overview = await projectMcpCall(home, 'get_overview', {}, { catalogReader: async () => { throw Error('ECC source is unavailable'); } });
   assert.equal(overview.ecc.catalogError, 'ECC source is unavailable');
   assert.equal(overview.mcp.find(item => item.name === 'browser').transport, 'stdio');
-  assert.equal(overview.ecc.providers.codex.enabled, false);
+  assert.equal(overview.ecc.providers.codex.enabled, true);
 }));
 
 test('preview/apply/reset keep providers and projects independent and reject stale writes', async () => fixture(async ({ call, home, folder, other, data }) => {
@@ -236,7 +236,7 @@ test('shared catalog and project selection remain usable when the independent EC
   await writeFile(join(root, 'SKILL.md'), '---\nname: local\ndescription: Local workflow\n---\nWork locally.');
   const list = await projectMcpCall(home, 'list_components', { group: 'skills' });
   assert.ok(list.catalogError); assert.equal(list.items[0].id, 'mine:skills:local');
-  const changes = { sharedSkills: { 'mine:skills:local': false } };
+  const changes = { enabled: false, sharedSkills: { 'mine:skills:local': false } };
   const preview = await projectMcpCall(home, 'preview_project', { folder, provider: 'codex', changes });
   await projectMcpCall(home, 'apply_project', { folder, provider: 'codex', changes, revision: preview.revision });
   assert.equal(await prepareSharedGuidance(home, 'codex', folder), null);

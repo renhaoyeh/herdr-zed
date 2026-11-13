@@ -8,7 +8,7 @@ export const eccGroups = [
   { id: 'contexts', label: 'Contexts · Working modes', description: 'Set a development, research or review focus. Select at most one mode for each provider.', example: 'Modes are optional. Selected contexts and rules guide new conversations.', providers: ['claude', 'codex'] },
   { id: 'workflows', label: 'Workflows · Pipelines', description: 'Native Workflow scripts coordinate specialist agents through a complete sequence of work.', example: 'This source includes the experimental orch-review pipeline for Claude Code.', providers: ['claude'] },
 ];
-export const eccDefaults = { version: 1, enabled: false, source: '', claudeHooks: 'standard', providerEnabled: { claude: true, codex: true }, selection: { claude: {}, codex: {} } };
+export const eccDefaults = { version: 1, enabled: true, source: '', claudeHooks: 'off', providerEnabled: { claude: true, codex: true }, selection: { claude: {}, codex: {} } };
 
 export function parseEcc(text) {
   if (text === null || text === undefined) return { ...eccDefaults, providerEnabled: { claude: true, codex: true }, selection: { claude: {}, codex: {} } };
@@ -32,7 +32,7 @@ export function parseEcc(text) {
 }
 
 export function eccItemEnabled(config, provider, item) {
-  return Boolean(item.providers.includes(provider) && (config.selection?.[provider]?.[item.id] ?? item.defaultEnabled));
+  return Boolean(item.providers.includes(provider) && (config.selection?.[provider]?.[item.id] ?? false));
 }
 
 export function chooseEccItem(config, provider, item, enabled) {

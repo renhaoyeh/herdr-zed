@@ -117,7 +117,17 @@ export async function syncEcc(provider, directory, rawConfig, { run = runPlugin,
   });
 }
 
+export async function readEccConfig(path) {
+  const text = await readFile(path, 'utf8').catch(error => {
+    if (error.code === 'ENOENT') return null;
+    throw error;
+  });
+  const config = parseEcc(text);
+  config.source ||= join(dirname(fileURLToPath(import.meta.url)), 'ecc-source');
+  return config;
+}
+
 if (await isMain(import.meta.url)) {
-  try { console.log(JSON.stringify(await syncEcc(process.argv[2], process.argv[3], parseEcc(await readFile(process.argv[4], 'utf8'))))); }
+  try { console.log(JSON.stringify(await syncEcc(process.argv[2], process.argv[3], await readEccConfig(process.argv[4])))); }
   catch (error) { console.error(error.message); process.exitCode = 1; }
 }

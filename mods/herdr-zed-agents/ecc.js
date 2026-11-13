@@ -18,7 +18,6 @@ export async function prepareEcc(agent, argv, target = {}) {
     }
   }
   const text = await readTextFile(eccPath());
-  if (text === null || text === undefined) return { argv, instructions: '' };
   parseEcc(text);
   const result = await exec('node', [`${appHome()}/mods/herdr-zed-agents/ecc-sync.js`, account.provider, account.directory, eccPath()], { timeout: 240000 });
   if (result.code !== 0) throw new Error(result.stderr?.trim() || 'Could not apply global ECC settings. Open Agent settings → ECC and retry.');

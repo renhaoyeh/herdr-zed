@@ -114,7 +114,7 @@ export async function cleanDefaultEcc(userHome, sync = syncEcc) {
     const marker = join(directory, 'herdr-zed-ecc.json');
     await plain(marker);
     if (await read(marker) === null) continue;
-    await sync(provider, directory, eccDefaults);
+    await sync(provider, directory, { ...eccDefaults, enabled: false });
     await rm(marker, { force: true });
   }
 }
