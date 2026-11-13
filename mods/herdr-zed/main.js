@@ -823,20 +823,23 @@ export default class HerdrZed extends View {
           return SidebarGroup(index > 0, t)
           .child(SidebarGroupLabel(`project-${space.id}`, space.active, t).pr(0)
             // The current project carries an accent edge; a project without threads stays quiet.
-            .border_l(2).border_color(space.active ? t.accent : '#00000000').pl(10)
+            // Centre the 24px arrow on the thread's 16px icon; both titles start at 36px.
+            .border_l(2).border_color(space.active ? t.accent : '#00000000').pl(6)
             .when(!threads.length && !space.active, el => el.text_color(t.dim))
             .on_hover((hovered, cx) => { this.hoveredProject = hovered ? space.id : null; cx.notify(); })
-            .on_click((event, cx) => {
-              const modifier = window()?.platform === 'macos' ? event?.modifiers?.platform : event?.modifiers?.control;
-              if (modifier) this.selectProject(space);
-              else { this.folded.has(space.id) ? this.folded.delete(space.id) : this.folded.add(space.id); cx.notify(); }
-            })
+            .on_click(() => this.selectProject(space))
+            .child(ToolbarButton(`fold-project-${space.id}`, t, { icon: true, row: true })
+              .tooltip(`${folded ? 'Expand' : 'Collapse'} ${space.name}`)
+              .accessibility_label(`${folded ? 'Expand' : 'Collapse'} ${space.name}`)
+              .on_click((_event, cx) => {
+                cx.stop_propagation();
+                this.folded.has(space.id) ? this.folded.delete(space.id) : this.folded.add(space.id);
+                cx.notify();
+              }).child(glyph(folded ? 'chevron-right' : 'chevron-down', ROW_GLYPH)))
             .child(div().min_w(0).truncate().child(space.name))
             // Two projects with one name: the parent folder tells them apart.
             .when(groups.filter(group => group.space.name === space.name).length > 1, el => el.child(div().flex_none().text_size(11).font_normal()
               .text_color(t.muted).child((space.folder || '').replace(/\\/g, '/').replace(/\/+$/, '').split('/').slice(-2, -1)[0] || '')))
-            .child(div().opacity(this.hoveredProject === space.id || this.folded.has(space.id) ? 1 : 0)
-              .child(glyph(this.folded.has(space.id) ? 'chevron-right' : 'chevron-down', 12)))
             .when(Boolean(space.machine), el => el.child(div().text_size(9).text_color(t.muted).child(space.machine)))
             .child(div().flex_1())
             .when(blocked > 0, el => el.child(count('circle-alert', t.blocked, blocked, blocked === 1 ? 'thread needs you' : 'threads need you')))

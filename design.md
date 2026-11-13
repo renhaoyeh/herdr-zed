@@ -52,6 +52,8 @@ titles). Where they conflict, this file wins.
 - Project rows: the current project has a 2px accent left edge; a project without threads has a dim name and no
   placeholder row. A project row shows how many of its threads are blocked (circle-alert, `blocked`), and while folded
   also how many are done (circle-check, `done`), so what needs you is visible without opening it.
+- Clicking a project title row switches to that project. Its always-visible leading arrow independently expands or
+  collapses the thread list without switching projects.
 - A thread row names its branch (branch icon, muted, 11px) only when it differs from its project's, e.g. a worktree.
   Projects that share a name show their parent folder after it, here and in the project switcher.
 
