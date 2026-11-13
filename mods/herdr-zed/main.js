@@ -595,7 +595,7 @@ export default class HerdrZed extends View {
     const primaryAgent = thread.agents.find(agent => agent.address === primary?.terminal) || thread.agent;
     if (primaryAgent && primaryAgent !== thread.agent)
       thread = { ...thread, agent: primaryAgent, title: threadTitle(thread.tab, primaryAgent, this.projects().find(project => project.id === thread.space)) };
-    // Spinner, blocked and done marks come from an agent's report only; a terminal without an agent shows its icon.
+    // Status comes from an agent's report only; a terminal without an agent shows its icon alone.
     const reported = this.agentStatus(thread, live);
     const isFocused = thread.active && (!members.some(pane => pane.focused) || Boolean(primary?.focused));
     const p = threadProgram(thread, live, primary?.program);
@@ -605,10 +605,10 @@ export default class HerdrZed extends View {
     const projectBranch = (this.renderModel?.projects || this.projects()).find(project => project.id === thread.space)?.branch
       ?? spaces().find(space => space.id === thread.space)?.branch;
     const branch = primary?.branch && primary.branch !== projectBranch ? primary.branch : null;
-    const icon = reported === 'working' ? glyph('loader', 14).text_color(t.working).spin(900).accessibility_label('Working')
-      : reported === 'blocked' ? glyph('circle-alert', 14).text_color(t.blocked).accessibility_label('Blocked')
-      : reported === 'done' ? glyph('circle-check', 14).text_color(t.done).accessibility_label('Done')
-      : p?.icon ? (p.tint ? svg(p.icon).size(14).text_color(t.muted) : image(p.icon).size(14)) : glyph('terminal', 14).text_color(t.muted);
+    const statusIcon = reported === 'working' ? glyph('loader', 14).text_color(t.working).spin(900).tooltip('Working').accessibility_label('Working')
+      : reported === 'blocked' ? glyph('circle-alert', 14).text_color(t.blocked).tooltip('Needs your attention').accessibility_label('Blocked')
+      : reported === 'done' ? glyph('circle-check', 14).text_color(t.done).tooltip('Done').accessibility_label('Done') : null;
+    const icon = p?.icon ? (p.tint ? svg(p.icon).size(14).text_color(t.muted) : image(p.icon).size(14)) : glyph('terminal', 14).text_color(t.muted);
     return SidebarTreeMenuButton(`thread-${thread.tab.id}`, isFocused, t, 0, trunk)
       .on_hover((hovered, cx) => {
         // A previous row's leave event can arrive after the next row's enter.
@@ -627,13 +627,14 @@ export default class HerdrZed extends View {
       .child(h_flex().flex_1().min_w(0).gap(6).items_center()
         .child(div().min_w(0).truncate().text_size(13).text_color(t.foreground)
           .when(isFocused, el => el.font_medium()).child(thread.title))
+        .when(Boolean(statusIcon), el => el.child(div().id(`thread-status-${thread.tab.id}`).size(16).flex_none()
+          .flex().items_center().justify_center().child(statusIcon)))
         // design.md, Sidebar: a thread on another branch than its project's (a worktree, say) names it.
         .when(Boolean(branch), el => el.child(h_flex().flex_none().max_w(120).gap(3).items_center().text_size(11).text_color(t.muted)
           .accessibility_label(`On branch ${branch}`).child(glyph('branch', 11)).child(div().min_w(0).truncate().child(branch))))
-        .when(Boolean(decoration?.subtitle), el => el.child(div().min_w(0).truncate().text_size(11).text_color(t.muted).child(decoration.subtitle)))
-        .when(Boolean(decoration?.badge), el => el.child(decorationBadge(decoration, t))))
-      .child(ToolbarButton(`${stopping ? 'stop' : archivable ? 'archive' : 'close'}-thread-${thread.tab.id}`, t, { icon: true, row: true })
-        .ml(8).opacity(this.hovered === thread.tab.id ? 1 : 0)
+        .when(Boolean(decoration?.subtitle), el => el.child(div().min_w(0).truncate().text_size(11).text_color(t.muted).child(decoration.subtitle))))
+      .child(div().size(24).ml(8).flex_none()
+        .when(this.hovered === thread.tab.id, el => el.child(ToolbarButton(`${stopping ? 'stop' : archivable ? 'archive' : 'close'}-thread-${thread.tab.id}`, t, { icon: true, row: true })
         .tooltip(stopping ? 'Stop generation' : archivable ? 'Archive conversation' : 'Close thread')
         .accessibility_label(stopping ? 'Stop generation' : archivable ? 'Archive conversation' : 'Close thread')
         .disabled(this.stoppingThreads?.has(thread.tab.id) || false)
@@ -642,7 +643,7 @@ export default class HerdrZed extends View {
           if (stopping) cx.spawn(async cx => { await this.stopThread(thread); cx.notify(); });
           else if (archivable) cx.spawn(async cx => { await this.archiveThread(thread); cx.notify(); });
           else closeThreadTab(thread.tab.id);
-        }).child(glyph(stopping ? 'square' : archivable ? 'archive' : 'close', ROW_GLYPH)));
+        }).child(glyph(stopping ? 'square' : archivable ? 'archive' : 'close', ROW_GLYPH)))));
   }
 
   renderThreadGroup(thread, t, live) {
@@ -697,8 +698,7 @@ export default class HerdrZed extends View {
   childRow(thread, { terminal, depth, label, pane, trunk }, t) {
     const key = pane ? `pane:${pane.pane}` : `child:${terminal.address}`;
     const p = terminal.program;
-    const icon = agentReportedWorking(terminal) ? glyph('loader', 14).text_color(t.working).spin(900).accessibility_label('Working')
-      : p?.icon && !p.shell ? (p.tint ? svg(p.icon).size(14).text_color(t.muted) : image(p.icon).size(14)) : glyph('terminal', 14).text_color(t.muted);
+    const icon = p?.icon && !p.shell ? (p.tint ? svg(p.icon).size(14).text_color(t.muted) : image(p.icon).size(14)) : glyph('terminal', 14).text_color(t.muted);
     return SidebarTreeMenuButton(pane ? `thread-pane-${pane.pane}` : `child-${terminal.address}`, Boolean(pane?.focused), t, depth, trunk)
       .accessibility_label(`${depth ? 'Child task' : 'Parallel pane'}: ${label}`)
       .on_hover((hovered, cx) => {
@@ -716,9 +716,12 @@ export default class HerdrZed extends View {
         else run('terminal.peek', { terminal: terminal.address });
       })
       .child(div().size(16).mr(8).flex_none().flex().items_center().justify_center().child(icon))
-      .child(div().flex_1().min_w(0).truncate().text_size(depth ? 12 : 13).text_color(depth ? t.muted : t.foreground).child(label))
-      .child(ToolbarButton(pane ? `close-pane-${pane.pane}` : `end-child-${terminal.address}`, t, { icon: true, row: true })
-        .ml(8).opacity(this.hovered === key ? 1 : 0)
+      .child(h_flex().flex_1().min_w(0).gap(6).items_center()
+        .child(div().min_w(0).truncate().text_size(depth ? 12 : 13).text_color(depth ? t.muted : t.foreground).child(label))
+        .when(agentReportedWorking(terminal), el => el.child(glyph('loader', 14).flex_none().text_color(t.working)
+          .spin(900).tooltip('Working').accessibility_label('Working'))))
+      .child(div().size(24).ml(8).flex_none()
+        .when(this.hovered === key, el => el.child(ToolbarButton(pane ? `close-pane-${pane.pane}` : `end-child-${terminal.address}`, t, { icon: true, row: true })
         .tooltip(pane ? `Close ${label}` : `End ${label}`)
         .accessibility_label(pane ? `Close ${label}` : `End ${label}`)
         .on_click((_event, cx) => {
@@ -726,7 +729,7 @@ export default class HerdrZed extends View {
           if (pane) closeThreadPane(pane.pane);
           else run('terminal.kill', { terminal: terminal.address });
         })
-        .child(glyph('close', ROW_GLYPH)));
+        .child(glyph('close', ROW_GLYPH)))));
   }
 
   render(cx) {

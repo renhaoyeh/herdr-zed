@@ -127,11 +127,15 @@ titles). Where they conflict, this file wins.
 - One hover treatment for all interactive elements: background `hover`, no border or color shift; selected
   state uses `selected`; disabled is 45% opacity and never hovers. Non-interactive rows never hover.
   Exception: filled buttons (default, destructive) dim to 90% on hover instead.
-- Hover-revealed row actions (e.g. thread close) keep their space reserved so rows don't shift.
+- Hover-revealed row actions keep their space reserved so rows don't shift.
 - Nested row actions use the `chrome` background on hover, appearing darker than their hovered parent row in the dark theme.
 - The hover color remains distinct from the selected pane header, so actions remain visible when the pane is focused.
-- A thread row spins, blocks or ticks only from what its agent reports. A plain terminal, even one running a
+- A thread row shows agent status only from what its agent reports. A plain terminal, even one running a
   foreground command, shows the terminal icon.
+- Sidebar thread rows keep their program icon on the left and a distinct status symbol immediately after the title:
+  a spinner for Working, an alert for Blocked, a check for Done; idle shows none. Color supplements the shape.
+  The trailing action (Stop, Archive or Close) appears on hover in a reserved slot.
+  Status stays visible and stationary on hover. Account badges stay in pane headers.
 
 ## Dialogs
 

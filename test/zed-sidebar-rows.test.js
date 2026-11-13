@@ -59,7 +59,7 @@ async function sidebar({ tabs, agents = [], panes = [], terminals = [] }) {
   Object.assign(host, { withAttachments: text => text, AttachmentStrip: () => null, pasteClipboardImage: async () => null });
   Object.assign(host, await evaluateNative('../mods/herdr-zed/start-panel.js', host, 'startPanel, COMPOSE_KEY, startProjectKey'));
   Object.assign(host, await evaluateNative('../mods/herdr-zed/decorations.js', host, 'threadDecorations, decorationTone'));
-  Object.assign(host, { threadArchive: { threadBusy: () => false, archiveThread() {}, restoreThread() {}, historyList: () => ui() }, historyEligible: () => false });
+  Object.assign(host, { threadArchive: { threadBusy: thread => thread.agents.some(agent => ['working', 'blocked'].includes(agent.status)), archiveThread() {}, restoreThread() {}, historyList: () => ui() }, historyEligible: () => false });
   Object.assign(host, await evaluateNative('../mods/herdr-zed/thread-close.js', host, 'closeThreadTab, closeThreadPane, isProjectPlaceholder'));
   Object.assign(host, { IMAGE_PREVIEW_VIEW: 'image-preview', ImagePreview: () => null });
   const { HerdrZed } = await evaluateNative('../mods/herdr-zed/main.js', host, 'HerdrZed');
@@ -81,11 +81,12 @@ test('a plain terminal without an agent shows the terminal icon, never the worki
   assert.ok(elements(byId(foreground, 'thread-t')).some(element => element.attributes.id === 'terminal'), 'the terminal icon is drawn');
 });
 
-test('the thread row spins, blocks or ticks only from what its agent reports', async () => {
+test('thread status uses distinct shapes after the title and stays visible on hover', async () => {
   const agent = (status) => ({ address: 'a', tab: 't', space: 's', app: 'codex', title: 'Native thread', status, program });
   const pane = [{ pane: 'p', terminal: 'a', tab: 't', space: 's', focused: true, program }];
-  const working = (await sidebar({ tabs: [agentTab], agents: [agent('working')], panes: pane,
-    terminals: [{ address: 'a', tab: 't', state: 'live', status: 'working', argv: ['codex'], program }] })).render();
+  const workingView = await sidebar({ tabs: [agentTab], agents: [agent('working')], panes: pane,
+    terminals: [{ address: 'a', tab: 't', state: 'live', status: 'working', argv: ['codex'], program }] });
+  const working = workingView.render();
   assert.ok(labels(byId(working, 'thread-t')).includes('Working'));
   const blocked = (await sidebar({ tabs: [agentTab], agents: [agent('blocked')], terminals: [{ address: 'a', tab: 't', state: 'live', argv: ['codex'], program }] })).render();
   assert.ok(labels(byId(blocked, 'thread-t')).includes('Blocked'));
@@ -96,6 +97,30 @@ test('the thread row spins, blocks or ticks only from what its agent reports', a
   assert.equal(labels(byId(idle, 'thread-t')).includes('Working'), false);
   const done = (await sidebar({ tabs: [agentTab], agents: [agent('done')], terminals: [{ address: 'a', tab: 't', state: 'live', argv: ['codex'], program }] })).render();
   assert.ok(labels(byId(done, 'thread-t')).includes('Done'));
+  for (const [root, label, glyph] of [[working, 'Working', 'loader'], [blocked, 'Blocked', 'circle-alert'], [done, 'Done', 'circle-check'], [idle, null, null]]) {
+    const row = byId(root, 'thread-t'), status = byId(row, 'thread-status-t');
+    assert.ok(elements(row.nodes[0]).some(element => element.attributes.id === program.icon), 'the program icon stays on the left in every state');
+    if (label) {
+      assert.deepEqual(labels(status), [label], 'the symbol names the reported state');
+      assert.ok(elements(status).some(element => element.attributes.id === glyph), 'each status has a recognizable shape');
+      assert.equal(row.nodes[1].nodes[1], status, 'status sits immediately after the title');
+    } else assert.equal(status, undefined, 'idle has no status symbol');
+    assert.equal(row.nodes.at(-1).attributes.size, 24, 'the action keeps a fixed slot');
+    assert.equal(labels(status).includes('Stop generation'), false, 'the action is hidden until hover');
+  }
+  byId(working, 'thread-t').attributes.on_hover(true, { notify() {} });
+  const hovered = workingView.render(), hoveredSlot = byId(hovered, 'thread-status-t');
+  assert.deepEqual(labels(hoveredSlot), ['Working'], 'status stays visible on hover');
+  const hoveredRow = byId(hovered, 'thread-t');
+  assert.equal(hoveredRow.nodes[1].nodes[1], hoveredSlot, 'status stays beside the title on hover');
+  assert.ok(elements(hoveredRow.nodes.at(-1)).includes(byId(hoveredRow, 'stop-thread-t')), 'Stop appears at the far right');
+  assert.deepEqual(hoveredSlot.attributes, byId(working, 'thread-status-t').attributes, 'hover never moves or hides status');
+  assert.ok(byId(hoveredRow, 'stop-thread-t').click, 'Stop remains interactive');
+  byId(hovered, 'thread-t').attributes.on_hover(false, { notify() {} });
+  const unhovered = byId(workingView.render(), 'thread-t');
+  assert.equal(byId(unhovered, 'stop-thread-t'), undefined, 'leaving hides the action');
+  assert.equal(unhovered.nodes.at(-1).attributes.size, 24, 'the action slot stays fixed');
+  assert.deepEqual(labels(byId(unhovered, 'thread-status-t')), ['Working']);
 });
 
 test('a split pane is named by its program or title, and a raw terminal id is never its label', async () => {
