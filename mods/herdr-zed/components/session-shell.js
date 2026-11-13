@@ -10,11 +10,16 @@ export function commandArgv(argv, platform) {
 export function terminalArgv(argv, platform) {
   const command = commandArgv(argv, platform);
   if (platform !== 'windows' || command?.[2] !== 'alias.herdr-zed-shell=!sh') return command;
-  // PowerShell 5.1 strips embedded double quotes; let Git's shell decode them instead.
-  const escapes = { '\\': '\\\\', "'": "\\'", '"': '\\x22', '\r': '\\r', '\n': '\\n' };
-  const script = command.map(arg => `$'${arg.replace(/[\\'"\r\n]/g, char => escapes[char])}'`).join(' ');
-  return gitShellCommand(['-c', `exec ${script}`]);
+  // Git's MSYS shell truncates long -c arguments on Windows. Carry the literal
+  // script in a process-local environment variable instead, retaining terminal stdin.
+  // Encode whitespace so the short eval command's word splitting is lossless.
+  const escapes = { '\\': '\\\\', "'": "\\'", '"': '\\x22', ' ': '\\x20', '\t': '\\t', '\r': '\\r', '\n': '\\n', '‘': '\\xE2\\x80\\x98', '’': '\\xE2\\x80\\x99' };
+  const script = argv.map(arg => `$'${arg.replace(/[\\'" \t\r\n‘’]/g, char => escapes[char])}'`).join(' ');
+  return ['powershell.exe', '-NoProfile', '-Command', WINDOWS_SHELL_PREFIX + `'unset HERDR_ZED_COMMAND; exec ${script.replace(/'/g, "''")}'` + WINDOWS_SHELL_SUFFIX];
 }
+
+const WINDOWS_SHELL_PREFIX = '$env:HERDR_ZED_COMMAND = ';
+const WINDOWS_SHELL_SUFFIX = "; & (Join-Path (& git --exec-path) '../../../usr/bin/sh.exe') '-c' 'eval $HERDR_ZED_COMMAND'";
 
 // Read only the literal quoting emitted by our Windows launchers; never run shell text.
 function launcherWords(script, ansi = false) {
@@ -41,8 +46,12 @@ function launcherWords(script, ansi = false) {
         parts.push(script.slice(start, offset));
         const escape = script[++offset];
         if (script.startsWith('x22', offset)) { parts.push('"'); offset += 3; }
-        else if (escape === '\\' || escape === "'" || escape === 'r' || escape === 'n') {
-          parts.push(escape === 'r' ? '\r' : escape === 'n' ? '\n' : escape); offset++;
+        else if (script.startsWith('x20', offset)) { parts.push(' '); offset += 3; }
+        else if (script.startsWith('xE2\\x80\\x98', offset) || script.startsWith('xE2\\x80\\x99', offset)) {
+          parts.push(script.startsWith('xE2\\x80\\x98', offset) ? '‘' : '’'); offset += 11;
+        }
+        else if (escape === '\\' || escape === "'" || escape === 'r' || escape === 'n' || escape === 't') {
+          parts.push(escape === 'r' ? '\r' : escape === 'n' ? '\n' : escape === 't' ? '\t' : escape); offset++;
         } else return null;
         start = offset;
         nextEscape = script.indexOf('\\', offset);
@@ -64,6 +73,13 @@ export function unwrapTerminalArgv(argv = []) {
     if (/(?:^|[/\\])(?:powershell|pwsh)(?:\.exe)?$/i.test(argv[0] || '')) {
       const command = argv.findIndex(arg => /^-command$/i.test(arg));
       const script = command >= 0 && command === argv.length - 2 && argv[command + 1];
+      if (typeof script === 'string' && script.startsWith(WINDOWS_SHELL_PREFIX) && script.endsWith(WINDOWS_SHELL_SUFFIX)) {
+        const literal = launcherWords(script.slice(WINDOWS_SHELL_PREFIX.length, -WINDOWS_SHELL_SUFFIX.length));
+        const prefix = 'unset HERDR_ZED_COMMAND; exec ';
+        const words = literal?.length === 1 && literal[0].startsWith(prefix) && launcherWords(literal[0].slice(prefix.length), true);
+        if (!words?.length) break;
+        argv = words; continue;
+      }
       const words = typeof script === 'string' && script.startsWith('& ') && launcherWords(script.slice(2));
       if (!words || words[0] !== 'git' || words[2] !== 'alias.herdr-zed-shell=!sh') break;
       argv = words;
