@@ -399,10 +399,13 @@ export const archivable = (thread, terminals = []) => (thread.agents || []).some
   && !String(thread.space || '').includes('/');
 
 // An agent run inside an existing shell keeps the terminal's identity.
-export function threadProgram(thread, terminals, fallback = thread?.agent?.program) {
+export function threadProgram(thread, terminals, fallback = thread?.agent?.program, address) {
   const agent = thread?.agent;
-  const terminal = terminals.find(terminal => terminal.address === agent?.address);
-  return terminal && ['claude-code', 'codex'].includes(agent?.app) && !commandKind(terminal.argv) ? null : fallback;
+  const terminal = terminals.find(terminal => terminal.address === (agent?.address || address));
+  if (terminal && ['claude-code', 'codex'].includes(agent?.app) && !commandKind(terminal.argv)) return null;
+  // Reconnected panes can still describe the launch shell. The live agent's program
+  // carries its reported identity; terminal metadata also works before it reports again.
+  return agent?.program || terminal?.program || fallback;
 }
 
 // The agent command inside a terminal's argv, without the login shell Herdr wraps it in.

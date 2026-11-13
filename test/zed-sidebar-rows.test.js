@@ -70,6 +70,20 @@ async function sidebar({ tabs, agents = [], panes = [], terminals = [] }) {
 const shellTab = { id: 't', name: 'Shell', named: false, active: true };
 const agentTab = { id: 't', name: 'Native thread', named: true, active: true };
 
+test('reconnected thread rows recover the program icon from live metadata', async () => {
+  const shell = { key: 'shell', shell: true, icon: null };
+  const panes = [{ pane: 'p', terminal: 'a', tab: 't', focused: true, program: shell }];
+  for (const agents of [[], [{ address: 'a', tab: 't', space: 's', app: 'codex', status: 'idle', program }]]) {
+    const root = (await sidebar({ tabs: [agentTab], panes, agents,
+      terminals: [{ address: 'a', state: 'live', argv: ['codex'], program }] })).render();
+    assert.ok(elements(byId(root, 'thread-t').nodes[0]).some(element => element.attributes.id === program.icon));
+  }
+  const embedded = (await sidebar({ tabs: [agentTab], panes,
+    agents: [{ address: 'a', tab: 't', space: 's', app: 'codex', status: 'idle', program }],
+    terminals: [{ address: 'a', state: 'live', argv: ['pwsh'], program }] })).render();
+  assert.ok(elements(byId(embedded, 'thread-t').nodes[0]).some(element => element.attributes.id === 'terminal'));
+});
+
 test('a plain terminal without an agent shows the terminal icon, never the working spinner', async () => {
   const tabs = [{ ...shellTab, status: 'working' }];
   const busy = (await sidebar({ tabs, terminals: [{ address: 'a', tab: 't', state: 'live', status: 'working', argv: ['npm', 'run', 'dev'] }] })).render();

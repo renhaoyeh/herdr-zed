@@ -509,7 +509,7 @@ export default class HerdrZed extends View {
     const members = panes().filter(pane => pane.tab === p.tab);
     const primary = members.find(pane => pane.terminal === thread?.agents[0]?.address) || members[0];
     const secondary = members.length > 1 && primary?.pane !== p.pane;
-    const program = secondary ? p.program : threadProgram(thread, terminals(), p.program);
+    const program = secondary ? p.program : threadProgram(thread, terminals(), p.program, p.terminal);
     const title = secondary ? p.title || 'Terminal' : thread?.tab.name === '__herdr_zed_default_terminal__' && !thread.agent ? 'Terminal' : thread?.title || p.title || 'Terminal';
     const project = this.projects().find(project => project.id === thread?.space);
     const maximized = conversationMaximized(project);
@@ -598,7 +598,7 @@ export default class HerdrZed extends View {
     // Status comes from an agent's report only; a terminal without an agent shows its icon alone.
     const reported = this.agentStatus(thread, live);
     const isFocused = thread.active && (!members.some(pane => pane.focused) || Boolean(primary?.focused));
-    const p = threadProgram(thread, live, primary?.program);
+    const p = threadProgram(thread, live, primary?.program, primary?.terminal);
     const stopping = this.threadBusy(thread, live);
     const archivable = !stopping && historyEligible(thread, live);
     const decoration = (this.renderModel?.decorations || this.decorationsNow()).get(thread.tab.id);
