@@ -16,42 +16,31 @@ for (const provider of ['asana', 'mantisbt']) test(`${provider} runs across modu
     globalThis: { window: { sessionStorage } }, shared: key => memory[key], setShared: (key, value) => { memory[key] = structuredClone(value); },
     openOverlay: spec => { overlays.push(spec); return 'source-overlay'; }, closeOverlay: id => closed.push(id),
   };
-  const channelNames = 'createSourceChannel, sourceChannel, sourceChannels, publishSourceEvent, consumeSourceEvents, closeSourceChannel, sourceModuleOptions';
-  const host = { ...base, folderKey: value => value.replace(/\/+$/, ''), notify: message => assert.fail(message.body) };
-  Object.assign(host, await evaluateNative('../components/source-channel.js', host, channelNames));
-  const { TaskSources } = await evaluateNative('../mods/herdr-zed-tasks/task-sources.js', host, 'TaskSources');
   const project = { id: 'original', name: 'Original', folder: '/original' };
-  const consumer = new TaskSources((context, snapshot) => drafts.push({ context, snapshot }));
-  consumer.open(project, provider);
-  const target = { ...overlays.at(-1).props, overlay: 'source-overlay' };
-  assert.equal(overlays.at(-1).mod, `herdr-zed-${provider}`);
-  assert.equal(overlays.at(-1).modal, false, 'Clicking the backdrop dismisses the source browser');
-  // The provider gets serialized props, never a function or native view belonging to Devkits.
-  assert.deepEqual(JSON.parse(JSON.stringify(target)), target);
   const sourceContext = { ...base, globalThis: { window: { sessionStorage: storage() } } };
-  Object.assign(sourceContext, await evaluateNative('../components/source-channel.js', sourceContext, channelNames));
+  const { importTarget, importRequest } = await evaluateNative(`../mods/herdr-zed-${provider}/import-target.js`, {}, 'importTarget, importRequest');
+  const importer = importTarget({ packages: [{ mod: 'herdr-zed-tasks', title: 'Tasks', enabled: true,
+    provides: { importer: { accepts: ['task-snapshot'], view: 'import-draft' } } }] });
   Object.assign(sourceContext, await evaluateNative('../components/task-source-model.js', sourceContext, 'filterTasks, sourceTaskSnapshot'));
   const { TaskSourceController } = await evaluateNative('../components/task-source.js', sourceContext, 'TaskSourceController');
   const source = { key: provider, ...(provider === 'mantisbt' ? { server: true, normalizeUrl: url => url.replace(/\/+$/, '') } : {}) };
-  const browser = new TaskSourceController(sourceContext.sourceModuleOptions(source, target));
-  const binding = { gid: 'p1', name: 'Tracker', ...(provider === 'mantisbt' ? { server: 'https://tracker.test' } : {}) };
-  browser.setBinding('/original', binding);
+  const browser = new TaskSourceController({ source, onImport: snapshot => {
+    const request = importRequest(importer, { source: provider, context: project, snapshot });
+    overlays.push(request); drafts.push(request.props);
+  } });
   const task = { gid: 'same-id', name: 'Source task', notes: 'Original description', url: 'https://tracker.test/task/same-id',
     priority: 'High', customFields: [{ gid: 'effort', name: 'Estimate', type: 'number', value: 0, displayValue: '0', token: 'private' }],
     parent: { gid: 'parent', name: 'Parent', url: 'https://tracker.test/parent', token: 'private' },
     comments: [{ author: 'Amy', text: 'Keep this context', token: 'private' }], token: 'private' };
   browser.detail = task; browser.server = 'https://tracker.test/';
   assert.equal(browser.import(), true);
-  sourceContext.publishSourceEvent(target.channel, { type: 'close' });
-  assert.equal(tasks.length, 0); assert.equal(drafts.length, 0, 'The producer does not create a local task');
-  consumer.poll(cx); consumer.poll(cx);
+  assert.equal(tasks.length, 0, 'The producer does not create a local task');
   assert.equal(drafts.length, 1); assert.equal(drafts[0].context.folder, '/original');
   assert.equal(drafts[0].snapshot.source, provider);
   assert.equal(JSON.stringify(drafts).includes('private'), false, 'Credentials and arbitrary UI/connection fields never cross the import boundary');
-  assert.deepEqual(memory[`herdr-zed.${provider}-projects`]['["","/original"]'], binding);
-  assert.equal(host.sourceChannels('herdr-zed-tasks').length, 0);
+  assert.deepEqual(JSON.parse(JSON.stringify(drafts[0])), drafts[0]);
   const composerHost = { ...base, boardKey, taskActions, liveAgents: () => [], InputState: input, TextareaState: input, SelectState: class {},
-    importedTask: () => null, createLocalTask: (_project, name, notes, fields) => { const result = { gid: 'local:1', source: 'local', name, notes, ...fields }; tasks.push(result); return result; },
+    openTasks() {}, importedTask: () => null, createLocalTask: (_project, name, notes, fields) => { const result = { gid: 'local:1', source: 'local', name, notes, ...fields }; tasks.push(result); return result; },
   };
   const { TaskComposer } = await evaluateNative('../mods/herdr-zed-tasks/task-composer.js', composerHost, 'TaskComposer');
   const composer = new TaskComposer(); composer.init({ project: drafts[0].context, importTask: drafts[0].snapshot, overlay: 'composer' }, cx);
@@ -63,21 +52,6 @@ for (const provider of ['asana', 'mantisbt']) test(`${provider} runs across modu
   assert.equal(tasks[0][provider].fields.priority, 'High');
   assert.deepEqual(tasks[0][provider].customFields, [{ gid: 'effort', name: 'Estimate', type: 'number', value: 0, displayValue: '0' }]);
   if (provider === 'mantisbt') assert.equal(tasks[0].mantisbt.server, 'https://tracker.test');
-});
-
-test('closing a source window consumes its request without importing, while other project requests remain independent', async () => {
-  const sessionStorage = storage(), overlays = [], imported = [], memory = {};
-  const host = { globalThis: { window: { sessionStorage } }, shared: key => memory[key], setShared: (key, value) => { memory[key] = structuredClone(value); }, folderKey: path => path,
-    openOverlay: spec => overlays.push(spec), notify: message => assert.fail(message.body) };
-  Object.assign(host, await evaluateNative('../components/source-channel.js', host,
-    'createSourceChannel, sourceChannels, consumeSourceEvents, closeSourceChannel, publishSourceEvent'));
-  const { TaskSources } = await evaluateNative('../mods/herdr-zed-tasks/task-sources.js', host, 'TaskSources');
-  const consumer = new TaskSources((project, task) => imported.push([project.folder, task.gid]));
-  consumer.open({ id: 'a', folder: '/a' }, 'asana'); consumer.open({ id: 'b', folder: '/b' }, 'asana');
-  host.publishSourceEvent(overlays[0].props.channel, { type: 'close' });
-  host.publishSourceEvent(overlays[1].props.channel, { type: 'import', snapshot: { source: 'asana', gid: 'same-id' } });
-  consumer.poll(cx);
-  assert.deepEqual(imported, [['/b', 'same-id']]);
 });
 
 test('SYSTEM samples in its service only and broadcasts snapshots to isolated mod contexts without persisting data', async t => {

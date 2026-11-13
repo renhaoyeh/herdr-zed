@@ -1,7 +1,6 @@
 import { div } from 'gpui-kit';
 import { h_flex, v_flex, InputState, Input, TextareaState, Textarea, TextView } from 'gpui-base';
-import { shared, setShared, openOverlay, closeOverlay, props, appHome, readTextFile, agents as currentAgents, spaces as currentSpaces } from 'herdr';
-import { closeWorkspaceView } from './components/workspace-overlay.js';
+import { shared, setShared, openOverlay, appHome, readTextFile, agents as currentAgents, spaces as currentSpaces } from 'herdr';
 import { SourceTaskReader, installedSources } from './task-sources.js';
 import { TaskSession } from './task-session.js';
 import { boardStatuses, boardKey, liveVersion, boardPriorityOptions, boardPriorities, canStartTask, taskActions, taskManualStatusOptions, taskChildren, canAddSubtask, taskExecutionLabel } from './agent-board-model.js';
@@ -170,9 +169,9 @@ export default class AgentBoard {
     const t = boardTheme(), tasks = projectBoardTasks(project, agents);
 
     const focus = shared('herdr-zed.board-focus');
-    if (focus) {
+    if (focus?.project === boardKey(project)) {
       setShared('herdr-zed.board-focus', null);
-      const task = tasks.find(task => task.gid === focus);
+      const task = tasks.find(task => task.gid === focus.gid);
       if (task) { this.archived = Boolean(task.archived); this.show(task, project, cx); }
     }
     const query = this.search.value().trim().toLowerCase();
@@ -302,15 +301,12 @@ export default class AgentBoard {
       .on_mouse_up('left', (_event, cx) => this.cancelDrag(cx))
       .on_hover((inside, cx) => { if (!inside) this.cancelDrag(cx); })
       .child(h_flex().h(44).flex_none().px(24).gap(10).items_center().border_b(1).border_color(t.border).text_size(13)
-        .when(!props()?.sourceHub, el => el.child(glyph('columns-3', 15)).child(div().font_semibold().child('Tasks')))
         .child(div().flex_1())
         .when(sources.length > 0, el => el.child(DropdownMenu('board-import-menu', this.importMenu,
           button('board-import', t).pl(8).pr(10).h(28).child('Import from…').child(glyph('chevron-down', 12)),
           sources.map(source => ({ key: source.key, label: source.label, icon: source.key })), key => actions.importSource(key), t)))
         .child(button('board-new-task', t).pl(8).pr(10)
-          .on_click(() => this.compose(project)).child(glyph('plus', 14)).child('New task'))
-        .when(!props()?.sourceHub, el => el.child(button('board-close', t, { size: 'icon' }).accessibility_label('Close Tasks').tooltip('Close Tasks')
-          .on_click(() => closeWorkspaceView()).child(glyph('close', 14)))))
+          .on_click(() => this.compose(project)).child(glyph('plus', 14)).child('New task')))
       .child(h_flex().h(44).flex_none().px(8).gap(4).items_center().text_size(12)
         .child(tab('board-active', 'Active', !this.archived, () => { this.archived = false; this.selected = null; }))
         .child(tab('board-archived', 'Archived', this.archived, () => { this.archived = true; this.selected = null; }))

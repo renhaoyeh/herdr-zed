@@ -7,7 +7,7 @@ const tabs = [
   { id: 'asana', title: 'Asana', mod: 'herdr-zed-asana', props: { view: 'browser' }, hosted: true },
   { id: 'mantisbt', title: 'MantisBT', mod: 'herdr-zed-mantisbt', props: { view: 'browser' }, hosted: true },
 ];
-const hub = { title: 'Tasks v2', hostMod: 'herdr-zed-tasks', stack: 'queue-stack', tabs, selected: 'asana', bindingsKey: 'herdr-zed.tasks-v2.bindings', stateKey: 'herdr-zed.tasks-v2.native', workspaceAction: 'tasks.open-v2' };
+const hub = { title: 'Tasks', hostMod: 'herdr-zed-tasks', stack: 'queue-stack', tabs, selected: 'asana', bindingsKey: 'herdr-zed.tasks-v2.bindings', stateKey: 'herdr-zed.tasks-v2.native', workspaceAction: 'tasks.open' };
 const projectKey = folder => JSON.stringify(['', folder]);
 
 test('original source host follows the live outer project and switches original modules within the same workspace action', async () => {

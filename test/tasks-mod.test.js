@@ -13,7 +13,7 @@ test('the Tasks and Calendar manifests parse with the shell model: importer, dec
   const tasks = await read('herdr-zed-tasks'), calendar = await read('herdr-zed-calendar');
   const tasksActions = parseExtensionManifest('herdr-zed-tasks', tasks);
   assert.deepEqual(tasksActions.map(action => [action.id, action.location, action.popup.view, action.popup.modal]),
-    [['tasks.open', 'status.right', 'board-v2', false]]);
+    [['tasks.open', 'status.right', 'workspace', false]]);
   const tasksMeta = extensionMetadata('herdr-zed-tasks', tasks);
   assert.deepEqual(tasksMeta.provides, { importer: { accepts: ['task-snapshot'], view: 'import-draft' }, threadDecorator: { fields: ['subtitle', 'tone'] } });
   assert.deepEqual(tasksMeta.services, [{ view: 'service' }]); assert.deepEqual(tasksMeta.requires, []);
@@ -281,7 +281,7 @@ async function modules(records = {}, projects = [{ id: 'p', folder: '/project', 
   base.openWorkspacePanel = (await evaluateNative('../components/workspace-overlay.js', { shared: key => clone(memory[key]), settings: () => ({ zoom: 1 }),
     openOverlay: base.openOverlay, setShared: base.setShared, closeOverlay: base.closeOverlay, props: base.props }, 'openWorkspacePanel')).openWorkspacePanel;
   const client = await evaluateNative('../components/tasks.js', base,
-    'tasksSnapshot, listTasks, projectBoardTasks, boardRecords, taskLinkForTab, threadBoardStatus, threadBoardTask, threadTaskArchived, threadVisibleInSidebar, taskActions, sessionThreadTitle, openTaskBoard');
+    'tasksSnapshot, listTasks, projectBoardTasks, boardRecords, taskLinkForTab, threadBoardStatus, threadBoardTask, threadTaskArchived, threadVisibleInSidebar, taskActions, sessionThreadTitle, openTasks');
   const owner = { ...base, ...policy, ...client };
   // Policy and mutations are loaded only into the Tasks context, never into the consumer context.
   Object.assign(owner, policy);
@@ -290,7 +290,7 @@ async function modules(records = {}, projects = [{ id: 'p', folder: '/project', 
     'projectBoardTasks, boardRecords, taskLinkForTab, threadBoardStatus, threadBoardTask, sessionThreadTitle, rememberBoardTask, setTaskArchived, setTaskDueDate, deleteLocalTask, createLocalTask, importedTask'));
   Object.assign(owner, await evaluateNative('../components/source-channel.js', owner,
     'createSourceChannel, sourceChannels, consumeSourceEvents, closeSourceChannel'));
-  Object.assign(owner, await evaluateNative('../mods/herdr-zed-tasks/task-sources.js', owner, 'TaskSources, resolveTaskImport, findProject, installedSources'));
+  Object.assign(owner, await evaluateNative('../mods/herdr-zed-tasks/task-sources.js', owner, 'resolveTaskImport, findProject, installedSources'));
   Object.assign(owner, await evaluateNative('../mods/herdr-zed-tasks/task-prompt.js', owner, 'taskPrompt'));
   // Stand-in for the Agents public client: records each launch and resolves with the prepare metadata it chose.
   const launches = [];
@@ -333,7 +333,7 @@ test('Tasks service publishes one authoritative Sidebar/Calendar projection whil
   assert.deepEqual(h.native, []);
 });
 
-test('Calendar reads the public Tasks index and opens the Tasks board popup for the selected task', async () => {
+test('Calendar reads the public Tasks index and opens the Tasks workspace for the selected task', async () => {
   const projects = [{ id: 'a', name: 'A', folder: '/a', tabs: [] }, { id: 'b', name: 'B', folder: '/b', tabs: [] }];
   const h = await modules({ '["","/a"]': { same: { gid: 'same', name: 'Same name', source: 'local', status: 'todo' } },
     '["","/b"]': { same: { gid: 'same', name: 'Same name', source: 'local', status: 'done', archived: true } } }, projects);
@@ -345,9 +345,9 @@ test('Calendar reads the public Tasks index and opens the Tasks board popup for 
   const selected = tasks.find(task => task.project.id === 'b');
   assert.equal(calendar.calendar.options.openTask(selected.id), true, 'Calendar closes itself only when the board has opened');
   assert.deepEqual(h.overlays.at(-1), { mod: 'herdr-zed-tasks', kind: 'dialog', frame: 'none', modal: false, width: 0.9, height: 0.86,
-    props: { view: 'board', context: selected.project, focus: 'same' } });
+    props: { view: 'workspace', context: selected.project, focus: 'same', workspaceAction: 'tasks.open' } });
   assert.equal(calendar.calendar.options.openTask('missing'), false);
-  assert.deepEqual(h.closed, []); assert.deepEqual(h.native, []);
+  assert.deepEqual(h.closed, []); assert.deepEqual(h.native, [['run', 'herdr-zed.select-project:b']]);
 });
 
 test('Calendar refuses a task that left the Tasks read model and opens nothing', async () => {
@@ -429,13 +429,14 @@ test('confirming a hosted import selects Tasks and focuses its local card withou
   const { TaskComposer } = await evaluateNative('../mods/herdr-zed-tasks/task-composer.js', h.owner, 'TaskComposer');
   const hub = { stateKey: 'herdr-zed.tasks-v2.native', stack: 'retained', tabs: [{ id: 'tasks' }] };
   h.memory[`${hub.stateKey}.config`] = hub;
-  const options = { project: h.state.projects[0], overlay: 'import', returnHub: hub.stateKey,
+  h.memory['herdr-zed.workspace-panel.active'] = { hosted: true, action: 'tasks.open', overlay: 'hosted' };
+  const options = { project: h.state.projects[0], overlay: 'import',
     importTask: { source: 'asana', gid: '42', name: 'Imported', notes: 'Body', fields: { section: 'Backlog' } } };
   const composer = new TaskComposer(); composer.init(options, clock.cx); composer.submit([], clock.cx);
   const task = Object.values(h.owner.boardRecords(options.project))[0];
   assert.equal(task.source, 'local'); assert.equal(task.asana.gid, '42'); assert.equal(task.status, 'todo');
-  assert.equal(h.memory[`${hub.stateKey}.selected`], 'tasks'); assert.equal(h.memory['herdr-zed.board-focus'], task.gid);
-  assert.deepEqual(h.native, [['run', 'layout.select', { stack: 'retained', child: 'retained-tasks' }]]);
+  assert.equal(h.memory[`${hub.stateKey}.selected`], 'tasks'); assert.deepEqual(h.memory['herdr-zed.board-focus'], { project: '["","/project"]', gid: task.gid });
+  assert.deepEqual(h.native, [['run', 'herdr-zed.select-project:p'], ['run', 'layout.select', { stack: 'retained', child: 'retained-tasks' }]]);
   assert.deepEqual(h.launches, []);
   const again = new TaskComposer(); again.init(options, clock.cx); again.submit([], clock.cx);
   assert.equal(Object.keys(h.owner.boardRecords(options.project)).length, 1);
@@ -570,23 +571,12 @@ test('Import from offers only enabled source browsers that loaded without error'
   assert.deepEqual(h.owner.installedSources(catalog([{ mod: 'herdr-zed-simulator', enabled: true }])), []);
 });
 
-test('Import from opens the chosen source browser for the board project through the existing source channel', async () => {
-  const h = await modules();
-  const project = h.state.projects[0];
+test('Import from selects a retained source tab without opening a separate source window', async () => {
+  const h = await modules(), selected = [];
+  h.runtime.openSource = source => selected.push(source);
   h.runtime.agentBoard = { render: (_p, _a, _l, actions) => actions };
-  const actions = h.runtime.boardPanel(project, context().cx);
-  actions.importSource('mantisbt');
-  const overlay = h.overlays.at(-1);
-  assert.equal(overlay.mod, 'herdr-zed-mantisbt');
-  assert.equal(overlay.props.importLabel, 'Import into Tasks');
-  assert.equal(overlay.props.context.folder, '/project');
-  assert.equal(overlay.props.stateKey, 'herdr-zed.mantisbt');
-});
-
-test('the board header has a Close Tasks control bound to its own overlay, and Import from only appears with sources', async () => {
-  const source = await readFile(new URL('../mods/herdr-zed-tasks/agent-board.js', import.meta.url), 'utf8');
-  assert.match(source, /button\('board-close', t, \{ size: 'icon' \}\)\.accessibility_label\('Close Tasks'\)\.tooltip\('Close Tasks'\)\s*\.on_click\(\(\) => closeWorkspaceView\(\)\)/);
-  assert.match(source, /\.when\(sources\.length > 0, el => el\.child\(DropdownMenu\('board-import-menu'/);
+  h.runtime.boardPanel(h.state.projects[0], context().cx).importSource('mantisbt');
+  assert.deepEqual(selected, ['mantisbt']); assert.deepEqual(h.overlays, []);
 });
 
 test('archiving preserves each board stage and restoring never completes or restarts the task', async () => {

@@ -112,6 +112,10 @@ export default class HerdrZed extends View {
         if (command === 'new-thread') this.newThread(cx);
         if (command === 'reveal-conversation') this.showConversation(true);
         if (command === 'project-search') this.openProjectSearch(cx);
+        if (command.startsWith('select-project:')) {
+          const project = this.projects().find(project => encodeURIComponent(project.id) === command.slice('select-project:'.length));
+          if (project) this.selectProject(project);
+        }
         // herdr-zed.settings opens the General page; herdr-zed.settings:<key> a shell page (general, git, extensions)
         // or an extension's page (ARCHITECTURE §2.1).
         if (command === 'settings') openSettings('general', this.projects().find(project => project.active));

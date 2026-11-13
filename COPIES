@@ -22,18 +22,18 @@ shared-mcp-model.js: herdr-zed-agents
 shared-mcp.js: herdr-zed-agents
 side-panel.js: herdr-zed herdr-zed-tasks
 sidebar.js: herdr-zed
-source-channel.js: herdr-zed-asana herdr-zed-mantisbt herdr-zed-tasks
+source-channel.js: herdr-zed-asana herdr-zed-mantisbt
 source-hub.js: herdr-zed-asana herdr-zed-mantisbt herdr-zed-tasks
 source-scope.js: herdr-zed-asana herdr-zed-mantisbt
 switch.js: herdr-zed herdr-zed-agents
 system-monitor-model.js: herdr-zed-system
 system-monitor-topology.js: herdr-zed-system
 system-monitor.js: herdr-zed-system
-task-source-model.js: herdr-zed-asana herdr-zed-mantisbt herdr-zed-tasks
+task-source-model.js: herdr-zed-asana herdr-zed-mantisbt
 task-source.js: herdr-zed-asana herdr-zed-mantisbt
 task-theme.js: herdr-zed-calendar herdr-zed-tasks
 tasks-model.js: herdr-zed-calendar herdr-zed-tasks
-tasks.js: herdr-zed-calendar
+tasks.js: herdr-zed-calendar herdr-zed-tasks
 toggle-group.js: herdr-zed herdr-zed-agents herdr-zed-system
 tree.js: herdr-zed
 usage.js: herdr-zed-agents

@@ -31,12 +31,12 @@ export default class TasksMod extends View {
       });
       return;
     }
-    if (this.target.view === 'board-v2') {
+    if (this.target.view === 'workspace') {
       const sources = installedSources(shared('herdr-zed.extensions.catalog'));
       const tabs = [{ id: 'tasks', title: 'Tasks', mod: 'herdr-zed-tasks', scope: false, props: { view: 'local-tasks' } },
         ...sources.map(source => ({ id: source.key, title: source.label, mod: `herdr-zed-${source.key}`, props: { view: 'browser' } }))];
       const remembered = shared('herdr-zed.tasks-v2.native.selected');
-      const selected = tabs.some(tab => tab.id === remembered) ? remembered : tabs[0].id;
+      const selected = this.target.focus ? 'tasks' : tabs.some(tab => tab.id === remembered) ? remembered : tabs[0].id;
       const hub = { title: 'Tasks', hostMod: 'herdr-zed-tasks', stack: 'herdr-zed-tasks-v2-stack', selected, tabs,
         bindingsKey: 'herdr-zed.tasks-v2.bindings', stateKey: 'herdr-zed.tasks-v2.native', workspaceAction: 'tasks.open' };
       setShared(`${hub.stateKey}.selected`, selected);
@@ -48,9 +48,10 @@ export default class TasksMod extends View {
       });
       return;
     }
+    if (this.target.view === IMAGE_PREVIEW_VIEW) return;
+    if (!['service', 'local-tasks', 'task-composer', 'archive-task', 'delete-task', 'import-draft'].includes(this.target.view)) { this.invalidView = true; return; }
     this.runtime = new TaskRuntime();
     if (this.target.view === 'service') { this.runtime.init(cx); new TasksMcpBridge().init(this.runtime, cx); return; }
-    if (this.target.view === IMAGE_PREVIEW_VIEW) return;
     if (this.target.view === 'local-tasks') {
       this.localHub = new SourceHub(this.target); this.localHub.init();
       this.runtime.openSource = source => this.localHub.open(this.target.sourceHub.tabs.find(tab => tab.id === source));
@@ -73,18 +74,16 @@ export default class TasksMod extends View {
       const resolved = this.runtime.resolveImport(this.target);
       if (resolved.error) this.importError = resolved.error;
       else { this.composer = new TaskComposer(); this.composer.init({ project: resolved.project, task: null, parent: null, status: 'todo',
-        importTask: resolved.snapshot, returnHub: this.target.returnHub, overlay: this.target.overlay }, cx); }
-    } else {
+        importTask: resolved.snapshot, overlay: this.target.overlay }, cx); }
+    } else if (this.localHub) {
       this.runtime.agentBoard = new AgentBoard(); this.runtime.agentBoard.init(cx); this.runtime.agentBoard.handle.focus();
-      if (this.target.focus) setShared('herdr-zed.board-focus', this.target.focus);
     }
   }
-  close() { if (this.target.view === IMAGE_PREVIEW_VIEW || this.redirected) return; if (this.hub || this.noSources) { releaseWorkspacePanel(); return; } releaseWorkspacePanel(); this.composer?.saveDraft(); this.runtime.agentClient.close(); }
+  close() { if (this.target.view === IMAGE_PREVIEW_VIEW || this.redirected || this.invalidView) return; if (this.hub) { releaseWorkspacePanel(); return; } releaseWorkspacePanel(); this.composer?.saveDraft(); this.runtime.agentClient.close(); }
   render(cx) {
     if (this.redirected) return div().size_full();
     if (this.hub) return workspacePanel(this.hub.render().track_focus(this.handle));
-    if (this.noSources) return workspacePanel(v_flex().size_full().p(24).gap(12).child('Enable Asana or MantisBT in Extensions to browse source tasks.')
-      .child(Button('source-hub-empty-close', boardTheme(), { variant: 'ghost' }).on_click(() => closeWorkspaceView()).child('Close')));
+    if (this.invalidView) return div().size_full();
     if (this.target.view === 'service') return div().size_full();
     if (this.target.view === IMAGE_PREVIEW_VIEW) return ImagePreview(this.target, boardTheme());
     const t = boardTheme();
@@ -96,8 +95,7 @@ export default class TasksMod extends View {
       .child(Button('import-close', t, { variant: 'secondary' }).on_click(() => closeOverlay(this.target.overlay)).child('Close'));
     const projects = this.runtime.projects();
     if (this.localHub) this.localHub.sync();
-    const project = findProject(projects, this.target.context || {}) || this.target.project
-      || projects.find(project => project.id === shared('herdr-zed.board-project')) || projects.find(project => project.active);
+    const project = findProject(projects, this.target.context || {}) || projects.find(project => project.active);
     return workspacePanel(project ? this.runtime.boardPanel(project, cx) : div().size_full().bg(t.background).text_color(t.muted).child('Select a project to open Tasks.'));
   }
 }

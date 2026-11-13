@@ -40,6 +40,13 @@ test('local list and board retain selection and search, showing reported results
   const project = { id: 'p', folder: '/p' }, cx = { notify() {}, stop_propagation() {} };
   board.render(project, [], [], {}, cx);
   assert.ok(nodes.has('agent-task-list'));
+  memory['herdr-zed.board-focus'] = { project: '["","/other"]', gid: task.gid };
+  board.render(project, [], [], {}, cx);
+  assert.equal(memory['herdr-zed.board-focus'].gid, task.gid, 'A different project cannot consume a task link');
+  assert.equal(board.selected, null);
+  memory['herdr-zed.board-focus'] = { project: policy.boardKey(project), gid: task.gid };
+  board.render(project, [], [], {}, cx);
+  assert.equal(memory['herdr-zed.board-focus'], null);
   nodes.get('task-row-local:one').click({}, cx);
   assert.equal(board.selected, task.gid);
   nodes.get('tasks-view-board').click({}, cx);

@@ -1,6 +1,7 @@
 import { div } from 'gpui-kit';
 import { h_flex, v_flex, InputState, Input, TextareaState, Textarea } from 'gpui-base';
-import { shared, setShared, closeOverlay, openOverlay, run, agents as liveAgents } from 'herdr';
+import { shared, setShared, closeOverlay, openOverlay, agents as liveAgents } from 'herdr';
+import { openTasks } from './components/tasks.js';
 import { boardTheme } from './components/task-theme.js';
 import { boardKey, boardPriorityOptions, taskActions } from './agent-board-model.js';
 import { launcherOption, accountAddresses } from './components/session-model.js';
@@ -58,13 +59,8 @@ export default class TaskComposer {
   }
   existingImport() { return !this.task && importedTask(this.project, { asana: this.asana, mantisbt: this.mantisbt }); }
   openTask(task) {
-    setShared('herdr-zed.board-focus', task.gid);
-    const hub = this.options.returnHub && shared(`${this.options.returnHub}.config`);
-    if (hub?.tabs?.some(tab => tab.id === 'tasks')) {
-      setShared(`${hub.stateKey}.selected`, 'tasks');
-      run('layout.select', { stack: hub.stack, child: `${hub.stack}-tasks` });
-    }
     closeOverlay(this.options.overlay);
+    openTasks(this.project, task.gid);
   }
   submit(agents, cx) {
     const existing = this.existingImport();

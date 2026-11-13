@@ -10,7 +10,7 @@ async function composer(options = {}) {
   const state = { new: () => ({ value: () => '', set_value(value) { this.value = () => value; }, set_auto_grow() {}, on() {}, focus() {} }) };
   const host = { InputState: state, TextareaState: state, SelectState: class {}, launcherOption, boardKey, liveVersion, taskActions, liveAgents: () => [], projectBoardTasks: () => currentTasks,
     shared: key => memory[key], setShared: (key, value) => { memory[key] = structuredClone(value); }, closeOverlay: id => closed.push(id),
-    importedTask: () => null, createLocalTask: (project, name, notes, fields) => { const task = { gid: 'local:1', name, notes, ...fields }; tasks.push({ project, ...task }); return task; },
+    openTasks: (_project, gid) => { memory['herdr-zed.board-focus'] = gid; }, importedTask: () => null, createLocalTask: (project, name, notes, fields) => { const task = { gid: 'local:1', name, notes, ...fields }; tasks.push({ project, ...task }); return task; },
     rememberBoardTask: (project, task, fields) => tasks.push({ project, ...task, ...fields }) };
   const Composer = new Function(...Object.keys(host), source.replace(/^import .*;\r?\n/gm, '').replace('export default class', 'class')
     .replace(/^export /gm, '') + '\nreturn TaskComposer;')(...Object.values(host));

@@ -1,5 +1,5 @@
 // Shared: edit components/tasks.js, then npm run sync:shared.
-import { shared } from 'herdr';
+import { shared, setShared, run } from 'herdr';
 import { openWorkspacePanel } from './workspace-overlay.js';
 import { taskProjectKey, taskIndex } from './tasks-model.js';
 import { threadTitle, configuredAgents } from './session-model.js';
@@ -36,5 +36,16 @@ export function sessionThreadTitle(tab, agent, project) {
   const launcher = launchers.find(item => item.key === shared('herdr-zed.thread-profiles')?.[tab.id]) || launchers.find(item => item.name === tab.name);
   return threadTitle(tab, agent, project, { launcherName: launcher?.name });
 }
-// Opens the Tasks board popup for a project context ({ id, folder, name, machine }), optionally focusing one task.
-export const openTaskBoard = (context, gid = null) => openWorkspacePanel({ mod: 'herdr-zed-tasks', props: { view: 'board', context, focus: gid } });
+// Every task link opens the same retained workspace and its local Tasks tab.
+export function openTasks(context, gid = null) {
+  if (gid) setShared('herdr-zed.board-focus', { project: taskProjectKey(context), gid });
+  if (context?.id) run(`herdr-zed.select-project:${encodeURIComponent(context.id)}`);
+  const active = shared('herdr-zed.workspace-panel.active');
+  const hub = shared('herdr-zed.tasks-v2.native.config');
+  if (active?.hosted && active.action === 'tasks.open' && hub?.tabs?.some(tab => tab.id === 'tasks')) {
+    setShared(`${hub.stateKey}.selected`, 'tasks');
+    run('layout.select', { stack: hub.stack, child: `${hub.stack}-tasks` });
+    return active.overlay;
+  }
+  return openWorkspacePanel({ mod: 'herdr-zed-tasks', props: { view: 'workspace', context, focus: gid, workspaceAction: 'tasks.open' } });
+}

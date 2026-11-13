@@ -42,7 +42,6 @@ export default class SourceMod extends View {
     this.browser.onImport = target ? snapshot => {
       this.hub?.sync();
       const request = importRequest(target, { source: extensionId, context: this.target.context, snapshot });
-      if (this.hub) request.props.returnHub = this.target.sourceHub.stateKey;
       return openOverlay(request);
     } : undefined;
     return true;

@@ -5,8 +5,7 @@ import { projectBoardTasks, rememberBoardTask, setTaskArchived, threadBoardTask,
 import { observeTaskInput } from './agent-task-evidence.js';
 import { openArchiveTask } from './archive-task.js';
 import { taskPrompt } from './task-prompt.js';
-import { TaskSources, resolveTaskImport } from './task-sources.js';
-import { openTaskComposer } from './task-composer.js';
+import { resolveTaskImport } from './task-sources.js';
 import { AgentClient } from './components/agents.js';
 const startingThreads = new Set();
 const clip = (text, length = 40) => text.length > length ? `${text.slice(0, length - 1)}…` : text;
@@ -15,18 +14,11 @@ const toneFor = (thread, task) => task.execution?.status === 'fail' ? 'error' : 
 export class TaskRuntime {
   agentClient = new AgentClient();
 
-  constructor() { this.taskSources = new TaskSources((context, snapshot) => this.importDraft(context, snapshot)); }
   // Replaced by the board's host view: closes the popup or dialog this runtime is shown in.
   close() {}
   projects() { return projectCatalog(spaces(), shared('herdr-zed.projects') || [], shared('herdr-zed.project-roots') || {}, shared('herdr-zed.selected-project'), shared('herdr-zed.project-order') || []); }
   availableAgents(available, machine) { return machine ? available : configuredAgents(available, shared('herdr-zed.agent-configs') || []); }
   resolveImport(request) { return resolveTaskImport(request, this.projects()); }
-  // A snapshot from an integration is revalidated here, then opens the composer draft. Only its Create button makes a Todo.
-  importDraft(context, snapshot) {
-    const resolved = this.resolveImport({ source: snapshot?.source, context, snapshot });
-    if (resolved.error) { notify({ title: 'Could not import task', body: resolved.error, level: 'error' }); return null; }
-    return openTaskComposer(resolved.project, null, 'todo', resolved.snapshot);
-  }
   // The board's Delete, with the same policy: local tasks and thread cards whose agent is not active.
   deleteTask(project, gid) {
     const current = this.projects().find(item => boardKey(item) === project.key);
@@ -199,7 +191,7 @@ export class TaskRuntime {
   }
   init(cx) {
     this.agentClient.init(cx);
-    this.taskSources.init(cx); this.refresh(cx);
+    this.refresh(cx);
     cx.timer.every(1500, cx => this.refresh(cx));
   }
 
@@ -338,7 +330,7 @@ export class TaskRuntime {
         }).catch(error => notify({ title: 'Could not stop generation', body: error.message, level: 'error' }));
       },
       close: () => this.close(),
-      importSource: source => this.openSource ? this.openSource(source) : this.taskSources.open(project, source),
+      importSource: source => this.openSource(source),
       thread: id => { this.focusThread(id); this.close(); },
       start: (agent, task, options, eventCx) => eventCx.spawn(async cx => {
         const currentProject = this.projects().find(item => item.id === project.id) || project;

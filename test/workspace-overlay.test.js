@@ -52,9 +52,9 @@ test('with a published work area the panel is a borderless window named for work
   const { workspaceOverlay, WORKSPACE_RECT_KEY, WORKSPACE_PANEL_KEY } = await load({ 'herdr-zed.workspace-rect': rect });
   assert.equal(WORKSPACE_RECT_KEY, 'herdr-zed.workspace-rect');
   assert.equal(WORKSPACE_PANEL_KEY, 'herdr-zed.workspace-panel');
-  const spec = workspaceOverlay({ mod: 'herdr-zed-tasks', props: { view: 'board' }, width: 0.5, height: 0.5, modal: true });
+  const spec = workspaceOverlay({ mod: 'herdr-zed-tasks', props: { view: 'workspace' }, width: 0.5, height: 0.5, modal: true });
   assert.deepEqual(spec, { mod: 'herdr-zed-tasks', kind: 'window', key: 'herdr-zed.workspace-panel', frame: 'none',
-    at: { x: 280, y: 32 }, width: 1000, height: 968, props: { view: 'board', docked: true } });
+    at: { x: 280, y: 32 }, width: 1000, height: 968, props: { view: 'workspace', docked: true } });
   assert.equal(spec.modal, undefined, 'a window never dims or closes on a click beside it');
 });
 
@@ -96,7 +96,7 @@ test('openWorkspacePanel opens the spec and records its id, which the shell clos
 
 test('workspacePanel wraps the panel: a press inside it is stopped (no window drag), and Escape closes its overlay', async () => {
   const closed = [];
-  const { workspacePanel } = await load({}, 1, { div: recorder, props: () => ({ overlay: 'overlay-7', view: 'board' }),
+  const { workspacePanel } = await load({}, 1, { div: recorder, props: () => ({ overlay: 'overlay-7', view: 'workspace' }),
     closeOverlay: id => { closed.push(id); return null; } });
   const panel = recorder();
   const root = workspacePanel(panel);

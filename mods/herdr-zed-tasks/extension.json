@@ -17,7 +17,7 @@
       "icon": "columns-3",
       "location": "status.right",
       "popup": {
-        "view": "board-v2",
+        "view": "workspace",
         "width": 0.9,
         "height": 0.86,
         "modal": false,

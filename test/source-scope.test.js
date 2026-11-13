@@ -107,16 +107,34 @@ test('closing a source or changing its scope discards late responses', async () 
 test('Tasks host mounts local Tasks and separate source tabs without constructing a runtime in the redirect view', async () => {
   const memory = {}, mounted = [], timers = [];
   const { TasksMod } = await evaluateNative('../mods/herdr-zed-tasks/main.js', {
-    View: class {}, props: () => ({ view: 'board-v2', context: a }), shared: key => memory[key], setShared: (key, value) => { memory[key] = value; },
+    View: class {}, props: () => ({ view: 'workspace', context: a }), shared: key => memory[key], setShared: (key, value) => { memory[key] = value; },
     installedSources: () => [{ key: 'asana', label: 'Asana' }, { key: 'mantisbt', label: 'MantisBT' }],
     sourceHubLayout: (hub, context, id) => ({ hub, context, id }), mountWorkspaceLayout: (...args) => mounted.push(args),
-    TaskRuntime: class { constructor() { assert.fail('v1 runtime must not initialize'); } },
+    TaskRuntime: class { constructor() { assert.fail('workspace redirect must not initialize a runtime'); } },
   }, 'TasksMod');
   const view = new TasksMod(); view.init({}, { timer: { after: (_ms, work) => timers.push(work) } });
   timers[0]();
   assert.deepEqual(mounted[0][0].hub.tabs.map(tab => tab.id), ['tasks', 'asana', 'mantisbt']);
   assert.equal(mounted[0][0].hub.selected, 'tasks');
   assert.equal(view.redirected, true);
+});
+
+test('the single workspace opens focused local tasks even with sources disabled and rejects the removed board route', async () => {
+  const memory = { 'herdr-zed.tasks-v2.native.selected': 'asana' }, mounted = [], timers = [];
+  let target = { view: 'workspace', focus: 'local:kept' };
+  const { TasksMod } = await evaluateNative('../mods/herdr-zed-tasks/main.js', {
+    View: class {}, props: () => target, shared: key => memory[key], setShared: (key, value) => { memory[key] = value; },
+    IMAGE_PREVIEW_VIEW: 'image-preview', installedSources: () => [],
+    sourceHubLayout: (hub, context, id) => ({ hub, context, id }), mountWorkspaceLayout: (...args) => mounted.push(args),
+    TaskRuntime: class { constructor() { assert.fail('Only the hosted local block may create a runtime'); } },
+  }, 'TasksMod');
+  const view = new TasksMod(); view.init({}, { timer: { after: (_ms, work) => timers.push(work) } });
+  timers[0]();
+  assert.deepEqual(mounted[0][0].hub.tabs.map(tab => tab.id), ['tasks']);
+  assert.equal(mounted[0][0].hub.selected, 'tasks');
+  target = { view: 'board' };
+  const removed = new TasksMod(); removed.init({}, {});
+  assert.equal(removed.invalidView, true);
 });
 
 for (const [key, panelName, sourceName] of [['asana', 'AsanaPanel', 'asanaSource'], ['mantisbt', 'MantisPanel', 'mantisSource']]) {

@@ -159,8 +159,8 @@ once per provider in catalog order.
 ```
 
 The receiving end of task import (Tasks declares it). Integrations look up an enabled importer in the
-public catalog; with none, they hide "Import into …" (current standalone behavior). The importer reuses
-the existing `source-channel.js` protocol (§3.4). The shell only publishes the catalog; it does not relay
+public catalog; with none, they hide "Import into …". Hosted and standalone source browsers open the same
+validated import draft (§3.4). The shell only publishes the catalog; it does not relay
 or inspect import payloads.
 
 #### 2.2.4 `gitCredentials` — at most one in the catalog
@@ -197,8 +197,11 @@ errors retain successful rows; closing or changing scope discards late results. 
 Hosted source browsers discover the catalog importer just like standalone browsers. Import opens a revalidated,
 project-labelled draft. Confirming creates a local Todo containing a source snapshot and URL, never starts an agent,
 and selects the retained Tasks block. Reimport is unique per local project/provider/source ID (plus server for
-MantisBT); it opens the existing card without overwriting edits, stage, archive state or run history. The optional
-`returnHub` prop is a shared SourceHub configuration key, used only to select its declared Tasks child after import.
+MantisBT); it opens the existing card without overwriting edits, stage, archive state or run history. The
+`openTasks` public client routes Calendar links and confirmed drafts to the same workspace, selecting the owning
+project and local Tasks tab; an already open workspace is reused. Project navigation uses the generic shell command
+`herdr-zed.select-project:<encoded project id>`: the shell resolves it against its current project catalog before
+selecting. Task focus carries both canonical project key and task gid, so another project cannot consume it.
 Source credentials never enter task snapshots. Tracker status is snapshot metadata, separate from local workflow.
 
 Local execution uses the existing Agents public client and Tasks MCP. Each attempt retains profile/model/effort,
@@ -299,9 +302,9 @@ the key is removed when the extension is disabled (shell clears it). Providers p
 
 ### 3.4 Import (integration → importer)
 
-- Opened by the importer itself (Tasks opens a source browser): the existing `source-channel.js`
-  protocol, unchanged. Requests are removed on import or close.
-- Opened standalone from the status bar: the integration finds an enabled importer in the catalog and opens
+- Source-channel requests remain a generic source-browser contract for external receivers; Tasks no longer opens
+  a separate channel browser or polls its events.
+- Hosted under Tasks or opened standalone from the status bar: the integration finds an enabled importer in the catalog and opens
   `openOverlay({ mod: <importer mod>, kind: 'dialog', props: { view: provides.importer.view,
   kind: 'task-snapshot', source: <extension id>, context, snapshot } })`. The snapshot holds explicit domain
   fields only (no credentials, no callbacks).
