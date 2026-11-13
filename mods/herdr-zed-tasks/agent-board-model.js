@@ -123,5 +123,10 @@ export function taskExecutionLabel(task) {
   if (task.execution?.status === 'fail' || task.agents?.some(agent => agent.status === 'error')) return 'Attempt failed';
   if (task.execution?.status === 'starting') return 'Starting agent';
   if (task.execution?.status === 'stopped') return 'Agent stopped';
+  if (task.execution?.status === 'done') return 'Agent finished';
+  if (task.interrupted) return 'Session interrupted';
+  if (task.execution?.status === 'doing') return 'In progress';
+  if (task.runs?.length) return 'Previously run';
+  if (task.agents?.length) return 'Agent idle';
   return null;
 }

@@ -1,7 +1,7 @@
 // Shared: edit components/task-source-model.js, then npm run sync:shared.
 export const filterTasks = (tasks, query) => {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
-  return tasks.filter(task => words.every(word => [task.name, task.section, task.assignee, task.parent]
+  return tasks.filter(task => words.every(word => [task.name, task.section, task.assignee, task.parent, task.herdrProject]
     .filter(Boolean).join(' ').toLowerCase().includes(word)));
 };
 

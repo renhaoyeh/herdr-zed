@@ -116,7 +116,7 @@ export class MantisProjectPicker extends TaskSourceProjectPicker {
 }
 
 export default class MantisPanel extends TaskSourceController {
-  constructor(options = {}) { super({ ...options, source: mantisSource }); }
+  constructor(options = {}) { super({ ...options, source: options.source || mantisSource }); }
 
   init(cx) {
     super.init(cx);
@@ -152,14 +152,14 @@ export default class MantisPanel extends TaskSourceController {
         while (!this.stopFetch && this.page === request && (first || next)) {
           const page = await this.source.projectTasksPage(credentials, gid, next);
           if (this.page !== request) return;
-          tasks = [...tasks, ...page.tasks]; next = page.next; first = false; this.fetchedPages++;
+          tasks = this.sourceScope?.all() ? [...new Map([...tasks, ...page.tasks].map(task => [task.gid, task])).values()] : [...tasks, ...page.tasks]; next = page.next; first = false; this.fetchedPages++;
           if (!restart) this.all = { ...this.all, tasks, next, loaded: true };
           cx.notify();
         }
         if (!this.stopFetch && this.page === request && !next) {
           const fetchedAt = Date.now();
           this.all = { tasks, next: null, loaded: true, fetchedAt };
-          try { await saveMantisIssues(credentials, gid, tasks, fetchedAt); } catch {}
+          if (!this.sourceScope?.all()) { try { await saveMantisIssues(credentials, gid, tasks, fetchedAt); } catch {} }
         }
       } catch (error) { if (this.page === request) this.fail(error); }
       if (this.page === request) { this.fetchingAll = false; this.loadingMore = false; }
@@ -169,7 +169,7 @@ export default class MantisPanel extends TaskSourceController {
 
   // The first View Issues load shows the saved full list when there is one, instead of reading a page.
   more(cx) {
-    if (this.tab === 'all' && !this.all.loaded && !this.cacheTried && !this.loadingMore) {
+    if (!this.sourceScope?.all() && this.tab === 'all' && !this.all.loaded && !this.cacheTried && !this.loadingMore) {
       this.cacheTried = true; this.loadingMore = true;
       const request = this.page, gid = this.loadedGid;
       cx.spawn(async cx => {
@@ -222,7 +222,7 @@ export default class MantisPanel extends TaskSourceController {
     const words = this.issueSearch.value().toLowerCase().split(/\s+/).filter(Boolean);
     return (this.tab === 'mine' ? this.mine || [] : this.all.tasks).filter(task =>
       Object.entries(this.filter).every(([key, chosen]) => chosen.has(filterValue(task, key))) && words.every(word =>
-        [task.name, issueNumber(task.gid), task.section, task.assignee, task.category].filter(Boolean).join(' ').toLowerCase().includes(word)));
+        [task.name, issueNumber(task.gid), task.section, task.assignee, task.category, task.herdrProject].filter(Boolean).join(' ').toLowerCase().includes(word)));
   }
   chooseView(tab, cx) {
     this.tab = tab; this.writeState('tab', tab);
@@ -236,10 +236,11 @@ export default class MantisPanel extends TaskSourceController {
     return h_flex().h(45).flex_none().items_center().bg(mantisTheme.navbar).text_color('#ffffff')
       .child(div().w(125).flex_none().pl(15).text_size(18).child('MantisBT'))
       .child(div().flex_1())
-      .when(ready, el => el.child(DropdownMenuTrigger(Button('mantis-project-menu', mantisTheme, { variant: 'ghost' }).h(45).px(14).rounded(0).gap(8)
+      .when(ready && !this.sourceScope?.all(), el => el.child(DropdownMenuTrigger(Button('mantis-project-menu', mantisTheme, { variant: 'ghost' }).h(45).px(14).rounded(0).gap(8)
         .text_color('#ffffff').bg('#555555').accessibility_label('Choose MantisBT project')
         .child(div().max_w(320).truncate().child(bound?.name || 'Select Project')).child(glyph('chevron-down', 12)), 280,
       (_cx, at) => { if (ready) this.openProjectPicker?.(this.folder, at); }, 'end', { x: 0, y: 0 })))
+      .when(ready && this.sourceScope?.all(), el => el.child(div().px(14).child(bound.name)))
       .child(Button('mantis-close', mantisTheme, { variant: 'ghost', size: 'icon' }).size(45).rounded(0).text_color('#ffffff')
         .accessibility_label('Close MantisBT tasks').tooltip('Close MantisBT tasks').on_click(close).child(glyph('close', 16)));
   }

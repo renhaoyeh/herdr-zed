@@ -59,6 +59,9 @@ export function threadBoardStatus(project, thread) {
 export function createLocalTask(project, name, notes = '', options = {}, agents = []) {
   const title = name.trim();
   if (!title) return null;
+  // Reimport opens the existing local record, preserving edits, execution history and acceptance.
+  const existing = importedTask(project, options);
+  if (existing) return existing;
   const parentId = options.parentId || null;
   if (parentId) {
     const parent = projectBoardTasks(project, agents).find(task => task.gid === parentId);
@@ -68,6 +71,14 @@ export function createLocalTask(project, name, notes = '', options = {}, agents 
     notes: notes.trim(), source: 'local', status: 'todo', ...(parentId ? { parentId } : {}) };
   rememberBoardTask(project, task, { status: 'todo', manual: false, ...options });
   return task;
+}
+
+export function importedTask(project, source) {
+  const kind = source.mantisbt ? 'mantisbt' : source.asana ? 'asana' : null;
+  if (!kind || !source[kind]?.gid) return null;
+  const origin = source[kind], server = value => String(value || '').replace(/\/+$/, '');
+  return Object.values(boardRecords(project)).find(task => task.source === 'local'
+    && task[kind]?.gid === origin.gid && (kind !== 'mantisbt' || server(task[kind].server) === server(origin.server))) || null;
 }
 
 export function setTaskArchived(project, task, archived, archiveId = null) {

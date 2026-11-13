@@ -228,7 +228,7 @@ export class TaskRuntime {
     const before = boardRecords(project)[task.gid] || {};
     rememberBoardTask(project, task, { status: 'doing', manual: false, seenWorking: false, agentKey: agent.key, agentName: agent.name,
       ...(reporting ? { execution: { id: reporting.run, status: 'starting', profile: agent.key, profileName: agent.name,
-        model: options.model ?? null, effort: options.effort ?? null, startedAt: Date.now(), summary: 'Starting session' },
+        model: options.model ?? null, effort: options.effort ?? null, instructions: instructions || '', startedAt: Date.now(), summary: 'Starting session' },
         runs: [...(before.runs || []), ...(before.execution ? [before.execution] : [])].slice(-30) } : {}) });
     let launched;
     try {
@@ -338,7 +338,7 @@ export class TaskRuntime {
         }).catch(error => notify({ title: 'Could not stop generation', body: error.message, level: 'error' }));
       },
       close: () => this.close(),
-      importSource: source => this.taskSources.open(project, source),
+      importSource: source => this.openSource ? this.openSource(source) : this.taskSources.open(project, source),
       thread: id => { this.focusThread(id); this.close(); },
       start: (agent, task, options, eventCx) => eventCx.spawn(async cx => {
         const currentProject = this.projects().find(item => item.id === project.id) || project;

@@ -20,6 +20,8 @@ import { SettingsNav, SettingsPage, SettingsHeader, DiscardChanges, WorkflowNav,
 import { ExtensionsNav } from './extensions-manager.js';
 import { GitAuthorDialog } from './git-author-settings.js';
 import { ExtensionSlot, ExtensionSurfaceSlot, refreshExtensions, openExtension, extensionCatalog, openGitAction, activeLauncher, publishWorkspaceRect, recordSize, WORK_WIDTH_KEY, SIDEBAR_HEIGHT_KEY, closeWorkspacePanel, visibleSurfaceCount, syncExtensionLayout } from './extensions.js';
+import { workspaceFollowsProject } from './components/workspace-overlay.js';
+import { mountWorkspaceLayoutRequest } from './extensions.js';
 import { pollLaunchIntake } from './launch-intake.js';
 import { readNewTerminalCommand } from './components/extension-contract.js';
 import { workspaceTopAnchor } from './extension-model.js';
@@ -118,6 +120,15 @@ export default class HerdrZed extends View {
         if (command.startsWith('settings:')) openSettings(settingsPageKey(command.slice('settings:'.length)), this.projects().find(project => project.active));
         if (command === 'extensions-refresh') { await refreshExtensions(); cx.notify(); }
         if (command.startsWith('extension:')) openExtension(command.slice('extension:'.length), this.projects().find(project => project.active));
+        if (command === 'workspace-mount') {
+          try { mountWorkspaceLayoutRequest(); }
+          catch (error) { notify({ title: 'Could not mount workspace panel', body: error.message, level: 'error' }); }
+        }
+        if (command === 'workspace-close') closeWorkspacePanel();
+        if (command.startsWith('extension-reload:')) {
+          closeWorkspacePanel();
+          openExtension(command.slice('extension-reload:'.length), this.projects().find(project => project.active));
+        }
         // herdr-zed.new-terminal: the Agents picker's Terminal row (ARCHITECTURE §3.1). Same tab as the native Terminal.
         const terminal = readNewTerminalCommand(command, spaces().map(space => ({ id: space.id, machine: space.machine || null })));
         if (terminal) this.newTerminal(terminal);
@@ -201,7 +212,7 @@ export default class HerdrZed extends View {
   }
 
   selectProject(project) {
-    if (project.id !== shared('herdr-zed.selected-project')) closeWorkspacePanel();
+    if (project.id !== shared('herdr-zed.selected-project') && !workspaceFollowsProject()) closeWorkspacePanel();
     setShared('herdr-zed.selected-project', project.id);
     if (!project.pending) run('space.select', { id: project.id });
     run('layout.select', { stack: 'workspace-view', child: project.pending ? 'project-empty' : 'main' });
@@ -797,7 +808,7 @@ export default class HerdrZed extends View {
     if (shared('herdr-zed.native-selection') !== selection) {
       const previous = shared('herdr-zed.native-selection');
       if (typeof previous === 'string') {
-        closeWorkspacePanel();
+        if (!(workspaceFollowsProject() && previous.split(':')[0] !== active?.id)) closeWorkspacePanel();
         setShared('herdr-zed.selected-project', null);
         run('layout.select', { stack: 'workspace-view', child: 'main' });
       }

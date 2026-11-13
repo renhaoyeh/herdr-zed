@@ -46,8 +46,9 @@ export class TaskSourceProjectPicker {
 }
 
 export class TaskSourceController {
-  constructor({ source, state, getBinding = () => null, setBinding = () => {}, onImport, importLabel = 'Import', onClose = () => {}, openProjectPicker } = {}) {
+  constructor({ source, sourceScope, state, getBinding = () => null, setBinding = () => {}, onImport, importLabel = 'Import', onClose = () => {}, openProjectPicker } = {}) {
     this.source = source; this.state = state; this.getBinding = getBinding; this.setBinding = setBinding;
+    this.sourceScope = sourceScope;
     this.onImport = onImport; this.onClose = onClose; this.openProjectPicker = openProjectPicker;
     this.importLabel = importLabel;
   }
@@ -275,7 +276,9 @@ export class TaskSourceController {
     cx.spawn(async cx => {
       try {
         const page = await this.source.projectTasksPage(this.credentials(), gid, this.all.next);
-        if (this.page === request) this.all = { tasks: [...this.all.tasks, ...page.tasks], next: page.next, loaded: true };
+        if (this.page === request) this.all = { tasks: this.sourceScope?.all()
+          ? [...new Map([...this.all.tasks, ...page.tasks].map(task => [task.gid, task])).values()]
+          : [...this.all.tasks, ...page.tasks], next: page.next, loaded: true };
       } catch (error) { if (this.page === request) this.fail(error); }
       if (this.page === request) this.loadingMore = false;
       cx.notify();

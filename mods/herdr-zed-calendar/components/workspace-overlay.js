@@ -2,7 +2,18 @@
 // Opens a workspace panel over the shell's work area (ARCHITECTURE §3.7, design.md Dialogs). The shell publishes the
 // rectangle; every workspace panel is one window under one key, so opening another replaces the open one.
 import { div } from 'gpui-kit';
-import { shared, setShared, settings, openOverlay, closeOverlay, props } from 'herdr';
+import { shared, setShared, settings, openOverlay, closeOverlay, props, run } from 'herdr';
+
+export const WORKSPACE_LAYOUT_REQUEST = 'herdr-zed.workspace-panel.layout-request';
+export function mountWorkspaceLayout(layout, action, id) {
+  setShared(WORKSPACE_LAYOUT_REQUEST, { layout, action, id });
+  run('herdr-zed.workspace-mount');
+}
+export function closeWorkspaceView() {
+  const target = props();
+  if (target?.overlay) closeOverlay(target.overlay);
+  else if (target?.workspacePanel) run('herdr-zed.workspace-close');
+}
 
 export const WORKSPACE_RECT_KEY = 'herdr-zed.workspace-rect';
 // The window's name: opening a workspace panel with it replaces the open one, in its place.
@@ -11,6 +22,16 @@ export const WORKSPACE_PANEL_KEY = 'herdr-zed.workspace-panel';
 // The open workspace panel's overlay id. The shell closes it on a project switch or when Settings opens.
 export const WORKSPACE_PANEL_OVERLAY = 'herdr-zed.workspace-panel.overlay';
 export const WORKSPACE_PANEL_ACTIVE = 'herdr-zed.workspace-panel.active';
+// An opt-in lease: this overlay follows the shell's active project instead of closing on project selection.
+export const WORKSPACE_FOLLOW_PROJECT = 'herdr-zed.workspace-panel.follow-project';
+export function followWorkspaceProject() {
+  const overlay = props()?.workspacePanel || props()?.overlay;
+  if (overlay && shared(WORKSPACE_FOLLOW_PROJECT) !== overlay) setShared(WORKSPACE_FOLLOW_PROJECT, overlay);
+}
+export function workspaceFollowsProject() {
+  const active = /** @type {{ overlay?: string } | null} */ (shared(WORKSPACE_PANEL_ACTIVE));
+  return Boolean(active?.overlay && shared(WORKSPACE_FOLLOW_PROJECT) === active.overlay);
+}
 // The centered fallback while no work area is published (and the default size of a provider panel).
 export const WORKSPACE_FALLBACK = { width: 0.9, height: 0.86 };
 
@@ -49,7 +70,10 @@ export function openWorkspacePanel(spec) {
 
 // A replaced panel can finish closing after its replacement opens. Clear only the closing copy's state.
 export function releaseWorkspacePanel() {
-  const overlay = props()?.overlay;
+  // Hosted blocks can reload independently. Their shell owns the host's lifetime and active state.
+  if (props()?.workspacePanel) return;
+  const overlay = props()?.workspacePanel || props()?.overlay;
+  if (overlay && shared(WORKSPACE_FOLLOW_PROJECT) === overlay) setShared(WORKSPACE_FOLLOW_PROJECT, null);
   const active = /** @type {{ overlay?: string } | null} */ (shared(WORKSPACE_PANEL_ACTIVE));
   if (!overlay || active?.overlay !== overlay) return;
   setShared(WORKSPACE_PANEL_ACTIVE, null);
@@ -70,8 +94,7 @@ export function workspacePanel(el) {
     .on_key_down((event, cx) => {
       if (event.key !== 'escape') return;
       cx.stop_propagation();
-      const overlay = props()?.overlay;
-      if (overlay) closeOverlay(overlay);
+      closeWorkspaceView();
     })
     .child(el);
 }

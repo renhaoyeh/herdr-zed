@@ -6,16 +6,18 @@
   "description": "A board of agent tasks: plan them, start them in threads and follow their progress.",
   "category": "work",
   "services": [
-    { "view": "service" }
+    {
+      "view": "service"
+    }
   ],
   "actions": [
     {
       "id": "open",
       "title": "Tasks",
-      "icon": "list-todo",
+      "icon": "columns-3",
       "location": "status.right",
       "popup": {
-        "view": "board",
+        "view": "board-v2",
         "width": 0.9,
         "height": 0.86,
         "modal": false,
@@ -25,11 +27,16 @@
   ],
   "provides": {
     "importer": {
-      "accepts": ["task-snapshot"],
+      "accepts": [
+        "task-snapshot"
+      ],
       "view": "import-draft"
     },
     "threadDecorator": {
-      "fields": ["subtitle", "tone"]
+      "fields": [
+        "subtitle",
+        "tone"
+      ]
     }
   }
 }

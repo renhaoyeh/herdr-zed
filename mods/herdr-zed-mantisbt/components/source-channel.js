@@ -1,5 +1,5 @@
 // Shared: edit components/source-channel.js, then npm run sync:shared.
-import { shared, setShared, openOverlay, closeOverlay } from 'herdr';
+import { shared, setShared, openOverlay, closeOverlay, run } from 'herdr';
 const storageKey = 'herdr-zed.source-channels.v1';
 const read = () => shared(storageKey) || {};
 const write = value => setShared(storageKey, JSON.parse(JSON.stringify(value)));
@@ -24,17 +24,25 @@ export function closeSourceChannel(channel) { const channels = read(); delete ch
 // Serializable cross-mod adapter. The source owns its UI/connection; the receiver owns import/bindings.
 export function sourceModuleOptions(source, target) {
   const channel = target.channel, context = target.context || {}, stateKey = target.stateKey || `task-source.${source.key}`;
-  const getBinding = () => channel ? sourceChannel(channel)?.request.binding || null : shared(`${stateKey}-project`) || target.binding || null;
-  const setBinding = (_folder, binding) => channel ? publishSourceEvent(channel, { type: 'binding', binding }) : setShared(`${stateKey}-project`, binding);
-  const preferenceKey = suffix => `${['field-display', 'browser-selection'].includes(suffix) ? `herdr-zed.${source.key}` : stateKey}-${suffix}`;
+  const hostProject = () => JSON.stringify([target.context?.machine || '', (target.context?.folder || '').replace(/\\/g, '/').replace(/\/+$/, '')]);
+  const getBinding = () => target.sourceHub ? shared(target.sourceHub.bindingsKey)?.[hostProject()]?.[source.key] || null
+    : channel ? sourceChannel(channel)?.request.binding || null : shared(`${stateKey}-project`) || target.binding || null;
+  const setBinding = (_folder, binding) => {
+    if (target.sourceHub) {
+      const key = target.sourceHub.bindingsKey, all = shared(key) || {}, project = hostProject();
+      return setShared(key, { ...all, [project]: { ...all[project], [source.key]: binding } });
+    }
+    return channel ? publishSourceEvent(channel, { type: 'binding', binding }) : setShared(`${stateKey}-project`, binding);
+  };
+  const preferenceKey = suffix => `${!target.sourceHub && ['field-display', 'browser-selection'].includes(suffix) ? `herdr-zed.${source.key}` : stateKey}-${suffix}`;
   return {
     source, importLabel: target.importLabel || 'Import',
     state: { get: suffix => shared(preferenceKey(suffix)), set: (suffix, value) => setShared(preferenceKey(suffix), value) },
     getBinding, setBinding,
     onSelect: project => setBinding(context.folder, { gid: project.gid, name: project.name, workspace: project.workspaceGid,
       ...(source.server ? { server: project.server } : {}) }),
-    onImport: channel ? snapshot => { if (publishSourceEvent(channel, { type: 'import', snapshot })) closeOverlay(target.overlay); } : undefined,
-    onClose: () => closeOverlay(target.overlay),
+    onImport: !target.sourceHub && channel ? snapshot => { if (publishSourceEvent(channel, { type: 'import', snapshot })) closeOverlay(target.overlay); } : undefined,
+    onClose: () => target.workspacePanel && target.view !== 'projects' ? run('herdr-zed.workspace-close') : closeOverlay(target.overlay),
     openProjectPicker: (_folder, at) => openOverlay({ mod: `herdr-zed-${source.key}`, kind: 'popup', frame: 'none', width: 280, at,
       props: { ...target, overlay: undefined, view: 'projects' } }),
   };

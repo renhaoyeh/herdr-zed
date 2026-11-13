@@ -206,6 +206,15 @@ One save semantic per page: autosave, or explicit Save — never both on one pag
 
 ## Task board workflow
 
+- The Tasks workspace has Tasks, Asana and MantisBT tabs. Tasks is the local work manager, using a remembered
+  List/Board view (List initially); each row/card shows agent execution separately from task stage and a recent
+  reported summary. Details contain source link/status snapshot, assignment, instructions, execution history,
+  activity, conversation access and explicit acceptance. The active shell project is the destination for new/imported
+  tasks. Source browsers retain their original interfaces and independent All projects scopes; MantisBT has no board.
+  Import opens a project-labelled draft, then returns to the local task. Reimport opens the existing task while
+  preserving edits, stage and execution history. Source status is independent and never updated automatically.
+  Tabs share a retained native workspace, preserving loaded provider views. There is one Tasks status action.
+
 - Columns are Todo → In progress → For review → Done. An agent's successful task report moves work to For review; only the user accepts it into Done. Feedback or a new reported attempt returns it to In progress. A CLI turn ending never completes a task.
 - A task that is not Done and has no active agent can start another session with any agent (hand-off). After a first session its button reads Continue, and an editable prompt above it names the task (its gid) so the agent reads the earlier results with list_tasks and checks the project's current state before picking up what remains. Without a live thread, Restore conversation reopens its last recorded session in a new tab linked to the task.
 - Waiting, failed attempts, starting and stopped agents are execution information on the card, not extra columns or a separate Action Required filter. Git commits and pull requests do not determine board completion or trigger repository operations.

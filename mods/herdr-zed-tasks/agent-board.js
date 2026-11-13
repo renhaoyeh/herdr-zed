@@ -1,6 +1,7 @@
 import { div } from 'gpui-kit';
 import { h_flex, v_flex, InputState, Input, TextareaState, Textarea, TextView } from 'gpui-base';
 import { shared, setShared, openOverlay, closeOverlay, props, appHome, readTextFile, agents as currentAgents, spaces as currentSpaces } from 'herdr';
+import { closeWorkspaceView } from './components/workspace-overlay.js';
 import { SourceTaskReader, installedSources } from './task-sources.js';
 import { TaskSession } from './task-session.js';
 import { boardStatuses, boardKey, liveVersion, boardPriorityOptions, boardPriorities, canStartTask, taskActions, taskManualStatusOptions, taskChildren, canAddSubtask, taskExecutionLabel } from './agent-board-model.js';
@@ -48,6 +49,7 @@ export default class AgentBoard {
       { minWidth: 360, maxWidth: 880, defaultWidth: 500, minContentWidth: 320, label: 'Resize task details' });
     this.cardMenu = new DropdownMenuState(cx);
     this.importMenu = new DropdownMenuState(cx);
+    this.viewMode = shared('herdr-zed.tasks.view') === 'board' ? 'board' : 'list';
   }
   assignment(task, launchers, t, size = 14) {
     const key = task.agentKey || task.tabs.map(tab => shared('herdr-zed.thread-profiles')?.[tab.id]).find(Boolean);
@@ -175,7 +177,7 @@ export default class AgentBoard {
     }
     const query = this.search.value().trim().toLowerCase();
     const visible = tasks.filter(task => Boolean(task.archived) === Boolean(this.archived)
-      && `${task.name} ${task.notes || ''} ${task.agentName || ''}`.toLowerCase().includes(query));
+      && `${task.name} ${task.notes || ''} ${sourceName(task)} ${task.agentName || ''} ${task.execution?.summary || ''}`.toLowerCase().includes(query));
     const selected = tasks.find(task => task.gid === this.selected);
     if (!selected) this.detailPanel.end(cx);
     this.currentTask = selected || null;
@@ -230,6 +232,7 @@ export default class AgentBoard {
         .when(Boolean(task.priority && task.priority !== 'none'), el => el.child(glyph(boardPriorities.find(priority => priority.key === task.priority)?.icon || 'priority-none', 14).text_color(task.priority === 'urgent' ? '#e4a45c' : t.muted).accessibility_label(`${task.priority} priority`))))
       .child(div().text_size(13).font_medium().child(task.name))
       .when(Boolean(taskExecutionLabel(task)), el => el.child(div().text_size(11).text_color(t.muted).child(taskExecutionLabel(task))))
+      .when(Boolean(task.execution?.summary), el => el.child(div().text_size(11).text_color(t.muted).child(task.execution.summary.slice(0, 180))))
       .when(Boolean(task.parentTask), el => el.child(h_flex().gap(5).items_center().min_w(0).text_size(11).text_color(t.muted)
         .child(glyph('list-tree', 12)).child(div().min_w(0).truncate().child(task.parentTask.name))))
       .child(h_flex().gap(6).items_center().text_size(11).text_color(t.muted)
@@ -265,6 +268,24 @@ export default class AgentBoard {
               }).child(glyph('plus', 14)))))
           .child(v_flex().id(`board-column-${status.key}`).flex_1().min_h(0).overflow_y_scrollbar().px(8).gap(8).pb(24).children(rows.map(card)));
       }));
+    const list = v_flex().id('agent-task-list').flex_1().min_w(0).min_h(0).overflow_y_scrollbar().px(16)
+      .children(boardStatuses.map(status => {
+        const rows = visible.filter(task => task.status === status.key);
+        return v_flex().flex_none().min_w(0)
+          .child(h_flex().h(40).gap(8).items_center().text_size(12).child(icon(status.key)).child(status.label)
+            .child(div().text_color(t.muted).child(String(rows.length))))
+          .children(rows.map(task => button(`task-row-${task.gid}`, t).w_full().h(64).px(12).gap(12).justify_start()
+            .bg(this.selected === task.gid ? t.selected : t.background)
+            .accessibility_label(`${task.name}, ${status.label}, ${taskExecutionLabel(task) || 'Not started'}`)
+            .on_click((_event, cx) => this.show(task, project, cx))
+            .child(v_flex().flex_1().min_w(0).gap(4)
+              .child(div().truncate().text_size(13).font_medium().child(task.name))
+              .child(div().truncate().text_size(11).text_color(t.muted).child(task.execution?.summary || sourceName(task))))
+            .child(div().w(110).text_size(11).text_color(t.muted).child(taskExecutionLabel(task) || 'Not started'))
+            .child(this.assignment(task, launchers, t, 12).w(150).text_size(11))))
+          .when(rows.length === 0, el => el.child(div().px(24).py(10).text_size(12).text_color(t.muted).child('No tasks')));
+      }));
+    const content = this.viewMode === 'board' ? columns : list;
     // Import menu: only source browsers that are installed and enabled; the menu itself toggles on its trigger.
     const sources = installedSources(shared('herdr-zed.extensions.catalog'));
     const tab = (id, label, active, action) => button(id, t).h(28).px(10).rounded(999).border(1)
@@ -281,25 +302,26 @@ export default class AgentBoard {
       .on_mouse_up('left', (_event, cx) => this.cancelDrag(cx))
       .on_hover((inside, cx) => { if (!inside) this.cancelDrag(cx); })
       .child(h_flex().h(44).flex_none().px(24).gap(10).items_center().border_b(1).border_color(t.border).text_size(13)
-        .child(glyph('columns-3', 15)).child(div().font_semibold().child('Tasks'))
-        .child(div().text_color(t.muted).child('/')).child(div().truncate().text_color(t.muted).child(project.name))
+        .when(!props()?.sourceHub, el => el.child(glyph('columns-3', 15)).child(div().font_semibold().child('Tasks')))
         .child(div().flex_1())
         .when(sources.length > 0, el => el.child(DropdownMenu('board-import-menu', this.importMenu,
           button('board-import', t).pl(8).pr(10).h(28).child('Import from…').child(glyph('chevron-down', 12)),
           sources.map(source => ({ key: source.key, label: source.label, icon: source.key })), key => actions.importSource(key), t)))
         .child(button('board-new-task', t).pl(8).pr(10)
           .on_click(() => this.compose(project)).child(glyph('plus', 14)).child('New task'))
-        .child(button('board-close', t, { size: 'icon' }).accessibility_label('Close Tasks').tooltip('Close Tasks')
-          .on_click(() => closeOverlay(props().overlay)).child(glyph('close', 14))))
+        .when(!props()?.sourceHub, el => el.child(button('board-close', t, { size: 'icon' }).accessibility_label('Close Tasks').tooltip('Close Tasks')
+          .on_click(() => closeWorkspaceView()).child(glyph('close', 14)))))
       .child(h_flex().h(44).flex_none().px(8).gap(4).items_center().text_size(12)
-        .child(tab('board-active', 'All tasks', !this.archived, () => { this.archived = false; this.selected = null; }))
+        .child(tab('board-active', 'Active', !this.archived, () => { this.archived = false; this.selected = null; }))
         .child(tab('board-archived', 'Archived', this.archived, () => { this.archived = true; this.selected = null; }))
         .child(div().flex_1())
+        .children(['list', 'board'].map(mode => tab(`tasks-view-${mode}`, mode === 'list' ? 'List' : 'Board', this.viewMode === mode,
+          () => { this.viewMode = mode; setShared('herdr-zed.tasks.view', mode); })))
         .child(Input.new(this.search).id('board-search').accessibility_label('Search tasks').w(180).h(28).px(10)
           .rounded(999).bg(t.control).border(1).border_color(t.controlBorder).text_size(12)))
       .child(h_flex().flex_1().min_w(0).min_h(0).child(selected
-        ? SidePanelLayout('board-detail-split', this.detailPanel, columns, this.preview(selected, project, launchers, actions, t, cx, tasks))
-        : columns));
+        ? SidePanelLayout('board-detail-split', this.detailPanel, content, this.preview(selected, project, launchers, actions, t, cx, tasks))
+        : content));
   }
   subtasks(task, tasks, project, t) {
     const children = taskChildren(tasks, task.gid), completed = children.filter(child => child.status === 'done').length;
@@ -361,6 +383,9 @@ export default class AgentBoard {
           .text_size(22).font_semibold().bg(t.background).border(0) : div().text_size(22).font_semibold().child(task.name))
         .child(v_flex().gap(4)
           .child(property('Status', statusValue))
+          .child(property('Execution', taskExecutionLabel(task) || 'Not started'))
+          .when(task.status === 'review' && policy.canSetStatus, el => el.child(button('board-accept-task', t).h(28).self_start()
+            .on_click(() => setStatus('done')).child(glyph('check', 14)).child('Accept and complete')))
           .child(property('Agent', assignment))
           .when(Boolean(task.parentId), el => el.child(property('Parent', task.parentTask
             ? button('board-parent-task', t).max_w(260).on_click((_event, cx) => this.showRelated(project, task.parentId, cx))
@@ -369,6 +394,7 @@ export default class AgentBoard {
           .child(property('Project', project.name)).child(property('Source', origin?.url
             ? button('board-asana-source', t).on_click((_e, cx) => cx.open_url(origin.url))
               .child(glyph('external-link', 14)).child(sourceName(task)) : sourceName(task)))
+          .when(Boolean(origin?.fields?.statusName || origin?.fields?.section), el => el.child(property('Source status', String(origin.fields.statusName || origin.fields.section?.name || origin.fields.section))))
           .child(property('Priority', priorityValue))
           .child(property('Due date', policy.canSchedule ? Input.new(this.dueDate).id('board-task-due-date').accessibility_label('Task due date, YYYY-MM-DD, blank to clear')
             .w(145).h(28).px(8).rounded(6).border(1).border_color(t.controlBorder).bg(t.control).text_size(12) : task.dueDate || 'None'))
@@ -407,6 +433,8 @@ export default class AgentBoard {
           .child(div().text_size(12).font_medium().child('Execution history'))
           .children([...(task.runs || []), ...(task.execution ? [task.execution] : [])].slice().reverse().map(run => v_flex().gap(4)
             .child(div().text_size(12).child(`${run.profileName || run.profile || 'Agent'} · ${run.status}${run.model ? ` · ${run.model}` : ''}`))
+            .when(Boolean(run.startedAt), el => el.child(div().text_size(10).text_color(t.muted).child(new Date(run.startedAt).toLocaleString())))
+            .when(Boolean(run.instructions), el => el.child(TextView.markdown(`run-instructions-${run.id}`, run.instructions).selectable(true).scrollable(false).w_full().text_size(12)))
             .child(div().text_size(12).text_color(t.muted).child(run.summary || 'No result reported'))))))
         .when(Boolean(task.activity?.length), el => el.child(v_flex().id('board-task-activity').gap(10)
           .child(div().text_size(12).font_medium().child('Activity'))

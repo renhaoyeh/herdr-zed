@@ -9,7 +9,7 @@ const load = async (shared = {}, zoom = 1, extra = {}) => evaluateNative('../com
   { shared: key => shared[key], settings: () => ({ zoom }), openOverlay: extra.openOverlay ?? (() => 'overlay-1'),
     setShared: extra.setShared ?? (() => null), closeOverlay: extra.closeOverlay ?? (() => null), props: extra.props ?? (() => ({})),
     div: extra.div ?? (() => { throw new Error('no div'); }) },
-  'workspaceOverlay, openWorkspacePanel, releaseWorkspacePanel, workspacePanel, usableWorkspaceRect, WORKSPACE_RECT_KEY, WORKSPACE_PANEL_KEY, WORKSPACE_PANEL_OVERLAY, WORKSPACE_PANEL_ACTIVE, WORKSPACE_FALLBACK');
+  'workspaceOverlay, openWorkspacePanel, releaseWorkspacePanel, workspacePanel, usableWorkspaceRect, WORKSPACE_RECT_KEY, WORKSPACE_PANEL_KEY, WORKSPACE_PANEL_OVERLAY, WORKSPACE_PANEL_ACTIVE, WORKSPACE_FALLBACK, followWorkspaceProject, workspaceFollowsProject, WORKSPACE_FOLLOW_PROJECT');
 
 const rect = { x: 280, y: 32, width: 1000, height: 968, updatedAt: 1 };
 
@@ -20,6 +20,33 @@ const recorder = () => {
   return node;
 };
 const callOf = (node, name) => node.__calls.find(([called]) => called === name);
+
+test('a following panel survives project selection only while its own overlay is active', async () => {
+  const memory = {}; let target = { overlay: 'v2' };
+  const r = await load(memory, 1, { props: () => target, setShared: (key, value) => { memory[key] = value; } });
+  memory[r.WORKSPACE_PANEL_ACTIVE] = { overlay: 'v2', action: 'example.open' };
+  assert.equal(r.workspaceFollowsProject(), false);
+  r.followWorkspaceProject(); assert.equal(r.workspaceFollowsProject(), true);
+  memory[r.WORKSPACE_PANEL_ACTIVE] = { overlay: 'other' };
+  assert.equal(r.workspaceFollowsProject(), false);
+  target = { overlay: 'v2' }; r.releaseWorkspacePanel();
+  assert.equal(memory[r.WORKSPACE_FOLLOW_PROJECT], null);
+  assert.equal(memory[r.WORKSPACE_PANEL_ACTIVE].overlay, 'other');
+});
+
+test('shell project selection preserves an opted-in panel and still selects the outer folder', async () => {
+  const memory = {}, commands = []; let following = true, closes = 0;
+  const { HerdrZed } = await evaluateNative('../mods/herdr-zed/main.js', {
+    View: class {}, startPanel: {}, threadArchive: {}, shared: key => memory[key], setShared: (key, value) => { memory[key] = value; },
+    workspaceFollowsProject: () => following, closeWorkspacePanel: () => { closes++; }, run: (...args) => commands.push(args),
+  }, 'HerdrZed');
+  const shell = new HerdrZed();
+  shell.selectProject({ id: 'first', folder: '/first' });
+  assert.equal(closes, 0); assert.equal(memory['herdr-zed.selected-project'], 'first');
+  assert.deepEqual(commands[0], ['space.select', { id: 'first' }]);
+  following = false; shell.selectProject({ id: 'second', folder: '/second' });
+  assert.equal(closes, 1);
+});
 
 test('with a published work area the panel is a borderless window named for workspace panels, at its top left, sized to the rectangle', async () => {
   const { workspaceOverlay, WORKSPACE_RECT_KEY, WORKSPACE_PANEL_KEY } = await load({ 'herdr-zed.workspace-rect': rect });

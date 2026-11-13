@@ -13,7 +13,7 @@ test('the Tasks and Calendar manifests parse with the shell model: importer, dec
   const tasks = await read('herdr-zed-tasks'), calendar = await read('herdr-zed-calendar');
   const tasksActions = parseExtensionManifest('herdr-zed-tasks', tasks);
   assert.deepEqual(tasksActions.map(action => [action.id, action.location, action.popup.view, action.popup.modal]),
-    [['tasks.open', 'status.right', 'board', false]]);
+    [['tasks.open', 'status.right', 'board-v2', false]]);
   const tasksMeta = extensionMetadata('herdr-zed-tasks', tasks);
   assert.deepEqual(tasksMeta.provides, { importer: { accepts: ['task-snapshot'], view: 'import-draft' }, threadDecorator: { fields: ['subtitle', 'tone'] } });
   assert.deepEqual(tasksMeta.services, [{ view: 'service' }]); assert.deepEqual(tasksMeta.requires, []);
@@ -287,7 +287,7 @@ async function modules(records = {}, projects = [{ id: 'p', folder: '/project', 
   Object.assign(owner, policy);
   Object.assign(owner, await evaluateNative('../mods/herdr-zed-tasks/agent-task-evidence.js', owner, 'observeTaskInput, withTaskInputEvidence'));
   Object.assign(owner, await evaluateNative('../mods/herdr-zed-tasks/agent-board-state.js', owner,
-    'projectBoardTasks, boardRecords, taskLinkForTab, threadBoardStatus, threadBoardTask, sessionThreadTitle, rememberBoardTask, setTaskArchived, setTaskDueDate, deleteLocalTask, createLocalTask'));
+    'projectBoardTasks, boardRecords, taskLinkForTab, threadBoardStatus, threadBoardTask, sessionThreadTitle, rememberBoardTask, setTaskArchived, setTaskDueDate, deleteLocalTask, createLocalTask, importedTask'));
   Object.assign(owner, await evaluateNative('../components/source-channel.js', owner,
     'createSourceChannel, sourceChannels, consumeSourceEvents, closeSourceChannel'));
   Object.assign(owner, await evaluateNative('../mods/herdr-zed-tasks/task-sources.js', owner, 'TaskSources, resolveTaskImport, findProject, installedSources'));
@@ -407,6 +407,38 @@ test('the Tasks decoration names each linked thread once, and republishes only w
   assert.equal(h.writes.filter(key => key === 'herdr-zed.decorations.tasks').length, writes + 1, 'A changed projection is published once');
   assert.equal(h.memory['herdr-zed.decorations.tasks'].threads.linked.subtitle, 'Renamed task');
   assert.equal(h.memory['herdr-zed.decorations.tasks'].threads.free, undefined);
+});
+
+test('reimport opens the same local task without overwriting edits, source snapshot, stage or attempts', async () => {
+  const h = await modules(), project = h.state.projects[0];
+  const first = h.owner.createLocalTask(project, 'Original', 'Snapshot', { asana: { gid: '42', url: 'https://asana.test/42' } });
+  h.owner.rememberBoardTask(project, first, { name: 'My title', status: 'review', execution: { id: 'run:kept', status: 'done', summary: 'Tests passed' } });
+  const second = h.owner.createLocalTask(project, 'Changed remotely', 'New body', { asana: { gid: '42' } });
+  assert.equal(second.gid, first.gid); assert.equal(second.name, 'My title'); assert.equal(second.status, 'review');
+  assert.equal(second.execution.summary, 'Tests passed'); assert.equal(second.asana.url, 'https://asana.test/42');
+  const mantis = h.owner.createLocalTask(project, 'Other provider', '', { mantisbt: { gid: '42', server: 'https://one.test/' } });
+  assert.notEqual(mantis.gid, first.gid);
+  assert.equal(h.owner.createLocalTask(project, 'Again', '', { mantisbt: { gid: '42', server: 'https://one.test' } }).gid, mantis.gid);
+  assert.notEqual(h.owner.createLocalTask(project, 'Other server', '', { mantisbt: { gid: '42', server: 'https://two.test' } }).gid, mantis.gid);
+  assert.notEqual(h.owner.createLocalTask({ folder: '/other' }, 'Other project', '', { asana: { gid: '42' } }).gid, first.gid);
+});
+
+test('confirming a hosted import selects Tasks and focuses its local card without starting an agent', async () => {
+  const h = await modules(), clock = context();
+  Object.assign(h.owner, { InputState: input, TextareaState: input, SelectState: class {}, liveAgents: () => [] });
+  const { TaskComposer } = await evaluateNative('../mods/herdr-zed-tasks/task-composer.js', h.owner, 'TaskComposer');
+  const hub = { stateKey: 'herdr-zed.tasks-v2.native', stack: 'retained', tabs: [{ id: 'tasks' }] };
+  h.memory[`${hub.stateKey}.config`] = hub;
+  const options = { project: h.state.projects[0], overlay: 'import', returnHub: hub.stateKey,
+    importTask: { source: 'asana', gid: '42', name: 'Imported', notes: 'Body', fields: { section: 'Backlog' } } };
+  const composer = new TaskComposer(); composer.init(options, clock.cx); composer.submit([], clock.cx);
+  const task = Object.values(h.owner.boardRecords(options.project))[0];
+  assert.equal(task.source, 'local'); assert.equal(task.asana.gid, '42'); assert.equal(task.status, 'todo');
+  assert.equal(h.memory[`${hub.stateKey}.selected`], 'tasks'); assert.equal(h.memory['herdr-zed.board-focus'], task.gid);
+  assert.deepEqual(h.native, [['run', 'layout.select', { stack: 'retained', child: 'retained-tasks' }]]);
+  assert.deepEqual(h.launches, []);
+  const again = new TaskComposer(); again.init(options, clock.cx); again.submit([], clock.cx);
+  assert.equal(Object.keys(h.owner.boardRecords(options.project)).length, 1);
 });
 
 test('closing the independent Tasks composer preserves its project-scoped unsaved draft', async () => {
@@ -553,7 +585,7 @@ test('Import from opens the chosen source browser for the board project through 
 
 test('the board header has a Close Tasks control bound to its own overlay, and Import from only appears with sources', async () => {
   const source = await readFile(new URL('../mods/herdr-zed-tasks/agent-board.js', import.meta.url), 'utf8');
-  assert.match(source, /button\('board-close', t, \{ size: 'icon' \}\)\.accessibility_label\('Close Tasks'\)\.tooltip\('Close Tasks'\)\s*\.on_click\(\(\) => closeOverlay\(props\(\)\.overlay\)\)/);
+  assert.match(source, /button\('board-close', t, \{ size: 'icon' \}\)\.accessibility_label\('Close Tasks'\)\.tooltip\('Close Tasks'\)\s*\.on_click\(\(\) => closeWorkspaceView\(\)\)/);
   assert.match(source, /\.when\(sources\.length > 0, el => el\.child\(DropdownMenu\('board-import-menu'/);
 });
 

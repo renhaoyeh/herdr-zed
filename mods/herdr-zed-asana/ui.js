@@ -74,7 +74,7 @@ export class AsanaProjectPicker extends TaskSourceProjectPicker {
 
 
 export default class AsanaPanel extends TaskSourceController {
-  constructor(options = {}) { super({ ...options, source: asanaSource }); }
+  constructor(options = {}) { super({ ...options, source: options.source || asanaSource }); }
 
   clearSelection(cx) {
     if (!this.selected) return;
@@ -100,12 +100,13 @@ export default class AsanaPanel extends TaskSourceController {
         .child(div().size(32).rounded(6).bg(t.project).flex().items_center().justify_center()
           .child(glyph('list-todo', 20).text_color('#1e1f21')))
         // Without a connection there is no project to choose yet: the product name stands alone, no disabled picker.
-        .when(ready, el => el.child(DropdownMenuTrigger(asanaButton('asana-project-menu', t, { variant: 'ghost' }).h(36).px(4).gap(8).text_size(20).font_semibold().text_color(t.foreground)
+        .when(ready && !this.sourceScope?.all(), el => el.child(DropdownMenuTrigger(asanaButton('asana-project-menu', t, { variant: 'ghost' }).h(36).px(4).gap(8).text_size(20).font_semibold().text_color(t.foreground)
           .accessibility_label(`Choose ${this.source.name} project`)
           .on_mouse_down('left', (_event, cx) => cx.stop_propagation()), 280,
           (_cx, at) => { if (ready) this.openProjectPicker?.(this.folder, at); }, 'start', { x: 0, y: 4 })
           .child(div().max_w(400).truncate().child(bound?.name || `Choose ${this.source.name} project`))
           .child(glyph('chevron-down', 14).text_color(t.muted))))
+        .when(ready && this.sourceScope?.all(), el => el.child(div().text_size(20).font_semibold().child(bound.name)))
         .when(!ready, el => el.child(div().h(36).flex().items_center().text_size(20).font_semibold().text_color(t.foreground).child(this.source.name)))
         .child(div().flex_1())
         .when(this.needsToken === false && !this.settingsOpen, el => el.child(asanaButton('asana-settings', t, { variant: 'ghost', size: 'icon' })
@@ -377,7 +378,7 @@ export default class AsanaPanel extends TaskSourceController {
       this.resizing = false;
       if (this.width) this.writeState('preview-width', this.width);
     };
-    return v_flex().id('asana-panel').size_full().min_h(0).overflow_hidden().when(!props()?.docked, el => el.rounded(10).shadow_xl().border(1).border_color(t.border)).font_family('Arial').bg(t.background).text_color(t.foreground)
+    return v_flex().id('asana-panel').size_full().min_h(0).overflow_hidden().when(!props()?.docked && !props()?.workspacePanel, el => el.rounded(10).shadow_xl().border(1).border_color(t.border)).font_family('Arial').bg(t.background).text_color(t.foreground)
       .on_mouse_down('right', (_event, cx) => cx.stop_propagation())
       .on_click((_event, cx) => cx.stop_propagation())
       .on_scroll_wheel((_event, cx) => cx.stop_propagation())

@@ -179,6 +179,42 @@ for a repository, Git runs with the machine's own credential configuration, unch
   suggest an author from the account's public profile in its own dialog and saves it through the same
   repository-local Git config; the shell's Commit author dialog remains available without the extension.
 
+### Tasks workspace
+
+Tasks has one status action opening a retained workspace with Tasks, Asana and MantisBT tabs (enabled sources only).
+The redirect view builds the layout without constructing a runtime. The local Tasks block owns AgentBoard and its
+AgentClient; the always-mounted service remains the owner of progress reporting and the shared read model. Tasks
+uses existing local records, run IDs, policies, source snapshots and thread associations, with List as the default
+and a remembered Board option. The shell remains provider-independent. Local Tasks follows the active project;
+its header does not offer cross-project source scope.
+
+Asana and MantisBT retain their original browsers, with independently remembered All projects scopes. SourceHub
+receives serializable tab descriptors and state/binding keys. Source links remain in `herdr-zed.tasks-v2.bindings`;
+there is no migration of older source links. The SourceScope adapter deduplicates projects and tasks, retains raw
+statuses and sections, routes detail reads to their source project and limits concurrent reads to three. Partial
+errors retain successful rows; closing or changing scope discards late results. MantisBT retains its table only.
+
+Hosted source browsers discover the catalog importer just like standalone browsers. Import opens a revalidated,
+project-labelled draft. Confirming creates a local Todo containing a source snapshot and URL, never starts an agent,
+and selects the retained Tasks block. Reimport is unique per local project/provider/source ID (plus server for
+MantisBT); it opens the existing card without overwriting edits, stage, archive state or run history. The optional
+`returnHub` prop is a shared SourceHub configuration key, used only to select its declared Tasks child after import.
+Source credentials never enter task snapshots. Tracker status is snapshot metadata, separate from local workflow.
+
+Local execution uses the existing Agents public client and Tasks MCP. Each attempt retains profile/model/effort,
+extra instructions, timestamps and reported summary; card/list rows show execution separately from task stage.
+Agent done reports move the task to For review, and only explicit user acceptance completes it. Historical results,
+activity, continuation and conversation access stay in the task detail. No source comments or statuses are written.
+
+SourceHub mounts one retained native stack in the shell work area through `herdr-zed.workspace-panel.layout-request`
+and the `herdr-zed.workspace-mount` command. The shell validates enabled mod blocks, hides the existing workspace row
+without removing its instances, and mounts the provider-owned tree beside it. Tabs use native `layout.select` and never
+replace overlays. Each provider starts on first display and remains alive until the host closes. A compact shared
+configuration reference in block props keeps native host arguments below Herdr's depth limit. The shell owns hosted
+active state and teardown; `workspacePanel`/`closeWorkspaceView` send `herdr-zed.workspace-close`, removing the hosted
+tree and restoring the original workspace visibility. Provider reloads do not release the host. No provider names or
+implementation imports enter the shell. The host follows project changes and closes when other work is selected.
+
 ## 3. Shell ↔ provider messages and lifecycle
 
 Transport is Herdr shared state (`shared`/`setShared`) or the native mod command bus (`run`/`nextCommand`)
@@ -314,6 +350,11 @@ never writes it otherwise. Providers only read it.
   id in `herdr-zed.workspace-panel.overlay` so the shell can close it. Status actions pass their ID as `props.workspaceAction`;
   `herdr-zed.workspace-panel.active` holds `{ overlay, action }` for the selected status button. Provider `close()` calls
   `releaseWorkspacePanel()`, which clears only the closing overlay's state, preserving a replacement panel's active action.
+  A panel may opt into following the active project by calling `followWorkspaceProject()` on init; it writes only its
+  overlay id to `herdr-zed.workspace-panel.follow-project`. The shell keeps that panel open on project selection only
+  while the lease matches the active overlay id (`workspaceFollowsProject`). The panel reads the live shell project
+  catalog and refreshes its current-project scope; release clears only its own lease. Opening other work/Settings and
+  explicit close retain normal close behavior. This is a generic shell contract without provider-specific branches.
   Each panel root is wrapped by `workspacePanel(el)`:
   it stops presses (a window is otherwise dragged by them) and closes the panel on Esc that its controls did not consume.
 - The shell's `popup.placement: "workspace"` actions use the same function (§2.1), so there is one placement path.

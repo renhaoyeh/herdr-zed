@@ -5,7 +5,37 @@ import { glyph } from './components/icon.js';
 import { parseExtensionRegistry, parseExtensionManifest, extensionPopup, extensionMetadata, extensionServiceLayout, gitActionPopup, resolveProviders, launcherAvailable, platformSupported, workspaceRect, windowHeightFromSidebar } from './extension-model.js';
 import { extensionSurfaceLayout, extensionSurfaceNodeId, surfaceEmptyKey, emptyStatusSurfaces, SURFACES_SHOWN_KEY, reportedSurfaceHeights } from './extension-surfaces.js';
 import { surfaceHeightKey } from './components/extension-contract.js';
-import { openWorkspacePanel, WORKSPACE_RECT_KEY, WORKSPACE_PANEL_OVERLAY, WORKSPACE_PANEL_ACTIVE, usableWorkspaceRect } from './components/workspace-overlay.js';
+import { openWorkspacePanel, WORKSPACE_RECT_KEY, WORKSPACE_PANEL_OVERLAY, WORKSPACE_PANEL_ACTIVE, WORKSPACE_FOLLOW_PROJECT, WORKSPACE_LAYOUT_REQUEST, usableWorkspaceRect } from './components/workspace-overlay.js';
+
+const WORKSPACE_CONTENT = 'herdr-zed.workspace-panel.content';
+const mapLayout = (node, replace) => {
+  const next = replace(node);
+  return next !== node ? next : node?.children ? { ...node, children: node.children.map(child => mapLayout(child, replace)) } : node;
+};
+
+// A finite provider-owned layout is mounted in the shell's work area; providers never name shell layout nodes.
+export function mountWorkspaceLayoutRequest() {
+  const request = shared(WORKSPACE_LAYOUT_REQUEST);
+  setShared(WORKSPACE_LAYOUT_REQUEST, null);
+  if (!request?.id || !request.layout || !request.action) return;
+  const valid = (node, depth = 0) => depth < 12 && node && ['column', 'row', 'stack', 'block'].includes(node.type)
+    && (!node.content || typeof node.content.mod === 'string' && extensionActive(node.content.mod) && !node.content.terminal && !node.content.tab)
+    && (!node.children || Array.isArray(node.children) && node.children.length < 32 && node.children.every(child => valid(child, depth + 1)));
+  if (!valid(request.layout)) { notify({ title: 'Could not mount workspace panel', body: 'The panel contains an unavailable provider or an invalid layout.', level: 'error' }); return; }
+  closeWorkspacePanel();
+  const root = layout();
+  if (!layoutNode(root, 'workspace-row')) { notify({ title: 'Could not mount workspace panel', body: 'The current layout has no workspace area.', level: 'error' }); return; }
+  const previousHidden = Boolean(layoutNode(root, 'workspace-row').hidden);
+  const next = mapLayout(root, node => node?.children?.some(child => child.id === 'workspace-row') ? {
+    ...node, children: node.children.flatMap(child => child.id === 'workspace-row'
+      ? [{ ...child, hidden: true }, { ...request.layout, id: WORKSPACE_CONTENT, background: 'background', size: { weight: 1 } }] : [child]),
+  } : node);
+  run('layout.set', { layout: next });
+  setShared(WORKSPACE_PANEL_ACTIVE, { overlay: request.id, action: request.action, hosted: true, previousHidden });
+  setShared(WORKSPACE_PANEL_OVERLAY, request.id);
+  setShared(WORKSPACE_FOLLOW_PROJECT, request.id);
+  run('layout.show', { id: WORKSPACE_CONTENT });
+}
 
 const DISABLED = 'herdr-zed.extensions.disabled';
 // Measured by the shell's views (on_size_change, logical px): the work column width and the sidebar's flexible body
@@ -24,9 +54,17 @@ export const workspaceRectNow = () => {
 export function closeWorkspacePanel() {
   const id = shared(WORKSPACE_PANEL_OVERLAY);
   if (!id) return;
+  const active = shared(WORKSPACE_PANEL_ACTIVE), hosted = active?.hosted;
   setShared(WORKSPACE_PANEL_OVERLAY, null);
   setShared(WORKSPACE_PANEL_ACTIVE, null);
-  run('overlay.close', { id });
+  if (hosted) {
+    setShared(WORKSPACE_FOLLOW_PROJECT, null);
+    const root = layout();
+    run('layout.set', { layout: mapLayout(root, node => node?.children?.some(child => child.id === WORKSPACE_CONTENT) ? {
+      ...node, children: node.children.filter(child => child.id !== WORKSPACE_CONTENT)
+        .map(child => child.id === 'workspace-row' ? { ...child, hidden: active.previousHidden } : child),
+    } : node) });
+  } else run('overlay.close', { id });
 }
 
 // ARCHITECTURE §3.7: the shell publishes the work area (logical px) whenever it changes, null while unmeasured. Providers
@@ -160,6 +198,7 @@ export function openExtension(id, project) {
   if (!catalog.ready || !action || !extensionActive(action.mod)) return;
   const active = shared(WORKSPACE_PANEL_ACTIVE);
   if (active?.action === id) return active.overlay;
+  if (active?.hosted) closeWorkspacePanel();
   try {
     const popup = extensionPopup(action, project);
     return action.popup.placement === 'workspace'

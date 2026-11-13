@@ -51,7 +51,7 @@ for (const provider of ['asana', 'mantisbt']) test(`${provider} runs across modu
   assert.deepEqual(memory[`herdr-zed.${provider}-projects`]['["","/original"]'], binding);
   assert.equal(host.sourceChannels('herdr-zed-tasks').length, 0);
   const composerHost = { ...base, boardKey, taskActions, liveAgents: () => [], InputState: input, TextareaState: input, SelectState: class {},
-    createLocalTask: (_project, name, notes, fields) => { const result = { gid: 'local:1', source: 'local', name, notes, ...fields }; tasks.push(result); return result; },
+    importedTask: () => null, createLocalTask: (_project, name, notes, fields) => { const result = { gid: 'local:1', source: 'local', name, notes, ...fields }; tasks.push(result); return result; },
   };
   const { TaskComposer } = await evaluateNative('../mods/herdr-zed-tasks/task-composer.js', composerHost, 'TaskComposer');
   const composer = new TaskComposer(); composer.init({ project: drafts[0].context, importTask: drafts[0].snapshot, overlay: 'composer' }, cx);

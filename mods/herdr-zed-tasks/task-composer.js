@@ -1,10 +1,10 @@
 import { div } from 'gpui-kit';
 import { h_flex, v_flex, InputState, Input, TextareaState, Textarea } from 'gpui-base';
-import { shared, setShared, closeOverlay, openOverlay, agents as liveAgents } from 'herdr';
+import { shared, setShared, closeOverlay, openOverlay, run, agents as liveAgents } from 'herdr';
 import { boardTheme } from './components/task-theme.js';
 import { boardKey, boardPriorityOptions, taskActions } from './agent-board-model.js';
 import { launcherOption, accountAddresses } from './components/session-model.js';
-import { createLocalTask, rememberBoardTask, projectBoardTasks } from './agent-board-state.js';
+import { createLocalTask, rememberBoardTask, projectBoardTasks, importedTask } from './agent-board-state.js';
 import { Select, SelectState } from './components/select.js';
 import { Button } from './components/button.js';
 import { glyph } from './components/icon.js';
@@ -56,7 +56,19 @@ export default class TaskComposer {
     const current = projectBoardTasks(this.project, liveAgents()).find(task => task.gid === this.task.gid);
     return taskActions(current).canEdit;
   }
+  existingImport() { return !this.task && importedTask(this.project, { asana: this.asana, mantisbt: this.mantisbt }); }
+  openTask(task) {
+    setShared('herdr-zed.board-focus', task.gid);
+    const hub = this.options.returnHub && shared(`${this.options.returnHub}.config`);
+    if (hub?.tabs?.some(tab => tab.id === 'tasks')) {
+      setShared(`${hub.stateKey}.selected`, 'tasks');
+      run('layout.select', { stack: hub.stack, child: `${hub.stack}-tasks` });
+    }
+    closeOverlay(this.options.overlay);
+  }
   submit(agents, cx) {
+    const existing = this.existingImport();
+    if (existing) { this.saved = true; this.openTask(existing); return; }
     if (this.saved || !this.title.value().trim()) return;
     if (!this.editable()) { this.error = this.parent ? 'The parent task is unavailable or archived.' : 'This task can no longer be edited.'; cx?.notify(); return; }
     const assignment = agents.find(agent => agent.key === this.agent);
@@ -75,11 +87,10 @@ export default class TaskComposer {
     if (!task) return;
     this.saved = true;
     setShared('herdr-zed.task-drafts', { ...(shared('herdr-zed.task-drafts') || {}), [this.draftKey]: null });
-    setShared('herdr-zed.board-focus', task.gid);
-    closeOverlay(this.options.overlay);
+    this.openTask(task);
   }
   render(agents) {
-    const t = boardTheme(), editable = this.editable(), option = (key, label) => ({ key, label, color: t.foreground });
+    const t = boardTheme(), existing = this.existingImport(), editable = this.editable(), option = (key, label) => ({ key, label, color: t.foreground });
     const pick = (key, value, options, label, width) => Select(`task-composer-${key}`, this.selects[key], value, options, label,
       value => { this[key] = value; }, t, { width, boxed: true, radius: 5 });
     return v_flex().id('task-composer').size_full().min_h(0).rounded(12).border(1).border_color(t.border).bg(t.popover)
@@ -97,6 +108,7 @@ export default class TaskComposer {
         .child(Button('composer-close', t, { variant: 'ghost', size: 'icon' }).accessibility_label('Close task composer').tooltip('Close task composer')
           .on_click(() => this.dismiss()).child(glyph('close', 14))))
       .child(v_flex().id('composer-content').flex_1().min_h(0).overflow_y_scrollbar().px(24).gap(14)
+        .when(Boolean(existing), el => el.child(div().text_size(12).text_color(t.muted).child('Already imported into this project. Open the existing task to keep its edits and execution history.')))
         .child(Input.new(this.title).id('composer-title').accessibility_label('Task title').w_full().h(36).text_size(22).font_semibold().bg(t.popover).border(0))
         .child(Textarea.new(this.description).id('composer-description').accessibility_label('Task description').w_full().text_size(14).bg(t.popover).border(0))
         .when(Boolean(this.error || (this.parent && !editable)), el => el.child(div().id('composer-error').text_size(12).text_color(t.destructive)
@@ -110,6 +122,6 @@ export default class TaskComposer {
         .child(div().text_size(11).text_color(t.muted).child('⌘ / Ctrl Enter'))
         .child(div().flex_1())
         .child(Button('composer-submit', t).h(28).disabled(!this.title.value().trim() || !editable)
-          .on_click((_event, cx) => this.submit(agents, cx)).child(this.task ? 'Save task' : this.parent ? 'Create subtask' : 'Create task')));
+          .on_click((_event, cx) => this.submit(agents, cx)).child(existing ? 'Open existing task' : this.task ? 'Save task' : this.parent ? 'Create subtask' : 'Create task')));
   }
 }
