@@ -8,8 +8,8 @@
     8
   ],
   "theme": {
-    "light": "devkits-light",
-    "dark": "devkits"
+    "light": "herdr-zed-light",
+    "dark": "herdr-zed"
   },
   "ui_font": "Geist",
   "font": "Geist Mono",

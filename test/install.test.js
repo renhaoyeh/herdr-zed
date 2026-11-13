@@ -39,14 +39,14 @@ test('first install copies the shell without build-only files, adds icons and mi
   const home = await tempHome(t);
   const state = '{"layout":"devkits","herdr-zed.projects":["/real/project"]}';
   await writeHome(home, 'shared.json', state);
-  await writeHome(home, 'themes/devkits.json', 'user theme');
+  await writeHome(home, 'themes/herdr-zed.json', 'user theme');
   await install(home);
   assert.equal(await readHome(home, 'shared.json'), state);
   assert.equal(await readHome(home, 'mods/herdr-zed/main.js'), await read('mods/herdr-zed/main.js'));
   assert.equal(await readHome(home, 'layouts/herdr-zed.json'), await read('layouts/herdr-zed.json'));
-  assert.equal(await readHome(home, 'themes/devkits.json'), 'user theme', 'Existing themes are never replaced');
+  assert.equal(await readHome(home, 'themes/herdr-zed.json'), 'user theme', 'Existing themes are never replaced');
   for (const name of (await readdir(new URL('themes/', repo))))
-    if (name !== 'devkits.json') assert.equal(await readHome(home, join('themes', name)), await read(`themes/${name}`));
+    if (name !== 'herdr-zed.json') assert.equal(await readHome(home, join('themes', name)), await read(`themes/${name}`));
   assert.equal(await readHome(home, 'mods/herdr-zed/assets/icons/asana.svg'), await read('assets/icons/asana.svg'));
   assert.equal(await readHome(home, 'mods/herdr-zed/assets/preview.svg'), await read('mods/herdr-zed/assets/preview.svg'));
   await access(new URL('mods/herdr-zed/components/contract-types.d.ts', repo));
