@@ -8,7 +8,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { extensionMetadata } from './extension-model.js';
 
 const execFile = promisify(execFileCallback);
-export const resetShortcuts = { 'cmd-n': 'herdr-zed.new-thread', 'cmd-w': 'herdr-zed.close-file' };
+export const resetShortcuts = { 'cmd-n': 'herdr-zed.new-thread', 'cmd-w': 'herdr-zed.close-file', 'cmd-shift-f': 'herdr-zed.project-search', 'ctrl-shift-f': 'herdr-zed.project-search' };
 const read = path => readFile(path, 'utf8').catch(error => { if (error.code === 'ENOENT') return null; throw error; });
 const entries = path => readdir(path, { withFileTypes: true }).catch(error => { if (error.code === 'ENOENT') return []; throw error; });
 async function plain(path) {

@@ -3,12 +3,14 @@ import { v_flex } from 'gpui-base';
 import { shared, setShared, theme } from 'herdr';
 import FileViewer from './files.js';
 import DiffViewer from './diff.js';
+import { ProjectSearch } from './project-search.js';
 import { gitToastProject } from './git-result-toast.js';
 import { SidePanelLayout } from './components/side-panel.js';
 
 const editorItemKey = item => item.kind === 'commit' ? `commit:${item.commit.sha}` : item.kind;
-const emptyEditorSession = () => ({ git: [], order: [], history: [], active: null, compose: false });
+const emptyEditorSession = () => ({ git: [], order: [], history: [], active: null, compose: false, search: false });
 export const COMPOSE_TAB = 'compose';
+export const SEARCH_TAB = 'search';
 
 // Files, the graph, commit diffs and the New thread composer share one tab strip. Dock selection is independent.
 // The composer tab (COMPOSE_TAB) is per project and per session; it is not restored after a restart.
@@ -90,7 +92,7 @@ export default class WorkspaceEditor {
 
   syncTabs() {
     const keys = [...(this.files.tabs || []).map(doc => `file:${doc.path}`), ...this.session.git.map(editorItemKey),
-      ...(this.session.compose ? [COMPOSE_TAB] : [])];
+      ...(this.session.compose ? [COMPOSE_TAB] : []), ...(this.session.search ? [SEARCH_TAB] : [])];
     const valid = new Set(keys);
     this.session.order = [...this.session.order.filter(key => valid.has(key)), ...keys.filter(key => !this.session.order.includes(key))];
     this.session.history = this.session.history.filter(key => valid.has(key));
@@ -135,6 +137,22 @@ export default class WorkspaceEditor {
     cx.notify();
   }
 
+  // Ctrl+Shift+F outside a terminal: the project's Search tab, with its query selected.
+  openSearch(project, cx) {
+    this.switchProject(project);
+    this.capturePreview();
+    this.session.search = true;
+    this.syncTabs(); this.record(SEARCH_TAB);
+    // Created on first use; one search view serves every project and follows the active one.
+    if (!this.search) {
+      this.search = new ProjectSearch(); this.search.init(cx);
+      this.search.onOpenFile = (path, cx) => { if (this.files.context) this.files.show(path, cx, true); };
+      this.search.onClose = cx => this.closeItem(SEARCH_TAB, cx);
+    }
+    this.search.focus(cx);
+    cx.notify();
+  }
+
   finishCompose(projectKey, cx) {
     if (projectKey === this.projectKey) { this.closeItem(COMPOSE_TAB, cx); return; }
     const session = this.sessions.get(projectKey);
@@ -148,7 +166,7 @@ export default class WorkspaceEditor {
   activate(key, cx, cycling = false) {
     this.capturePreview();
     const cycle = this.tabSwitch;
-    if (key === COMPOSE_TAB) this.record(key);
+    if (key === COMPOSE_TAB || key === SEARCH_TAB) this.record(key);
     else if (key.startsWith('file:')) this.files.activate(key.slice(5), cx);
     else {
       const item = this.session.git.find(item => editorItemKey(item) === key);
@@ -170,6 +188,7 @@ export default class WorkspaceEditor {
       this.closingFile = true;
       try { this.files.closeTab(key.slice(5), cx); } finally { this.closingFile = false; }
     } else if (key === COMPOSE_TAB) this.session.compose = false;
+    else if (key === SEARCH_TAB) this.session.search = false;
     else {
       this.session.git = this.session.git.filter(item => editorItemKey(item) !== key);
       if (this.diffItemKey === key) this.diffItemKey = null;
@@ -209,7 +228,7 @@ export default class WorkspaceEditor {
       }
     }
     const active = this.session.active;
-    const kind = active === COMPOSE_TAB ? 'compose' : active && !active.startsWith('file:') ? 'diff' : 'files';
+    const kind = active === COMPOSE_TAB ? 'compose' : active === SEARCH_TAB ? 'search' : active && !active.startsWith('file:') ? 'diff' : 'files';
     const diff = kind === 'diff' || dock === 'diff' ? this.diff.render(project, cx, true) : null;
     if (diff) this.diffProjectKey = this.projectKey;
     this.capturePreview();
@@ -229,11 +248,13 @@ export default class WorkspaceEditor {
     });
     if (this.session.compose) extra.push({ key: COMPOSE_TAB, active: active === COMPOSE_TAB, label: 'New thread', icon: 'thread',
       activate: cx => this.activate(COMPOSE_TAB, cx), close: cx => this.closeItem(COMPOSE_TAB, cx) });
+    if (this.session.search) extra.push({ key: SEARCH_TAB, active: active === SEARCH_TAB, label: 'Search', icon: 'search',
+      activate: cx => this.activate(SEARCH_TAB, cx), close: cx => this.closeItem(SEARCH_TAB, cx) });
     const content = v_flex().size_full().min_w(0).min_h(0)
       .when(this.session.order.length > 0, el => el.child(this.files.tabBar(theme(), {
         extra, fileActive: kind === 'files', order: this.session.order, closeFile: (path, cx) => this.closeItem(`file:${path}`, cx),
       })))
-      .child(div().flex_1().min_w(0).min_h(0).child(kind === 'compose' && compose ? compose() : kind === 'diff' ? diff.content
+      .child(div().flex_1().min_w(0).min_h(0).child(kind === 'compose' && compose ? compose() : kind === 'search' && this.search ? this.search.render(project, cx) : kind === 'diff' ? diff.content
         : files.content));
     const body = dock ? SidePanelLayout('workspace-editor-split', this.files.sidePanel, content,
       dock === 'diff' ? diff.panel : files.panel) : content;

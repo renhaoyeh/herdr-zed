@@ -109,6 +109,7 @@ export default class HerdrZed extends View {
         const command = await nextCommand();
         if (command === 'new-thread') this.newThread(cx);
         if (command === 'reveal-conversation') this.showConversation(true);
+        if (command === 'project-search') this.openProjectSearch(cx);
         // herdr-zed.settings opens the General page; herdr-zed.settings:<key> a shell page (general, git, extensions)
         // or an extension's page (ARCHITECTURE §2.1).
         if (command === 'settings') openSettings('general', this.projects().find(project => project.active));
@@ -135,6 +136,10 @@ export default class HerdrZed extends View {
             if (project && request) { this.editor.openFile(project, request.path, cx, { on: request.on }); this.editor.focus(); }
           }
           if (command === 'focus' || command === 'focus-editor') this.editor.focus();
+          if (command === 'open-search') {
+            const project = this.projects().find(project => project.active);
+            if (project) this.editor.openSearch(project, cx);
+          }
           if (command === 'compose') {
             const project = this.projects().find(project => project.active);
             if (project && shared(COMPOSE_KEY) === startProjectKey(project)) {
@@ -408,6 +413,17 @@ export default class HerdrZed extends View {
     if (editor && !editor.hidden && this.editor) { this.editor.closeActiveTab(cx); return; }
     if (editor && !editor.hidden && (shared('herdr-zed.editor-kind') || editor.active || 'files') === 'files' && this.files?.file)
       this.files.closeTab(this.files.file, cx);
+  }
+
+  // Like opening a file: the editor shows beside the conversation, then its Search tab opens.
+  openProjectSearch(cx) {
+    const project = this.projects().find(project => project.active);
+    if (!project) { this.openProject(cx); return; }
+    closeWorkspacePanel();
+    maximizeConversation(null, false);
+    run('layout.show', { id: 'editor' });
+    run('layout.select', { stack: 'editor', child: 'workspace-editor' });
+    run('herdr-zed.open-search');
   }
 
   openEditorFile(path, on = null) {

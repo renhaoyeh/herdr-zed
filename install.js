@@ -14,7 +14,7 @@ const SHELL = 'herdr-zed';
 const AGENTS = 'herdr-zed-agents';
 const USAGE = 'Usage: node install.js | node install.js --extension <mod> | node install.js --update';
 const LOCKED = new Set(['EPERM', 'EBUSY', 'EACCES']);
-export const zedKeys = { 'cmd-n': 'herdr-zed.new-thread', 'cmd-w': 'herdr-zed.close-file' };
+export const zedKeys = { 'cmd-n': 'herdr-zed.new-thread', 'cmd-w': 'herdr-zed.close-file', 'cmd-shift-f': 'herdr-zed.project-search', 'ctrl-shift-f': 'herdr-zed.project-search' };
 
 const missing = error => error.code === 'ENOENT';
 async function exists(path) {
