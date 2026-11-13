@@ -195,7 +195,7 @@ test('native sidebar, pane menu, dock controls and empty editor render without e
   assert.equal(has(composer, 'project-start-options'), false, 'no extra options menu');
   assert.doesNotMatch(text(composer), /Ctrl\+Enter|⌘ Enter|Start task/, 'keyboard hints and button text stay out of the composer');
   const usageRow = elements(composer).find(element => element.attributes.id === 'project-start-usage');
-  assert.deepEqual(usageRow.nodes[0].nodes.map(element => element.attributes.id), ['project-start-usage-codex', 'project-start-usage-claude'], 'every account sits side by side below the composer');
+  assert.deepEqual(usageRow.nodes[0].nodes.map(element => element.nodes[0].attributes.id), ['project-start-usage-codex', 'project-start-usage-claude'], 'every account sits side by side below the composer');
   assert.match(text(usageRow), /Codex.*5h.*Week.*Work.*5h.*Week/, 'every card has the same window lines');
   assert.match(text(usageRow), /Codex.*5h.*20%.*Work.*Week.*91%/);
   assert.ok(has(composer, 'project-start-usage-claude-10080'), 'each window has a meter');

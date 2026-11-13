@@ -276,7 +276,7 @@ export const startPanel = {
         .child(div().w(54).flex_none().font_family('Geist Mono').text_right().accessibility_label(reset).child(time.replace(/\b(\d)([dhm])\b/g, '0$1$2')));
     };
     const program = account => (session.choices || []).find(item => item.key.split('#')[0] === account.key);
-    const card = account => v_flex().id(`project-start-usage-${account.key}`).flex_1().min_w(0).gap(4).px(10).py(6).border(1)
+    const card = account => v_flex().id(`project-start-usage-${account.key}`).w_full().min_w(0).gap(4).px(10).py(6).border(1)
       .border_color(account.key === current ? t.accent : t.border)
       .when(Boolean(program(account)) && account.key !== current, el => el.cursor_pointer().hover(el => el.bg(t.hover))
         .accessibility_label(`Use ${program(account).label}`)
@@ -287,8 +287,10 @@ export const startPanel = {
       .children(slots.map(slot => line(account, slot)));
     const rows = Array.from({ length: Math.ceil(accounts.length / columns) }, (_, i) => accounts.slice(i * columns, i * columns + columns));
     return v_flex().id('project-start-usage').w_full().gap(8).children(rows.map((row, i) =>
-      h_flex().id(`project-start-usage-row-${i}`).w_full().gap(8).children([...row.map(card),
-        ...Array.from({ length: columns - row.length }, (_, j) => div().id(`project-start-usage-pad-${i}-${j}`).flex_1().min_w(0))])));
+      // Identical outer cells own sizing; card padding and borders must not affect column widths.
+      h_flex().id(`project-start-usage-row-${i}`).w_full().gap(8).children(
+        Array.from({ length: columns }, (_, j) => div().id(`project-start-usage-cell-${i}-${j}`)
+          .flex_1().flex_basis(0).min_w(0).when(Boolean(row[j]), el => el.child(card(row[j])))))));
   },
   projectStartView(project, t, cx) {
     if (!project) return div().size_full().bg(t.background);
