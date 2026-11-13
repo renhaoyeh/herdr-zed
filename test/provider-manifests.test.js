@@ -26,8 +26,9 @@ test('Agents Settings declares its seven pages in order, grouped for its nav', a
   const { settings } = extensionMetadata('herdr-zed-agents', await load('agents'));
   assert.equal(settings.view, 'manage-launchers');
   assert.deepEqual(settings.pages, [
-    { id: 'accounts', title: 'Accounts', group: 'Accounts' }, { id: 'profiles', title: 'Profiles' }, { id: 'agents', title: 'Launch menu', group: 'New thread' },
-    { id: 'capabilities', title: 'Capabilities', group: 'Sessions' }, { id: 'ecc', title: 'ECC' }, { id: 'mcp', title: 'MCP Connections' }, { id: 'global-rules', title: 'Global Rules' },
+    { id: 'accounts', title: 'Accounts', group: 'Accounts', icon: 'user-round' }, { id: 'profiles', title: 'Profiles', icon: 'tag' }, { id: 'agents', title: 'Launch menu', group: 'New thread', icon: 'list-tree' },
+    { id: 'models', title: 'Models', icon: 'agent' },
+    { id: 'capabilities', title: 'Capabilities', group: 'Sessions', icon: 'extensions' }, { id: 'ecc', title: 'ECC', icon: 'zap' }, { id: 'mcp', title: 'MCP Connections', icon: 'server' }, { id: 'global-rules', title: 'Global Rules', icon: 'book-open' },
   ]);
 });
 

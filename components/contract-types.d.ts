@@ -33,7 +33,7 @@ export interface ExtensionSurface {
   view: string; title: string; icon: string;
 }
 /** ARCHITECTURE §2.1: a sub-item under a UI extension's Settings entry. */
-export interface ExtensionSettingsPage { id: string; title: string; /** Labels the run of pages it starts in a settings nav. */ group?: string; }
+export interface ExtensionSettingsPage { id: string; title: string; icon?: string; /** Labels the run of pages it starts in a settings nav. */ group?: string; }
 /** ARCHITECTURE §2.1: a UI extension's page in the shell's Settings dialog. */
 export interface ExtensionSettings { view: string; title: string; pages?: ExtensionSettingsPage[]; }
 export interface ExtensionManifest {
@@ -68,7 +68,7 @@ export type ComposerField =
 /** `detail`: a short reading beside the choice (e.g. its account's quota); `tone` colours it. */
 export interface ComposerChoice { key: string; label: string; icon?: string; tint?: boolean; fields: ComposerField[]; }
 export interface ComposerUsageWindow { label: string; minutes: number; usedPercent: number; resetsAt: number | null; }
-export interface ComposerUsage { key: string; label: string; icon?: string; tint?: boolean; muted?: boolean; windows: ComposerUsageWindow[]; }
+export interface ComposerUsage { key: string; label: string; icon?: string; tint?: boolean; muted?: boolean; menu?: { view: string; width: number }; windows: ComposerUsageWindow[]; }
 export interface ComposerEnvelope { updatedAt: number; machines: Record<string, { choices: ComposerChoice[]; usage?: ComposerUsage[] }>; }
 /** §3.1 Composer: shell → launcher, appended to `herdr-zed.launch.intents`. */
 export interface LaunchIntent {

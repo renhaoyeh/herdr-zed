@@ -456,6 +456,17 @@ test('models follow the dragged order, new ones keep theirs after it, and the co
   assert.deepEqual(panel.session([{ key: 'claude', name: 'Claude', run: ['claude'] }]).models.map(model => model.key), ['haiku', 'opus', 'fable']);
 });
 
+test('Tasks follows the root model list for every account and named profile', async () => {
+  const work = { key: 'herdr-zed-codex-work' }, personal = { key: 'herdr-zed-codex-personal' };
+  const memory = { 'herdr-zed.session-options': { codex: { models: ['mini'] } } };
+  const { TaskSession } = await load({ ...ui, shared: key => memory[key] });
+  const panel = new TaskSession(); panel.init({ focus_handle: () => ({ focus() {} }) });
+  panel.allModels = () => [{ key: 'gpt', label: 'GPT' }, { key: 'mini', label: 'Mini' }];
+  assert.deepEqual(panel.modelsFor(work).map(item => item.key), ['gpt']);
+  assert.deepEqual(panel.modelsFor(personal).map(item => item.key), ['gpt']);
+  assert.deepEqual(panel.modelsFor({ key: 'herdr-zed-preset-fast', profileKey: work.key }).map(item => item.key), ['gpt']);
+});
+
 test('a provider’s choices follow Manage, and Codex efforts narrow to the chosen model', () => {
   const codex = [{ key: 'a', label: 'A', efforts: ['low', 'high'] }, { key: 'b', label: 'B', efforts: ['max'] }];
   assert.deepEqual(sessionChoices('codex', codex, { order: ['b'], efforts: ['low'] }), { models: [codex[1], codex[0]], efforts: ['max', 'high'] });

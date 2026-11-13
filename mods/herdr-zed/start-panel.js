@@ -1,9 +1,9 @@
 import { div } from 'gpui-kit';
 import { v_flex, h_flex, TextareaState, Textarea, Popup } from 'gpui-base';
-import { shared, setShared, spaces, exec, notify } from 'herdr';
+import { shared, setShared, spaces, exec, notify, openOverlay } from 'herdr';
 import { pasteClipboardImage, withAttachments, AttachmentStrip } from './components/image-attachments.js';
 import { Button, ToolbarButton } from './components/button.js';
-import { DropdownMenuContent } from './components/dropdown-menu.js';
+import { DropdownMenuContent, DropdownMenuTrigger } from './components/dropdown-menu.js';
 import { Empty, EmptyTitle, EmptyDescription } from './components/empty.js';
 import { glyph, AgentIcon } from './components/icon.js';
 import { activeLauncher } from './extensions.js';
@@ -125,6 +125,9 @@ export const startPanel = {
   // The values of one launcher choice: its fields' published defaults, then what was picked here. A select whose value
   // the other picks no longer allow falls back to its first offered option.
   startValues(choice, picked = (shared('herdr-zed.start-values') || {})[choice.key] || {}) {
+    // Editing defaults from an account card replaces earlier composer picks for that program.
+    const defaults = JSON.stringify(choice.fields.map(field => [field.id, field.value]));
+    if (picked.__defaults !== defaults) picked = {};
     const values = {};
     for (const field of choice.fields) values[field.id] = field.id in picked ? picked[field.id] : field.value;
     for (const field of choice.fields) {
@@ -136,7 +139,9 @@ export const startPanel = {
   },
   pickStartValue(choice, id, value, cx) {
     const all = shared('herdr-zed.start-values') || {};
-    setShared('herdr-zed.start-values', { ...all, [choice.key]: this.startValues(choice, { ...this.startValues(choice), [id]: value }) });
+    const defaults = JSON.stringify(choice.fields.map(field => [field.id, field.value]));
+    const values = this.startValues(choice, { ...this.startValues(choice), [id]: value, __defaults: defaults });
+    setShared('herdr-zed.start-values', { ...all, [choice.key]: { ...values, __defaults: defaults } });
     cx.notify();
   },
   // The project's Git state for the panel header, read at most every 5 s while the panel is drawn.
@@ -174,7 +179,7 @@ export const startPanel = {
       // A launcher that has not published this machine yet: its picker chooses instead.
       if (!choices) return { launcher: launcher.id, picker: true };
       const choice = choices.find(item => item.key === key) || choices[0] || null;
-      return { launcher: launcher.id, choices, usage: composerUsage(shared(`herdr-zed.composer.${launcher.id}`), project.machine), choice, values: choice ? this.startValues(choice) : {}, ready: true };
+      return { launcher: launcher.id, launcherMod: launcher.mod, choices, usage: composerUsage(shared(`herdr-zed.composer.${launcher.id}`), project.machine), choice, values: choice ? this.startValues(choice) : {}, ready: true };
     }
     const programs = this.startAgents(project.machine, cx), items = programs.items || [];
     const agent = startChoice(items, project, remembered);
@@ -259,12 +264,12 @@ export const startPanel = {
     if (!accounts.length) return null;
     const current = session.choice?.key.split('#')[0];
     // Equal cards: a fixed number of columns, the last row padded, and one line per window any account has.
-    const columns = Math.min(3, accounts.length);
+    const columns = accounts.length === 4 ? 2 : Math.min(3, accounts.length);
     const slots = [...new Map(accounts.flatMap(account => account.windows).map(window => [window.minutes, window])).values()]
       .sort((a, b) => a.minutes - b.minutes);
     const line = (account, slot) => {
       const window = account.windows.find(item => item.minutes === slot.minutes);
-      const row = h_flex().w_full().h(12).gap(4).items_center().text_size(10).whitespace_nowrap().text_color(t.muted)
+      const row = h_flex().w_full().h(16).gap(6).items_center().text_size(11).whitespace_nowrap().text_color(t.muted)
         .child(div().w(30).flex_none().child(slot.label));
       if (!window) return row.child(div().flex_1().child('—'));
       const elapsed = quotaElapsedPercent(window), reset = quotaResetLabel(window);
@@ -276,14 +281,27 @@ export const startPanel = {
         .child(div().w(54).flex_none().font_family('Geist Mono').text_right().accessibility_label(reset).child(time.replace(/\b(\d)([dhm])\b/g, '0$1$2')));
     };
     const program = account => (session.choices || []).find(item => item.key.split('#')[0] === account.key);
-    const card = account => v_flex().id(`project-start-usage-${account.key}`).w_full().min_w(0).gap(4).px(10).py(6).border(1)
+    const defaultsButton = account => DropdownMenuTrigger(
+      ToolbarButton(`project-start-defaults-${account.key}`, t, { icon: true, row: true })
+        .opacity(this.startUsageHovered === account.key ? 1 : 0)
+        .tooltip(`Defaults for ${account.label}`).accessibility_label(`Defaults for ${account.label}`)
+        .child(glyph('settings', 14)), account.menu.width, (_cx, at) => {
+          openOverlay({ mod: session.launcherMod, kind: 'popup', frame: 'none', width: account.menu.width, at,
+            props: { view: account.menu.view, account: account.key, space: project.id } });
+        });
+    const card = account => v_flex().id(`project-start-usage-${account.key}`).w_full().min_w(0).gap(6).px(12).py(8).border(1)
       .border_color(account.key === current ? t.accent : t.border)
+      .on_hover((inside, cx) => {
+        if (!inside && this.startUsageHovered !== account.key) return;
+        this.startUsageHovered = inside ? account.key : null; cx.notify();
+      })
       .when(Boolean(program(account)) && account.key !== current, el => el.cursor_pointer().hover(el => el.bg(t.hover))
         .accessibility_label(`Use ${program(account).label}`)
         .on_click((_event, cx) => this.chooseStartAgent(project, program(account).key, cx)))
-      .child(h_flex().h(14).gap(6).items_center()
+      .child(h_flex().h(24).gap(6).items_center()
         .child(AgentIcon({ icon: account.icon, tint: account.tint }, t).size(12))
-        .child(div().min_w(0).truncate().text_size(12).font_semibold().text_color(account.muted ? t.muted : t.foreground).child(account.label)))
+        .child(div().flex_1().min_w(0).truncate().text_size(13).font_medium().text_color(account.muted ? t.muted : t.foreground).child(account.label))
+        .when(Boolean(account.menu && session.launcherMod), el => el.child(defaultsButton(account))))
       .children(slots.map(slot => line(account, slot)));
     const rows = Array.from({ length: Math.ceil(accounts.length / columns) }, (_, i) => accounts.slice(i * columns, i * columns + columns));
     return v_flex().id('project-start-usage').w_full().gap(8).children(rows.map((row, i) =>

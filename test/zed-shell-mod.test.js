@@ -204,6 +204,20 @@ test('native sidebar, pane menu, dock controls and empty editor render without e
   view.startSession = () => ({ launcher: 'agents', choices: [choice, { ...choice, key: 'claude#fast', label: 'Work · fast' }], usage, choice, values: view.startValues(choice), ready: true });
   elements(view.projectStartView(nativeSpaces[0], {}, cx)).find(element => element.attributes.id === 'project-start-usage-claude').click({}, cx);
   assert.deepEqual(chosen, ['claude#fast'], 'a card switches to its account\'s program');
+  const cardSession = { launcher: 'agents', launcherMod: 'herdr-zed-workflow', choices: [choice], choice,
+    usage: [{ ...usage[0], menu: { view: 'profile-defaults', width: 400 } }] };
+  const cards = view.startUsageView(nativeSpaces[0], cardSession, {});
+  const defaultsButton = elements(cards).find(element => element.attributes.id === 'project-start-defaults-codex');
+  assert.ok(defaultsButton, 'the account card has a reserved hover action');
+  assert.equal(defaultsButton.attributes.opacity, 0);
+  defaultsButton.click({}, cx);
+  assert.deepEqual(commands.at(-1), ['overlay', { mod: 'herdr-zed-workflow', kind: 'popup', frame: 'none', width: 400,
+    at: triggerAnchor, props: { view: 'profile-defaults', account: 'codex', space: 's' } }]);
+  assert.deepEqual(chosen, ['claude#fast'], 'opening defaults does not select or launch an account');
+  view.pickStartValue(choice, 'model', 'mini', cx);
+  const changedDefaults = { ...choice, fields: choice.fields.map(field => ({ ...field, value: field.id === 'model' ? 'new-default' : field.value,
+    ...(field.id === 'model' ? { options: [...field.options, { key: 'new-default', label: 'New default' }] } : {}) })) };
+  assert.equal(view.startValues(changedDefaults).model, 'new-default', 'changed account defaults replace older composer picks');
   const submit = elements(composer).find(element => element.attributes.id === 'project-start-submit');
   assert.equal(submit.attributes.accessibility_label, 'Start task');
   assert.equal(submit.attributes.tooltip, 'Start task');

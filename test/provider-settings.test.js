@@ -49,7 +49,7 @@ function shell(overrides = {}) {
   const host = {
     props: () => ({}), theme, closeOverlay: id => closed.push(id), run() {}, shared: () => null, setShared() {},
     unsavedKey: overlay => `herdr-zed.unsaved.${overlay}`, SETTINGS_CLOSE_COMMAND: 'settings-close', Autosave,
-    div: factory('div'), v_flex: factory('v_flex'), h_flex: factory('h_flex'), svg: factory('svg'), glyph: factory('glyph'),
+    div: factory('div'), v_flex: factory('v_flex'), h_flex: factory('h_flex'), svg: factory('svg'), glyph: factory('glyph'), AgentIcon: factory('AgentIcon'),
     DialogContent: factory('DialogContent'), DialogTitle: factory('DialogTitle'), DialogDescription: factory('DialogDescription'),
     DialogFooter: factory('DialogFooter'), Button: (id, ...rest) => make('Button', [id, ...rest]), Checkbox: factory('Checkbox'),
     // The shared title bar: logs its title as a DialogTitle child, and its close control as Button#<id> with the handler stored.
@@ -66,9 +66,59 @@ function shell(overrides = {}) {
 }
 
 const manifests = ['agents', 'github', 'asana', 'mantisbt', 'system'];
+
+test('account-card menu saves profile defaults independently and closes on Escape', async () => {
+  const account = { key: 'codex', name: 'Codex', installed: true };
+  const profile = { ...account, key: 'herdr-zed-preset-work', profileKey: 'codex', name: 'Work' };
+  const state = { 'herdr-zed.profile-sessions': { codex: { model: 'other' } } };
+  const { host, log, events, closed, factory } = shell({ ...sessions, availableAgents: items => items,
+    props: () => ({ account: profile.key, overlay: 'popup' }),
+    shared: key => state[key], setShared: (key, value) => { state[key] = value; } });
+  host.DropdownMenuContent = factory('DropdownMenuContent'); host.DropdownMenuLabel = factory('DropdownMenuLabel');
+  const { sessionMenu } = await evaluateNative('../mods/herdr-zed-agents/session-menu.js', host, 'sessionMenu');
+  const view = { ...sessionMenu, launchers: [account, profile], availableAgents: items => items,
+    profileModels: () => [{ key: 'gpt-test', label: 'Test model', efforts: ['low', 'high'] }], handle: {},
+    configurationFields: agent => { assert.equal(agent.key, profile.key); return host.div(); } };
+  view.profileDefaults(theme());
+  assert.equal(log.some(([, method, text]) => method === 'child' && text === JSON.stringify('Models in menu')), false);
+  const fields = view.providerDefaults(profile);
+  fields.find(field => field.id === 'model').items.find(item => item.key === 'gpt-test').choose();
+  fields.find(field => field.id === 'effort').items.find(item => item.key === 'high').choose();
+  const permission = fields.find(field => field.id === 'permissions').items.find(item => item.key !== 'default');
+  permission.choose();
+  assert.equal(state['herdr-zed.profile-sessions'][profile.key].model, 'gpt-test');
+  assert.equal(state['herdr-zed.profile-sessions'][profile.key].effort, 'high');
+  assert.equal(state['herdr-zed.codex-permissions'][profile.key], permission.key);
+  assert.equal(state['herdr-zed.profile-sessions'].codex.model, 'other');
+  events['DropdownMenuContent#profile-defaults-menu'].on_key_down({ key: 'escape' }, ctx([]));
+  assert.deepEqual(closed, ['popup']);
+  view.launchers = [account];
+  view.profileDefaults(theme());
+  assert.ok(log.some(([, method, text]) => method === 'child' && text === JSON.stringify('This profile is no longer available.')));
+});
 // The Agents extension's pages, as its manifest lists them. The shell mounts one per id with `page` in props.
-const agentsPages = [{ id: 'accounts', title: 'Accounts', group: 'Accounts' }, { id: 'profiles', title: 'Profiles' }, { id: 'agents', title: 'Launch menu', group: 'New thread' },
-  { id: 'capabilities', title: 'Capabilities', group: 'Sessions' }, { id: 'ecc', title: 'ECC' }, { id: 'mcp', title: 'MCP Connections' }, { id: 'global-rules', title: 'Global Rules' }];
+test('root model-menu switches apply to every Codex profile and Custom exposes none', async () => {
+  const work = { key: 'herdr-zed-codex-work', name: 'Work' };
+  const other = { key: 'herdr-zed-codex-other', name: 'Other' };
+  const state = { 'herdr-zed.profile-sessions': { [work.key]: { model: 'mini' }, [other.key]: { model: 'mini' } } };
+  const { host, events, factory } = shell({ ...sessions, availableAgents: items => items,
+    shared: key => state[key], setShared: (key, value) => { state[key] = value; } });
+  host.Switch = factory('Switch'); host.ToggleGroup = factory('ToggleGroup'); host.ToggleGroupItem = factory('ToggleGroupItem');
+  const { sessionMenu } = await evaluateNative('../mods/herdr-zed-agents/session-menu.js', host, 'sessionMenu');
+  const view = { ...sessionMenu, launchers: [work, other], codexModelList: [
+    { key: 'gpt', label: 'GPT', efforts: ['low', 'high'] }, { key: 'mini', label: 'Mini', efforts: ['low'] }] };
+  view.sessionOptions(['codex'], theme());
+  events['Switch#session-codex-models-mini'].on_change(false, ctx([]));
+  assert.deepEqual(state['herdr-zed.session-options'].codex.models, ['mini']);
+  assert.equal(state['herdr-zed.session-options'][work.key], undefined);
+  assert.equal(state['herdr-zed.profile-sessions'][work.key].model, null);
+  assert.equal(state['herdr-zed.profile-sessions'][other.key].model, null);
+  assert.deepEqual(view.sessionOptions(['custom'], theme()), []);
+});
+
+const agentsPages = [{ id: 'accounts', title: 'Accounts', group: 'Accounts', icon: 'user-round' }, { id: 'profiles', title: 'Profiles', icon: 'tag' }, { id: 'agents', title: 'Launch menu', group: 'New thread', icon: 'list-tree' },
+  { id: 'models', title: 'Models', icon: 'agent' },
+  { id: 'capabilities', title: 'Capabilities', group: 'Sessions', icon: 'extensions' }, { id: 'ecc', title: 'ECC', icon: 'zap' }, { id: 'mcp', title: 'MCP Connections', icon: 'server' }, { id: 'global-rules', title: 'Global Rules', icon: 'book-open' }];
 
 const expectedSettings = { agents: { view: 'manage-launchers', title: 'Agents', pages: agentsPages }, github: { view: 'settings', title: 'GitHub', pages: [] },
   asana: { view: 'settings', title: 'Asana', pages: [] }, mantisbt: { view: 'settings', title: 'MantisBT', pages: [] },
@@ -112,11 +162,11 @@ test('Agents Settings mounts exactly the page its props name, and remote project
   const { host, log, factory } = shell({ props: () => ({ view: 'manage-launchers', embedded: true, overlay: 'shell' }),
     ...sessions, availableAgents: () => [], spaces: () => [] });
   const { sessionMenu } = await evaluateNative('../mods/herdr-zed-agents/session-menu.js', host, 'sessionMenu');
-  const stubs = { accountsPage: 'accounts', agentProfilesPage: 'profiles', globalRulesNavigation: 'rules-nav', globalRulesPage: 'global-rules', devkitsNavigation: 'cap-nav',
+  const stubs = { accountsPage: 'accounts', agentProfilesPage: 'profiles', modelsPage: 'models', globalRulesNavigation: 'rules-nav', globalRulesPage: 'global-rules', devkitsNavigation: 'cap-nav',
     devkitsPage: 'capabilities', eccNavigation: 'ecc-nav', eccPage: 'ecc' };
   const view = agentsView(sessionMenu, Object.fromEntries(Object.entries(stubs).map(([method, id]) => [method, () => factory(id)()])));
   // Each page draws its own content; the two pages with sub-navigation draw it beside the page.
-  const expected = { accounts: ['accounts'], profiles: ['profiles'], 'global-rules': ['rules-nav', 'global-rules'],
+  const expected = { accounts: ['accounts'], profiles: ['profiles'], models: ['models'], 'global-rules': ['rules-nav', 'global-rules'],
     capabilities: ['cap-nav', 'capabilities'], mcp: ['capabilities'], ecc: ['ecc-nav', 'ecc'] };
   for (const [page, drawnNames] of Object.entries(expected)) {
     log.length = 0;

@@ -18,6 +18,7 @@ export function composerUsage(snapshot, machine = null) {
   return new UsageClient({ context: () => ({ machine }) }).visibleEntries(snapshot).map(({ choice, name, unknown, windows }) => ({
     key: choice.agent.key, label: name.slice(0, 80), ...(choice.agent.icon ? { icon: choice.agent.icon } : {}),
     ...(choice.agent.tint ? { tint: true } : {}), ...(unknown ? { muted: true } : {}),
+    ...(!machine && sessionKind(choice.agent) ? { menu: { view: 'profile-defaults', width: 400 } } : {}),
     windows: windows.map(window => ({ label: window.minutes === 300 ? '5h' : 'Week', minutes: window.minutes,
       usedPercent: window.usedPercent, resetsAt: Number.isFinite(window.resetsAt) ? window.resetsAt : null })) }));
 }

@@ -97,6 +97,7 @@ export default class AgentsMod extends View {
     if (view === 'rename-account') return this.renameAccountPrompt(t);
     if (view === 'remove-account') return this.removeAccountPrompt(t);
     if (view === 'agent-profile-editor') return this.agentProfileEditor(t);
+    if (view === 'profile-defaults') return this.profileDefaults(t);
     if (view === 'launcher') return this.launcher(t);
     this.syncAccountChanges(cx);
     return this.manageLaunchers(t, cx);

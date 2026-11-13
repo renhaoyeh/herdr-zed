@@ -48,7 +48,7 @@ export const extensionSettingsPages = () => {
   return [...resolved, ...off].flatMap(entry => [
   { key: extensionPageKey(entry.id), title: entry.title, mod: entry.mod, view: entry.view, page: null, indent: false },
   ...(entry.pages || []).map(page => ({ key: extensionPageKey(entry.id, page.id), title: page.title, mod: entry.mod,
-    view: entry.view, page: page.id, indent: true, ...(page.group ? { group: page.group } : {}) })),
+    view: entry.view, page: page.id, indent: true, ...(page.group ? { group: page.group } : {}), ...(page.icon ? { icon: page.icon } : {}) })),
   ]);
 };
 
@@ -243,12 +243,13 @@ export class WorkflowNav {
     const row = item => {
       const selected = page === item.key;
       return Button(`workflow-nav-${overlay ? `${overlay}-` : ''}${item.page}`, t, { variant: 'ghost' })
-        .w_full().h(32).px(12).justify_start()
+        .w_full().h(32).px(12).gap(8).justify_start()
         .bg(selected ? t.selected : t.chrome).text_color(selected ? t.foreground : t.muted)
         .hover(el => el.bg(selected ? t.selected : t.hover))
         .when(selected && unsaved, el => el.border_l(2).border_color(t.ansi1))
         .accessibility_label(selected && unsaved ? `${item.title}, unsaved changes` : item.title)
         .on_click(() => { if (!selected) navigateSettings(item.key, context, overlay); })
+        .when(Boolean(item.icon), el => el.child(glyph(item.icon, 14)))
         .child(div().min_w(0).truncate().text_size(13).child(item.title));
     };
     return closeOnEscape(v_flex().size_full().min_h(0).p(16).gap(2).bg(t.chrome).border_r(1).border_color(t.border)

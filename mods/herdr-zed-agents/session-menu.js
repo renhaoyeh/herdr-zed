@@ -16,7 +16,8 @@ import { accountStorageDirectory, storageGroups, storageSize } from './account-s
 
 const launcherSections = ['Terminal', 'Agents', 'Your accounts', 'Agent profiles'];
 // The manifest's settings.pages ids, one shell page each (ARCHITECTURE §2.1).
-const settingsPageIds = ['accounts', 'agents', 'profiles', 'global-rules', 'capabilities', 'mcp', 'ecc'];
+const settingsPageIds = ['accounts', 'agents', 'models', 'profiles', 'global-rules', 'capabilities', 'mcp', 'ecc'];
+const modelProviderIcon = (kind, t) => AgentIcon({ icon: `icons/${kind}.svg`, tint: kind === 'codex' }, t).size(14);
 
 // The New thread menu and the Agents settings pages. Mixed into the Agents view, which provides
 // cachedAgents, startThread and the account actions (addAccount, renameAccount, confirmRemoveAccount).
@@ -29,7 +30,7 @@ export const sessionMenu = {
     this.handle = cx.focus_handle();
     this.handle.focus();
     this.loadAgents(cx);
-    if ((props() || {}).view && !['manage-launchers', 'agent-profile-editor'].includes((props() || {}).view)) return;
+    if ((props() || {}).view && !['manage-launchers', 'agent-profile-editor', 'profile-defaults'].includes((props() || {}).view)) return;
     this.loadCodexModels(cx);
     const page = (props() || {}).page;
     this.settingsPage = settingsPageIds.includes(page) ? page : 'agents';
@@ -40,6 +41,7 @@ export const sessionMenu = {
     if (['capabilities', 'mcp'].includes(this.settingsPage)) { this.initDevkits(cx); this.capTab = this.settingsPage === 'mcp' ? 'mcp' : 'overview'; }
     if (this.settingsPage === 'ecc') this.initEcc(cx);
     this.defaultSelects = { permissions: new SelectState(cx), model: new SelectState(cx), effort: new SelectState(cx), profile: new SelectState(cx) };
+    if ((props() || {}).view === 'profile-defaults') return;
     if ((props() || {}).view === 'agent-profile-editor') { this.initAgentProfileEditor(cx); return; }
     // ARCHITECTURE §3.9: report the page's unsaved edits to the shell from a timer, only when that changes.
     const overlay = (props() || {}).overlay;
@@ -107,8 +109,19 @@ export const sessionMenu = {
         choose: checked => set({ serviceTier: checked ? 'fast' : null }) }] : [])];
   },
 
+  profileDefaults(t) {
+    const agent = this.availableAgents(this.launchers).find(item => item.key === (props() || {}).account && sessionKind(item));
+    return DropdownMenuContent('profile-defaults-menu', undefined, t).w_full().max_h(560).overflow_y_scroll().p(16).gap(12)
+      .track_focus(this.handle)
+      .on_key_down((event, cx) => { if (event.key === 'escape') { cx.stop_propagation(); closeOverlay(props().overlay); } })
+      .child(DropdownMenuLabel(t).px(0).child(agent ? launcherLabel(agent.name) : 'Session defaults'))
+      .child(div().text_size(12).text_color(t.muted).child('Saved automatically for new threads using this profile.'))
+      .child(agent && sessionKind(agent) ? this.configurationFields(agent, t, null, 200)
+        : div().text_size(12).text_color(t.muted).child(this.loading ? 'Loading profile…' : 'This profile is no longer available.'));
+  },
+
   // Like macOS and Zed settings: accounts grouped by provider on the left, the selected account on the right.
-  // Its session defaults choose from the provider's shared Models in menus, so both sit together.
+  // Defaults live on account cards; Models manages the shared provider lists.
   accountsPage(t, cx) {
     const agents = this.availableAgents(this.launchers).filter(agent => !agent.profileKey);
     const usage = shared('herdr-zed.usage.snapshot')?.contexts?.[JSON.stringify(null)]?.usage || [];
@@ -118,7 +131,7 @@ export const sessionMenu = {
     const all = groups.flatMap(group => group.accounts);
     const agent = all.find(item => item.key === this.selectedAccount) || all[0];
     return v_flex().id('settings-accounts').flex_1().min_h(0).gap(12)
-      .child(DialogDescription(t).flex_none().child('Sign in to more Claude and Codex accounts. Each account keeps its own session defaults.'))
+      .child(DialogDescription(t).flex_none().child('Sign in to more Claude and Codex accounts. Choose session defaults from the account cards in New thread.'))
       .child(h_flex().flex_1().min_h(0).gap(16).items_start()
         .child(v_flex().id('accounts-list').w(220).flex_none().h_full().min_h(0).overflow_y_scroll().gap(12)
           .children(groups.map(group => {
@@ -151,7 +164,7 @@ export const sessionMenu = {
   accountDetail(agent, usage, t, cx) {
     if (cx) this.loadAccountStorage(agent, cx);
     const storageBeside = (this.accountDetailWidth || 0) >= 590;
-    const kind = sessionKind(agent), name = kind === 'claude' ? 'Claude' : 'Codex';
+    const kind = sessionKind(agent);
     const label = this.accountName(agent, launcherLabel(agent.name || kind)), identity = this.accountIdentity(agent);
     // On the name's line: a named account's address, then the plan (a Default account already uses its address as the name).
     const about = [identity.email !== label && identity.email, planLabel(identity.plan)].filter(Boolean).join(' · ');
@@ -174,19 +187,9 @@ export const sessionMenu = {
             .text_color(t.destructive || t.ansi1).on_click(() => this.confirmRemoveAccount(agent)).child('Remove'))))
       .child((storageBeside ? h_flex() : v_flex()).id(`account-settings-storage-${agent.key}`).flex_none().gap(16)
         .when(storageBeside, el => el.items_start())
-        .child(v_flex().id(`account-defaults-panel-${agent.key}`).min_w(0).gap(8).mt(4)
-          .when(storageBeside, el => el.flex_1()).when(!storageBeside, el => el.flex_none())
-          .child(DropdownMenuLabel(t).px(0).child('SESSION DEFAULTS'))
-          .child(div().text_size(12).text_color(t.muted).child(`For new sessions started with ${label}. Model choices come from the list below.`))
-          .child(this.configurationFields(agent, t, null, storageBeside ? 200 : 240)))
         .child(div().id(`account-storage-position-${agent.key}`).min_w(0).flex_none()
           .when(storageBeside, el => el.w(250)).when(!storageBeside, el => el.w_full())
-          .child(this.accountStoragePanel(agent, t))))
-      .child(v_flex().flex_none().gap(8).mt(8)
-        .child(DropdownMenuLabel(t).px(0).child(`MODELS IN MENUS · ALL ${name.toUpperCase()} ACCOUNTS`))
-        .child(div().text_size(12).text_color(t.muted)
-          .child(`Which models and efforts every ${name} Model and Effort menu offers, including profiles. Drag to reorder.`))
-        .children(this.sessionOptions([kind], t)));
+          .child(this.accountStoragePanel(agent, t))));
   },
 
   loadAccountStorage(agent, cx, refresh = false) {
@@ -267,8 +270,20 @@ export const sessionMenu = {
       }));
   },
 
-  // Which models and efforts Asana's session composer offers, like Cursor's model list: one row and switch per model,
-  // and efforts as joined segments as in Claude Code and Codex. Turned-off ones are hidden; Default always stays.
+  modelsPage(t) {
+    const kind = this.modelsProvider || 'claude';
+    return v_flex().id('settings-models').flex_1().min_h(0).gap(16)
+      .child(DialogDescription(t).flex_none().child('Choose the models and efforts offered to every account and profile. Changes save automatically.'))
+      .child(h_flex().flex_none().self_start().p(2).gap(2).border(1).border_color(t.border)
+        .children(['claude', 'codex'].map(provider => Button(`models-provider-${provider}`, t, { variant: 'ghost' }).h(28).px(12).gap(8)
+          .bg(provider === kind ? t.selected : t.popover)
+          .on_click((_event, cx) => { this.modelsProvider = provider; this.modelDrag = null; this.modelDrop = null; cx.notify(); })
+          .child(modelProviderIcon(provider, t))
+          .child(provider === 'claude' ? 'Claude Code' : 'Codex'))))
+      .child(v_flex().flex_1().min_h(0).overflow_y_scroll().children(this.sessionOptions([kind], t)));
+  },
+
+  // One global list per supported provider; Custom programs never have model controls.
   sessionOptions(kinds, t) {
     const saved = shared('herdr-zed.session-options') || {};
     const shown = (kind, field, key) => !(saved[kind]?.[field] || []).includes(key);
@@ -289,8 +304,7 @@ export const sessionMenu = {
       }
     };
     const title = effortLabel;
-    // One card per provider, shown beside the selected account's session defaults.
-    return kinds.map(kind => {
+    return kinds.filter(kind => ['claude', 'codex'].includes(kind)).map(kind => {
         const models = orderedOptions(kind === 'claude' ? claudeModels : this.codexModelList || [], saved[kind]?.order);
         const reorder = (key, target) => {
           const current = shared('herdr-zed.session-options') || {};
@@ -463,6 +477,7 @@ export const sessionMenu = {
       .child('Accounts, profiles, rules, capabilities, MCP connections and ECC are set up on this computer. This project is on another machine.');
     if (page === 'accounts') return this.accountsPage(t, cx);
     if (page === 'profiles') return this.agentProfilesPage(t);
+    if (page === 'models') return this.modelsPage(t);
     if (page === 'global-rules') return this.withSideNav(this.globalRulesNavigation(t), this.globalRulesPage(t), t);
     if (page === 'mcp') return this.devkitsPage(t);
     if (page === 'capabilities') return this.withSideNav(this.devkitsNavigation(t), this.devkitsPage(t), t);

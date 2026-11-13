@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { evaluateNative } from './source-harness.js';
 import * as model from '../mods/herdr-zed-agents/components/session-model.js';
-import { composerChoices } from '../components/extension-contract.js';
+import { composerChoices, composerUsage as readUsage } from '../components/extension-contract.js';
 
 async function composer(memory = {}) {
   const launches = [], notes = [];
@@ -72,4 +72,33 @@ test('composer fields always select explicit available options and reuse saved c
   assert.deepEqual(saved.fields.slice(0, 2).map(field => field.value), ['mini', 'low'], 'unavailable effort falls back to an explicit supported value');
   assert.equal(composerChoice(codex, []), null, 'no cached models cannot launch with an implicit default');
   assert.deepEqual(composerEnvelope({ null: [codex] }, new Map(), '/home/me').machines[''].choices, []);
+});
+
+test('only local Codex and Claude account cards offer the defaults menu; Custom has no model fields', async () => {
+  const { composerUsage } = await evaluateNative('../mods/herdr-zed-agents/composer.js', { ...model, LAUNCHER_ID: 'agents',
+    UsageClient: class { visibleEntries(snapshot) { return snapshot; } } }, 'composerUsage');
+  const custom = { key: 'custom', name: 'Custom', run: ['custom'] };
+  const entries = [codex, claude, custom].map(agent => ({ choice: { agent }, name: agent.name, windows: [] }));
+  const local = composerUsage(entries);
+  assert.deepEqual(local.map(item => Boolean(item.menu)), [true, true, false]);
+  assert.ok(composerUsage(entries, 'remote').every(item => !item.menu));
+  const { composerChoice } = await composer();
+  assert.deepEqual(composerChoice(custom, codexList).fields, []);
+  const envelope = usage => ({ machines: { '': { choices: [], usage } } });
+  assert.equal(readUsage(envelope(local), null).length, 3);
+  for (const menu of [null, {}, { view: '../custom', width: 400 }, { view: 'defaults', width: 0 },
+    { view: 'defaults', width: 400, mod: 'other' }]) {
+    assert.deepEqual(readUsage(envelope([{ ...local[0], menu }]), null), []);
+  }
+});
+
+test('root model visibility applies to all accounts and their derived profiles', async () => {
+  const { composerChoice } = await composer();
+  const work = { ...codex, key: 'herdr-zed-codex-work' };
+  const personal = { ...codex, key: 'herdr-zed-codex-personal' };
+  const state = { options: { codex: { models: ['mini'] } } };
+  assert.deepEqual(composerChoice(work, codexList, state).fields[0].options.map(item => item.key), ['gpt']);
+  assert.deepEqual(composerChoice(personal, codexList, state).fields[0].options.map(item => item.key), ['gpt']);
+  const named = { ...work, key: 'herdr-zed-preset-fast', profileKey: work.key };
+  assert.deepEqual(composerChoice(named, codexList, state).fields[0].options.map(item => item.key), ['gpt']);
 });

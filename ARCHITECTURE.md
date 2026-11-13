@@ -81,9 +81,10 @@ the tests change in the same commit. Unknown keys inside `provides`, surfaces an
 - `settings` (optional, `{ view, title, pages? }`, these keys only): the package's page in the shell's Settings dialog. The
   shell opens `view` embedded in its configuration dialog, with `{ view, embedded: true, page, context }` (the current project,
   or null; `page` is the sub-page ID, or null for an extension without sub-pages); `title` is its configuration title. `pages` (optional, 1–12
-  entries, each `{ id, title, group? }`, ids `[a-z][a-z0-9-]*` and unique within the package, titles and groups
+  entries, each `{ id, title, group?, icon? }`, ids `[a-z][a-z0-9-]*` and unique within the package, titles and groups
   non-blank) are tabs inside the extension's configuration page, in declaration order; the first is selected when opening
   the extension. The launcher workflow's dialog lists them in a left nav instead, under the label of the latest `group`.
+  Optional `icon` names an existing shared glyph (`[a-z][a-z0-9-]*`) shown before the title in the workflow nav.
   Unknown keys in `settings` or a page are rejected. Its Configure entry in the Extensions overview is available only
   while the package is enabled, error-free and available. Settings opens from the header gear, from the Extensions
   page, or from the provider's own panel with the shell command `herdr-zed.settings:<extension id>` or
@@ -219,11 +220,16 @@ user clicks + / invokes New Thread (New terminal opens directly from the project
 - **Composer** (`composerChoices`, `launchIntent` in `extension-contract.js`): the launcher publishes
   `herdr-zed.composer.<id>` = `{ updatedAt, machines: { [machine | '']: { choices, usage? } } }`; a choice is
   `{ key, label, icon?, tint?, fields }`, and `usage` (`composerUsage`) lists the accounts the Usage sidebar shows, in its
-  order and names: `{ key, label, icon?, tint?, muted?, windows: [{ label, minutes, usedPercent, resetsAt }] }`
+  order and names: `{ key, label, icon?, tint?, muted?, menu?: { view, width }, windows: [{ label, minutes, usedPercent, resetsAt }] }`
   (`resetsAt` in epoch seconds or null; the shell derives reset time and elapsed share). A field is a `select` (`{ id, label, value, options: [{ key, label, only? }] }`,
   `only` = `{ [field id]: keys }` it is offered with) or a `toggle` (`{ id, label, value: boolean }`). The shell draws
   them without knowing what they mean and drops malformed choices. It only appends intents; the launcher takes its own
   off the queue, prepares the session from `values` and emits a launch request as above, notifying its own errors.
+- A composer's Usage account may declare `menu: { view, width }`. Its New thread card reserves a hover action that
+  opens the launcher mod's popup with `{ view, account: <account key>, space }`, without selecting or launching it.
+  Agents offers this only for local Codex/Claude accounts, for their saved session defaults. Thread headers stay data-only.
+  Offered models/efforts and order use `herdr-zed.session-options[claude|codex]`, managed only on the root Models page.
+  Every account and named profile shares its provider's list. Agents preparation, the profile editor, New thread and Tasks read the same scope.
 - `id` and `profile` let the shell match the new tab when it appears (current `pending-profiles` pattern)
   and expose `{ tabId, profile, source }` in the thread read model (`herdr-zed.threads`) for decorators.
 - When auto-resume reopens a conversation after a restart, the new tab's record carries `replaces: <old tab id>` (and the

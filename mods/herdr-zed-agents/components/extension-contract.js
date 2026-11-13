@@ -117,11 +117,14 @@ const validWindow = window => plain(window) && hasOnlyKeys(window, ['label', 'mi
 export function composerUsage(envelope, machine) {
   const entry = plain(envelope) && plain(envelope.machines) ? envelope.machines[machine || ''] : null;
   if (!plain(entry) || !Array.isArray(entry.usage)) return [];
-  return entry.usage.filter(account => plain(account) && hasOnlyKeys(account, ['key', 'label', 'icon', 'tint', 'muted', 'windows'])
+  return entry.usage.filter(account => plain(account) && hasOnlyKeys(account, ['key', 'label', 'icon', 'tint', 'muted', 'menu', 'windows'])
     && typeof account.key === 'string' && KEY_PATTERN.test(account.key)
     && typeof account.label === 'string' && account.label.length > 0 && account.label.length <= MAX_LABEL
     && (account.icon === undefined || typeof account.icon === 'string') && (account.tint === undefined || typeof account.tint === 'boolean')
     && (account.muted === undefined || typeof account.muted === 'boolean')
+    && (account.menu === undefined || (plain(account.menu) && hasOnlyKeys(account.menu, ['view', 'width'])
+      && typeof account.menu.view === 'string' && EXTENSION_ID_PATTERN.test(account.menu.view)
+      && Number.isFinite(account.menu.width) && account.menu.width > 0 && account.menu.width <= 2400))
     && Array.isArray(account.windows) && account.windows.every(validWindow));
 }
 /** A select option is offered while every field it names holds one of its keys. @param {{ only?: Record<string, string[]> }} option @param {Record<string, unknown>} values */

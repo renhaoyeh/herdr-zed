@@ -93,7 +93,7 @@ function validatePlatforms(list) {
 export const platformSupported = (platforms, platform) => !platforms || platforms.includes(platform);
 
 // ARCHITECTURE §2.1: the Settings dialog hosts `view` embedded, listed under `title`. `pages` (optional, 1-12) are
-// sub-items under the entry, each { id, title, group? }; `group` labels the run of pages it starts in a nav. Keys are
+// sub-items under the entry, each { id, title, group?, icon? }; `group` labels the run of pages it starts in a nav. Keys are
 // exactly these.
 function validateSettings(settings) {
   if (settings === undefined) return;
@@ -102,8 +102,9 @@ function validateSettings(settings) {
   const pages = settings.pages;
   if (pages === undefined) return;
   if (!Array.isArray(pages) || pages.length < 1 || pages.length > 12
-    || pages.some(page => !plain(page) || Object.keys(page).some(key => !['id', 'title', 'group'].includes(key))
-      || !name(page.id) || !title(page.title) || (page.group !== undefined && !title(page.group)))
+    || pages.some(page => !plain(page) || Object.keys(page).some(key => !['id', 'title', 'group', 'icon'].includes(key))
+      || !name(page.id) || !title(page.title) || (page.group !== undefined && !title(page.group))
+      || (page.icon !== undefined && !name(page.icon)))
     || new Set(pages.map(page => page.id)).size !== pages.length) throw new Error('Invalid extension settings.');
 }
 
@@ -175,7 +176,7 @@ export function resolveProviders(packages = [], disabledMods = []) {
 
 function settingsMetadata(settings) {
   if (!settings) return null;
-  return { view: settings.view, title: settings.title, pages: (settings.pages || []).map(({ id, title, group }) => ({ id, title, ...(group ? { group } : {}) })) };
+  return { view: settings.view, title: settings.title, pages: (settings.pages || []).map(({ id, title, group, icon }) => ({ id, title, ...(group ? { group } : {}), ...(icon ? { icon } : {}) })) };
 }
 
 export function extensionMetadata(mod, text) {

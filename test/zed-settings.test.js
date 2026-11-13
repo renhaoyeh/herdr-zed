@@ -60,7 +60,7 @@ function settingsRuntime({ settings = [], memory = {}, closeThrows = [], launche
     div: element, v_flex: element, h_flex: element, Button: id => element(id), DialogTitle: () => element(), DialogDescription: () => element(),
     Switch: (id, checked) => element(id, { checked }), ToggleGroup: id => element(id), ToggleGroupItem: (id, pressed) => element(id, { pressed }),
     ToolbarButton: id => element(id), Checkbox: (id, checked) => element(id, { checked }), window: () => ({ platform: 'macos' }),
-    glyph: () => element(),
+    glyph: name => element(`icon-${name}`),
     AUTO_RESUME_KEY: 'herdr-zed.auto-resume', unsavedKey: overlay => `herdr-zed.unsaved.${overlay}`, AlertDialogContent: () => element(), AlertDialogTitle: () => element(), AlertDialogDescription: () => element(), AlertDialogFooter: () => element(), AlertDialogCancel: id => element(id), extensionCatalog: () => ({ packages, resolved: { settings, launcher } }),
     BuildRulesSettings: class { init() { this.inited = true; } close() {} render() { return element('rules'); } },
     GitAuthorSettings: class { constructor(target) { this.target = target; } init() { this.inited = true; } close() {} render() { return element('author'); } },
@@ -205,7 +205,7 @@ test('General keeps thread preferences; display options live in the Files and Ch
 
 test('launcher configuration has a direct entry and its own dialog, without extension management controls', async () => {
   const settings = [{ mod: 'herdr-zed-workflow', id: 'workflow', view: 'settings', title: 'Workflows',
-    pages: [{ id: 'accounts', title: 'Accounts' }] }];
+    pages: [{ id: 'accounts', title: 'Accounts', icon: 'user-round' }] }];
   const packages = [{ mod: 'herdr-zed-workflow', id: 'workflow', title: 'Workflows', provides: { launcher: {} } }];
   const r = settingsRuntime({ settings, packages, launcher: { mod: 'herdr-zed-workflow' } });
   const s = await r.ready;
@@ -229,6 +229,7 @@ test('launcher configuration has a direct entry and its own dialog, without exte
   r.setProps({ page: 'extension:workflow:accounts', context, overlay: 'overlay-2' });
   const workflowNav = new s.WorkflowNav(); workflowNav.init({ focus_handle: () => ({ focus() {} }) });
   assert.equal(find(workflowNav.render(theme), 'workflow-nav-overlay-2-accounts').__attrs.bg, theme.selected);
+  assert.ok(find(workflowNav.render(theme), 'icon-user-round'), 'the workflow nav renders the declared page icon');
 });
 
 test('the Git preferences page contains display filters only; repository identity belongs to Changes', async () => {
