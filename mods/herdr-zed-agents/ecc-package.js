@@ -17,7 +17,7 @@ try {
 }catch(error){process.stderr.write(error.message+'\\n');process.exitCode=1}
 `;
 
-export async function buildEccPackage(config, provider, outputDirectory, suppliedCatalog) {
+export async function buildEccPackage(config, provider, outputDirectory, suppliedCatalog, { project = false } = {}) {
   const catalog = suppliedCatalog || await readEccCatalog(config.source);
   const outputRelation = relative(catalog.source, resolve(outputDirectory));
   if (!outputRelation || (!isAbsolute(outputRelation) && outputRelation !== '..' && !outputRelation.startsWith(`..${sep}`))) throw new Error('ECC package output must be outside its source directory.');
@@ -26,9 +26,9 @@ export async function buildEccPackage(config, provider, outputDirectory, supplie
   const invalid = selected.find(item => item.unavailable);
   if (invalid) throw new Error(`${invalid.name}：${invalid.unavailable}`);
   if (selected.filter(item => item.group === 'contexts').length > 1) throw new Error('Select at most one Context working mode per provider.');
-  const revision = eccHash(JSON.stringify({ compiler: 1, source: catalog.source, sourceRevision: catalog.sourceRevision, provider,
+  const revision = eccHash(JSON.stringify({ compiler: 1, ...(project ? { project: true } : {}), source: catalog.source, sourceRevision: catalog.sourceRevision, provider,
     selected: selected.map(item => item.id).sort(), claudeHooks: provider === 'claude' ? config.claudeHooks : null }));
-  const marketplace = `herdr-zed-ecc-${revision.slice(0, 16)}`, pluginId = `ecc@${marketplace}`;
+  const marketplace = `herdr-zed-${project ? 'project-' : ''}ecc-${revision.slice(0, 16)}`, pluginId = `ecc@${marketplace}`;
   const root = resolve(outputDirectory, revision);
   const instructions = (await Promise.all(selected.filter(item => ['rules', 'contexts'].includes(item.group))
     .map(async item => `## ${item.path}\n\n${await readFile(join(catalog.source, item.path), 'utf8')}`))).join('\n\n');

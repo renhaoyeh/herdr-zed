@@ -35,7 +35,8 @@ test('launch preparation synchronizes account defaults before returning argv and
   const reads = [], { sessionMcpArgv } = await load({ exec: async (...args) => { calls.push(args); return { code: 0 }; }, readTextFile: async path => { reads.push(path); return JSON.stringify(config); } });
   await sessionMcpArgv({ key: 'review', profileKey: 'herdr-zed-codex-work' }, ['env', 'CODEX_HOME=/account', 'codex']);
   assert.equal(calls[0][1][1], '/account');
-  assert.deepEqual(JSON.parse(calls[0][1][2]), { ...config.servers, herdr_tasks: tasksMcpServer('/herdr') });
+  assert.deepEqual(JSON.parse(calls[0][1][2]), { ...config.servers, herdr_tasks: tasksMcpServer('/herdr'),
+    herdr_ecc: { command: 'node', args: ['/herdr/mods/herdr-zed-agents/ecc-mcp-server.cjs', '/herdr'], env: { HERDR_APP_HOME: '/herdr' } } });
   assert.deepEqual(JSON.parse(calls[0][1][2]).herdr_tasks.env_vars, ['HC_TERMINAL_ID']);
   assert.deepEqual(reads, ['/herdr/data/herdr-zed/shared-mcp.json']);
   await sessionMcpArgv({ key: 'claude' }, ['claude']);
@@ -43,7 +44,7 @@ test('launch preparation synchronizes account defaults before returning argv and
   await sessionMcpArgv({ key: 'shell' }, ['zsh']);
   assert.equal(reads.length, 2);
   const absent = await load({ readTextFile: async () => null });
-  assert.deepEqual(await absent.sessionMcpArgv({ key: 'codex' }, ['codex']), ['codex']);
+  assert.ok((await absent.sessionMcpArgv({ key: 'codex' }, ['codex'])).some(arg => arg.startsWith('mcp_servers.herdr_ecc=')));
 });
 
 test('malformed shared settings stop preparation and invalid edits are rejected', async () => {
@@ -131,7 +132,7 @@ test('local launch persists Tasks transport without shared settings for backgrou
   });
   const agent = { key: 'codex' };
   const argv = sessionArgv(agent, ['env', `CODEX_HOME=${directory}`, 'codex'], { tasksMcpHome: appDirectory });
-  assert.deepEqual(await sessionMcpArgv(agent, argv), argv);
+  assert.ok((await sessionMcpArgv(agent, argv)).some(arg => arg.startsWith('mcp_servers.herdr_ecc=')));
   assert.equal(synchronized, true);
   // Like the background title worker, supply only disabled flags, with no launch transports.
   const result = await promisify(execFile)('codex', ['-c', 'mcp_servers.herdr_tasks.enabled=false',
@@ -200,8 +201,9 @@ test('Claude receives enabled shared servers as one per-launch MCP config before
   assert.deepEqual(argv.slice(0, 4), ['env', 'CLAUDE_CONFIG_DIR=/account', 'claude', '--mcp-config']);
   assert.deepEqual(argv.slice(5), original.slice(3));
   assert.deepEqual(JSON.parse(argv[4]), { mcpServers: {
+    herdr_ecc: { type: 'stdio', command: 'node', args: ['/herdr/mods/herdr-zed-agents/ecc-mcp-server.cjs', '/herdr'] },
     vs: { type: 'stdio', command: 'bridge', args: ['a b'] },
     ic: { type: 'http', url: 'http://127.0.0.1:18765/mcp', headers: { 'X-Key': '${IC_KEY}', Authorization: 'Bearer ${IC_TOKEN}' } } } });
   const empty = await load({ readTextFile: async () => null });
-  assert.deepEqual(await empty.sessionMcpArgv({ key: 'claude' }, ['claude']), ['claude']);
+  assert.ok((await empty.sessionMcpArgv({ key: 'claude' }, ['claude'])).includes('--mcp-config'));
 });

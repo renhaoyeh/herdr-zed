@@ -5,6 +5,7 @@ const devkitsDefinitions = [
   { id: 'core', group: 'rules', name: 'Herdr Core', icon: 'terminal', description: 'Follow the installed Herdr manual when operating terminals.', skill: 'herdr-core', mcps: [] },
   { id: 'tasks', group: 'rules', name: 'Task progress', icon: 'list-todo', description: 'Report progress during actual user work; ordinary chat and discussion need no reports.', skill: 'herdr-tasks', mcps: ['herdr_tasks'] },
   { id: 'shared-mcp', group: 'skills', name: 'Shared MCP installation', icon: 'settings', description: 'Install or configure shared local MCP connections for Codex and Claude Code when requested, preserving existing account settings.', skill: 'shared-mcp', mcps: [], providers: ['codex', 'claude'] },
+  { id: 'project-capabilities', group: 'skills', name: 'ECC, MCP and Skills', icon: 'extensions', description: 'Explain this Herdr layout’s ECC, skills and MCP configuration from any conversation, including what is enabled and what each item does; recommend or apply project choices when requested.', skill: 'project-capabilities', mcps: [], providers: ['codex', 'claude'] },
   { id: 'visual-studio', group: 'skills', name: 'Visual Studio builds', icon: 'gear', description: 'Build the intended Visual Studio solution and inspect its diagnostics.', skill: 'visual-studio', mcps: ['visual_studio'], platforms: sharedMcpPlatforms.visual_studio },
 ];
 export const devkitsMcpPresets = [{ id: 'visual_studio', name: 'Visual Studio', platforms: sharedMcpPlatforms.visual_studio,

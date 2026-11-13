@@ -12,11 +12,11 @@ import { buildEccPackage } from './ecc-package.js';
 import { dirname } from 'node:path';
 
 const executeFile = promisify(execFile);
-async function runPlugin(provider, directory, args, input) {
+export async function runPlugin(provider, directory, args, input) {
   const env = { ...process.env, ...(provider === 'codex' ? { CODEX_HOME: directory }
     : { CLAUDE_CONFIG_DIR: directory, CLAUDE_SECURESTORAGE_CONFIG_DIR: directory }) };
   for (const key of ['OPENAI_API_KEY', 'CODEX_API_KEY', 'CODEX_ACCESS_TOKEN', 'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN']) delete env[key];
-  const [command, ...argv] = commandArgv([provider, ...args], process.platform === 'win32' ? 'windows' : process.platform);
+  const [command, ...argv] = commandArgv([provider, ...(provider === 'codex' ? ['--no-daemon'] : []), ...args], process.platform === 'win32' ? 'windows' : process.platform);
   const promise = executeFile(command, argv, { env, cwd: directory, windowsHide: true,
     detached: process.platform !== 'win32', maxBuffer: 4 * 1024 * 1024 });
   const timer = setTimeout(() => {
@@ -36,6 +36,23 @@ async function readOptional(path) {
   try { return await readFile(path, 'utf8'); } catch (error) { if (error.code === 'ENOENT') return null; throw error; }
 }
 
+export async function withEccAccountLock(directory, action) {
+  await mkdir(directory, { recursive: true });
+  const lock = join(directory, 'herdr-zed-ecc.lock');
+  try { await writeFile(lock, String(process.pid), { flag: 'wx', mode: 0o600 }); }
+  catch (error) {
+    if (error.code !== 'EEXIST') throw error;
+    const owner = Number(await readOptional(lock));
+    if (!Number.isSafeInteger(owner) || owner <= 0) throw new Error('ECC has an invalid setup lock. Check this account’s herdr-zed-ecc.lock.');
+    try { process.kill(owner, 0); throw new Error('ECC setup is already running for this account. Retry when it finishes.'); }
+    catch (ownerError) {
+      if (ownerError.code !== 'ESRCH') throw ownerError;
+      await unlink(lock); await writeFile(lock, String(process.pid), { flag: 'wx', mode: 0o600 });
+    }
+  }
+  try { return await action(); } finally { await unlink(lock); }
+}
+
 export async function syncEcc(provider, directory, rawConfig, { run = runPlugin, configService = openConfig,
   packageBuilder = buildEccPackage, packagesDirectory = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'data', 'herdr-zed', 'ecc-packages') } = {}) {
   if (!['claude', 'codex'].includes(provider) || !directory) throw new Error('Unsupported ECC account.');
@@ -50,20 +67,7 @@ export async function syncEcc(provider, directory, rawConfig, { run = runPlugin,
   const desired = bundle?.native ? bundle.pluginId : null;
   const revision = config.enabled ? bundle.revision : 'disabled';
   const result = { instructionsFile: bundle?.instructions ? join(bundle.root, 'devkits-guidance.md') : null, pluginId: desired };
-  await mkdir(directory, { recursive: true });
-  const lock = join(directory, 'herdr-zed-ecc.lock');
-  try { await writeFile(lock, String(process.pid), { flag: 'wx', mode: 0o600 }); }
-  catch (error) {
-    if (error.code !== 'EEXIST') throw error;
-    const owner = Number(await readOptional(lock));
-    if (!Number.isSafeInteger(owner) || owner <= 0) throw new Error('ECC has an invalid setup lock. Check this account’s herdr-zed-ecc.lock.');
-    try { process.kill(owner, 0); throw new Error('ECC setup is already running for this account. Retry when it finishes.'); }
-    catch (ownerError) {
-      if (ownerError.code !== 'ESRCH') throw ownerError;
-      await unlink(lock); await writeFile(lock, String(process.pid), { flag: 'wx', mode: 0o600 });
-    }
-  }
-  try {
+  return withEccAccountLock(directory, async () => {
     if (provider === 'claude') {
       const plugins = JSON.parse(await run(provider, directory, ['plugin', 'list', '--json']));
       if (!Array.isArray(plugins)) throw new Error('Claude returned an unsupported plugin inventory. Update Claude Code and retry.');
@@ -100,7 +104,7 @@ export async function syncEcc(provider, directory, rawConfig, { run = runPlugin,
         const edits = [];
         if (desired && service.config.plugins?.[desired]?.enabled !== true)
           edits.push({ keyPath: `plugins.${JSON.stringify(desired)}.enabled`, value: true, mergeStrategy: 'replace' });
-        for (const [id, item] of Object.entries(service.config.plugins || {})) if (/^ecc@herdr-zed-ecc-[a-f0-9]{16}$/.test(id) && id !== desired && item.enabled !== false)
+        for (const [id, item] of Object.entries(service.config.plugins || {})) if (/^ecc@herdr-zed-(?:project-)?ecc-[a-f0-9]{16}$/.test(id) && id !== desired && item.enabled !== false)
           edits.push({ keyPath: `plugins.${JSON.stringify(id)}.enabled`, value: false, mergeStrategy: 'replace' });
         if (edits.length) await service.write(edits);
       } finally { await service.close(); }
@@ -110,7 +114,7 @@ export async function syncEcc(provider, directory, rawConfig, { run = runPlugin,
     await writeFile(temporary, JSON.stringify({ version: 1, provider, revision, pluginId: desired }), { mode: 0o600 });
     await rename(temporary, markerPath);
     return result;
-  } finally { await unlink(lock); }
+  });
 }
 
 if (await isMain(import.meta.url)) {

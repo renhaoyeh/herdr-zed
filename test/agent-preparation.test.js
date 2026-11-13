@@ -25,9 +25,9 @@ async function load({ eccInstructions = '', kitInstructions = '', remote = false
     sessionArgv: (agent, argv, settings) => { calls.push(['session', settings]); return [...argv, `model=${settings.model}`, `effort=${settings.effort}`, `tier=${settings.serviceTier}`, `tasks=${settings.tasksMcpHome}`]; },
     rulesArgv: (agent, argv, rules, instructions) => { calls.push(['rules', rules, instructions]); return [...argv, `rules=${rules?.text || ''}`, `instructions=${instructions || ''}`]; },
     sessionRules: async () => { calls.push(['read-rules']); if (rulesGate) await rulesGate; if (rulesError) throw Error('unreadable'); return { file: '/guide', text: 'Global rules' }; },
-    prepareEcc: async (agent, argv) => { calls.push(['ecc']); return { argv, instructions: eccInstructions }; },
+    prepareEcc: async (agent, argv, target) => { calls.push(['ecc', target]); return { argv, instructions: eccInstructions, mcp: { browser: false } }; },
     sessionDevkits: async () => { calls.push(['devkits']); return kitInstructions; },
-    sessionMcpArgv: async (agent, argv) => { calls.push(['mcp']); return [...argv, 'shared-mcp']; },
+    sessionMcpArgv: async (agent, argv, mcp) => { calls.push(['mcp', mcp]); return [...argv, 'shared-mcp']; },
   };
   const { prepareSession } = await evaluateNative('../mods/herdr-zed-agents/session-preparation.js', host, 'prepareSession');
   return { prepareSession, calls, options, target, memory };
@@ -39,10 +39,17 @@ test('local preparation uses current profile instructions, saved settings and pe
   assert.deepEqual(result.session, { model: 'one-time-model', effort: null, serviceTier: 'fast', permission: 'workspace-write' });
   assert.ok(result.argv.includes('tasks=/herdr'));
   assert.ok(result.argv.includes('shared-mcp'));
-  assert.deepEqual(h.calls.filter(([name]) => ['rules', 'mcp', 'ecc'].includes(name)).map(([name]) => name), ['mcp', 'ecc', 'rules']);
+  assert.deepEqual(h.calls.filter(([name]) => ['rules', 'mcp', 'ecc'].includes(name)).map(([name]) => name), ['ecc', 'mcp', 'rules']);
   assert.equal(h.calls.find(([name]) => name === 'rules')[2], preset.instructions);
   assert.equal(h.calls.find(([name]) => name === 'launcher')[1], preset.key);
   assert.deepEqual(h.calls.find(([name]) => name === 'launcher')[3], ['codex']);
+  assert.deepEqual(h.calls.find(([name]) => name === 'mcp')[1], { browser: false });
+});
+
+test('project-aware ECC preparation receives the launch folder rather than the current UI project', async () => {
+  const target = { space: 'local', folder: 'C:/explicit-project' }, h = await load({ target });
+  await h.prepareSession(profile, target);
+  assert.equal(h.calls.find(([name]) => name === 'ecc')[1].folder, target.folder);
 });
 
 test('either remote target marker omits local rules, profile instructions and both MCP sources', async () => {

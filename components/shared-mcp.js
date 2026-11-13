@@ -5,6 +5,7 @@ export { parseSharedMcp, mcpToml, claudeMcpConfig } from './shared-mcp-model.js'
 import { sessionKind, tasksMcpServer } from './session-model.js';
 
 export const sharedMcpPath = () => `${appHome()}/data/herdr-zed/shared-mcp.json`;
+export const eccMcpServer = root => ({ command: 'node', args: [`${root.replace(/\\/g, '/')}/mods/herdr-zed-agents/ecc-mcp-server.cjs`, root], env: { HERDR_APP_HOME: root } });
 export function sharedMcpArgv(agent, argv, config) {
   const kind = sessionKind(agent);
   if (!['codex', 'claude'].includes(kind) || !argv) return argv;
@@ -25,17 +26,22 @@ export function sharedMcpArgv(agent, argv, config) {
   return [...argv.slice(0, executable + 1), ...flags, ...argv.slice(executable + 1)];
 }
 
-export async function sessionMcpArgv(agent, argv) {
+export async function sessionMcpArgv(agent, argv, projectSwitches = {}) {
   const kind = sessionKind(agent);
   if (!['codex', 'claude'].includes(kind) || !argv) return argv;
   const config = platformSharedMcp(parseSharedMcp(await readTextFile(sharedMcpPath())), window()?.platform);
+  const ecc = eccMcpServer(appHome());
+  // Persist global defaults only. Project switches belong to this invocation.
+  const effective = { ...config, servers: Object.fromEntries(Object.entries(config.servers).map(([name, server]) =>
+    [name, Object.hasOwn(projectSwitches, name) ? { ...server, enabled: projectSwitches[name] } : server])) };
+  effective.servers.herdr_ecc = ecc;
   // Claude takes per-launch --mcp-config and never writes account files.
-  if (kind === 'claude') return sharedMcpArgv(agent, argv, config);
+  if (kind === 'claude') return sharedMcpArgv(agent, argv, effective);
   // Background naming disables MCPs using enabled-only overrides, without launch transports.
   // Persist the built-in Tasks transport as well as the user-managed shared defaults.
-  const servers = { ...config.servers, herdr_tasks: tasksMcpServer(appHome()) };
+  const servers = { ...config.servers, herdr_tasks: tasksMcpServer(appHome()), herdr_ecc: ecc };
   const directory = argv.find(arg => arg.startsWith('CODEX_HOME='))?.slice(11) || `${home()}/.codex`;
   const result = await exec('node', [`${appHome()}/mods/herdr-zed-agents/shared-mcp-sync.js`, directory, JSON.stringify(servers)], { timeout: 60000 });
   if (result.code !== 0) throw new Error(result.stderr?.trim() || 'Could not synchronize shared MCP settings.');
-  return sharedMcpArgv(agent, argv, config);
+  return sharedMcpArgv(agent, argv, effective);
 }

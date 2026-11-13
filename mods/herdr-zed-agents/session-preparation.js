@@ -42,9 +42,8 @@ export async function prepareSession(agent, target = {}, options = {}) {
       config = (shared('herdr-zed.agent-configs') || []).find(item => item.key === agent.key && item.profileKey === agent.profileKey);
       if (!config) throw new Error('Agent configuration is unavailable. Choose another agent configuration.');
     }
-    argv = await sessionMcpArgv(current, argv);
-    const ecc = await prepareEcc(current, argv);
-    argv = ecc.argv;
+    const ecc = await prepareEcc(current, argv, { ...target, folder: target.folder || space?.folder });
+    argv = await sessionMcpArgv(current, ecc.argv, ecc.mcp);
     const kits = await sessionDevkits(current);
     if (kits || ecc.instructions) {
       const text = composeSessionRules(rules?.text, kits, ecc.instructions);

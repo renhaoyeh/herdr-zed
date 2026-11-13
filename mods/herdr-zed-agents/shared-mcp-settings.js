@@ -1,7 +1,7 @@
 import { div } from 'gpui-kit';
 import { v_flex, h_flex } from 'gpui-base';
 import { appHome, props, readTextFile, writeTextFile, closeOverlay, window } from 'herdr';
-import { sharedMcpPath, parseSharedMcp } from './components/shared-mcp.js';
+import { sharedMcpPath, parseSharedMcp, eccMcpServer } from './components/shared-mcp.js';
 import { sharedMcpSupported } from './components/shared-mcp-model.js';
 import { tasksMcpServer } from './components/session-model.js';
 import { Button } from './components/button.js';
@@ -27,6 +27,7 @@ export const sharedMcpSettings = {
         this.mcpRows = Object.entries(this.mcpConfig.servers).map(([name, server]) => ({ id: name, name, server,
           type: server.url === undefined ? 'command' : 'url', enabled: server.enabled !== false }));
         this.mcpRows.push({ id: 'builtin:herdr_tasks', name: 'herdr_tasks', server: tasksMcpServer(appHome()), type: 'command', enabled: true, builtin: true });
+        this.mcpRows.push({ id: 'builtin:herdr_ecc', name: 'herdr_ecc', server: eccMcpServer(appHome()), type: 'command', enabled: true, builtin: true });
         this.mcpSelected = this.mcpRows.find(row => row.id === selected)?.id || this.mcpRows[0]?.id;
       } catch (error) { this.mcpError = error.message; }
       finally { this.mcpLoading = false; cx.notify(); }
@@ -67,7 +68,8 @@ export const sharedMcpSettings = {
     return v_flex().gap(12)
       .when(!onToggle && !sharedMcpSupported(row.name, window()?.platform), el => el.child(div().text_size(12).text_color(t.muted).child('Windows only. This connection will not be launched on this platform.')))
       .when(row.builtin, el => el.child(div().text_size(12).text_color(t.muted).child('Built-in · Managed automatically by Devkits.'))
-        .child(div().text_size(12).text_color(t.muted).child('Task progress for new local Codex and Claude sessions.')))
+        .child(div().text_size(12).text_color(t.muted).child(row.name === 'herdr_ecc'
+          ? 'Project ECC skills and MCP choices for new local Codex and Claude sessions.' : 'Task progress for new local Codex and Claude sessions.')))
       .when(!row.builtin, el => el.child(h_flex().items_center().justify_between()
         .child(div().text_size(12).child('Enable server'))
         .child(Switch('mcp-enabled', row.enabled, t).disabled(Boolean(disabled || this.mcpSaving || this.kitSaving || (!onToggle && !sharedMcpSupported(row.name, window()?.platform))))
@@ -90,7 +92,7 @@ export const sharedMcpSettings = {
         .map(([key, value]) => this.mcpProperty(mcpLabels[key] || key, value, t)));
   },
   sharedMcpPage(t, { embedded = false, servers = null } = {}) {
-    const rows = servers ? servers.map(name => this.mcpRows?.find(row => row.id === (name === 'herdr_tasks' ? 'builtin:herdr_tasks' : name))
+    const rows = servers ? servers.map(name => this.mcpRows?.find(row => row.id === (['herdr_tasks', 'herdr_ecc'].includes(name) ? `builtin:${name}` : name))
       || { id: `missing:${name}`, name, missing: true }) : this.mcpRows || [];
     const selected = rows.find(row => row.id === this.mcpSelected) || rows[0];
     return v_flex().h_full().flex_1().min_h(0).gap(12)
