@@ -285,7 +285,9 @@ user clicks + / invokes New Thread (New terminal opens directly from the project
   the actual launch snapshot, rejects unavailable selections and expands the leading command into a skill
   instruction while retaining the task suffix. Discovery never starts an agent or installs native plugins.
   Agents offers selected Shared Skills and built-in skills whose platform/MCP requirements are satisfied,
-  independent of ECC. Remote or unsupported programs return an empty list. No provider names, paths or
+  plus enabled ECC skills under `ecc-` command names, using the provider's effective global/project selection.
+  ECC command targets snapshot each skill and its supporting files without installing a plugin or adding
+  standing guidance; launch revalidates the selection. Remote or unsupported programs return an empty list. No provider names, paths or
   skill parsing enter the shell; no manifest schema changes are required.
 - `id` and `profile` let the shell match the new tab when it appears (current `pending-profiles` pattern)
   and expose `{ tabId, profile, source }` in the thread read model (`herdr-zed.threads`) for decorators.

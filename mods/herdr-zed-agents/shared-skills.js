@@ -6,6 +6,8 @@ import { mineRoot, mineSelectionPath, mineItems, parseMineSelection, parseDevkit
   withMine, devkitsGuidance, resourceProblems, providerSupported } from './devkits-model.js';
 import { parseSharedMcp } from './components/shared-mcp-model.js';
 import { acquireFileLock } from './devkits-save.js';
+import { parseEcc, eccItemEnabled } from './ecc-model.js';
+import { readEccCatalog } from './ecc-catalog.js';
 
 const optional = async path => { try { return await readFile(path, 'utf8'); } catch (error) { if (error.code === 'ENOENT') return null; throw error; } };
 const entries = async path => { try { return await readdir(path, { withFileTypes: true }); } catch (error) { if (error.code === 'ENOENT') return []; throw error; } };
@@ -92,11 +94,12 @@ export async function readSharedState(home) {
 export async function prepareSharedGuidance(home, provider, folder = null, switches = {}) {
   if (!['claude', 'codex'].includes(provider)) throw Error('Choose claude or codex.');
   const { items, selection } = await readSharedState(home), catalog = devkitsCatalog(home);
-  let project = {}, projectMcp = {};
+  const { projectIdentity, projectPolicyPath, parseProjectPolicy, effectiveProjectPolicy } = await import('./ecc-project.js');
+  let project = {}, projectMcp = {}, projectPolicy = { providers: {} };
   if (folder) {
-    const { projectIdentity, projectPolicyPath, parseProjectPolicy } = await import('./ecc-project.js');
     const identity = await projectIdentity(folder);
-    const policy = parseProjectPolicy(await optional(projectPolicyPath(home, identity)), identity).providers[provider];
+    projectPolicy = parseProjectPolicy(await optional(projectPolicyPath(home, identity)), identity);
+    const policy = projectPolicy.providers[provider];
     project = policy?.sharedSkills || {}; projectMcp = policy?.mcp || {};
   }
   for (const kind of ['rules', 'skills']) {
@@ -123,13 +126,27 @@ export async function prepareSharedGuidance(home, provider, folder = null, switc
     if (item.source === 'mine') nativeSkills.push({ id: item.id, name, path: snapshot, revision: tree.revision });
   }
   const guidance = devkitsGuidance(config, catalog, servers, platform(), missing, provider);
+  const ecc = parseEcc(await optional(join(home, 'data', 'herdr-zed', 'ecc.json')));
+  const policy = effectiveProjectPolicy({ config: ecc, policy: projectPolicy }, provider);
+  if (policy.enabled && Object.entries(policy.selection).some(([id, enabled]) => enabled && id.startsWith('skills:'))) {
+    const source = await readEccCatalog(ecc.source || join(home, 'mods', 'herdr-zed-agents', 'ecc-source'));
+    for (const item of source.items) {
+      if (item.group !== 'skills' || !eccItemEnabled({ selection: { [provider]: policy.selection } }, provider, item)) continue;
+      if (item.unavailable) throw Error(`${item.name}: ${item.unavailable}`);
+      const name = `ecc-${basename(dirname(item.path))}`;
+      if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}$/.test(name)) continue;
+      const tree = await skillTree(join(source.source, dirname(item.path)));
+      const snapshot = await publishTree(join(home, 'data', 'herdr-zed', 'skill-snapshots'), tree);
+      commands.push({ id: `ecc:${item.id}`, name, description: item.description.slice(0, 500), path: join(snapshot, 'SKILL.md') });
+    }
+  }
   const names = new Set();
   for (const command of commands) {
     const base = command.name;
     for (let suffix = 2; names.has(command.name); suffix++) command.name = `${base.slice(0, 72)}-${suffix}`;
     names.add(command.name);
   }
-  return guidance ? { ...guidance, nativeSkills, commands } : null;
+  return guidance || commands.length ? { ...guidance, nativeSkills, commands } : null;
 }
 
 export async function buildSharedPackage(home, provider, skills) {

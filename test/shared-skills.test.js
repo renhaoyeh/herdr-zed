@@ -25,6 +25,43 @@ async function fixture(fn) {
 }
 const pathFrom = guidance => /Read the skill `([^`]+)`/.exec(guidance.sections)[1];
 
+test('ECC slash commands follow global and project selections and resolve immutable launch instructions', async () => fixture(async ({ home, data, root, put }) => {
+  const source = join(home, 'mods', 'herdr-zed-agents', 'ecc-source');
+  for (const provider of ['claude', 'codex']) await put(join(source, `.${provider}-plugin/plugin.json`), JSON.stringify({ name: 'ecc', version: '1.0.0' }));
+  await put(join(source, 'skills/alpha/SKILL.md'), '---\nname: alpha\ndescription: Alpha workflow\n---\nRead references/guide.md.');
+  await put(join(source, 'skills/alpha/references/guide.md'), 'Supporting resource');
+  await put(join(source, 'skills/beta/SKILL.md'), '---\nname: beta\ndescription: Beta workflow\n---\nDo beta.');
+  const config = { version: 1, enabled: true, source, claudeHooks: 'off', providerEnabled: { claude: false, codex: true },
+    selection: { codex: { 'skills:alpha': true } } };
+  await put(join(data, 'ecc.json'), JSON.stringify(config));
+  const entry = fileURLToPath(new URL('../mods/herdr-zed-agents/shared-skills-cli.js', import.meta.url));
+  const result = await promisify(execFile)(process.execPath, [entry, 'commands', home, 'codex'], { timeout: 10000 });
+  const listed = JSON.parse(result.stdout);
+  assert.deepEqual(listed.map(item => item.name), ['review', 'ecc-alpha']);
+  assert.ok(listed.every(item => !Object.hasOwn(item, 'path')));
+  const launch = await prepareSharedGuidance(home, 'codex');
+  const command = launch.commands.find(item => item.id === 'ecc:skills:alpha');
+  assert.equal(await readFile(join(dirname(command.path), 'references/guide.md'), 'utf8'), 'Supporting resource');
+  const { skillCommandTask } = await evaluateNative('../mods/herdr-zed-agents/session-preparation.js', {}, 'skillCommandTask');
+  assert.equal(skillCommandTask('/ecc-alpha Fix the bug', command.id, launch.commands),
+    `Use the skill at \`${command.path.replaceAll('\\', '/')}\` for this task. Read its SKILL.md and resolve supporting files relative to it.\n\nFix the bug`);
+  assert.ok(!(await prepareSharedGuidance(home, 'claude')).commands.some(item => item.id.startsWith('ecc:')));
+  const { projectIdentity, projectPolicyPath } = await import('../mods/herdr-zed-agents/ecc-project.js');
+  const identity = await projectIdentity(root);
+  const policy = { enabled: true, claudeHooks: 'off', selection: { 'skills:beta': true }, mcp: {} };
+  await put(projectPolicyPath(home, identity), JSON.stringify({ version: 1, folder: identity, providers: { codex: policy } }));
+  const project = await prepareSharedGuidance(home, 'codex', root);
+  assert.deepEqual(project.commands.filter(item => item.id.startsWith('ecc:')).map(item => item.name), ['ecc-beta']);
+  assert.throws(() => skillCommandTask('/ecc-alpha Fix the bug', command.id, project.commands), /no longer available/);
+  await put(join(data, 'shared-skills.json'), JSON.stringify({ version: 1, disabled: ['mine:skills:review'], providers: {} }));
+  const onlyEcc = await prepareSharedGuidance(home, 'codex');
+  assert.deepEqual(onlyEcc.commands.map(item => item.name), ['ecc-alpha']);
+  assert.equal(onlyEcc.nativeSkills.length, 0);
+  await put(join(data, 'ecc.json'), JSON.stringify({ ...config, enabled: false }));
+  assert.equal(await prepareSharedGuidance(home, 'codex'), null);
+  assert.deepEqual((await prepareSharedGuidance(home, 'codex', root)).commands.map(item => item.name), ['ecc-beta']);
+}));
+
 test('CLI command discovery and launch preparation settle project/runtime imports in a separate process', async () => fixture(async ({ root, home }) => {
   const project = join(root, 'project'); await mkdir(project);
   const entry = fileURLToPath(new URL('../mods/herdr-zed-agents/shared-skills-cli.js', import.meta.url));
