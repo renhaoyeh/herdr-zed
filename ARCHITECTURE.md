@@ -382,6 +382,17 @@ pass `npm test` after every step.
 
 ## 5. Data paths
 
+### XD tool package
+
+`herdr-zed-xd` is an optional headless tool mod containing the `herdr_xd` stdio MCP and its XD reader,
+HTML/SVG renderer and headless browser verifier. It uses no provider imports or new shell messages.
+The endpoint is registered as an ordinary existing-schema Shared MCP connection (independent of the
+extension enable switch), so the current Codex account synchronization and Claude launch injection apply.
+It provides `inspect_xd`, `get_node`, `export_xd` and `verify_xd`; public Adobe manifests and local
+snapshots are read as data. Exports and reports live under `data/herdr-zed/xd/exports/`; project files
+are not written. Verification uses a disposable background Chrome/Edge profile and reports unsupported
+states/resources separately from passing supported checks. This package does not add an HTML webview.
+
 Herdr home = `HERDR_APP_HOME` or `~/.config/herdr-app`.
 
 | Data | Location | Decision |

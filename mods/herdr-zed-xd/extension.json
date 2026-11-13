@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "dataReset": null,
+  "id": "xd",
+  "title": "Adobe XD",
+  "description": "Read XD design layers and export HTML previews through the herdr_xd MCP connection.",
+  "category": "tools",
+  "actions": []
+}
