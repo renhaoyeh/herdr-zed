@@ -27,7 +27,10 @@ export default class WorkspaceEditor {
       this.session.history = this.session.history.filter(key => key.startsWith('file:'));
       this.diffItemKey = null; this.restoreQueued = null;
     };
+    this.diff.focusEditor = () => this.handle.focus();
     cx.bind_keys([
+      { keystroke: 'ctrl-f', action: 'herdr-zed-find', context: 'HerdrZedFiles' },
+      { keystroke: 'cmd-f', action: 'herdr-zed-find', context: 'HerdrZedFiles' },
       { keystroke: 'ctrl-tab', action: 'herdr-zed-next-file', context: 'HerdrZedFiles' },
       { keystroke: 'ctrl-shift-tab', action: 'herdr-zed-prev-file', context: 'HerdrZedFiles' },
     ]);
@@ -236,6 +239,8 @@ export default class WorkspaceEditor {
       dock === 'diff' ? diff.panel : files.panel) : content;
     return div().id('workspace-editor').track_focus(this.handle).key_context('HerdrZedFiles').size_full().min_h(0).bg(theme().background)
       .on_modifiers_changed(event => { if (!event.modifiers.control) this.tabSwitch = null; })
+      // Only the diff draws its own text; the native file editor exposes no search API yet.
+      .on_action('herdr-zed-find', (_event, cx) => { if (kind === 'diff' && !this.diff.graphMode) { cx.stop_propagation(); this.diff.openFind(cx); } })
       .on_action('herdr-zed-next-file', (_event, cx) => { cx.stop_propagation(); this.cycleTab(1, cx); })
       .on_action('herdr-zed-prev-file', (_event, cx) => { cx.stop_propagation(); this.cycleTab(-1, cx); })
       .child(body);

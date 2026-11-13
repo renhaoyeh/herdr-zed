@@ -1,5 +1,5 @@
 import { div, svg } from 'gpui-kit';
-import { h_flex, v_flex, v_virtual_list, Scrollbar, VirtualListScrollHandle, Editor, EditorState } from 'gpui-base';
+import { h_flex, v_flex, v_virtual_list, Scrollbar, VirtualListScrollHandle, Editor, EditorState, InputState } from 'gpui-base';
 import { watchFolder, settings, theme, shared, setShared, notify } from 'herdr';
 import { execShell } from './shell.js';
 import { readBuildRules, withBuildRulesFile } from './diff-ignore.js';
@@ -18,6 +18,8 @@ import { showGitToast, clearGitToast } from './git-result-toast.js';
 import { extensionCatalog, extensionActions, openGitAction } from './extensions.js';
 import { credentialArgsFor, credentialAccountFor } from './git-credentials.js';
 import { readGitAuthor } from './git-author.js';
+import { FindState, findInText, textRuns } from './find.js';
+import { FindBar } from './find-bar.js';
 
 const icon = name => svg(`mods/herdr-zed/assets/icons/${name}.svg`).size(12).flex_none();
 // Native virtual lists accept at most 10,000 per-item sizes, including chrome rows.
@@ -542,6 +544,7 @@ export default class DiffViewer {
     this.repositories = [];
     this.rulesRevision = shared('herdr-zed.diff-build-rules-revision') || 0;
     this.panelTab = 'changes';
+    this.find = new FindState();
     this.history = new CommitHistory(cx, (text, cx, cancelled) => {
       this.rowCache = null; this.collapsed.clear(); this.selected = null;
       this.scroll.scroll_to_item(0, 'top');
@@ -1328,30 +1331,80 @@ export default class DiffViewer {
     return { ...options, rows, sizes, limited, gutter, contentWidth };
   }
 
-  text(line, color, t) {
+  text(line, color, t, hits = []) {
     const value = line.text || ' ', marks = line.marks;
     // The clip box shrinks; the text inside keeps its own width and starts at the left edge.
     const cell = h_flex().flex_1().min_w(0).h_full().items_center().overflow_hidden().text_color(t.foreground);
     const run = text => div().flex_none().whitespace_nowrap().child(text);
-    if (!marks) return cell.child(run(value));
-    return cell.child(run(value.slice(0, marks[0])))
-      .child(run(value.slice(marks[0], marks[1])).bg(tint(color, '4d')))
-      .child(run(value.slice(marks[1])));
+    if (!marks && !hits.length) return cell.child(run(value));
+    return cell.children(textRuns(value.length, marks, hits).map(part => run(value.slice(part.start, part.end))
+      .when(part.mark, el => el.bg(tint(color, '4d')))
+      // Zed draws every match faintly and the active one strongly.
+      .when(part.hit, el => el.bg(part.current ? t.accent : t.selection).when(part.current, el => el.text_color(t.accent_foreground)))));
+  }
+
+  /** Search matches in the built rows, in reading order; split rows read left, then right. */
+  findMatches(rows) {
+    return this.find.matches(rows, pattern => {
+      const out = [];
+      for (const [row, item] of rows.entries()) {
+        const sides = item.kind === 'line' ? [['line', item.line]] : item.kind === 'pair' ? [['left', item.left], ['right', item.right]] : [];
+        for (const [side, line] of sides) for (const range of findInText(line?.text || '', pattern)) out.push({ row, side, range });
+      }
+      return out;
+    });
+  }
+
+  openFind(cx) {
+    if (!this.find.input) {
+      this.find.input = InputState.new({ placeholder: 'Search…' });
+      this.find.input.on('change', (_event, cx) => { this.find.index = 0; this.revealMatch(cx); cx.notify(); });
+    }
+    this.find.open = true; this.find.input.focus();
+    const length = this.find.query.length;
+    if (length) this.find.input.set_selected_range({ start: 0, end: length });
+    cx.notify();
+  }
+
+  closeFind(cx) {
+    this.find.open = false; this.find.cache = null;
+    this.focusEditor?.();
+    cx.notify();
+  }
+
+  stepFind(step, cx) {
+    const { rows } = this.rows(cx);
+    this.find.move(this.findMatches(rows).length, step);
+    this.revealMatch(cx);
+    cx.notify();
+  }
+
+  revealMatch(cx) {
+    const { rows } = this.rows(cx), match = this.findMatches(rows)[this.find.index];
+    if (match) this.scroll.scroll_to_item(match.row, 'center');
+  }
+
+  findBar(t, rows) {
+    const count = this.findMatches(rows).length, query = this.find.query;
+    return FindBar('diff-find', t, this.find, { label: 'Search changes', canStep: count > 0,
+      status: !query ? '' : count ? `${this.find.index + 1} of ${count}` : 'No results',
+      onStep: (delta, cx) => this.stepFind(delta, cx), onEnter: (shift, cx) => this.stepFind(shift ? -1 : 1, cx),
+      onChange: cx => this.revealMatch(cx), onClose: cx => this.closeFind(cx) });
   }
 
   /** One side of a line: line number, the hunk bar, then the text, as Zed's gutter draws them. */
-  cell(line, number, gutter, t) {
+  cell(line, number, gutter, t, hits) {
     const color = line?.type === 'add' ? GitStatusColor.added : line?.type === 'del' ? GitStatusColor.deleted : null;
     if (!line) return div().flex_1().min_w(0).h(LINE).bg(t.background);
     return h_flex().flex_1().min_w(0).h(LINE).items_center().overflow_hidden().bg(color ? tint(color, '1a') : t.background)
       .child(div().w(gutter).flex_none().pr(12).text_right().text_color(t.dim).child(number === undefined ? '' : String(number)))
       .child(div().w(3).h_full().flex_none().when(Boolean(color), el => el.bg(color)))
       .child(div().w(8).flex_none())
-      .child(this.text(line, color, t))
+      .child(this.text(line, color, t, hits))
       .child(div().w(12).flex_none());
   }
 
-  row(row, t, mono, gutter) {
+  row(row, t, mono, gutter, hits = {}) {
     if (row.kind === 'file') {
       const { file } = row, open = !this.collapsed.has(file.path);
       const { name, folder } = splitPath(file.path);
@@ -1371,11 +1424,11 @@ export default class DiffViewer {
     if (row.kind === 'separator') return div().h(SEPARATOR).w_full().bg(t.chrome).border_y(1).border_color(t.border);
     const line = h_flex().h(LINE).w_full().font_family(mono).text_size(13).line_height(`${LINE}px`);
     if (row.kind === 'pair') return line
-      .child(this.cell(row.left, row.left?.old, gutter, t))
+      .child(this.cell(row.left, row.left?.old, gutter, t, hits.left))
       .child(div().w(1).h_full().flex_none().bg(t.border))
-      .child(this.cell(row.right, row.right?.new, gutter, t));
+      .child(this.cell(row.right, row.right?.new, gutter, t, hits.right));
     // Unified rows number by the new file; deletions have no new line, as in Zed.
-    return line.child(this.cell(row.line, row.line.new, gutter, t));
+    return line.child(this.cell(row.line, row.line.new, gutter, t, hits.line));
   }
 
   render(project, cx, parts = false) {
@@ -1396,6 +1449,13 @@ export default class DiffViewer {
     }
     const t = theme(), mono = settings().font_family, { rows, sizes, limited, gutter, contentWidth, wrap } = this.rows(cx), split = this.split;
     const preview = this.commitPreview;
+    // Matches grouped by row and side, so each visible row only looks up its own.
+    const matches = this.findMatches(rows), hitsByRow = new Map();
+    for (const [n, match] of matches.entries()) {
+      const sides = hitsByRow.get(match.row) || {};
+      (sides[match.side] ||= []).push({ range: match.range, current: n === this.find.index });
+      hitsByRow.set(match.row, sides);
+    }
     const choice = (id, label, value) => ToolbarButton(id, t, { icon: true })
       .when(split === (value === 'split'), el => el.bg(t.selected).text_color(t.foreground))
       .accessibility_label(`${label} diff${split === (value === 'split') ? ', selected' : ''}`)
@@ -1415,6 +1475,7 @@ export default class DiffViewer {
               .accessibility_label('Diff options').child(icon('ellipsis')),
             [{ key: 'wrap', icon: 'text-wrap', label: 'Wrap', checked: this.wrap }],
             (_key, cx) => this.toggleWrap(cx), t, { offset: { x: 8, y: 9 }, fullHeight: true })))
+        .when(this.find.open, el => el.child(this.findBar(t, rows)))
         .when(Boolean(preview), el => el.child(this.commitHeader(preview, t)))
         .when(!preview && this.allRepositories && Boolean(this.error) && rows.length > 0,
           el => el.child(div().flex_none().px(12).py(6).text_size(12).text_color(t.muted).child(this.error)))
@@ -1424,6 +1485,7 @@ export default class DiffViewer {
           .child('Diff limited to 4 MB and 10,000 rows.')))
         .child(rows.length
           ? v_flex().id('diff-viewport').relative().flex_1().min_h(0)
+            .on_mouse_down('left', () => this.focusEditor?.())
             .on_size_change((size, cx) => {
               this.viewportHeight = size.height;
               if (this.width === size.width) return;
@@ -1444,7 +1506,7 @@ export default class DiffViewer {
                 // The first call per frame measures one row; the second is the visible range.
                 if (range.end - range.start > 1 || rows.length === 1) this.visible = { rows, start: range.start };
                 this.listFrame = (this.listFrame || 0) + 1;
-                return rows.slice(range.start, range.end).map(row => this.row(row, t, mono, gutter));
+                return rows.slice(range.start, range.end).map((row, i) => this.row(row, t, mono, gutter, hitsByRow.get(range.start + i)));
               })
               .size_full().when(wrap === false, el => el.w(contentWidth).flex_none()).track_scroll(this.scroll)
               .on_item_click((key, cx) => { if (key.startsWith('file:')) this.toggle(key.slice(5), cx); })))

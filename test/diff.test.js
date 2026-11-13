@@ -23,7 +23,11 @@ async function load(host = {}) {
   const command = await readFile(new URL('../components/session-shell.js', import.meta.url), 'utf8');
   const utf8 = await readFile(new URL('../mods/herdr-zed/utf8.js', import.meta.url), 'utf8');
   const toast = await readFile(new URL('../mods/herdr-zed/git-result-toast.js', import.meta.url), 'utf8');
-  return new Function(...Object.keys(host), (utf8 + '\n' + command + '\n' + shell + '\n' + icons + '\n' + menu + '\n' + history + '\n' + sidePanel + '\n' + toast + '\n' + source).replace(/^import .*;\r?\n/gm, '')
+  const find = await readFile(new URL('../mods/herdr-zed/find.js', import.meta.url), 'utf8');
+  const findBar = await readFile(new URL('../mods/herdr-zed/find-bar.js', import.meta.url), 'utf8');
+  const input = await readFile(new URL('../components/input.js', import.meta.url), 'utf8');
+  const toggles = await readFile(new URL('../components/toggle-group.js', import.meta.url), 'utf8');
+  return new Function(...Object.keys(host), (utf8 + '\n' + command + '\n' + shell + '\n' + icons + '\n' + menu + '\n' + history + '\n' + sidePanel + '\n' + toast + '\n' + find + '\n' + input + '\n' + toggles + '\n' + findBar + '\n' + source).replace(/^import .*;\r?\n/gm, '')
     .replace('export default class', 'class').replace(/^export /gm, '') + '\nreturn { DiffViewer, ALL_REPOSITORIES, readAllDiff, readRepositories, DropdownMenu, DropdownMenuState, showGitToast, clearGitToast, utf8ByteLength, parseDiff, parseDiffBatches, parseDiffAsync, parseDiffIndex, readDiff, readPushState, pushBranch, gitRemoteAction, affectsDiff, pairLines, changedRanges, changeSections, changeTree, wrapLine, isBuildOutput };')(...Object.values(host));
 }
 const run = promisify(execFile);
