@@ -62,6 +62,53 @@ test('project or program changes discard selected commands and ignore late comma
   assert.match(current.error, /Could not load/); assert.equal(h.input.text, '/');
 });
 
+test('successful skill lists survive transport expiry, new drafts and switching scopes; Refresh reloads only the current scope', async () => {
+  const h = await shell(); h.edit('/');
+  const request = h.memory[contract.COMPOSER_COMMAND_REQUESTS][0];
+  h.memory[contract.COMPOSER_COMMAND_RESULTS] = { [request.id]: { items: commands, expiresAt: request.expiresAt } };
+  h.view.refreshStartCommands(h.cx);
+  h.memory[contract.COMPOSER_COMMAND_REQUESTS] = [];
+  h.memory[contract.COMPOSER_COMMAND_RESULTS] = {};
+  h.edit(''); h.edit('/');
+  h.view.refreshStartCommands(h.cx, request.expiresAt + 1);
+  assert.deepEqual(h.view.startCommandItems(), commands);
+  assert.deepEqual(h.memory[contract.COMPOSER_COMMAND_REQUESTS], []);
+
+  const first = h.view.startCommandCache;
+  h.view.chooseStartAgent(project, 'other', h.cx);
+  h.view.startTarget = { ...h.target(), intent: { ...h.target().intent, choice: 'other' } };
+  h.view.refreshStartCommands(h.cx);
+  const other = h.view.startCommandCache;
+  assert.notEqual(other, first);
+  h.view.startTarget = { ...h.target(), target: { folder: '/other' } };
+  h.view.refreshStartCommands(h.cx);
+  const otherProject = h.view.startCommandCache;
+  assert.notEqual(otherProject, first);
+  h.view.startTarget = h.target(); h.view.refreshStartCommands(h.cx);
+  assert.equal(h.view.startCommandCache, first);
+  assert.deepEqual(h.view.startCommandItems(), commands);
+
+  h.view.reloadStartCommands(h.cx);
+  assert.notEqual(h.view.startCommandCache, first);
+  assert.equal(h.view.startCommandCache.items, null);
+  assert.equal(h.view.startCommandCaches.get(other.scope), other);
+  assert.equal(h.view.startCommandCaches.get(otherProject.scope), otherProject);
+});
+
+test('failed skill discovery can be retried without keeping the failed scope cache', async () => {
+  const h = await shell(); h.edit('/');
+  const request = h.memory[contract.COMPOSER_COMMAND_REQUESTS][0];
+  h.memory[contract.COMPOSER_COMMAND_RESULTS] = { [request.id]: { items: [], error: 'Read failed', expiresAt: request.expiresAt } };
+  h.view.refreshStartCommands(h.cx);
+  assert.equal(h.view.startCommandCache.error, 'Read failed');
+  h.view.reloadStartCommands(h.cx);
+  const retry = h.view.startCommandCache;
+  assert.equal(retry.items, null); assert.equal(retry.error, null);
+  h.memory[contract.COMPOSER_COMMAND_RESULTS][retry.id] = { items: commands, expiresAt: retry.expiresAt };
+  h.view.refreshStartCommands(h.cx);
+  assert.deepEqual(h.view.startCommandItems(), commands);
+});
+
 test('command transport rejects unknown fields, invalid targets, duplicates, paths and expired replies', () => {
   const now = 100, request = { id: 'request:1', launcher: 'agents', choice: 'codex', target: { folder: '/project' }, expiresAt: now + 30000 };
   assert.equal(contract.validComposerCommandRequest(request, now, []), true);

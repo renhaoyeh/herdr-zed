@@ -276,6 +276,8 @@ user clicks + / invokes New Thread (New terminal opens directly from the project
   `herdr-zed.composer-command.results[id]`: `{ items: [{ id, name, description }], error?, expiresAt }`.
   Command IDs are opaque to the shell; names are slash-safe identifiers, unique within each result, with bounded
   descriptions and at most 1,000 entries. The shell validates results and ignores late results from other scopes.
+  Each composer view caches lists per launcher choice and project for its lifetime; Refresh (or Retry after an
+  error) reloads the current scope. Transport expiry bounds pending requests, not successfully cached lists.
   Typing `/` at the start of New thread filters the active project's commands in a native `Popup` anchored above
   the task input, outside layout flow (it never grows the composer), with loading/error/empty states;
   Up/Down navigate, Enter/Tab select and Escape dismisses without changing the draft. Choosing inserts `/name `

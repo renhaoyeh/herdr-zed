@@ -95,7 +95,7 @@ export const startPanel = {
           .on_click((_event, cx) => this.openProject(cx)).child(glyph('folder-open')).child('Open folder…')));
   },
   chooseStartAgent(project, key, cx) {
-    this.startCommandSelection = null; this.startCommandCache = null;
+    this.startCommandSelection = null;
     setShared(START_AGENT_KEY, { ...(shared(START_AGENT_KEY) || {}), [startProjectKey(project)]: key });
     cx.notify();
   },
@@ -147,6 +147,9 @@ export const startPanel = {
   refreshStartCommands(cx, now = Date.now()) {
     const scope = this.startCommandScope();
     if (this.startCommandSelection && this.startCommandSelection.scope !== scope) this.startCommandSelection = null;
+    // shortcut: lists stay cached for this view's lifetime; use Refresh after changing skills or settings.
+    this.startCommandCaches ||= new Map();
+    if (this.startCommandCache?.scope !== scope) this.startCommandCache = this.startCommandCaches.get(scope);
     const cache = this.startCommandCache;
     if (cache?.scope === scope && cache.items === null) {
       const result = shared(COMPOSER_COMMAND_RESULTS)?.[cache.id];
@@ -157,16 +160,19 @@ export const startPanel = {
         cx.notify();
       } else if (cache.expiresAt <= now) { cache.items = []; cache.error = 'Could not load skills. Try again.'; cx.notify(); }
     }
-    if (this.startCommandOpen() && cache?.scope === scope && cache.items !== null && !cache.error && cache.expiresAt <= now) {
-      this.startCommandCache = null; this.refreshStartCommands(cx, now); return;
-    }
     if (!this.startCommandOpen() || !scope || cache?.scope === scope) return;
     const start = this.startTarget, id = `commands:${now}:${Math.random().toString(36).slice(2)}`, expiresAt = now + 30000;
     this.startCommandCache = { id, scope, expiresAt, items: null, error: null }; this.startCommandIndex = 0;
+    this.startCommandCaches.set(scope, this.startCommandCache);
     const queued = shared(COMPOSER_COMMAND_REQUESTS) || [];
     setShared(COMPOSER_COMMAND_REQUESTS, [...queued.filter(item => item?.expiresAt > now).slice(-31),
       { id, launcher: start.intent.launcher, choice: start.intent.choice, target: start.target, expiresAt }]);
     cx.notify();
+  },
+  reloadStartCommands(cx) {
+    this.startCommandCaches?.delete(this.startCommandScope());
+    this.startCommandCache = null;
+    this.refreshStartCommands(cx);
   },
   chooseStartCommand(item, cx) {
     if (!item || this.startCommandCache?.scope !== this.startCommandScope()) return;
@@ -191,11 +197,15 @@ export const startPanel = {
     return v_flex().id('project-start-commands').role('menu').accessibility_label('Skills').w(420).max_h(220).overflow_y_scroll()
       .border(1).border_color(t.border).bg(t.popover).shadow_md().mb(4).py(4)
       .on_mouse_down_out((_event, cx) => { this.startCommandDismissed = this.startTask.value(); cx.notify(); })
-      .child(div().px(12).py(4).text_size(11).text_color(t.muted).child('SKILLS'))
+      .child(h_flex().px(12).justify_between().items_center()
+        .child(div().text_size(11).text_color(t.muted).child('SKILLS'))
+        .child(ToolbarButton('project-start-commands-refresh', t, { icon: true, disabled: !cache || cache.items === null })
+          .accessibility_label('Refresh skills').tooltip('Refresh skills')
+          .on_click((_event, cx) => this.reloadStartCommands(cx)).child(glyph('refresh-cw'))))
       .when(!cache || cache.items === null, el => el.child(div().px(12).py(6).text_size(12).text_color(t.muted).child('Loading skills…')))
       .when(Boolean(cache?.error), el => el
         .child(div().px(12).py(6).text_size(12).text_color(t.ansi1).child(cache.error))
-        .child(Button('project-start-commands-retry', t, { variant: 'ghost' }).h(28).on_click((_event, cx) => { this.startCommandCache = null; this.refreshStartCommands(cx); }).child('Retry')))
+        .child(Button('project-start-commands-retry', t, { variant: 'ghost' }).h(28).on_click((_event, cx) => this.reloadStartCommands(cx)).child('Retry')))
       .when(Boolean(cache && cache.items !== null && !cache.error && !items.length), el => el.child(div().px(12).py(6).text_size(12).text_color(t.muted).child('No matching skills available for this project and program.')))
       .children(items.map((item, at) => Button(`project-start-command-${item.id}`, t, { variant: 'ghost' }).role('menu_item').w_full().h_auto().min_h(42).px(12).py(6).justify_start()
         .bg(index === at ? t.selected : t.popover).accessibility_label(`Use /${item.name}`)
