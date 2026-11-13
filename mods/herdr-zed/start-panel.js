@@ -1,5 +1,5 @@
 import { div } from 'gpui-kit';
-import { v_flex, h_flex, TextareaState, Textarea, Popup } from 'gpui-base';
+import { v_flex, h_flex, TextareaState, Textarea, Popup, ScrollHandle } from 'gpui-base';
 import { shared, setShared, spaces, exec, notify, openOverlay } from 'herdr';
 import { pasteClipboardImage, withAttachments, AttachmentStrip } from './components/image-attachments.js';
 import { Button, ToolbarButton } from './components/button.js';
@@ -44,14 +44,16 @@ export function startChoice(programs, project, remembered = {}) {
 // publishes, and Start hands it a launch intent (ARCHITECTURE §3.1 Composer); without one, native programs start as is.
 export const startPanel = {
   initStartPanel(cx) {
+    this.startCommandScroll = ScrollHandle.new();
     this.startTask = TextareaState.new({ placeholder: 'What would you like to do? Type / for skills.' });
     this.startTask.set_auto_grow(4, 12);
     this.startTask.on('change', (_event, cx) => {
       this.startCommandDismissed = null; this.startCommandIndex = 0;
+      this.startCommandScroll.scroll_to_item(0);
       if (this.startCommandSelection && !this.startTask.value().trimStart().startsWith(`/${this.startCommandSelection.name} `)) this.startCommandSelection = null;
       this.refreshStartCommands(cx); cx.notify();
     });
-    cx.bind_keys?.(['up', 'down', 'enter', 'tab', 'escape'].map(key => ({ keystroke: key, action: `herdr-composer-command-${key}`, context: 'HerdrComposerCommands' })));
+    cx.bind_keys?.(['up', 'down', 'enter', 'tab', 'escape'].map(key => ({ keystroke: key, action: `herdr-composer-command-${key}`, context: 'HerdrComposerCommands > Input' })));
     this.startTask.on('submit', (event, cx) => {
       const modified = shared('herdr-zed.ctrl-enter-submit') !== false;
       if (!event?.shift && Boolean(event?.secondary) === modified) this.submitStart(cx);
@@ -188,17 +190,20 @@ export const startPanel = {
     const items = this.startCommandItems();
     if (key === 'escape') this.startCommandDismissed = this.startTask.value();
     else if (key === 'enter' || key === 'tab') this.chooseStartCommand(items[this.startCommandIndex || 0], cx);
-    else if (items.length) this.startCommandIndex = ((this.startCommandIndex || 0) + (key === 'up' ? -1 : 1) + items.length) % items.length;
+    else if (items.length) {
+      this.startCommandIndex = ((this.startCommandIndex || 0) + (key === 'up' ? -1 : 1) + items.length) % items.length;
+      this.startCommandScroll.scroll_to_item(this.startCommandIndex);
+    }
     cx.notify();
   },
   startCommandMenu(t) {
     const cache = this.startCommandCache?.scope === this.startCommandScope() ? this.startCommandCache : null;
     const items = this.startCommandItems(), index = Math.min(this.startCommandIndex || 0, Math.max(0, items.length - 1));
-    return v_flex().id('project-start-commands').role('menu').accessibility_label('Skills').w(420).max_h(220).overflow_y_scroll()
-      .border(1).border_color(t.border).bg(t.popover).shadow_md().mb(4).py(4)
+    return v_flex().id('project-start-commands').role('menu').accessibility_label('Skills').w(this.startCommandWidth || 420).flex_none()
+      .border(1).border_color(t.border).bg(t.popover).shadow_md()
       .on_mouse_down_out((_event, cx) => { this.startCommandDismissed = this.startTask.value(); cx.notify(); })
-      .child(h_flex().px(12).justify_between().items_center()
-        .child(div().text_size(11).text_color(t.muted).child('SKILLS'))
+      .child(h_flex().h(32).flex_none().px(12).border_b(1).border_color(t.border).justify_between().items_center()
+        .child(div().text_size(12).font_medium().child('Skills'))
         .child(ToolbarButton('project-start-commands-refresh', t, { icon: true, disabled: !cache || cache.items === null })
           .accessibility_label('Refresh skills').tooltip('Refresh skills')
           .on_click((_event, cx) => this.reloadStartCommands(cx)).child(glyph('refresh-cw'))))
@@ -207,12 +212,17 @@ export const startPanel = {
         .child(div().px(12).py(6).text_size(12).text_color(t.ansi1).child(cache.error))
         .child(Button('project-start-commands-retry', t, { variant: 'ghost' }).h(28).on_click((_event, cx) => this.reloadStartCommands(cx)).child('Retry')))
       .when(Boolean(cache && cache.items !== null && !cache.error && !items.length), el => el.child(div().px(12).py(6).text_size(12).text_color(t.muted).child('No matching skills available for this project and program.')))
-      .children(items.map((item, at) => Button(`project-start-command-${item.id}`, t, { variant: 'ghost' }).role('menu_item').w_full().h_auto().min_h(42).px(12).py(6).justify_start()
+      .when(items.length > 0, el => el.child(v_flex().id('project-start-command-list')
+        .h(Math.min(items.length, 4) * 48).flex_none().overflow_y_scrollbar().track_scroll(this.startCommandScroll)
+        .children(items.map((item, at) => Button(`project-start-command-${item.id}`, t, { variant: 'ghost' }).role('menu_item').w_full().h(48).flex_none().px(12).py(6).justify_start()
         .bg(index === at ? t.selected : t.popover).accessibility_label(`Use /${item.name}`)
+        .tooltip(item.description)
         .on_hover((inside, cx) => { if (inside) { this.startCommandIndex = at; cx.notify(); } })
         .on_click((_event, cx) => this.chooseStartCommand(item, cx))
-        .child(v_flex().min_w(0).gap(2).child(div().text_size(12).child(`/${item.name}`))
-          .child(div().text_size(11).text_color(t.muted).truncate().child(item.description)))));
+        .child(v_flex().flex_1().min_w(0).gap(3).child(div().text_size(13).font_medium().text_color(t.foreground).truncate().child(`/${item.name}`))
+          .child(div().max_w(380).text_size(11).text_color(t.muted).truncate().child(item.description)))))))
+      .child(div().h(24).flex_none().px(12).flex().items_center().border_t(1).border_color(t.border)
+        .text_size(11).text_color(t.muted).child('↑ ↓ Navigate · Enter Select · Esc Close'));
   },
   // The values of one launcher choice: its fields' published defaults, then what was picked here. A select whose value
   // the other picks no longer allow falls back to its first offered option.
@@ -421,6 +431,27 @@ export const startPanel = {
   },
   composerView(project, t, cx, { ready, takesTask, session = { controls: [] }, status = null, action = 'Start task' }) {
     const git = this.startGitView(project, t, cx);
+    const composer = v_flex().id('project-start-task-anchor').w_full().min_w(0)
+      .on_size_change((size, cx) => {
+        if (size.width > 0 && this.startCommandWidth !== size.width) { this.startCommandWidth = size.width; cx.notify(); }
+      }).border(1).border_color(t.border).bg(t.popover)
+      .when(this.startCommandOpen(), el => el.key_context('HerdrComposerCommands'))
+      .on_action('herdr-composer-command-up', (_event, cx) => this.startCommandAction('up', cx))
+      .on_action('herdr-composer-command-down', (_event, cx) => this.startCommandAction('down', cx))
+      .on_action('herdr-composer-command-enter', (_event, cx) => this.startCommandAction('enter', cx))
+      .on_action('herdr-composer-command-tab', (_event, cx) => this.startCommandAction('tab', cx))
+      .on_action('herdr-composer-command-escape', (_event, cx) => this.startCommandAction('escape', cx))
+      .child(Textarea.new(this.startTask).id('project-start-task').w_full().px(12).py(10).border(0).text_size(13)
+        .disabled(!takesTask || Boolean(this.startPending)).accessibility_label('Task for the new thread'))
+      .when(takesTask && this.startImages.length > 0, el => el.child(div().px(12).pb(8).child(AttachmentStrip('project-start-images', this.startImages,
+        (index, cx) => { this.startImages = this.startImages.filter((_item, at) => at !== index); cx.notify(); }, t, 'herdr-zed'))))
+      .child(h_flex().id('project-start-toolbar').px(8).py(6).gap(8).items_center().border_t(1).border_color(t.border)
+        .flex_wrap().children(session.controls).child(div().flex_1())
+        .children(this.composerActions?.(project, t) || [])
+        .child(ToolbarButton('project-start-submit', t, { icon: true }).disabled(!ready || Boolean(this.startPending))
+          .tooltip(this.startPending ? 'Starting…' : action).accessibility_label(this.startPending ? 'Starting…' : action)
+          .on_click((_event, cx) => this.submitStart(cx))
+          .child(glyph(this.startPending ? 'loader' : 'arrow-up', 16))));
     return v_flex().id('project-start').size_full().bg(t.background).text_color(t.foreground).items_center().p(24).overflow_y_scroll()
       .child(div().flex_1().min_h(0))
       .child(v_flex().w_full().max_w(680).flex_none().gap(10)
@@ -430,27 +461,8 @@ export const startPanel = {
           .child(h_flex().min_w(0).gap(8).items_center().text_size(12).text_color(t.muted)
             .child(div().min_w(0).truncate().tooltip(project.name).child(project.name))
             .when(Boolean(git), el => el.child(git))))
-        .child(v_flex().border(1).border_color(t.border).bg(t.popover)
-          .when(this.startCommandOpen(), el => el.key_context('HerdrComposerCommands'))
-          .on_action('herdr-composer-command-up', (_event, cx) => this.startCommandAction('up', cx))
-          .on_action('herdr-composer-command-down', (_event, cx) => this.startCommandAction('down', cx))
-          .on_action('herdr-composer-command-enter', (_event, cx) => this.startCommandAction('enter', cx))
-          .on_action('herdr-composer-command-tab', (_event, cx) => this.startCommandAction('tab', cx))
-          .on_action('herdr-composer-command-escape', (_event, cx) => this.startCommandAction('escape', cx))
-          .child(Popup.new('project-start-command-popup',
-            Textarea.new(this.startTask).id('project-start-task').w_full().px(12).py(10).border(0).text_size(13)
-              .disabled(!takesTask || Boolean(this.startPending)).accessibility_label('Task for the new thread'))
-            .relative().w_full().min_w(0).anchor('bottom_left')
-            .when(this.startCommandOpen(), el => el.content(this.startCommandMenu(t))))
-          .when(takesTask && this.startImages.length > 0, el => el.child(div().px(12).pb(8).child(AttachmentStrip('project-start-images', this.startImages,
-            (index, cx) => { this.startImages = this.startImages.filter((_item, at) => at !== index); cx.notify(); }, t, 'herdr-zed'))))
-          .child(h_flex().id('project-start-toolbar').px(8).py(6).gap(8).items_center().border_t(1).border_color(t.border)
-            .flex_wrap().children(session.controls).child(div().flex_1())
-            .children(this.composerActions?.(project, t) || [])
-            .child(ToolbarButton('project-start-submit', t, { icon: true }).disabled(!ready || Boolean(this.startPending))
-              .tooltip(this.startPending ? 'Starting…' : action).accessibility_label(this.startPending ? 'Starting…' : action)
-              .on_click((_event, cx) => this.submitStart(cx))
-              .child(glyph(this.startPending ? 'loader' : 'arrow-up', 16)))))
+        .child(Popup.new('project-start-command-popup', composer).relative().w_full().min_w(0).anchor('top_left')
+          .when(this.startCommandOpen(), el => el.content(div().flex_none().pt(6).child(this.startCommandMenu(t)))))
         .when(Boolean(session.usage), el => el.child(session.usage))
         .when(Boolean(status), el => el.child(div().text_size(12).text_color(t.muted).child(status))))
       .child(div().flex_1().min_h(0));

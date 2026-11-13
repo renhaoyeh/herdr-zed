@@ -24,7 +24,7 @@ export default class extends View {
     this.startTask.set_value('/');
     const state = ${JSON.stringify(state)};
     this.startCommandCache = { scope: this.startCommandScope(), items: state === 'loading' ? null : state === 'results'
-      ? [{ id: 'fixture:review', name: 'review', description: 'Review selected project files' }] : [], error: state === 'error' ? 'Could not read skills. Try again.' : null };
+      ? Array.from({ length: 8 }, (_, i) => ({ id: 'fixture:' + i, name: 'review-' + i, description: 'Review selected project files' })) : [], error: state === 'error' ? 'Could not read skills. Try again.' : null };
   }
   render(cx) {
     // Materialize the floating content eagerly too: check does not traverse Popup's deferred slot.

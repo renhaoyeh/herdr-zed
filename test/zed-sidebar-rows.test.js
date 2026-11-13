@@ -53,7 +53,7 @@ async function sidebar({ tabs, agents = [], panes = [], terminals = [] }) {
     'DropdownMenu', 'DropdownMenuTrigger', 'DropdownMenuContent', 'DropdownMenuItem', 'DropdownMenuLabel', 'DropdownMenuSeparator',
     'AlertDialogContent', 'AlertDialogTitle', 'AlertDialogDescription', 'AlertDialogFooter', 'AlertDialogCancel', 'AlertDialogAction',
     'Empty', 'EmptyTitle', 'EmptyDescription', 'AgentIcon', 'glyph', 'GitResultToast']) host[name] = (...args) => ui(typeof args[0] === 'string' ? args[0] : null);
-  Object.assign(host, { TextareaState: { new: () => ({ on() {}, set_auto_grow() {}, value: () => '', set_value() {}, release() {} }) },
+  Object.assign(host, { ScrollHandle: { new: () => ({ scroll_to_item() {}, release() {} }) }, TextareaState: { new: () => ({ on() {}, set_auto_grow() {}, value: () => '', set_value() {}, release() {} }) },
     Textarea: { new: () => ui('textarea') }, Select: id => ui(id), SelectState: class {} });
   host.activeLauncher ||= () => null; host.Popup ||= { new: (id) => ui(id) }; host.projectHistory ||= () => []; host.archivedAge ||= () => ''; host.exec ||= async () => ({ code: 1, stdout: '', stderr: '' });
   Object.assign(host, { withAttachments: text => text, AttachmentStrip: () => null, pasteClipboardImage: async () => null });

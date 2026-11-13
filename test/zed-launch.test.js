@@ -192,7 +192,7 @@ test('with a launcher, the composer shows its published fields and hands it a la
     shared: key => memory[key], setShared: (key, value) => { memory[key] = value; }, window: () => ({ platform: 'windows' }), spaces: () => [],
     Button() {}, Select() {}, SelectState: class {}, Empty() {}, EmptyTitle() {}, EmptyDescription() {}, glyph() {}, AgentIcon() {},
     div() {}, v_flex() {}, h_flex() {}, Textarea: {}, activeLauncher: () => ({ id: 'agents' }), COMPOSE_TAB: 'compose', ...contract,
-    TextareaState: { new: () => ({ handlers: {}, text: 'Task', on(event, fn) { this.handlers[event] = fn; }, set_auto_grow() {}, value() { return this.text; }, set_value(text) { this.text = text; } }) },
+    ScrollHandle: { new: () => ({ scroll_to_item() {}, release() {} }) }, TextareaState: { new: () => ({ handlers: {}, text: 'Task', on(event, fn) { this.handlers[event] = fn; }, set_auto_grow() {}, value() { return this.text; }, set_value(text) { this.text = text; } }) },
   }, 'startPanel, LAUNCH_INTENTS');
   const choice = { key: 'codex', label: 'Codex', fields: [
     { id: 'model', label: 'Model', type: 'select', value: 'default', options: [{ key: 'default', label: 'Default' }, { key: 'gpt', label: 'GPT' }, { key: 'mini', label: 'Mini' }] },
@@ -231,7 +231,7 @@ test('Start a thread opens on the program last chosen in the project and starts 
   const { startChoice, startProjectKey, startPanel } = await evaluateNative('../mods/herdr-zed/start-panel.js', { withAttachments: text => text, AttachmentStrip: () => null, pasteClipboardImage: async () => null, 
     shared: key => memory[key], setShared() {}, window: () => ({ platform: 'windows' }), spaces: () => tabs, Button() {}, Select() {}, SelectState: class {},
     Empty() {}, EmptyTitle() {}, EmptyDescription() {}, glyph() {}, AgentIcon() {}, div() {}, v_flex() {}, h_flex() {}, Textarea: {},
-    TextareaState: { new: () => ({ handlers: {}, text: 'Task', on(event, fn) { this.handlers[event] = fn; }, set_auto_grow() {}, value() { return this.text; }, set_value(text) { this.text = text; } }) },
+    ScrollHandle: { new: () => ({ scroll_to_item() {}, release() {} }) }, TextareaState: { new: () => ({ handlers: {}, text: 'Task', on(event, fn) { this.handlers[event] = fn; }, set_auto_grow() {}, value() { return this.text; }, set_value(text) { this.text = text; } }) },
   }, 'startChoice, startProjectKey, startPanel');
   const programs = [{ key: 'claude' }, { key: 'codex' }], project = { id: 's', folder: 'C:\\repo\\', machine: null };
   assert.equal(startChoice(programs, project, {}).key, 'claude', 'first program by default');

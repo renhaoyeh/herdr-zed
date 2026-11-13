@@ -485,7 +485,7 @@ export default class HerdrZed extends View {
   groupedThreads(space, threads, t, live) { return threads.map(thread => this.renderThreadGroup(thread, t, live)); }
 
   async close() {
-    this.settingsPage?.close(); this.startTask?.release();
+    this.settingsPage?.close(); this.startTask?.release(); this.startCommandScroll?.release();
     this.authorDialog?.close();
     if (this.editor) this.editor.close(); else this.files?.close();
     this.diff?.close();

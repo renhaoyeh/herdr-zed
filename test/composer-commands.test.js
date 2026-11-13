@@ -7,29 +7,35 @@ const commands = [{ id: 'mine:skills:review', name: 'review', description: 'Revi
   { id: 'visual-studio', name: 'visual-studio', description: 'Build the solution' }];
 const project = { id: 's', folder: '/project', name: 'Project', machine: null };
 async function shell() {
-  const memory = {}, events = {}, bindings = [], cx = { notify() {}, stop_propagation() {}, bind_keys: keys => bindings.push(...keys) };
+  const memory = {}, events = {}, bindings = [], scrolled = [], cx = { notify() {}, stop_propagation() {}, bind_keys: keys => bindings.push(...keys) };
   const input = { text: '', on(name, fn) { events[name] = fn; }, set_auto_grow() {}, value() { return this.text; }, set_value(value) { this.text = value; },
     set_selected_range(range) { this.range = range; }, focus() {} };
   const host = { ...contract, shared: key => memory[key], setShared: (key, value) => { memory[key] = value; }, spaces: () => [],
-    withAttachments: text => text, TextareaState: { new: () => input } };
+    withAttachments: text => text, ScrollHandle: { new: () => ({ scroll_to_item: index => scrolled.push(index), release() {} }) }, TextareaState: { new: () => input } };
   const { startPanel, LAUNCH_INTENTS } = await evaluateNative('../mods/herdr-zed/start-panel.js', host, 'startPanel, LAUNCH_INTENTS');
   const view = { ...startPanel }; view.initStartPanel(cx);
   const target = () => ({ intent: { launcher: 'custom-provider', choice: 'account', values: {} }, project, target: { folder: project.folder }, takesTask: true });
   view.startTarget = target();
   const edit = text => { input.text = text; events.change({}, cx); };
-  return { view, memory, input, cx, edit, bindings, LAUNCH_INTENTS, target };
+  return { view, memory, input, cx, edit, bindings, scrolled, LAUNCH_INTENTS, target };
 }
 
 test('slash menu requests scoped commands, filters, selects by keyboard and hands an opaque command ID to the launcher', async () => {
   const h = await shell(); h.edit('/');
   assert.equal(h.bindings.length, 5);
+  assert.ok(h.bindings.every(binding => binding.context === 'HerdrComposerCommands > Input'));
   const request = h.memory[contract.COMPOSER_COMMAND_REQUESTS][0];
   assert.equal(request.launcher, 'custom-provider'); assert.equal(request.choice, 'account'); assert.equal(request.target.folder, '/project');
   h.memory[contract.COMPOSER_COMMAND_RESULTS] = { [request.id]: { items: commands, expiresAt: request.expiresAt } };
   h.view.refreshStartCommands(h.cx);
   assert.deepEqual(h.view.startCommandItems(), commands);
   h.edit('/solution'); assert.deepEqual(h.view.startCommandItems(), [commands[1]]);
-  h.edit('/'); h.view.startCommandAction('down', h.cx); h.view.startCommandAction('enter', h.cx);
+  h.edit('/');
+  h.view.startCommandAction('up', h.cx); assert.equal(h.view.startCommandIndex, 1);
+  assert.equal(h.scrolled.at(-1), 1);
+  h.view.startCommandAction('down', h.cx); assert.equal(h.view.startCommandIndex, 0);
+  assert.equal(h.scrolled.at(-1), 0);
+  h.view.startCommandAction('down', h.cx); h.view.startCommandAction('enter', h.cx);
   assert.equal(h.input.text, '/visual-studio '); assert.equal(h.view.startCommandOpen(), false);
   assert.deepEqual(h.input.range, { start: h.input.text.length, end: h.input.text.length });
   assert.equal(h.memory[h.LAUNCH_INTENTS], undefined, 'choosing a skill does not start an agent');
@@ -165,11 +171,37 @@ test('slash results live in a native popup content slot, outside the composer la
     Button: id => make('button', id), ToolbarButton: id => make('button', id) }, 'startPanel');
   const view = { ...startPanel, startTask: { value: () => '/' }, startImages: [], startGitView: () => null,
     startTarget: { intent: { launcher: 'fixture', choice: 'fixture' }, target: { folder: '/fixture' } } };
-  view.startCommandCache = { scope: view.startCommandScope(), items: commands };
+  const manyCommands = Array.from({ length: 8 }, (_, i) => ({ id: `skill:${i}`, name: `skill-${i}`, description: 'Description' }));
+  view.startCommandCache = { scope: view.startCommandScope(), items: manyCommands };
   const tree = view.composerView({ name: 'Fixture' }, {}, {}, { ready: true, takesTask: true });
   const walk = node => node && typeof node === 'object' && node.nodes ? [node, ...node.nodes.flatMap(walk)] : [];
   const layout = walk(tree), popup = layout.find(node => node.name === 'project-start-command-popup');
-  assert.ok(popup); assert.deepEqual(popup.styles.anchor, ['bottom_left']);
+  assert.ok(popup); assert.deepEqual(popup.styles.anchor, ['top_left']);
   assert.equal(layout.some(node => node.name === 'project-start-commands'), false);
-  assert.ok(walk(popup.overlay).some(node => node.name === 'project-start-commands'));
+  const trigger = walk(popup.nodes[0]);
+  assert.ok(trigger.some(node => node.name === 'project-start-task'));
+  assert.ok(trigger.some(node => node.name === 'project-start-toolbar'), 'Popup starts below the toolbar, not over it');
+  assert.ok(trigger.some(node => node.name === 'project-start-submit'));
+  const menu = walk(popup.overlay).find(node => node.name === 'project-start-commands');
+  const list = walk(popup.overlay).find(node => node.name === 'project-start-command-list');
+  assert.ok(menu); assert.ok(list);
+  assert.equal(menu.styles.overflow_y_scroll, undefined, 'Only the options scroll; header/footer stay visible');
+  assert.deepEqual(list.styles.h, [4 * 48]);
+  assert.equal(list.nodes.length, 8, 'Overflow options remain reachable by scrolling');
+  assert.deepEqual(list.styles.overflow_y_scrollbar, []);
+  assert.deepEqual(popup.overlay.styles.pt, [6]);
+  for (const row of list.nodes) {
+    assert.deepEqual(row.styles.h, [48]);
+    assert.deepEqual(row.styles.flex_none, []);
+  }
+  const resize = layout.find(node => node.name === 'project-start-task-anchor').styles.on_size_change[0];
+  let notified = 0;
+  for (const width of [640, 320]) {
+    resize({ width }, { notify() { notified++; } });
+    const resized = walk(view.startCommandMenu({})).find(node => node.name === 'project-start-commands');
+    assert.deepEqual(resized.styles.w, [width]);
+  }
+  resize({ width: 320 }, { notify() { notified++; } });
+  resize({ width: 0 }, { notify() { notified++; } });
+  assert.equal(notified, 2, 'Only a changed nonzero input width redraws the menu');
 });
