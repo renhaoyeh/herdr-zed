@@ -122,7 +122,7 @@ export function composerUsage(envelope, machine) {
     && typeof account.label === 'string' && account.label.length > 0 && account.label.length <= MAX_LABEL
     && (account.icon === undefined || typeof account.icon === 'string') && (account.tint === undefined || typeof account.tint === 'boolean')
     && (account.muted === undefined || typeof account.muted === 'boolean')
-    && Array.isArray(account.windows) && account.windows.length > 0 && account.windows.every(validWindow));
+    && Array.isArray(account.windows) && account.windows.every(validWindow));
 }
 /** A select option is offered while every field it names holds one of its keys. @param {{ only?: Record<string, string[]> }} option @param {Record<string, unknown>} values */
 export const composerOptionShown = (option, values) => !option.only

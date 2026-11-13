@@ -55,11 +55,12 @@ test('the composer usage lists the Usage sidebar\'s accounts, names and windows,
     usage: [{ key: 'work', windows: [{ bucket: 'claude', minutes: 300, usedPercent: 37, resetsAt: 1 }, { bucket: 'claude', minutes: 10080, usedPercent: 91, resetsAt: null }] }] };
   const usage = composerUsage(snapshot);
   assert.deepEqual(usage, [{ key: 'work', label: 'Work', icon: 'icons/claude.svg', windows: [
-    { label: '5h', minutes: 300, usedPercent: 37, resetsAt: 1 }, { label: 'Week', minutes: 10080, usedPercent: 91, resetsAt: null }] }],
-    'only readable accounts, named as Usage names them');
+    { label: '5h', minutes: 300, usedPercent: 37, resetsAt: 1 }, { label: 'Week', minutes: 10080, usedPercent: 91, resetsAt: null }] },
+    { key: 'idle', label: 'No account', muted: true, windows: [] }],
+    'accounts without readings remain visible, named as Usage names them');
   const { composerUsage: read } = await import('../components/extension-contract.js');
   assert.deepEqual(read({ machines: { '': { choices: [], usage } } }, null), usage);
-  assert.deepEqual(read({ machines: { '': { choices: [], usage: [{ ...usage[0], windows: [] }] } } }, null), []);
+  assert.deepEqual(read({ machines: { '': { choices: [], usage: [{ ...usage[0], windows: [] }] } } }, null), [{ ...usage[0], windows: [] }]);
 });
 
 test('composer fields always select explicit available options and reuse saved choices', async () => {

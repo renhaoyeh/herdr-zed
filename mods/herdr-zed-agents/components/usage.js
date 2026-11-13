@@ -44,7 +44,7 @@ export class UsageClient {
     return shared('herdr-zed.usage.snapshot')?.contexts?.[JSON.stringify(machine)] || { machine, choices: [], usage: [], loading: false, error: null };
   }
   // Each shown account's reading, status and display name, shared by the sidebar and status bar presentations.
-  // `readable` marks an account whose quota can be read now; only those are shown.
+  // Reading failures never remove a selected account from the list.
   entries(snapshot = this.snapshot()) {
     return (snapshot.choices || []).map(choice => {
       const data = (snapshot.usage || []).find(account => account.key === choice.agent?.key);
@@ -62,23 +62,23 @@ export class UsageClient {
         name: unnamed ? data?.email || 'No account' : launcherLabel(choice.name), unknown: unnamed && !data?.email };
     });
   }
-  readableEntries(snapshot = this.snapshot()) { return this.entries(snapshot).filter(entry => entry.readable); }
+  visibleEntries(snapshot = this.snapshot()) { return this.entries(snapshot); }
 
   // The sidebar's content height in px (ARCHITECTURE §3.10), from the same fixed row heights render uses: the 32px
-  // header, then one 32px line when nothing is readable, or per account 24px of padding and name plus 15px per window.
+  // header, then one 32px line when there are no accounts, or per account 24px of padding and name plus 15px per window.
   contentHeight(snapshot = this.snapshot()) {
-    const entries = this.readableEntries(snapshot);
+    const entries = this.visibleEntries(snapshot);
     if (!entries.length) return 32 + 32;
     const slots = [300, 10080].filter(minutes => entries.some(entry => entry.windows.some(window => window.minutes === minutes))).length;
-    return 32 + entries.length * (24 + 15 * slots);
+    return 32 + entries.length * (24 + 15 * Math.max(1, slots));
   }
 
-  // One status-bar item per account with readable quota: icon, short name and 5h/W percentages.
+  // One status-bar item per selected account: icon, short name and 5h/W percentages.
   // With none, the item draws nothing and takes no width.
   renderStatus(t, { openMenu = null } = {}) {
     if (this.started) this.sync();
     if (!this.active()) return div().flex_none();
-    const entries = this.readableEntries();
+    const entries = this.visibleEntries();
     if (!entries.length) return div().flex_none();
     return h_flex().id('status-usage').size_full().justify_end().items_center().gap(2).accessibility_label('Account usage')
       .when(Boolean(openMenu), el => el.on_mouse_down('right', (event, cx) => { cx.stop_propagation(); openMenu(event.position); }))
@@ -88,17 +88,18 @@ export class UsageClient {
           .on_click(() => openUsageDetails(account))
           .child(AgentIcon(choice.agent, t).size(12))
           .child(div().max_w(96).truncate().text_color(unknown ? t.muted : t.foreground).child(name))
+          .when(!windows.length, el => el.child(div().text_color(t.muted).child('—')))
           .children(windows.map(window => div().id(`status-usage-${choice.key}-${window.minutes}`).font_family('Geist Mono')
             .text_color(percentColor(window.usedPercent, t)).child(shortWindow(window))))));
   }
 
   // The host chooses the presentation: `full` meters with reset times, or one `compact` line of percentages per account.
   // `openMenu(position)` opens the host's right-click menu for this section.
-  // With no readable account, one muted line says so and links to the Agents Settings page.
+  // With no selected account, one muted line says so and links to the Agents Settings page.
   render(t, { style = 'full', openMenu = null } = {}) {
     if (this.started) this.sync();
     if (!this.active()) return div().h(0).flex_none();
-    const snapshot = this.snapshot(), entries = this.readableEntries(snapshot);
+    const snapshot = this.snapshot(), entries = this.visibleEntries(snapshot);
     const slots = [300, 10080].filter(minutes => entries.some(entry => entry.windows.some(window => window.minutes === minutes)));
     return v_flex().id('account-usage').w_full().flex_none().h_auto().min_h(0)
       .when(Boolean(openMenu), el => el.on_mouse_down('right', (event, cx) => { cx.stop_propagation(); openMenu(event.position); }))
@@ -124,6 +125,7 @@ export class UsageClient {
               .on_click(() => openUsageDetails(account))
               .child(AgentIcon(choice.agent, t))
               .child(div().id(`usage-name-${choice.key}`).flex_1().min_w(0).truncate().text_size(12).text_color(nameColor).child(name))
+              .when(!windows.length, el => el.child(div().text_color(t.muted).child('—')))
               .children(windows.map(window => div().id(`usage-compact-${choice.key}-${window.minutes}`).flex_none()
                 .text_size(11).font_family('Geist Mono')
                 .text_color(percentColor(window.usedPercent, t)).child(shortWindow(window))));
@@ -133,6 +135,7 @@ export class UsageClient {
               .child(AgentIcon(choice.agent, t).self_center())
               .child(v_flex().flex_1().min_w(0).gap(3).line_height('12px')
                 .child(div().id(`usage-name-${choice.key}`).h(12).flex_none().truncate().text_size(12).font_semibold().text_color(nameColor).child(name))
+                .when(!slots.length, el => el.child(div().h(12).text_size(10).text_color(t.muted).child(account.error || 'No usage yet')))
                 .children(slots.map(minutes => {
                   const window = windows.find(item => item.minutes === minutes);
                   // A window another account has but this one lacks keeps its line, blank, so rows align.

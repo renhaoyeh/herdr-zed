@@ -15,7 +15,7 @@ export const choiceKey = agent => agent.profileKey ? `${agent.key}#${agent.profi
 // The machine's Usage list for the composer: the same accounts, names and windows the Usage sidebar shows.
 export function composerUsage(snapshot, machine = null) {
   if (!snapshot) return [];
-  return new UsageClient({ context: () => ({ machine }) }).readableEntries(snapshot).map(({ choice, name, unknown, windows }) => ({
+  return new UsageClient({ context: () => ({ machine }) }).visibleEntries(snapshot).map(({ choice, name, unknown, windows }) => ({
     key: choice.agent.key, label: name.slice(0, 80), ...(choice.agent.icon ? { icon: choice.agent.icon } : {}),
     ...(choice.agent.tint ? { tint: true } : {}), ...(unknown ? { muted: true } : {}),
     windows: windows.map(window => ({ label: window.minutes === 300 ? '5h' : 'Week', minutes: window.minutes,

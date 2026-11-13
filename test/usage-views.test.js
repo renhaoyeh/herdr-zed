@@ -56,8 +56,8 @@ test('the sidebar Usage surface renders each account whose quota can be read, op
   const h = await harness();
   h.mount('usage-sidebar');
   assert.ok(h.texts.includes('Work'));
-  assert.ok(!h.texts.includes('Team'), 'an account without a readable quota is not listed');
-  assert.ok(!h.nodes.has('usage-claude'), 'no row for it');
+  assert.ok(h.texts.includes('Team'), 'an account without quota remains listed');
+  assert.ok(h.nodes.has('usage-claude'), 'its row remains available');
   assert.ok(!h.texts.some(text => text === 'Not supported' || text === 'No quota' || text === 'Unavailable'), 'no status noise');
   assert.ok(h.nodes.has('usage-codex') && h.nodes.has('usage-meter-codex-300') && h.nodes.has('open-token-statistics'));
   assert.ok(!h.nodes.has('usage-add-account'), 'the link shows only when nothing is readable');
@@ -77,6 +77,17 @@ test('the usage details dialog renders the account windows without throwing', as
   assert.ok(h.texts.some(text => text.includes('42% used')));
   assert.ok(h.nodes.has('usage-details-close'), 'the header X closes it; there is no Done footer');
   assert.ok(!h.nodes.has('usage-details-done'));
+});
+
+test('an account with a failed reading stays visible and opens its error details', async () => {
+  const failed = clone(snapshot);
+  failed.contexts.null.usage.push({ key: 'claude', error: 'No usage yet. Start a session with this account to update it.' });
+  const h = await harness({ 'herdr-zed.usage.snapshot': failed });
+  h.mount('usage-sidebar');
+  assert.ok(h.texts.includes('Team'));
+  assert.ok(h.texts.includes('—'));
+  h.nodes.get('usage-claude').click(null, h.cx);
+  assert.match(h.opened.at(-1).props.account.error, /No usage yet/);
 });
 
 test('Sidebar Usage renders without a snapshot with a muted line and an add-account link', async () => {
@@ -106,6 +117,7 @@ test('Usage reports its sidebar content height from its fixed rows: header, then
   const choice = key => ({ key, name: key, agent: { key }, provider: 'claude' });
   const windows = minutes => minutes.map(m => ({ bucket: 'claude', minutes: m, usedPercent: 10, resetsAt: null }));
   assert.equal(client.contentHeight({ choices: [], usage: [] }), 64, 'header and the one empty line');
+  assert.equal(client.contentHeight({ choices: [choice('a')], usage: [] }), 71, 'an account without quota keeps a status line');
   assert.equal(client.contentHeight({ choices: [choice('a')], usage: [{ key: 'a', windows: windows([300, 10080]) }] }), 32 + 24 + 30);
   assert.equal(client.contentHeight({ choices: [choice('a'), choice('b')],
     usage: [{ key: 'a', windows: windows([10080]) }, { key: 'b', windows: windows([300, 10080]) }] }), 32 + 2 * (24 + 30),
