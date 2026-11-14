@@ -12,6 +12,8 @@ import { parseEcc, eccAccount, eccItemEnabled, chooseEccItem } from '../mods/her
 import { readEccCatalog, eccCatalogForUi, readEccDetail } from '../mods/herdr-zed-agents/ecc-catalog.js';
 import { buildEccPackage } from '../mods/herdr-zed-agents/ecc-package.js';
 import { evaluateNative } from './source-harness.js';
+import { rulesArgv } from '../components/session-model.js';
+import { composeSessionRules } from '../mods/herdr-zed-agents/global-rules-model.js';
 
 async function fixture(fn) {
   const root = await mkdtemp(join(tmpdir(), 'herdr-zed-ecc-architecture-'));
@@ -80,6 +82,55 @@ test('compiled ECC packages enforce selections, preserve support resources and s
   assert.equal((await buildEccPackage(config, 'claude', output, catalog)).root, changed.root);
 }));
 
+test('cost skill selection adds activation guidance only to its provider and keeps cached packages immutable', async () => fixture(async ({ source, config, output, put }) => {
+  const path = 'skills/cost-aware-llm-pipeline/SKILL.md', text = '# Cost guidance\nChoose models by task complexity.';
+  await put(path, text);
+  const catalog = await readEccCatalog(source);
+  config.selection = { claude: {}, codex: {} };
+  for (const provider of ['claude', 'codex']) {
+    const unselected = await buildEccPackage(config, provider, output, catalog);
+    assert.equal(unselected.instructions, '');
+    config.selection[provider][profiles.eccCostSkill] = true;
+    const selected = await buildEccPackage(config, provider, output, catalog);
+    assert.ok(selected.instructions.includes(join(selected.root, path)), 'Activation points to the immutable selected skill');
+    assert.equal(await readFile(join(selected.root, path), 'utf8'), text);
+    assert.equal(await readFile(join(selected.root, 'devkits-guidance.md'), 'utf8'), selected.instructions);
+    assert.notEqual(selected.revision, unselected.revision);
+    assert.equal((await buildEccPackage(config, provider, output, catalog)).instructions, selected.instructions);
+    config.selection[provider][profiles.eccCostSkill] = false;
+    assert.equal((await buildEccPackage(config, provider, output, catalog)).instructions, '');
+    assert.equal(await readFile(join(selected.root, 'devkits-guidance.md'), 'utf8'), selected.instructions);
+  }
+}));
+
+test('global cost activation reaches the launch prompt only when ECC, provider and skill are enabled', async () => fixture(async ({ config, output, directory, put }) => {
+  await put('skills/cost-aware-llm-pipeline/SKILL.md', '# Cost guidance\nChoose models by complexity.');
+  for (const provider of ['claude', 'codex']) {
+    for (const [enabled, providerOn, selected] of [[false, true, true], [true, false, true], [true, true, false], [true, true, true]]) {
+      const current = { ...config, enabled, claudeHooks: 'off', providerEnabled: { ...config.providerEnabled, [provider]: providerOn },
+        selection: { ...config.selection, [provider]: { [profiles.eccCostSkill]: selected } } };
+      let builds = 0;
+      const result = await syncEcc(provider, join(directory, `${provider}-${enabled}-${providerOn}-${selected}`), current, {
+        packagesDirectory: output, run: async () => '[]',
+        configService: async () => ({ config: {}, write: async () => {}, close: async () => {} }),
+        packageBuilder: async (...args) => { builds++; return buildEccPackage(...args); },
+      });
+      assert.equal(builds, enabled && providerOn ? 1 : 0);
+      if (enabled && providerOn && selected) assert.match(await readFile(result.instructionsFile, 'utf8'), /cost-aware-llm-pipeline/);
+      else assert.equal(result.instructionsFile, null);
+      const { prepareEcc } = await evaluateNative('../mods/herdr-zed-agents/ecc.js', {
+        appHome: () => '/herdr', home: () => '/home', parseEcc, eccAccount, sessionKind: () => provider,
+        readTextFile: async path => path === '/herdr/data/herdr-zed/ecc.json' ? JSON.stringify(current) : readFile(path, 'utf8'),
+        exec: async () => ({ code: 0, stdout: JSON.stringify(result) }),
+      }, 'prepareEcc');
+      const prepared = await prepareEcc({ key: provider }, [provider]);
+      const text = composeSessionRules('', null, prepared.instructions);
+      const argv = rulesArgv({ key: provider }, prepared.argv, text ? { text, composed: true } : null);
+      assert.equal(argv.join(' ').includes('cost-aware-llm-pipeline'), enabled && providerOn && selected);
+    }
+  }
+}));
+
 test('native hook switches remove actual event entries and enabled MCP wrappers use runtime environment values without persisting secrets', async () => fixture(async ({ config, source, output }) => {
   const catalog = await readEccCatalog(source), hook = catalog.items.find(item => item.native && item.providers.includes('codex'));
   chooseEccItem(config, 'codex', hook, false); chooseEccItem(config, 'codex', catalog.items.find(item => item.id === 'mcp:echo'), true);
@@ -123,14 +174,16 @@ test('never-managed disabled ECC accounts are untouched and preparation returns 
   await assert.rejects(access(directory), { code: 'ENOENT' });
   await syncEcc('codex', directory, { ...config, providerEnabled: { claude: true, codex: false } }, { run: () => assert.fail('provider off') });
   await assert.rejects(access(directory), { code: 'ENOENT' });
-  const calls = [];
+  const calls = []; let guidance = 'Apply selected cost guidance before delegating.';
   const { prepareEcc } = await evaluateNative('../mods/herdr-zed-agents/ecc.js', {
     appHome: () => '/herdr', home: () => '/home', parseEcc, eccAccount, sessionKind: () => 'codex',
-    readTextFile: async () => JSON.stringify(config), exec: async (...args) => { calls.push(args); return { code: 0, stdout: '{"instructionsFile":"/selected-guidance.md"}' }; },
+    readTextFile: async path => path === '/selected-guidance.md' ? guidance : JSON.stringify(config), exec: async (...args) => { calls.push(args); return { code: 0, stdout: '{"instructionsFile":"/selected-guidance.md"}' }; },
   }, 'prepareEcc');
   const argv = ['env', 'CODEX_HOME=/account', 'codex'];
-  const prepared = await prepareEcc({}, argv); assert.deepEqual(prepared.argv, argv); assert.match(prepared.instructions, /selected-guidance\.md/);
+  const prepared = await prepareEcc({}, argv); assert.deepEqual(prepared.argv, argv); assert.equal(prepared.instructions, guidance);
   assert.deepEqual(calls[0][1], ['/herdr/mods/herdr-zed-agents/ecc-sync.js', 'codex', '/account', '/herdr/data/herdr-zed/ecc.json']);
+  guidance = null;
+  await assert.rejects(prepareEcc({}, argv), /guidance is unavailable/);
 }));
 
 test('catalog requests ignore older sources and results arriving after the panel closes', async () => {

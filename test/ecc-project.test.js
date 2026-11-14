@@ -194,6 +194,33 @@ test('project launch builds selected native resources and returns invocation-onl
   await assert.rejects(access(join(account, 'config.toml')), { code: 'ENOENT' });
 }));
 
+test('project overrides control cost skill activation independently of the global selection for both providers', async () => fixture(async ({ call, home, folder, root, source, data }) => {
+  const id = 'skills:cost-aware-llm-pipeline';
+  await mkdir(join(source, 'skills/cost-aware-llm-pipeline'));
+  await writeFile(join(source, 'skills/cost-aware-llm-pipeline/SKILL.md'), '# Cost guidance\nChoose models by complexity.');
+  const global = JSON.stringify({ version: 1, enabled: true, source, claudeHooks: 'off',
+    selection: { claude: { [id]: true }, codex: { [id]: true } } });
+  await writeFile(join(data, 'ecc.json'), global);
+  const account = join(root, 'account'); await mkdir(account);
+  const plugins = {}, options = {
+    configService: async () => ({ config: { plugins }, close: async () => {}, write: async edits => {
+      for (const edit of edits) plugins[JSON.parse(edit.keyPath.slice(8, -8))].enabled = edit.value;
+    } }),
+    run: async (_provider, _directory, args) => { plugins[args.at(-2)] = { enabled: true }; },
+  };
+  for (const provider of ['claude', 'codex']) {
+    for (const [enabled, selected] of [[true, true], [true, false], [false, true]]) {
+      const changes = { enabled, replaceSelection: true, selection: { [id]: selected } };
+      const preview = await call('preview_project', { provider, changes });
+      await call('apply_project', { provider, changes, revision: preview.revision });
+      const prepared = await prepareProjectEcc(home, folder, provider, account, options);
+      if (enabled && selected) assert.match(await readFile(prepared.instructionsFile, 'utf8'), /cost-aware-llm-pipeline/);
+      else assert.equal(prepared.instructionsFile, null);
+    }
+  }
+  assert.equal(await readFile(join(data, 'ecc.json'), 'utf8'), global);
+}));
+
 test('installed Codex discovers the project marketplace using invocation flags in an isolated account', async () => fixture(async ({ call, home, folder, root }) => {
   const directory = join(root, 'codex-account'); await mkdir(directory);
   const changes = { enabled: true, replaceSelection: true, selection: { 'skills:alpha': true } };
@@ -289,13 +316,13 @@ test('native launch adapter applies project flags and bypasses global ECC synchr
   const calls = [], project = { flags: ['--plugin-dir', '/project-package'], mcp: { browser: false }, instructionsFile: '/project-guidance.md' };
   const { prepareEcc } = await evaluateNative('../mods/herdr-zed-agents/ecc.js', {
     appHome: () => '/herdr', home: () => '/user', parseEcc, eccAccount, sessionKind: () => 'claude',
-    readTextFile: async () => assert.fail('Project override must bypass global ECC'),
+    readTextFile: async path => { assert.equal(path, '/project-guidance.md', 'Project override must bypass global ECC'); return 'Apply selected project guidance.'; },
     exec: async (command, args) => { calls.push(args); return { code: 0, stdout: JSON.stringify(project) }; },
   }, 'prepareEcc');
   const argv = ['env', 'CLAUDE_CONFIG_DIR=/account', 'claude', '--', 'literal prompt'];
   const result = await prepareEcc({}, argv, { folder: '/project' });
   assert.deepEqual(result.argv, ['env', 'CLAUDE_CONFIG_DIR=/account', 'claude', '--plugin-dir', '/project-package', '--', 'literal prompt']);
-  assert.deepEqual(result.mcp, { browser: false }); assert.match(result.instructions, /project-guidance/);
+  assert.deepEqual(result.mcp, { browser: false }); assert.equal(result.instructions, 'Apply selected project guidance.');
   assert.deepEqual(calls[0], ['/herdr/mods/herdr-zed-agents/ecc-project-runtime.js', '/herdr', '/project', 'claude', '/account']);
 });
 

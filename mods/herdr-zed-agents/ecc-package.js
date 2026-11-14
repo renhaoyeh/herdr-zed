@@ -2,6 +2,7 @@ import { mkdir, cp, readFile, writeFile, rename, rm, mkdtemp, lstat } from 'node
 import { join, resolve, relative, isAbsolute, sep } from 'node:path';
 import { eccHash, readEccCatalog } from './ecc-catalog.js';
 import { eccItemEnabled } from './ecc-model.js';
+import { eccCostSkill } from './ecc-profiles.js';
 
 const mcpRunner = `const fs=require('fs'),path=require('path'),cp=require('child_process');
 try {
@@ -26,12 +27,15 @@ export async function buildEccPackage(config, provider, outputDirectory, supplie
   const invalid = selected.find(item => item.unavailable);
   if (invalid) throw new Error(`${invalid.name}：${invalid.unavailable}`);
   if (selected.filter(item => item.group === 'contexts').length > 1) throw new Error('Select at most one Context working mode per provider.');
-  const revision = eccHash(JSON.stringify({ compiler: 1, ...(project ? { project: true } : {}), source: catalog.source, sourceRevision: catalog.sourceRevision, provider,
+  const revision = eccHash(JSON.stringify({ compiler: 2, ...(project ? { project: true } : {}), source: catalog.source, sourceRevision: catalog.sourceRevision, provider,
     selected: selected.map(item => item.id).sort(), claudeHooks: provider === 'claude' ? config.claudeHooks : null }));
   const marketplace = `herdr-zed-${project ? 'project-' : ''}ecc-${revision.slice(0, 16)}`, pluginId = `ecc@${marketplace}`;
   const root = resolve(outputDirectory, revision);
-  const instructions = (await Promise.all(selected.filter(item => ['rules', 'contexts'].includes(item.group))
-    .map(async item => `## ${item.path}\n\n${await readFile(join(catalog.source, item.path), 'utf8')}`))).join('\n\n');
+  const guidance = await Promise.all(selected.filter(item => ['rules', 'contexts'].includes(item.group))
+    .map(async item => `## ${item.path}\n\n${await readFile(join(catalog.source, item.path), 'utf8')}`));
+  const cost = selected.find(item => item.id === eccCostSkill);
+  if (cost) guidance.push(`## Selected cost guidance\n\nBefore delegating work or building an LLM pipeline, read and apply the selected ECC cost-aware-llm-pipeline skill:\n${join(root, cost.path)}`);
+  const instructions = guidance.join('\n\n');
   const nativeItems = selected.filter(item => !['rules', 'contexts'].includes(item.group) && !item.checkId
     && !(provider === 'claude' && item.group === 'hooks' && config.claudeHooks === 'off'));
   const result = { root, revision, marketplace, pluginId, instructions, native: nativeItems.length > 0,

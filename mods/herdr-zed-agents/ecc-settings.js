@@ -211,7 +211,7 @@ export const eccSettings = {
             catch (error) { this.eccError = error.message; }
             cx.notify();
           }).child('Use this profile')))
-      .when(costSelected, el => el.child(div().text_size(12).text_color(t.muted).child('Adds cost guidance; does not change models or enforce a spending limit.')));
+      .when(costSelected, el => el.child(div().text_size(12).text_color(t.muted).child('While ECC and this provider are enabled, asks the agent to read this skill before delegating work or building LLM pipelines. Does not enforce a spending limit.')));
   },
   eccVisibleItems(all) {
     const query = this.eccSearch.value().trim().toLowerCase();
