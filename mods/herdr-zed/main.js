@@ -28,6 +28,7 @@ import { workspaceTopAnchor } from './extension-model.js';
 import { usableWorkspaceRect, WORKSPACE_RECT_KEY } from './components/workspace-overlay.js';
 import { threadDecorations, decorationTone } from './decorations.js';
 import { ImagePreview, IMAGE_PREVIEW_VIEW } from './components/image-attachments.js';
+import { ImageViewer } from './components/image-viewer.js';
 import { DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from './components/dropdown-menu.js';
 import { Button, ToolbarButton, TOOLBAR_GLYPH, ROW_GLYPH } from './components/button.js';
 import { AlertDialogContent, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel } from './components/alert-dialog.js';
@@ -89,7 +90,7 @@ export default class HerdrZed extends View {
     const view = props()?.view;
     if (view === 'reset-data') { this.resetData = new ResetData(); this.resetData.init(cx); return; }
     if (view === 'launcher') { this.launcher = new NativeLauncher(); this.launcher.init(cx); return; }
-    if (view === IMAGE_PREVIEW_VIEW) return;
+    if (view === IMAGE_PREVIEW_VIEW) { this.imageViewer = new ImageViewer(cx); this.imageViewer.handle.focus(); return; }
     if (view === 'discard-changes') { this.discardChanges = new DiscardChanges(); this.discardChanges.init(cx); return; }
     if (view === 'workflow-nav') { this.workflowNav = new WorkflowNav(); this.workflowNav.init(cx); return; }
     if (view === 'settings-nav') { this.settingsNav = new SettingsNav(); this.settingsNav.init(cx); return; }
@@ -802,7 +803,7 @@ export default class HerdrZed extends View {
     if (props()?.view === 'close-project') return this.closePrompt(t);
     if (props()?.view === 'project-menu') return this.projectMenu(t);
     if (props()?.view === 'project-picker') return this.projectPicker(t);
-    if (props()?.view === IMAGE_PREVIEW_VIEW) return ImagePreview(props(), t);
+    if (props()?.view === IMAGE_PREVIEW_VIEW) return ImagePreview(props(), t, this.imageViewer);
     const all = agents(), native = spaces(), modelPanes = panes();
     const roots = shared('herdr-zed.project-roots') || {};
     const missing = native.filter(s => roots[s.id] === undefined && s.folder);

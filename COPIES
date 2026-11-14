@@ -41,4 +41,5 @@ agent-process-windows.js: herdr-zed herdr-zed-tasks
 agent-session-windows.js: herdr-zed herdr-zed-tasks
 workspace-overlay.js: herdr-zed herdr-zed-asana herdr-zed-calendar herdr-zed-mantisbt herdr-zed-system herdr-zed-tasks
 image-attachments.js: herdr-zed herdr-zed-tasks
+image-viewer.js: herdr-zed herdr-zed-tasks
 autosave.js: herdr-zed herdr-zed-agents herdr-zed-asana herdr-zed-calendar herdr-zed-github herdr-zed-mantisbt

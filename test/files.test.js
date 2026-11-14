@@ -29,13 +29,14 @@ function timers() {
   };
   return { scheduled, after: (ms, fn) => add('after', ms, fn), every: (ms, fn) => add('every', ms, fn) };
 }
-async function scenario(readTextFile = async path => path) {
+async function scenario(readTextFile = async path => path, host = {}) {
   const tasks = [], editors = [];
-  const { FileViewer } = await load({ readTextFile, settings: () => ({}), theme: () => ({}),
-    exec: async () => ({ code: 0, stdout: 'f\0main.ts\0d\0src\0', stderr: '' }),
+  const { FileViewer } = await load({ readTextFile, appHome: () => '/herdr', settings: () => ({}), theme: () => ({}),
+    ImageViewer: class { render(_id, target) { return host.image?.(target.path) || null; } },
+    exec: async command => ({ code: 0, stdout: command === 'node' ? 'data/herdr-zed/image-previews/test.png\n' : 'f\0main.ts\0d\0src\0', stderr: '' }),
     EditorState: { new(options) { const state = { options, released: false, changes: 0,
       value() { return this.options.value; }, set_value(value) { this.options.value = value; this.changes++; },
-      release() { this.released = true; } }; editors.push(state); return state; } } });
+      release() { this.released = true; } }; editors.push(state); return state; } }, ...host });
   const cx = { timer: timers(), notify() {}, stop_propagation() {}, focus_handle: () => ({ focus() {} }), spawn(fn) { tasks.push(fn(cx)); } };
   const view = new FileViewer(); view.init(cx); view.refresh(project, cx);
   const drain = async () => { while (tasks.length) await Promise.all(tasks.splice(0)); };
@@ -233,6 +234,62 @@ test('late Markdown reads cannot overwrite another file or reopen a closed previ
   assert.equal(view.markdown, null); assert.equal(view.code.value(), 'new code');
   view.show('closed.md', cx); view.close(); replies[2]('# Closed'); await drain();
   assert.equal(view.markdown, null); assert.equal(view.code, null);
+});
+
+test('local image tabs use native images without reading binary data as text, and restore their source', async () => {
+  const reads = [], images = [];
+  const element = () => {
+    const el = new Proxy({}, { get: (_target, key) => key === 'when'
+      ? (condition, fn) => condition ? fn(el) : el : () => el });
+    return el;
+  };
+  const { view, cx, drain } = await scenario(async path => { reads.push(path); return 'text'; }, {
+    div: element, v_flex: element, h_flex: element,
+    image: path => { images.push(path); return element(); },
+  });
+  for (const ext of ['PNG', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'ico', 'tif', 'tiff', 'svg']) {
+    const path = `/outside/圖片 ' $.${ext}`;
+    view.show(path, cx, true, { on: null }); await drain();
+    assert.equal(view.doc.image, 'data/herdr-zed/image-previews/test.png'); assert.equal(view.code, null); assert.equal(view.markdown, null);
+    assert.equal(view.fileError, null);
+  }
+  assert.deepEqual(reads, []);
+  view.entries.clear();
+  view.render(project, cx, true, false);
+  assert.deepEqual(images, ['data/herdr-zed/image-previews/test.png']);
+  view.refresh(project, cx); await drain();
+  assert.equal(view.doc.image, 'data/herdr-zed/image-previews/test.png'); assert.equal(view.doc.on, null);
+  view.show('notes.txt', cx); await drain();
+  assert.equal(view.doc.image, null); assert.equal(view.code.value(), 'text');
+});
+
+test('image previews resolve local project paths and never open a remote image from the local disk', async () => {
+  const calls = [];
+  const { view, cx, drain } = await scenario(async () => { throw Error('must not read image as text'); }, {
+    exec: async (command, args) => { calls.push([command, args]); return { code: 0, stdout: command === 'node' ? 'data/herdr-zed/image-previews/test.png' : '' }; },
+  });
+  view.show('remote.png', cx); await drain();
+  assert.match(view.fileError, /local files only/); assert.equal(view.doc.image, null);
+  assert.equal(calls.some(([command]) => command === 'node'), false);
+  const local = { folder: '/local', id: 'local' };
+  view.refresh(local, cx); await drain(); view.show('images/photo.png', cx); await drain();
+  assert.equal(view.doc.image, 'data/herdr-zed/image-previews/test.png');
+  assert.deepEqual(calls.at(-1), ['node', ['/herdr/mods/herdr-zed/cache-image.js', '/local/images/photo.png', '/herdr']]);
+});
+
+test('unreadable images clear the preview and stale image checks cannot reopen closed tabs', async () => {
+  const replies = [];
+  const { view, cx, drain } = await scenario(async () => 'text', {
+    exec: async command => command === 'node'
+      ? new Promise(resolve => replies.push(resolve)) : { code: 0, stdout: '' },
+  });
+  view.show('/photo.png', cx, true, { on: null }); replies.shift()({ code: 0, stdout: 'data/herdr-zed/image-previews/test.png' }); await drain();
+  assert.equal(view.doc.image, 'data/herdr-zed/image-previews/test.png');
+  view.reload(cx); replies.shift()({ code: 1 }); await drain();
+  assert.equal(view.doc.image, null); assert.match(view.fileError, /no longer available or cannot be read/);
+  view.show('/photo.png', cx, true, { on: null }); const doc = view.doc;
+  view.closeTab('/photo.png', cx); replies.shift()({ code: 0 }); await drain();
+  assert.equal(doc.image, null); assert.equal(view.doc, null);
 });
 
 test('native watch coalesces events, ignores .git, and stops on project switch or close', async () => {

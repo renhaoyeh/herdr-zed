@@ -1,12 +1,13 @@
 import { div, svg } from 'gpui-kit';
 import { h_flex, v_flex, Editor, EditorState, TextView } from 'gpui-base';
-import { exec, readTextFile, watchFolder, settings, theme, window, props, openOverlay, closeOverlay, notify, shared, setShared } from 'herdr';
+import { exec, appHome, readTextFile, watchFolder, settings, theme, window, props, openOverlay, closeOverlay, notify, shared, setShared } from 'herdr';
 import { execShell } from './shell.js';
 import { Button, ToolbarButton } from './components/button.js';
 import { TreeItem, TreeItemIcon, TreeItemLabel, GitStatusColor } from './components/tree.js';
 import { Empty, EmptyTitle, EmptyDescription } from './components/empty.js';
 import { SidePanelLayout, SidePanelState } from './components/side-panel.js';
 import { DropdownMenu, DropdownMenuState, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from './components/dropdown-menu.js';
+import { ImageViewer } from './components/image-viewer.js';
 
 const icon = name => svg(`mods/herdr-zed/assets/icons/${name}.svg`).size(14).flex_none();
 const LANG = { ts: 'js', tsx: 'js', jsx: 'js', mjs: 'js', cjs: 'js', mts: 'js', cts: 'js', jsonc: 'json', toml: 'yaml', vue: 'html', svelte: 'html' };
@@ -15,7 +16,7 @@ const PER_FOLDER = 500, TOTAL = 5000;
 // Persisted keys must not contain NUL: Herdr's shared store cuts a key there.
 const projectKey = project => JSON.stringify([project.machine || null, project.folder]);
 const absolutePath = path => /^(?:[/\\]|[A-Za-z]:[/\\])/.test(path);
-const openDocument = (path, on) => ({ path, ...(on !== undefined ? { on } : {}), code: null, markdown: null, error: null, loaded: false, stale: false, request: 0 });
+const openDocument = (path, on) => ({ path, ...(on !== undefined ? { on } : {}), code: null, markdown: null, image: null, error: null, loaded: false, stale: false, request: 0 });
 
 export async function directory(path, on) {
   // Paths are positional arguments; filenames never become shell code.
@@ -349,7 +350,17 @@ export default class FileViewer {
     const current = () => request === doc.request && this.context === context && this.tabs.includes(doc);
     cx.spawn(async cx => {
       try {
-        const text = await readTextFile(fullPath(context.folder, doc.path), { on: doc.on === undefined ? context.machine : doc.on });
+        const path = fullPath(context.folder, doc.path), on = doc.on === undefined ? context.machine : doc.on;
+        if (/\.(png|jpe?g|gif|webp|bmp|ico|tiff?|svg)$/i.test(doc.path)) {
+          if (on) throw new Error('Image previews are available for local files only.');
+          const result = await exec('node', [`${appHome()}/mods/herdr-zed/cache-image.js`, path, appHome()]);
+          if (!current()) return;
+          if (result.code !== 0) throw new Error(result.stderr?.trim() || 'This image is no longer available or cannot be read.');
+          doc.image = result.stdout.trim(); doc.error = null;
+          doc.viewer ||= new ImageViewer(cx);
+          return;
+        }
+        const text = await readTextFile(path, { on });
         if (!current()) return;
         if (text === null) throw new Error('This file is no longer available.');
         if (text.includes('\0')) throw new Error('Binary file — no text preview.');
@@ -371,6 +382,7 @@ export default class FileViewer {
         if (current()) {
           doc.code?.release(); doc.code = null;
           doc.markdown = null;
+          doc.image = null;
           doc.error = String(error.message || 'Cannot preview this file (unreadable, non-UTF-8, or larger than 1 MiB).');
         }
       } finally {
@@ -443,7 +455,9 @@ export default class FileViewer {
           .when(this.limited.size > 0, el => el.child(div().p(12).text_size(11).text_color(t.muted).child('List limited to 500 entries per folder and 5,000 total.'))));
     const content = v_flex().size_full().min_w(0).min_h(0)
         .when(withTabs && this.tabs.length > 0, el => el.child(this.tabBar(t)))
-        .when(Boolean(this.doc), el => el.child(this.markdown !== null ? v_flex().id(`markdown-preview-${this.file}`).flex_1().min_h(0).overflow_y_scrollbar().p(24)
+        .when(Boolean(this.doc), el => el.child(this.doc.image ? div().flex_1().min_w(0).min_h(0)
+          .child(this.doc.viewer.render('file-image', { path: this.doc.image, file: fullPath(this.context.folder, this.file) }, t))
+          : this.markdown !== null ? v_flex().id(`markdown-preview-${this.file}`).flex_1().min_h(0).overflow_y_scrollbar().p(24)
           .child(TextView.markdown(`markdown-${this.file}`, this.markdown).selectable(true).scrollable(false).w_full())
           : this.code ? Editor.new(this.code).flex_1().min_h(0) : Empty(t).flex_1()
           .child(EmptyTitle().child(this.fileError ? 'Preview unavailable' : 'Loading file…'))

@@ -13,6 +13,7 @@ import { boardTheme } from './components/task-theme.js';
 import { Button } from './components/button.js';
 import { workspacePanel, releaseWorkspacePanel, mountWorkspaceLayout, closeWorkspaceView } from './components/workspace-overlay.js';
 import { ImagePreview, IMAGE_PREVIEW_VIEW } from './components/image-attachments.js';
+import { ImageViewer } from './components/image-viewer.js';
 // Tasks runs as a popup/dialog extension view (see extension.json); the service view runs in the status row.
 export default class TasksMod extends View {
   init(_props, cx) {
@@ -48,7 +49,7 @@ export default class TasksMod extends View {
       });
       return;
     }
-    if (this.target.view === IMAGE_PREVIEW_VIEW) return;
+    if (this.target.view === IMAGE_PREVIEW_VIEW) { this.imageViewer = new ImageViewer(cx); this.imageViewer.handle.focus(); return; }
     if (!['service', 'local-tasks', 'task-composer', 'archive-task', 'delete-task', 'import-draft'].includes(this.target.view)) { this.invalidView = true; return; }
     this.runtime = new TaskRuntime();
     if (this.target.view === 'service') { this.runtime.init(cx); new TasksMcpBridge().init(this.runtime, cx); return; }
@@ -85,7 +86,7 @@ export default class TasksMod extends View {
     if (this.hub) return workspacePanel(this.hub.render().track_focus(this.handle));
     if (this.invalidView) return div().size_full();
     if (this.target.view === 'service') return div().size_full();
-    if (this.target.view === IMAGE_PREVIEW_VIEW) return ImagePreview(this.target, boardTheme());
+    if (this.target.view === IMAGE_PREVIEW_VIEW) return ImagePreview(this.target, boardTheme(), this.imageViewer);
     const t = boardTheme();
     if (this.archiver) return this.archiver.render();
     if (this.deleter) return this.deleter.render();

@@ -113,17 +113,14 @@ export const openImagePreview = (mod, item, services = { openOverlay }) => servi
   width: 0.8, height: 0.85, props: { view: IMAGE_PREVIEW_VIEW, path: item.path, file: item.file } });
 
 /** The preview dialog: the image fitted to the window, its path, Open in the image viewer and Close (Esc closes too). */
-export function ImagePreview(target, t) {
+export function ImagePreview(target, t, viewer) {
   const close = () => closeOverlay(target.overlay);
   return v_flex().size_full().bg(t.popover).text_color(t.foreground).rounded(8).border(1).border_color(t.border).overflow_hidden()
     .child(h_flex().h(36).flex_none().pl(12).pr(4).gap(4).items_center().border_b(1).border_color(t.border)
       .child(div().flex_1().min_w(0).truncate().text_size(12).text_color(t.muted).child(target.file || ''))
-      .child(ToolbarButton('image-preview-open', t, { icon: true }).tooltip('Open in image viewer').accessibility_label('Open in image viewer')
-        .on_click(() => viewAttachment(target)).child(glyph('external-link', 14)))
       .child(ToolbarButton('image-preview-close', t, { icon: true }).tooltip('Close preview').accessibility_label('Close preview')
         .on_click(close).child(glyph('close', 14))))
-    .child(div().flex_1().min_h(0).p(16).flex().items_center().justify_center().bg(t.background)
-      .child(image(target.path).size_full()));
+    .child(div().flex_1().min_h(0).child(viewer.render('attachment-image', target, t)));
 }
 
 /** Thumbnails of the attached images: a click previews one full size; each has a remove button. Null when there are none. */
