@@ -61,11 +61,19 @@ export const startPanel = {
     });
     // A pasted image is saved and shown under the task; its path goes to the agent with the task.
     this.startImages = [];
-    this.startTask.on('paste_other', (_event, cx) => cx.spawn(async cx => {
-      try { const item = await pasteClipboardImage(); if (item) this.startImages = [...this.startImages, item]; }
-      catch (error) { notify({ title: 'Could not paste the image', body: error.message, level: 'error' }); }
-      cx.notify();
-    }));
+    this.startTask.on('paste_other', (_event, cx) => {
+      const key = this.startDraftKey;
+      cx.spawn(async cx => {
+        try {
+          const item = await pasteClipboardImage();
+          if (item && key === this.startDraftKey) this.startImages = [...this.startImages, item];
+          else if (item && this.startDrafts?.has(key)) {
+            const draft = this.startDrafts.get(key); draft.images = [...draft.images, item];
+          }
+        } catch (error) { notify({ title: 'Could not paste the image', body: error.message, level: 'error' }); }
+        cx.notify();
+      });
+    });
     // Each control menu's focus handle exists before render (a handle made while drawing is dropped next frame).
     this.startMenuFocus = Array.from({ length: START_MENUS }, () => cx.focus_handle?.());
     // Shared state does not repaint this view: redraw when the launcher republishes its composer choices.
@@ -75,6 +83,21 @@ export const startPanel = {
       this.refreshStartCommands(cx);
       this.settleStart(cx);
     });
+  },
+  switchStartProject(project) {
+    const key = startProjectKey(project);
+    if (key === this.startDraftKey) return;
+    this.startDrafts ||= new Map();
+    if (this.startDraftKey) this.startDrafts.set(this.startDraftKey, {
+      text: this.startTask.value(), images: this.startImages, selection: this.startCommandSelection,
+    });
+    const draft = this.startDrafts.get(key);
+    const previous = this.startDraftKey;
+    this.startDraftKey = key; this.startTarget = null; this.startMenuOpen = null;
+    this.startCommandDismissed = null; this.startCommandIndex = 0;
+    if (previous) this.startTask.set_value(draft?.text || '');
+    this.startImages = draft?.images || [];
+    this.startCommandSelection = draft?.selection || null;
   },
   startAgents(machine, cx) {
     this.programs ||= new Map();
@@ -107,7 +130,7 @@ export const startPanel = {
     if (!start || !start.takesTask || this.startPending) return;
     if (this.startCommandOpen()) { this.chooseStartCommand(this.startCommandItems()[this.startCommandIndex || 0], cx); return; }
     const task = start.takesTask ? withAttachments(this.startTask.value().trim(), this.startImages) : '';
-    this.startPending = { known: tabIds(), target: start.target, editorKey: this.editor?.projectKey, until: Date.now() + START_WAIT_MS };
+    this.startPending = { known: tabIds(), target: start.target, draftKey: this.startDraftKey, editorKey: this.editor?.projectKey, until: Date.now() + START_WAIT_MS };
     if (start.intent) {
       // ARCHITECTURE §3.1 Composer: the launcher prepares the account and emits the launch request.
       setShared(LAUNCH_INTENTS, [...(shared(LAUNCH_INTENTS) || []).filter(intent => intent?.expiresAt > Date.now()),
@@ -127,7 +150,9 @@ export const startPanel = {
       && (space.machine || '') === (pending.target.machine || ''));
     const thread = project?.tabs?.find(tab => !pending.known.has(tab.id));
     if (thread) {
-      this.startTask.set_value(''); this.startImages = []; this.startCommandSelection = null;
+      if (pending.draftKey === this.startDraftKey) {
+        this.startTask.set_value(''); this.startImages = []; this.startCommandSelection = null;
+      } else this.startDrafts?.delete(pending.draftKey);
       this.editor?.finishCompose(pending.editorKey, cx);
       if (project.active) this.showConversation?.(true, { ...project, tabs: [{ ...thread, active: true }] });
     } else if (now < pending.until) return;
@@ -417,6 +442,7 @@ export const startPanel = {
   },
   projectStartView(project, t, cx) {
     if (!project) return div().size_full().bg(t.background);
+    this.switchStartProject(project);
     const target = { space: project.pending ? null : project.id, folder: project.folder, projectName: project.name, machine: project.machine || null };
     const session = this.startSession(project, cx);
     if (session.picker) {

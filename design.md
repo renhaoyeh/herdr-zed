@@ -69,7 +69,8 @@ titles). Where they conflict, this file wins.
 
 - The + button opens New thread directly. New terminal in the project menu opens a terminal without a task form.
   The New thread command opens the agent composer directly, as one editor tab per project; it never opens by itself.
-  Switching tabs keeps the draft. The arrow-up icon starts the task, with a tooltip and accessible label.
+  Switching tabs keeps the draft. Switching projects restores each project's text, attachments and selected skill for
+  the current app session. The arrow-up icon starts the task, with a tooltip and accessible label.
   Settings → General has a checked-by-default Ctrl+Enter (Cmd+Enter on macOS) submission checkbox. When checked,
   Enter adds a line and the modified Enter starts; when unchecked, Enter starts and Shift+Enter adds a line.
   Keyboard hints and Start button text stay out of the composer.
