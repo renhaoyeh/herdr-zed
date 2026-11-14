@@ -5,7 +5,12 @@ import * as identity from '../components/tasks-model.js';
 import * as policy from '../mods/herdr-zed-tasks/agent-board-model.js';
 import { evaluateNative } from './source-harness.js';
 import { tasksMcpCall } from '../mods/herdr-zed-tasks/mcp-api.js';
-import { readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { PassThrough } from 'node:stream';
+import { createRequire } from 'node:module';
+import { runInNewContext } from 'node:vm';
 import { parseExtensionManifest, extensionMetadata } from '../mods/herdr-zed/extension-model.js';
 
 test('the Tasks and Calendar manifests parse with the shell model: importer, decorator, popup board and Calendar requirement', async () => {
@@ -262,6 +267,87 @@ test('MCP creates persisted Todos and children through the authoritative Tasks o
   assert.equal(h.memory['herdr-zed.tasks.navigation'], undefined);
   assert.deepEqual(h.native, []);
 });
+
+test('stdio MCP creates parent and nested subtasks through an isolated file bridge into board rows', async t => {
+  const home = await mkdtemp(join(tmpdir(), 'herdr-tasks-mcp-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const h = await modules(), clock = context(); h.runtime.init(clock.cx);
+  let deliver, stop;
+  const { TasksMcpBridge } = await evaluateNative('../mods/herdr-zed-tasks/mcp-bridge.js', {
+    tasksMcpCall, appHome: () => home,
+    nextCommand: () => new Promise((resolve, reject) => { deliver = resolve; stop = reject; }),
+    readTextFile: path => readFile(path, 'utf8'), writeTextFile: (path, text) => writeFile(path, text),
+  }, 'TasksMcpBridge');
+  let listening;
+  new TasksMcpBridge().init(h.runtime, { spawn(fn) { listening = fn(clock.cx); } });
+  const stopped = new Error('Test bridge closed');
+  t.after(async () => { stop(stopped); await assert.rejects(listening, error => error === stopped); });
+
+  const require = createRequire(import.meta.url), endpoint = { exports: {} };
+  runInNewContext(await readFile(new URL('../mods/herdr-zed-tasks/mcp-server.cjs', import.meta.url), 'utf8'), {
+    module: endpoint, process: { env: { HERDR_APP_HOME: home } },
+    require: name => name === 'node:child_process' ? { execFile(command, args, options, callback) {
+      assert.equal(command, 'herdr-app');
+      assert.equal(args[0], 'do');
+      assert.equal(options.env.HERDR_APP_HOME, home);
+      assert.match(args[1], /^herdr-zed-tasks\.mcp:/);
+      deliver(args[1].slice('herdr-zed-tasks.'.length)); callback(null, '');
+    } } : require(name),
+  });
+  const input = new PassThrough(), output = new PassThrough();
+  let raw = '', id = 0;
+  output.on('data', chunk => { raw += chunk; });
+  const server = endpoint.exports.start(input, output);
+  t.after(() => server.lines.close());
+  const request = async (method, params) => {
+    input.write(JSON.stringify({ jsonrpc: '2.0', id: ++id, method, params }) + '\n');
+    await server.drained();
+    const reply = JSON.parse(raw.trim().split('\n').at(-1));
+    assert.equal(reply.id, id); assert.equal(reply.error, undefined);
+    return reply.result;
+  };
+  const call = async (name, args) => {
+    const result = await request('tools/call', { name, arguments: args });
+    assert.equal(result.isError, undefined, JSON.stringify(result));
+    return result.structuredContent;
+  };
+  await request('initialize', {});
+  const project = (await call('list_projects', {})).projects[0].key;
+  assert.deepEqual((await call('list_tasks', { project })).tasks, []);
+  const parent = (await call('create_task', { project, name: 'Release' })).task;
+  const notes = 'Scope: validate input. Complete when invalid input is rejected and tests pass.';
+  const child = (await call('create_task', { project, name: 'Validation', notes, parentId: parent.gid })).task;
+  const nested = (await call('create_task', { project, name: 'Edge cases', parentId: child.gid })).task;
+  const tasks = (await call('list_tasks', { project })).tasks;
+  assert.equal(tasks.length, 3);
+  assert.equal(tasks.find(task => task.gid === child.gid).parentTask.gid, parent.gid);
+  assert.equal(h.client.listTasks().find(task => task.gid === child.gid).notes, notes);
+  assert.equal(h.client.listTasks().find(task => task.gid === nested.gid).parentId, child.gid);
+  assert.ok(h.client.listTasks().every(task => task.status === 'todo' && !task.execution));
+
+  const nodes = new Map();
+  const node = () => {
+    const proxy = new Proxy({}, { get: (target, key) => key in target ? target[key] : (...args) => {
+      if (key === 'id') nodes.set(args[0], proxy);
+      if (key === 'accessibility_label') target.label = args[0];
+      if (key === 'when' && args[0]) args[1](proxy);
+      return proxy;
+    } });
+    return proxy;
+  };
+  const { AgentBoard } = await evaluateNative('../mods/herdr-zed-tasks/agent-board.js', {
+    ...policy, div: node, h_flex: node, v_flex: node, glyph: node, Button: id => node().id(id),
+  }, 'AgentBoard');
+  const board = new AgentBoard(), visible = h.client.projectBoardTasks(h.state.projects[0]);
+  board.subtasks(parent, visible, h.state.projects[0], {});
+  assert.equal(nodes.get(`board-subtask-${child.gid}`).label, 'Validation, Todo');
+  assert.equal(nodes.has(`board-subtask-${nested.gid}`), false, 'Only direct children appear under the parent');
+  nodes.clear(); board.subtasks(child, visible, h.state.projects[0], {});
+  assert.equal(nodes.get(`board-subtask-${nested.gid}`).label, 'Edge cases, Todo');
+  assert.deepEqual(await readdir(join(home, 'data/herdr-zed/tasks-mcp')), [], 'Completed requests clean up their files');
+  assert.deepEqual(h.native, []); assert.deepEqual(h.launches, []);
+});
+
 async function modules(records = {}, projects = [{ id: 'p', folder: '/project', name: 'Project', active: true, tabs: [] }]) {
   const memory = { 'herdr-zed.agent-board': clone(records), 'herdr-zed.agent-cache': { null: [] } }, writes = [], overlays = [], native = [], closed = [];
   const state = { projects, agents: [] };

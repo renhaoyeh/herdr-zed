@@ -7,9 +7,15 @@ description: Use Herdr Tasks MCP to inspect or create local tasks and report pro
 
 Discover the `herdr_tasks` MCP tool descriptions and schemas before calling them. Use the supplied attempt ID when present.
 
-For inspection or creation, determine the exact local project folder first. Use `list_tasks` for that project to find existing work and avoid duplicates. Create a Todo only when the user's request authorizes creating one, using `create_task`; creation does not start an agent. Use a returned task identity for relationships rather than guessing IDs.
+## Task creation and subtasks
 
-If creation times out, inspect the project tasks before retrying: the original creation may have succeeded. Report progress for the current session or attempt only; do not edit Herdr's shared state files or report on behalf of other terminals.
+For inspection or creation, determine the exact local project folder first. Use `list_projects` to get its exact project key, then `list_tasks` for that project to find existing work and avoid duplicates. Create a Todo with `create_task` only when the user's request authorizes creating one; reporting progress alone does not require a new Todo. Creation does not start an agent or authorize delegation.
+
+When asked to split work into subtasks, reuse the existing parent identified by the user or the current task. Match it against `list_tasks`; if the reference is ambiguous, clarify before creating children. Create a parent only when the request calls for a new task and no matching parent exists. Use the parent's returned `gid` as `parentId` on each `create_task` call, with the same project key. The parent must exist in that project and be nonarchived; a subtask can itself be a parent.
+
+Give each child a clear name and put its scope and completion criteria in `notes`. Check existing children under that `parentId` before adding more. Return the parent and created or reused child names and gids so the user can review the relationship. Creating or finishing a child does not complete its parent.
+
+If creation times out, inspect the project tasks before retrying: the original creation may have succeeded. If only some children were created, keep them, report which ones exist and retry only missing work. Report progress for the current session or attempt only; do not edit Herdr's shared state files or report on behalf of other terminals.
 
 ## Progress reporting
 
