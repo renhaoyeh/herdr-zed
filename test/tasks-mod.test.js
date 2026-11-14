@@ -69,7 +69,7 @@ async function supervisorHarness(launcher = supervisorAgent) {
 test('Supervisor launches and binds distinct stages; only its independent review can finish the parent', async () => {
   const h = await supervisorHarness();
   assert.equal(h.launches.length, 1);
-  assert.equal(h.launches[0].options.model, 'main'); assert.equal(h.launches[0].options.readOnly, true);
+  assert.equal(h.launches[0].options.model, 'main'); assert.equal(h.launches[0].options.readOnly, undefined);
   assert.equal(h.owner.taskActions(h.owner.projectBoardTasks(h.project, h.state.agents)[0]).canStart, false);
   const research = h.bind();
   h.state.agents.push({ address: 'unrelated-split', tab: research.agent.tab, status: 'working' });
@@ -81,7 +81,7 @@ test('Supervisor launches and binds distinct stages; only its independent review
   assert.equal(h.record().status, 'doing');
   await h.advance(); assert.equal(h.launches.length, 1, 'A done report must not overlap the still-working research agent');
   research.agent.status = 'idle'; await h.advance();
-  assert.equal(h.launches.length, 2); assert.equal(h.launches[1].options.readOnly, false);
+  assert.equal(h.launches.length, 2); assert.equal(h.launches[1].options.readOnly, undefined);
   assert.match(h.launches[1].target.task, /fix redirect and test expiry/);
   const implementation = h.bind();
   implementation.report('done', 'Fixed redirect; expiry tests pass.');
@@ -90,7 +90,7 @@ test('Supervisor launches and binds distinct stages; only its independent review
   assert.equal(h.writes.length, writes, 'Retries of a completed stage are idempotent');
   assert.throws(() => research.report('done', 'Change old plan'), /no longer active/);
   implementation.agent.status = 'idle'; await h.advance();
-  assert.equal(h.launches.length, 3); assert.equal(h.launches[2].options.readOnly, true);
+  assert.equal(h.launches.length, 3); assert.equal(h.launches[2].options.readOnly, undefined);
   assert.equal(h.launches[2].options.model, 'main');
   const review = h.bind();
   assert.throws(() => implementation.report('done', 'Self approval', 'pass'), /no longer active/);
@@ -271,7 +271,7 @@ test('New thread workflow requests create one tracked task and launch through th
     assert.equal(records.length, 1); assert.equal(records[0].workflowRequest, `intent:${kind}`);
     assert.equal(records[0].notes, 'Fix the form\nPreserve the attachment.');
     assert.equal(h.launches.length, 1); assert.equal(h.launches[0].agent.key, kind);
-    assert.equal(h.launches[0].options.readOnly, true); assert.equal(h.launches[0].options.model, 'main');
+    assert.equal(h.launches[0].options.readOnly, undefined); assert.equal(h.launches[0].options.model, 'main');
     assert.equal(h.launches[0].options.eccProfile, 'review');
     assert.match(h.launches[0].target.task, /Preserve the attachment/);
     request(); h.runtime.refresh(clock.cx); await clock.settle();
@@ -283,9 +283,9 @@ test('New thread workflow requests create one tracked task and launch through th
 test('Claude Supervisor uses the same independent review gate as Codex', async () => {
   const h = await supervisorHarness({ key: 'claude', name: 'Claude Code', run: ['claude'], installed: true });
   let stage = h.bind(); stage.report('done', 'Read project and planned'); stage.agent.status = 'idle'; await h.advance();
-  assert.equal(h.launches[1].agent.key, 'claude'); assert.equal(h.launches[1].options.readOnly, false);
+  assert.equal(h.launches[1].agent.key, 'claude'); assert.equal(h.launches[1].options.readOnly, undefined);
   stage = h.bind(); stage.report('done', 'Implemented with validation'); stage.agent.status = 'idle'; await h.advance();
-  assert.equal(h.record().status, 'doing'); assert.equal(h.launches[2].options.readOnly, true);
+  assert.equal(h.record().status, 'doing'); assert.equal(h.launches[2].options.readOnly, undefined);
   stage = h.bind(); stage.report('done', 'Independent changes checked', 'pass');
   assert.equal(h.record().status, 'review'); assert.equal(h.record().execution.status, 'done');
 });

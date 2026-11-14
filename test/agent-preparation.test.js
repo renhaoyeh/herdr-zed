@@ -54,70 +54,27 @@ test('project-aware ECC preparation receives the launch folder rather than the c
   assert.equal(h.calls.find(([name]) => name === 'ecc')[1].folder, target.folder);
 });
 
-test('Supervisor read-only stages override this invocation without changing saved permissions or ECC', async () => {
-  const h = await load({ eccInstructions: 'Keep selected ECC guidance' });
-  const agent = { key: preset.key, profileKey: 'codex' };
-  const result = await h.prepareSession(agent, h.target, { readOnly: true });
-  assert.equal(result.session.permission, 'read-only');
-  assert.equal(h.calls.find(([name]) => name === 'launcher')[2], 'read-only');
-  assert.equal(h.memory['herdr-zed.codex-permissions'][preset.key], 'workspace-write');
-  assert.ok(result.argv.some(arg => arg.includes('Keep selected ECC guidance')));
-  await assert.rejects(h.prepareSession(agent, h.target, { readOnly: 'yes' }), /boolean/);
-  await assert.rejects(h.prepareSession(agent, { ...h.target, machine: 'remote' }, { readOnly: true }), /local Codex/);
-});
-
-test('Claude Supervisor uses native Plan mode and retains reporting, MCP, skills and account defaults', async () => {
-  for (const extra of [[], ['--allowed-tools=Read', '--allowedTools', 'WebSearch', '--disallowed-tools', 'NotebookEdit']]) {
-    const program = { key: 'herdr-zed-claude-primary', name: 'Claude account', run: ['env', 'CLAUDE_CONFIG_DIR=/account', 'claude',
-      '--dangerously-skip-permissions', '--permission-mode=bypassPermissions', '--settings', '{"enabledPlugins":{"existing":true}}',
-      '--mcp-config', '{"mcpServers":{"existing":{"command":"node"}}}', ...extra, '--', 'existing prompt'] };
-    const config = { ...preset, profileKey: program.key };
-    const h = await load({ program, config, nativeArgv: true, eccInstructions: 'Keep selected ECC guidance',
-      kitInstructions: { summary: 'Selected skills', sections: 'Keep selected skill guidance' } });
-    const before = structuredClone(h.memory);
-    const agent = { key: config.key, profileKey: config.profileKey };
-    const result = await h.prepareSession(agent, h.target, { readOnly: true });
-    const argv = result.argv;
-    assert.equal(result.session.permission, 'plan');
-    assert.deepEqual(argv.slice(0, 3), program.run.slice(0, 3));
-    assert.equal(argv[argv.indexOf('--permission-mode') + 1], 'plan');
-    assert.ok(!argv.includes('--dangerously-skip-permissions'));
-    assert.ok(!argv.includes('--permission-mode=bypassPermissions'));
-    assert.ok(!argv.includes('-p'));
-    assert.deepEqual(argv.slice(argv.indexOf('--')), ['--', 'existing prompt']);
-    const allowed = argv.slice(argv.indexOf('--allowedTools') + 1, argv.indexOf('--disallowedTools'));
-    assert.deepEqual(allowed, ['mcp__herdr_tasks__report_task', 'mcp__herdr_tasks__list_projects', 'mcp__herdr_tasks__list_tasks',
-      ...(extra.length ? ['Read', 'WebSearch'] : [])]);
-    assert.equal(argv[argv.indexOf('--disallowedTools') + 1], 'ExitPlanMode');
-    if (extra.length) assert.ok(argv.includes('NotebookEdit'));
-    assert.ok(!argv.includes('Bash'));
-    const mcps = argv.flatMap((arg, i) => arg === '--mcp-config' ? [JSON.parse(argv[i + 1]).mcpServers] : []);
-    assert.ok(mcps.some(servers => servers.herdr_tasks));
-    assert.ok(mcps.some(servers => servers.herdr_ecc));
-    assert.ok(mcps.some(servers => servers.existing));
-    assert.ok(argv.includes('{"enabledPlugins":{"existing":true}}'));
-    assert.equal(argv[argv.indexOf('--model') + 1], 'saved-model');
-    assert.equal(argv[argv.indexOf('--effort') + 1], 'high');
-    const instructions = argv[argv.indexOf('--append-system-prompt') + 1];
-    for (const text of ['Global rules', 'Keep selected ECC guidance', 'Keep selected skill guidance', config.instructions]) assert.ok(instructions.includes(text));
-    assert.deepEqual(h.memory, before);
-    const normal = await h.prepareSession(agent, h.target, { readOnly: false });
-    assert.equal(normal.session.permission, 'workspace-write');
-    assert.ok(normal.argv.includes('--dangerously-skip-permissions'));
-    assert.ok(!normal.argv.includes('ExitPlanMode'));
-    await assert.rejects(h.prepareSession(agent, { machine: 'host' }, { readOnly: true }), /local Codex or Claude/);
+test('preparation preserves each selected permission despite a stale workflow readOnly option', async () => {
+  for (const [program, permissions] of [
+    [profile, ['default', 'read-only', 'workspace-write', 'danger-full-access']],
+    [{ key: 'claude', run: ['claude'] }, ['default', 'plan', 'acceptEdits', 'bypassPermissions']],
+  ]) {
+    for (const permission of permissions) {
+      const h = await load({ program, config: null, nativeArgv: true });
+      h.memory['herdr-zed.codex-permissions'][program.key] = permission;
+      const before = structuredClone(h.memory);
+      const normal = await h.prepareSession(program, h.target);
+      const stale = await h.prepareSession(program, h.target, { readOnly: true });
+      assert.equal(stale.session.permission, permission);
+      assert.deepEqual(stale.argv, normal.argv);
+      const expected = launcherArgv(program, permission).slice(1);
+      for (const flag of expected) assert.ok(stale.argv.includes(flag));
+      assert.ok(!stale.argv.includes('ExitPlanMode'));
+      assert.ok(!stale.argv.includes('--allowedTools'));
+      assert.ok(!stale.argv.includes('--disallowedTools'));
+      assert.deepEqual(h.memory, before);
+    }
   }
-});
-
-test('Codex read-only keeps native sandbox and approval flags, and unsupported providers reject before preparation', async () => {
-  const h = await load({ nativeArgv: true });
-  const result = await h.prepareSession(profile, h.target, { readOnly: true });
-  assert.equal(result.argv[result.argv.indexOf('--sandbox') + 1], 'read-only');
-  assert.equal(result.argv[result.argv.indexOf('--ask-for-approval') + 1], 'on-request');
-  assert.ok(!result.argv.includes('ExitPlanMode'));
-  const unsupported = await load({ config: null, program: { key: 'other', run: ['other'] } });
-  await assert.rejects(unsupported.prepareSession({ key: 'other', run: ['other'] }, unsupported.target, { readOnly: true }), /local Codex or Claude/);
-  assert.deepEqual(unsupported.calls, []);
 });
 
 test('slash-selected skill expands against this launch snapshot and preserves the task suffix', async () => {

@@ -138,7 +138,6 @@ export class TaskRuntime {
         folder: project.folder, projectName: project.name, task: supervisorStagePrompt(current, current.execution) }, {
         model: stage.model, effort: stage.effort, serviceTier: current.execution.supervisor.options.serviceTier,
         eccProfile: current.execution.supervisor.options.eccProfile,
-        readOnly: stage.kind !== 'implementation',
         origin: { extension: 'tasks', ref: stageRun },
       });
       updateStage({ launchedAt: Date.now(), launchId: launched?.id || null,
