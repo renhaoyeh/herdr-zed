@@ -9,7 +9,7 @@ Discover the `herdr_tasks` MCP tool descriptions and schemas before calling them
 
 ## Task creation and subtasks
 
-For inspection or creation, determine the exact local project folder first. Use `list_projects` to get its exact project key, then `list_tasks` for that project to find existing work and avoid duplicates. Create a Todo with `create_task` only when the user's request authorizes creating one; reporting progress alone does not require a new Todo. Creation does not start an agent or authorize delegation.
+For inspection or creation, determine the exact local project folder first. Use `list_projects` to get its exact project key, then `list_tasks` for that project to find existing work and avoid duplicates. Create a Todo with `create_task` only when the user's request authorizes creating one; reporting progress alone does not require a new Todo. Creating a Todo does not itself start execution; a request only to create or plan tasks is separate from a request to carry out the work.
 
 When asked to split work into subtasks, reuse the existing parent identified by the user or the current task. Match it against `list_tasks`; if the reference is ambiguous, clarify before creating children. Create a parent only when the request calls for a new task and no matching parent exists. Use the parent's returned `gid` as `parentId` on each `create_task` call, with the same project key. The parent must exist in that project and be nonarchived; a subtask can itself be a parent.
 

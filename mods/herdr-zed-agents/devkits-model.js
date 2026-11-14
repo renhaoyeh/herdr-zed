@@ -2,7 +2,7 @@ import { sharedMcpPlatforms } from './components/shared-mcp-model.js';
 import { demoteHeadings } from './global-rules-model.js';
 
 const devkitsDefinitions = [
-  { id: 'core', group: 'rules', name: 'Herdr Core', icon: 'terminal', description: 'Follow the installed Herdr manual when operating terminals.', skill: 'herdr-core', mcps: [] },
+  { id: 'core', group: 'rules', name: 'Herdr Core', icon: 'terminal', description: 'Follow the installed Herdr manual and proactively delegate independent engineering work with cost-aware model selection.', skill: 'herdr-core', mcps: [] },
   { id: 'tasks', group: 'rules', name: 'Task progress', icon: 'list-todo', description: 'Report progress during actual user work; ordinary chat and discussion need no reports.', skill: 'herdr-tasks', mcps: ['herdr_tasks'] },
   { id: 'shared-mcp', group: 'skills', name: 'Shared MCP installation', icon: 'settings', description: 'Install or configure shared local MCP connections for Codex and Claude Code when requested, preserving existing account settings.', skill: 'shared-mcp', mcps: [], providers: ['codex', 'claude'] },
   { id: 'project-capabilities', group: 'skills', name: 'ECC, MCP and Skills', icon: 'extensions', description: 'Explain this Herdr layout’s ECC, skills and MCP configuration from any conversation, including what is enabled and what each item does; recommend or apply project choices when requested.', skill: 'project-capabilities', mcps: [], providers: ['codex', 'claude'] },
