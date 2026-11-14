@@ -1,6 +1,7 @@
 import { appHome, home, readTextFile, exec } from 'herdr';
 import { parseEcc, eccAccount } from './ecc-model.js';
 import { sessionKind } from './components/session-model.js';
+import { eccProfilePlan } from './ecc-profiles.js';
 
 export const eccPath = () => `${appHome()}/data/herdr-zed/ecc.json`;
 async function selectedGuidance(path) {
@@ -9,11 +10,17 @@ async function selectedGuidance(path) {
   if (!text) throw new Error('Selected ECC guidance is unavailable. Retry session preparation.');
   return text;
 }
-export async function prepareEcc(agent, argv, target = {}) {
+export async function prepareEcc(agent, argv, target = {}, options = {}) {
+  const profile = options.eccProfile ?? null;
   const account = eccAccount(sessionKind(agent), argv, home());
+  if (profile !== null) {
+    eccProfilePlan([], account?.provider, profile);
+    if (target.machine || !target.folder) throw new Error('ECC profiles require a local project folder.');
+  }
   if (!account) return { argv, instructions: '' };
   if (target.folder) {
-    const result = await exec('node', [`${appHome()}/mods/herdr-zed-agents/ecc-project-runtime.js`, appHome(), target.folder, account.provider, account.directory], { timeout: 240000 });
+    const result = await exec('node', [`${appHome()}/mods/herdr-zed-agents/ecc-project-runtime.js`, appHome(), target.folder, account.provider, account.directory,
+      ...(profile === null ? [] : [profile])], { timeout: 240000 });
     if (result.code !== 0) throw new Error(result.stderr?.trim() || 'Could not prepare project ECC settings.');
     const project = JSON.parse(result.stdout || 'null');
     if (project) {

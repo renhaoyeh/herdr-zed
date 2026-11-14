@@ -150,7 +150,7 @@ test('failures show incomplete state, keep saved records and permit an explicit 
 test('a reload or expired authorization never replays a destructive reset', async () => {
   const h = await fixture();
   h.target({ phase: 'execute', token: 'expired', originalSource: JSON.stringify(h.layout) });
-  h.memory['herdr-zed.reset-authorization'] = { token: 'expired', expiresAt: Date.now() - 1 };
+  h.memory['herdr-zed.reset-authorization'] = { token: 'expired', expiresAt: h.host.Date.now() - 1 };
   const view = new h.ResetData(); view.init(h.cx); view.clear(h.cx); await h.drain();
   assert.match(view.error, /interrupted/);
   assert.deepEqual(h.calls, []);

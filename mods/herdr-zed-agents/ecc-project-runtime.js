@@ -4,19 +4,24 @@ import { readProjectState, projectIdentity, projectPolicyPath, optionalText, eff
 import { buildEccPackage } from './ecc-package.js';
 import { openConfig } from './codex-config.js';
 import { runPlugin, withEccAccountLock } from './ecc-sync.js';
+import { eccProfilePlan, applyEccProfile, eccCostSkill } from './ecc-profiles.js';
 
 // Codex requires a native cache installation. Register project packages disabled by default,
 // then activate only through invocation flags. Global and project setup share the account lock.
-export async function prepareProjectEcc(home, folder, provider, directory, { configService = openConfig, packageBuilder = buildEccPackage, run = runPlugin, ...options } = {}) {
+export async function prepareProjectEcc(home, folder, provider, directory, { profile = null, configService = openConfig, packageBuilder = buildEccPackage, run = runPlugin, ...options } = {}) {
+  if (!['claude', 'codex'].includes(provider)) throw Error('Unsupported project provider.');
+  if (profile !== null) eccProfilePlan([], provider, profile);
   const identity = await projectIdentity(folder);
-  if (await optionalText(projectPolicyPath(home, identity)) === null) return null;
+  if (profile === null && await optionalText(projectPolicyPath(home, identity)) === null) return null;
   const state = await readProjectState(home, folder, options);
-  if (!state.policy.providers[provider]) return null;
+  if (profile === null && !state.policy.providers[provider]) return null;
   const policy = effectiveProjectPolicy(state, provider);
-  if (policy.enabled && state.catalog.error) throw Error(`ECC source is unavailable: ${state.catalog.error}`);
-  const config = { ...state.config, enabled: policy.enabled, claudeHooks: policy.claudeHooks,
+  const enabled = profile !== null || policy.enabled;
+  if (enabled && state.catalog.error) throw Error(`ECC source is unavailable: ${state.catalog.error}`);
+  const config = { ...state.config, enabled, claudeHooks: policy.claudeHooks,
     providerEnabled: { claude: true, codex: true }, selection: { ...state.config.selection, [provider]: policy.selection } };
-  const bundle = policy.enabled ? await packageBuilder(config, provider, join(home, 'data', 'herdr-zed', 'ecc-packages'), state.catalog, { project: true }) : null;
+  if (profile !== null) applyEccProfile(config, provider, state.catalog.items, profile, policy.enabled && policy.selection[eccCostSkill] === true);
+  const bundle = enabled ? await packageBuilder(config, provider, join(home, 'data', 'herdr-zed', 'ecc-packages'), state.catalog, { project: true }) : null;
   const flags = [];
   if (provider === 'codex') {
     await withEccAccountLock(directory, async () => {
@@ -57,6 +62,9 @@ export async function prepareProjectEcc(home, folder, provider, directory, { con
 }
 
 if (await isMain(import.meta.url)) {
-  try { console.log(JSON.stringify(await prepareProjectEcc(...process.argv.slice(2)))); }
+  try {
+    const [home, folder, provider, directory, profile] = process.argv.slice(2);
+    console.log(JSON.stringify(await prepareProjectEcc(home, folder, provider, directory, { profile })));
+  }
   catch (error) { console.error(error.message); process.exitCode = 1; }
 }

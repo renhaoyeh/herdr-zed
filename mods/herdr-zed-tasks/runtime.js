@@ -1,5 +1,5 @@
-import { agents, spaces, terminals, shared, setShared, notify, props, run, hc } from 'herdr';
-import { projectCatalog, projectGroups, folderKey, launcherChoices, launcherLabel, isAccountLauncher, configuredAgents, resolveThreadProfiles, resumeArgv, commandKind } from './components/session-model.js';
+import { agents, spaces, terminals, panes, shared, setShared, notify, props, run, hc } from 'herdr';
+import { projectCatalog, projectGroups, folderKey, launcherChoices, launcherLabel, isAccountLauncher, configuredAgents, resolveThreadProfiles, resumeArgv, commandKind, sessionKind } from './components/session-model.js';
 import { boardKey, taskActions, canStartTask, taskNeedsArchiveChoice, threadTaskId } from './agent-board-model.js';
 import { projectBoardTasks, rememberBoardTask, setTaskArchived, threadBoardTask, threadBoardStatus, sessionThreadTitle, boardRecords, createLocalTask, deleteLocalTask } from './agent-board-state.js';
 import { observeTaskInput } from './agent-task-evidence.js';
@@ -7,9 +7,18 @@ import { openArchiveTask } from './archive-task.js';
 import { taskPrompt } from './task-prompt.js';
 import { resolveTaskImport } from './task-sources.js';
 import { AgentClient } from './components/agents.js';
+import { createSupervisor, currentSupervisorStage, reportSupervisorStage, supervisorStagePrompt } from './task-supervisor.js';
+import { registerAgentWorkflow, takeAgentWorkflows, validateAgentWorkflow } from './components/agent-workflows.js';
 const startingThreads = new Set();
 const clip = (text, length = 40) => text.length > length ? `${text.slice(0, length - 1)}…` : text;
 const toneFor = (thread, task) => task.execution?.status === 'fail' ? 'error' : task.attention ? 'warning' : thread.status === 'fail' ? 'error' : thread.status === 'doing' ? 'accent' : 'muted';
+// A tab can contain unrelated split terminals. Bind only the command carrying this stage or its known resumed session.
+const supervisorTerminal = (stage, tab = stage.tab) => {
+  const addresses = new Set(panes().filter(pane => pane.tab === tab && pane.terminal).map(pane => pane.terminal));
+  const matches = terminals().filter(terminal => addresses.has(terminal.address) && terminal.argv?.some(arg => typeof arg === 'string'
+    && (arg.includes(stage.run) || stage.sessionId && arg.includes(stage.sessionId))));
+  return matches.length === 1 ? matches[0].address : null;
+};
 
 export class TaskRuntime {
   agentClient = new AgentClient();
@@ -36,6 +45,7 @@ export class TaskRuntime {
     if (!['doing', 'waiting', 'done', 'fail'].includes(args.status)) throw new Error('Invalid progress state.');
     if (typeof args.message !== 'string' || !args.message.trim() || args.message.length > 4000)
       throw new Error('Provide a progress message of 1–4000 characters.');
+    this.bindLaunchedThreads();
     if (!args.run) {
       if (typeof args.terminal !== 'string' || !args.terminal) throw new Error('A task run ID or your live HC terminal is required.');
       const all = agents(), sender = all.find(agent => agent.address === args.terminal);
@@ -43,7 +53,12 @@ export class TaskRuntime {
       const task = project && projectBoardTasks(project, all).find(task => task.agents.some(agent => agent.address === sender.address));
       if (!task || task.archived && !task.archivedBackground) throw new Error('This terminal has no active Herdr task.');
       const current = boardRecords(project)[task.gid];
-      if (!current.execution || ['done', 'fail', 'stopped'].includes(current.execution.status) && args.status === 'doing') {
+      if (current.execution?.supervisor) {
+        const stage = current.execution.supervisor.stages.find(stage => stage.tab === sender.tab);
+        if (!stage) throw Error('This terminal is not a Supervisor stage.');
+        args = { ...args, run: stage.run };
+      }
+      if (!args.run && (!current.execution || ['done', 'fail', 'stopped'].includes(current.execution.status) && args.status === 'doing')) {
         if (args.status !== 'doing') throw new Error('Report doing to begin a task attempt before reporting an outcome.');
         const profile = shared('herdr-zed.thread-profiles')?.[sender.tab] || current.agentKey || null;
         const launcher = this.taskAssignees(project).find(agent => agent.key === profile);
@@ -53,16 +68,19 @@ export class TaskRuntime {
             startedAt: Date.now(), summary: '' },
           runs: [...(current.runs || []), ...(current.execution ? [current.execution] : [])].slice(-30) });
       }
-      args = { ...args, task: current.gid, run: boardRecords(project)[current.gid].execution.id };
+      args = { ...args, task: current.gid, run: args.run || boardRecords(project)[current.gid].execution.id };
     }
     if (typeof args.run !== 'string' || !args.run) throw new Error('A task run ID is required.');
-    project ||= this.projects().find(item => Object.values(boardRecords(item)).some(task => task.execution?.id === args.run));
+    const matchesRun = task => task.execution?.id === args.run || task.execution?.supervisor?.stages.some(stage => stage.run === args.run);
+    project ||= this.projects().find(item => Object.values(boardRecords(item)).some(matchesRun));
     if (!project) throw new Error('This task run is no longer active.');
     if (project.machine) throw new Error('Progress reporting currently supports local tasks.');
-    const task = args.task ? boardRecords(project)[args.task] : Object.values(boardRecords(project)).find(task => task.execution?.id === args.run);
-    if (!task || task.archived && !task.archivedBackground || !task.execution || task.execution.id !== args.run)
+    const task = args.task ? boardRecords(project)[args.task] : Object.values(boardRecords(project)).find(matchesRun);
+    if (!task || task.archived && !task.archivedBackground || !matchesRun(task))
       throw new Error('This task run is no longer active. Refresh the task before reporting.');
     const execution = task.execution;
+    if (execution.supervisor) return this.reportSupervisor(project, task, args);
+    if (args.verdict !== undefined) throw Error('A verdict is only valid for a Supervisor review.');
     if (args.status === execution.status && args.message.trim() === execution.summary) return task;
     if (['done', 'fail', 'stopped'].includes(execution.status)) {
       if (args.status === execution.status && args.message.trim() === execution.summary) return task;
@@ -75,6 +93,118 @@ export class TaskRuntime {
     rememberBoardTask(project, task, { execution: next, activity,
       status: args.status === 'done' ? 'review' : 'doing', manual: false });
     return boardRecords(project)[task.gid];
+  }
+  reportSupervisor(project, task, args) {
+    const execution = task.execution, supervisor = execution.supervisor;
+    const reported = supervisor.stages.find(stage => stage.run === args.run);
+    const sender = agents().find(agent => agent.address === args.terminal);
+    const origin = sender && shared('herdr-zed.threads')?.[sender.tab]?.origin;
+    if (!reported || !sender || origin?.extension !== 'tasks' || origin.ref !== reported.run || reported.tab !== sender.tab || reported.terminal !== sender.address)
+      throw Error('Supervisor reports require the live HC terminal of the assigned stage and its exact run ID.');
+    if (reported.status === args.status && reported.summary === args.message.trim() && reported.verdict === args.verdict) return task;
+    if (['done', 'fail', 'stopped'].includes(execution.status)) throw Error('This Supervisor attempt has already finished.');
+    const at = Date.now(), result = reportSupervisorStage(supervisor, args, at);
+    const stage = result.supervisor.stages.find(stage => stage.run === args.run);
+    stage.terminal = sender.address;
+    const next = { ...execution, ...result, updatedAt: at,
+      ...(['done', 'fail'].includes(result.status) ? { finishedAt: at } : {}) };
+    const activity = [...(task.activity || []), { run: args.run, status: args.status,
+      message: `${reported.kind}: ${args.message.trim()}`, at }].slice(-100);
+    rememberBoardTask(project, task, { execution: next, activity, manual: false,
+      status: result.status === 'done' ? 'review' : 'doing' });
+    return boardRecords(project)[task.gid];
+  }
+
+  async launchSupervisorStage(project, task, agent) {
+    let current = boardRecords(project)[task.gid], execution = current?.execution;
+    let stage = currentSupervisorStage(execution?.supervisor);
+    if (!stage || stage.status !== 'pending' || ['done', 'fail', 'stopped'].includes(execution.status)
+      || current.archived && !current.archivedBackground) return;
+    const runId = execution.id, stageRun = stage.run;
+    const updateStage = change => {
+      const latest = boardRecords(project)[task.gid];
+      if (latest?.execution?.id !== runId || currentSupervisorStage(latest.execution.supervisor)?.run !== stageRun
+        || ['done', 'fail', 'stopped'].includes(latest.execution.status)) return null;
+      const stages = latest.execution.supervisor.stages.map(item => item.run === stageRun ? { ...item, ...change } : item);
+      rememberBoardTask(project, latest, { execution: { ...latest.execution,
+        supervisor: { ...latest.execution.supervisor, stages } } });
+      return boardRecords(project)[task.gid];
+    };
+    current = updateStage({ status: 'starting', startedAt: Date.now() });
+    if (!current) return;
+    try {
+      if (!agent || !['codex', 'claude'].includes(sessionKind(agent)) || agent.installed === false) throw Error('The Supervisor agent profile is unavailable.');
+      const launched = await this.agentClient.launch(agent, { space: project.pending ? null : project.id,
+        folder: project.folder, projectName: project.name, task: supervisorStagePrompt(current, current.execution) }, {
+        model: stage.model, effort: stage.effort, serviceTier: current.execution.supervisor.options.serviceTier,
+        eccProfile: current.execution.supervisor.options.eccProfile,
+        readOnly: stage.kind !== 'implementation',
+        origin: { extension: 'tasks', ref: stageRun },
+      });
+      updateStage({ launchedAt: Date.now(), launchId: launched?.id || null,
+        model: launched?.model ?? stage.model, effort: launched?.effort ?? stage.effort, profile: launched?.profile || agent.key });
+    } catch (error) {
+      const latest = updateStage({ status: 'fail', summary: error.message, finishedAt: Date.now() });
+      if (latest) rememberBoardTask(project, latest, { execution: { ...latest.execution,
+        status: 'fail', summary: `${stage.kind} could not start: ${error.message}`, finishedAt: Date.now() } });
+      throw error;
+    }
+  }
+
+  advanceSupervisors(cx) {
+    if (!cx?.spawn) return;
+    for (const project of this.projects()) for (const task of Object.values(boardRecords(project))) {
+      const execution = task.execution, supervisor = execution?.supervisor;
+      if (!supervisor || ['done', 'fail', 'stopped'].includes(execution.status) || task.archived && !task.archivedBackground) continue;
+      const stage = currentSupervisorStage(supervisor);
+      if (stage?.status === 'starting' && !agents().some(agent => agent.tab === stage.tab)
+        && Date.now() - (stage.launchedAt || stage.startedAt) > (stage.launchedAt ? 60000 : 300000)) {
+        rememberBoardTask(project, task, { execution: { ...execution, status: 'fail', finishedAt: Date.now(),
+          summary: `Could not confirm the ${stage.kind} session started. Inspect its conversation before starting another attempt.` } });
+        continue;
+      }
+      if (stage?.status !== 'pending') continue;
+      // A report can arrive before its agent's turn ends. Never overlap writers between stages.
+      if (agents().some(agent => supervisor.stages.slice(0, -1).some(previous => previous.terminal === agent.address)
+        && (['working', 'blocked'].includes(agent.status) || agent.needsInput))) continue;
+      const previous = supervisor.stages.at(-2);
+      if (previous && !agents().some(agent => agent.address === previous.terminal)
+        && !terminals().some(terminal => terminal.address === previous.terminal && terminal.state === 'finished')) continue;
+      if (!Array.isArray(shared('herdr-zed.agent-cache')?.null)) continue;
+      const agent = this.taskAssignees(project).find(agent => agent.key === supervisor.agentKey);
+      cx.spawn(async cx => {
+        try { await this.launchSupervisorStage(project, task, agent); }
+        catch (error) { notify({ title: 'Supervisor stopped', body: error.message, level: 'error' }); }
+        cx.notify();
+      });
+    }
+  }
+
+  acceptWorkflowRequests(cx) {
+    try { registerAgentWorkflow('supervisor', 'tasks', 'Supervisor', ['codex', 'claude']); }
+    catch (error) {
+      if (this.workflowError !== error.message) notify({ title: 'New thread workflow unavailable', body: error.message, level: 'error' });
+      this.workflowError = error.message;
+      return;
+    }
+    this.workflowError = null;
+    for (const request of takeAgentWorkflows('tasks')) cx.spawn(async cx => {
+      try {
+        validateAgentWorkflow(request);
+        if (request.workflow !== 'supervisor') throw Error('Unknown task workflow.');
+        const project = this.projects().find(project => !project.machine && folderKey(project.folder) === folderKey(request.target.folder)
+          && (!request.target.space || project.id === request.target.space));
+        if (!project) throw Error('The workflow project is no longer available.');
+        if (Object.values(boardRecords(project)).some(task => task.workflowRequest === request.id)) return;
+        const agent = this.taskAssignees(project).find(agent => agent.key === request.agent);
+        if (!agent || !['codex', 'claude'].includes(sessionKind(agent))) throw Error('The workflow agent is no longer available.');
+        const title = request.task.trim().split('\n')[0].slice(0, 120);
+        const task = createLocalTask(project, title, request.task, { workflowRequest: request.id }, agents());
+        await this.startThread(agent, { space: project.pending ? null : project.id, folder: project.folder,
+          projectName: project.name, task }, request.options);
+      } catch (error) { notify({ title: 'Could not start workflow', body: error.message, level: 'error' }); }
+      cx.notify();
+    });
   }
   snapshot() {
     const all = agents(), projects = {};
@@ -109,14 +239,22 @@ export class TaskRuntime {
           links[tabId] = link;
           if (profiles[thread.replaces]) profiles[tabId] = profiles[thread.replaces];
           changed = true;
-          continue;
         }
       }
       const origin = thread?.origin;
-      if (origin?.extension !== 'tasks' || typeof origin.ref !== 'string' || links[tabId]) continue;
+      if (origin?.extension !== 'tasks' || typeof origin.ref !== 'string') continue;
       const project = this.projects().find(item => item.tabs?.some(tab => tab.id === tabId));
-      const record = project && boardRecords(project)[origin.ref];
+      const records = project && boardRecords(project);
+      const record = records && (records[origin.ref] || Object.values(records).find(task => task.execution?.supervisor?.stages.some(stage => stage.run === origin.ref)));
       if (!record) continue;
+      const supervisor = record.execution?.supervisor;
+      const stage = supervisor?.stages.find(stage => stage.run === origin.ref);
+      const terminal = stage && (stage.tab === tabId && stage.terminal || supervisorTerminal(stage, tabId));
+      if (stage && (stage.tab !== tabId || terminal && stage.terminal !== terminal)) {
+        rememberBoardTask(project, record, { execution: { ...record.execution, supervisor: { ...supervisor,
+          stages: supervisor.stages.map(stage => stage.run === origin.ref ? { ...stage, tab: tabId, terminal: terminal || null } : stage) } } });
+      }
+      if (links[tabId]) continue;
       links[tabId] = { gid: record.gid, name: record.name, folder: project.folder, source: record.source || 'local' };
       if (thread.profile) profiles[tabId] = thread.profile;
       changed = true;
@@ -176,14 +314,21 @@ export class TaskRuntime {
       const records = boardRecords(project);
       const task = records[links[record.tabId]?.gid] || records[threadTaskId(record.tabId)];
       if (!task) continue;
+      const supervisor = task.execution?.supervisor;
+      if (supervisor?.stages.some(stage => stage.tab === record.tabId && stage.terminal === record.address && stage.sessionId !== record.sessionId))
+        rememberBoardTask(project, task, { execution: { ...task.execution, supervisor: { ...supervisor,
+          stages: supervisor.stages.map(stage => stage.tab === record.tabId && stage.terminal === record.address
+            ? { ...stage, sessionId: record.sessionId } : stage) } } });
       const conversation = { id: `${commandKind(record.command)}:${record.sessionId}`, argv: resumeArgv(record.command, record.sessionId, Boolean(links[record.tabId] && links[record.tabId].source !== 'thread')),
         profile: shared('herdr-zed.thread-profiles')?.[record.tabId] || task.conversation?.profile || null };
       if (JSON.stringify(task.conversation) !== JSON.stringify(conversation)) rememberBoardTask(project, task, { conversation });
     }
   }
   refresh(cx) {
+    if (cx?.spawn) this.acceptWorkflowRequests(cx);
     this.resolveSessions();
     this.rememberConversations();
+    this.advanceSupervisors(cx);
     observeTaskInput(agents(), terminals(), cx);
     const snapshot = this.snapshot(), next = JSON.stringify(snapshot);
     if (next !== this.snapshotSignature) { this.snapshotSignature = next; setShared('herdr-zed.tasks.snapshot', snapshot); }
@@ -212,6 +357,24 @@ export class TaskRuntime {
     const current = projectBoardTasks(project, agents()).find(item => item.gid === task.gid);
     if (!current) throw new Error('This task is no longer available.');
     if (!taskActions(current).canStart) throw new Error('Stop the running agent, or reopen a Done task, before starting a new session.');
+    if (options.workflow !== undefined && !['direct', 'supervisor'].includes(options.workflow)) throw Error('Unknown task workflow.');
+    if (options.workflow === 'supervisor') {
+      if (project.machine || target.machine || spaces().find(space => space.id === target.space)?.machine || !['codex', 'claude'].includes(sessionKind(agent)))
+        throw Error('Supervisor requires a local Codex or Claude profile.');
+      if (!agent.key) throw Error('Choose an agent profile for Supervisor.');
+      const supervisor = { ...createSupervisor(options), agentKey: agent.key };
+      supervisor.options.serviceTier = options.serviceTier || null;
+      supervisor.options.eccProfile = options.eccProfile || null;
+      const before = boardRecords(project)[task.gid] || {};
+      rememberBoardTask(project, current, { status: 'doing', manual: false, agentKey: agent.key, agentName: agent.name,
+        execution: { id: `run:${Date.now()}:${Math.random().toString(36).slice(2)}`, status: 'starting',
+          profile: agent.key, profileName: agent.name, model: options.model || null, effort: options.effort || null,
+          instructions: options.instructions || '', startedAt: Date.now(), summary: 'Research starting', supervisor },
+        runs: [...(before.runs || []), ...(before.execution ? [before.execution] : [])].slice(-30) });
+      // Only the always-mounted service launches stages; closing this board cannot cancel preparation.
+      this.close();
+      return;
+    }
     const reporting = !target.machine && !spaces().find(space => space.id === target.space)?.machine
       ? { run: `run:${Date.now()}:${Math.random().toString(36).slice(2)}` } : null;
     const { instructions, ...launchOptions } = options;
@@ -257,12 +420,37 @@ export class TaskRuntime {
       .map(choice => ({ ...choice.agent, name: isAccountLauncher(choice.agent) ? launcherLabel(choice.name) : choice.name }));
   }
 
+  async stopSupervisor(project, task) {
+    const execution = task.execution, stage = currentSupervisorStage(execution.supervisor);
+    const address = stage.terminal || supervisorTerminal(stage);
+    if (['starting', 'doing', 'waiting'].includes(stage.status) && !address)
+      throw Error('The stage is still preparing. Wait for its terminal before stopping.');
+    const addresses = new Set([...(address ? [address] : []), ...execution.supervisor.stages.map(stage => stage.terminal).filter(Boolean)]);
+    const needsConfirmation = !['done', 'fail', 'stopped'].includes(execution.status) || execution.stopConfirmed === false;
+    if (needsConfirmation) rememberBoardTask(project, task, { execution: { ...execution, status: 'stopped', stopConfirmed: false,
+      summary: 'Stop requested; confirming stage terminals stopped', finishedAt: Date.now() } });
+    // Kill our bound worker terminals, including booting programs that have not reported an agent status yet.
+    for (const address of addresses) {
+      const result = await hc(['kill', address]);
+      if (![0, 3, 11].includes(result.code)) throw Error(result.stderr?.trim() || 'Could not stop the stage terminal. The workflow will not advance.');
+      if (result.code === 0) {
+        const waited = await hc(['wait', address, '--timeout', '20']);
+        if (![3, 11].includes(waited.code) && (waited.code !== 0 || JSON.parse(waited.stdout || '{}').reason !== 'exit'))
+          throw Error('Could not confirm the stage terminal exited. The workflow will not advance.');
+      }
+    }
+    const latest = boardRecords(project)[task.gid];
+    if (needsConfirmation && latest?.execution?.id === execution.id && latest.execution.status === 'stopped')
+      rememberBoardTask(project, latest, { execution: { ...latest.execution, stopConfirmed: true, summary: 'Stopped by user' } });
+  }
+
   async archiveTask(project, gid, mode) {
     const currentProject = this.projects().find(item => item.id === project.id) || project;
     const current = projectBoardTasks(currentProject, agents()).find(item => item.gid === gid);
     if (!taskActions(current).canArchive) throw Error('This task is no longer available.');
     if (!['background', 'stop'].includes(mode)) throw Error('Choose how to handle the running agent.');
-    if (mode === 'stop') {
+    if (mode === 'stop' && current.execution?.supervisor) await this.stopSupervisor(currentProject, current);
+    else if (mode === 'stop') {
       if (current.execution?.status === 'starting' && !current.agents.length) throw Error('The agent is still starting. Wait for it to appear before stopping.');
       const live = current.agents.filter(agent => ['working', 'blocked'].includes(agent.status) || agent.needsInput);
       for (const agent of live) {
@@ -279,6 +467,8 @@ export class TaskRuntime {
     if (!latest || latest.archived) throw Error('This task changed while confirming. Reopen it to try again.');
     if (mode === 'stop' && latest.execution && !['done', 'fail', 'stopped'].includes(latest.execution.status))
       rememberBoardTask(currentProject, latest, { execution: { ...latest.execution, status: 'stopped', summary: 'Stopped by user', finishedAt: Date.now() } });
+    if (mode === 'stop' && latest.execution?.supervisor && latest.execution.status === 'stopped')
+      rememberBoardTask(currentProject, latest, { execution: { ...latest.execution, summary: 'Stopped by user' } });
     rememberBoardTask(currentProject, latest, { archivedBackground: mode === 'background' });
     setTaskArchived(currentProject, latest, true);
   }
@@ -304,6 +494,11 @@ export class TaskRuntime {
       resume: task => {
         const current = projectBoardTasks(project, agents()).find(item => item.gid === task.gid);
         if (!current || current.archived && !current.conversationArchived || current.tabs.length) return;
+        // shortcut: manual workflow recovery needs verified stage lineage; use a new attempt until that protocol exists.
+        if (current.execution?.supervisor && !['done', 'fail', 'stopped'].includes(current.execution.status)) {
+          this.agentBoard.setTaskError(task.gid, 'Stop this Supervisor attempt before starting a new one. Its stage cannot be restored manually.');
+          return;
+        }
         const saved = (shared('herdr-zed.thread-history') || []).find(entry => entry.id === current.archiveId);
         const argv = saved?.argv || current.conversation?.argv;
         const space = spaces().find(item => item.id === project.id);
@@ -322,6 +517,8 @@ export class TaskRuntime {
       stop: task => {
         const current = projectBoardTasks(project, agents()).find(item => item.gid === task.gid);
         if (!current) return;
+        if (current.execution?.supervisor) return this.stopSupervisor(project, current)
+          .catch(error => this.agentBoard.setTaskError(task.gid, error.message));
         if (current.execution && !['done', 'fail', 'stopped'].includes(current.execution.status))
           rememberBoardTask(project, current, { execution: { ...current.execution, status: 'stopped', summary: 'Stopped by user', finishedAt: Date.now() } });
         const live = agents().filter(agent => current.tabs.some(tab => tab.id === agent.tab) && ['working', 'blocked'].includes(agent.status));

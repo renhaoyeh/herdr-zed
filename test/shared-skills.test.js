@@ -25,6 +25,29 @@ async function fixture(fn) {
 }
 const pathFrom = guidance => /Read the skill `([^`]+)`/.exec(guidance.sections)[1];
 
+test('invocation ECC presets scope full command snapshots without changing saved policy', async () => fixture(async ({ home, data, put }) => {
+  const source = join(home, 'mods', 'herdr-zed-agents', 'ecc-source');
+  for (const provider of ['claude', 'codex']) await put(join(source, `.${provider}-plugin/plugin.json`), JSON.stringify({ name: 'ecc', version: '1.0.0' }));
+  for (const name of ['alpha', 'verification-loop', 'security-review'])
+    await put(join(source, `skills/${name}/SKILL.md`), `---\nname: ${name}\ndescription: ${name}\n---\nRead the actual project.`);
+  for (const name of ['code-reviewer', 'security-reviewer']) await put(join(source, `agents/${name}.md`), `---\nname: ${name}\nmodel: sonnet\n---\nReview actual changes.`);
+  const config = JSON.stringify({ version: 1, enabled: false, source, claudeHooks: 'off', providerEnabled: { codex: true, claude: true },
+    selection: { codex: { 'skills:alpha': true }, claude: { 'skills:alpha': true } } });
+  await put(join(data, 'ecc.json'), config);
+  const entry = fileURLToPath(new URL('../mods/herdr-zed-agents/shared-skills-cli.js', import.meta.url));
+  for (const provider of ['codex', 'claude']) {
+    const invocation = await prepareSharedGuidance(home, provider, null, {}, { eccProfile: 'review' });
+    const selected = invocation.commands.filter(command => command.id.startsWith('ecc:'));
+    assert.deepEqual(selected.map(command => command.name).sort(), ['ecc-security-review', 'ecc-verification-loop']);
+    for (const command of selected) assert.ok((await readFile(command.path, 'utf8')).includes('Read the actual project.'));
+    const result = await promisify(execFile)(process.execPath, [entry, 'prepare', home, provider, '', '{}', '', '{"eccProfile":"review"}']);
+    assert.ok(JSON.parse(result.stdout).commands.some(command => command.name === 'ecc-security-review' && command.path));
+    assert.ok(!(await prepareSharedGuidance(home, provider, null, {}, { eccProfile: 'basic' })).commands.some(command => command.id.startsWith('ecc:')));
+    assert.ok(!(await prepareSharedGuidance(home, provider)).commands.some(command => command.id.startsWith('ecc:')));
+  }
+  assert.equal(await readFile(join(data, 'ecc.json'), 'utf8'), config);
+}));
+
 test('ECC slash commands follow global and project selections and resolve immutable launch instructions', async () => fixture(async ({ home, data, root, put }) => {
   const source = join(home, 'mods', 'herdr-zed-agents', 'ecc-source');
   for (const provider of ['claude', 'codex']) await put(join(source, `.${provider}-plugin/plugin.json`), JSON.stringify({ name: 'ecc', version: '1.0.0' }));
@@ -184,7 +207,7 @@ test('launch adapter uses the chosen account and combines Claude plugin director
   const argv = ['env', 'CLAUDE_CONFIG_DIR=/account', 'claude', '--plugin-dir', '/ecc-fixed', '--model', 'test'];
   const prepared = await sessionDevkits({ key: 'claude' }, { folder: '/project' }, { browser: false }, argv);
   assert.deepEqual(prepared.argv, ['env', 'CLAUDE_CONFIG_DIR=/account', 'claude', '--plugin-dir', '/shared-fixed', '/ecc-fixed', '--model', 'test']);
-  assert.deepEqual(calls[0].slice(-3), ['/project', '{"browser":false}', '/account']);
+  assert.deepEqual(calls[0].slice(-4), ['/project', '{"browser":false}', '/account', '{}']);
 });
 
 test('provider UI toggles shared skills independently and keeps MCP dependency prompts', async () => {

@@ -221,6 +221,14 @@ test('composer choices keep valid entries per machine and drop malformed ones', 
     { key: 'bad', label: 'Bad', fields: [{ id: 'model', label: 'Model', type: 'select', value: 'missing', options: [{ key: 'a', label: 'A' }] }] },
     { key: 'x', label: 'X', fields: [], extra: 1 }] } } };
   assert.deepEqual(composerChoices(envelope, null), [good]);
+  for (const type of ['select', 'toggle']) {
+    const field = type === 'select' ? good.fields[0] : { id: 'fast', label: 'Fast', type, value: true };
+    const choice = row => ({ ...good, fields: [{ ...field, row }] });
+    const read = row => composerChoices({ machines: { '': { choices: [choice(row)] } } }, null);
+    assert.equal(read('secondary').length, 1);
+    for (const row of ['unknown', null, 1]) assert.equal(read(row).length, 0);
+  }
+
   assert.equal(composerChoices(envelope, 'remote'), null, 'an unpublished machine falls back to the picker');
   assert.equal(composerOptionShown({ only: { model: ['a'] } }, { model: 'b' }), false);
   assert.equal(composerOptionShown({}, { model: 'b' }), true);

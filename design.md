@@ -78,8 +78,9 @@ titles). Where they conflict, this file wins.
   collapse in short windows so the whole input remains scrollable. Its heading
   reads New thread on the left, with the muted project name and branch on the same row at the right. Git changes and ahead/behind counts stay in Changes.
 - The task input is primary. Its bottom toolbar holds the program, every launcher field (Model, Effort, Fast), and the
-  start icon. There is no extra options menu or summary. The shell uses published field order,
+  start icon. There is no extra options menu or summary. ECC and Workflow sit on a separate row below the primary toolbar in both New thread and Tasks. The shell uses published field order and the optional secondary-row hint,
   without provider-specific branches. Programs open on the last agent chosen for that project; Terminal is excluded.
+- New thread and Tasks share the same ECC and Workflow choices and per-profile preferences. Task execution uses the same bordered composer and compact toolbar style: no field headings above the selects, bounded account/model labels, and a 28px arrow action fixed to the right of the wrapping primary controls. Supervisor uses the selected main model for every stage; research and review have no separate model selectors.
 - Each select keeps its own menu and favorites. Starred options come first; every menu row has a star. Favorites use
   `herdr-zed.start-favorites`, `{ [launcher or '']: { [menu]: [option keys] } }`, with `program` or `<choice>:<field>`.
   Options ruled out by another field are hidden and fall back to the first available value. Model and Effort

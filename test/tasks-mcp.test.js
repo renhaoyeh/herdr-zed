@@ -94,6 +94,27 @@ test('bridge rejects expired and unsafe commands and deduplicates deliveries', a
   assert.equal(writes[0].path, `/herdr/data/herdr-zed/tasks-mcp/${id}.json`);
 });
 
+test('Supervisor reports carry the server terminal with explicit stage runs and validate verdicts', async () => {
+  const input = new PassThrough(), output = new PassThrough(), calls = [];
+  let raw = ''; output.on('data', chunk => { raw += chunk; });
+  const server = start(input, output, async (_name, args) => { calls.push(args); return { task: { run: args.run } }; });
+  const send = (id, method, params) => input.write(JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n');
+  const previous = process.env.HC_TERMINAL_ID;
+  try {
+    process.env.HC_TERMINAL_ID = 't-review';
+    send(1, 'initialize', {});
+    send(2, 'tools/call', { name: 'report_task', arguments: { run: 'stage:review', status: 'done', message: 'Reviewed diff', verdict: 'pass' } });
+    send(3, 'tools/call', { name: 'report_task', arguments: { run: 'stage:review', status: 'done', message: 'Invalid', verdict: 'maybe' } });
+    await server.drained();
+    assert.deepEqual(calls, [{ run: 'stage:review', status: 'done', message: 'Reviewed diff', verdict: 'pass', terminal: 't-review' }]);
+    assert.equal(JSON.parse(raw.trim().split('\n').at(-1)).result.isError, true);
+  } finally {
+    server.lines.close();
+    if (previous === undefined) delete process.env.HC_TERMINAL_ID;
+    else process.env.HC_TERMINAL_ID = previous;
+  }
+});
+
 test('local launch configuration preserves account environment and existing flags', () => {
   const home = 'C:\\Users\\A B\\herdr', codex = { key: 'codex' }, claude = { key: 'claude' };
   const original = ['env', 'CODEX_HOME=/private', 'codex', '--', 'prompt'];

@@ -6,7 +6,9 @@ export function tasksMcpCall(runtime, name, args = {}) {
   if (name === 'list_projects') return { projects };
   if (name === 'report_task') {
     const task = runtime.reportTask(null, args);
-    return { task: { gid: task.gid, status: task.status, run: task.execution.id, message: task.execution.summary } };
+    const stage = task.execution.supervisor?.stages.find(stage => args.run ? stage.run === args.run : stage.terminal === args.terminal);
+    return { task: { gid: task.gid, status: task.status, run: stage?.run || task.execution.id, message: stage?.summary || task.execution.summary,
+      ...(stage ? { parentRun: task.execution.id, stage: { kind: stage.kind, status: stage.status, ...(stage.verdict ? { verdict: stage.verdict } : {}) } } : {}) } };
   }
   const project = projects.find(project => project.key === args.project);
   if (!project) throw new Error('Unknown project. Use list_projects and pass its key.');

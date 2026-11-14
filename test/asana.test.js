@@ -1,3 +1,4 @@
+import { agentWorkflowFields, launchWorkflowOptions } from '../components/agent-launch-options.js';
 import { evaluateNative, sourceOptions } from './source-harness.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -7,8 +8,9 @@ import { claudeModels, claudeEfforts, codexHome, codexModels, isClaudeLauncher, 
 const names = ['asanaTheme', 'AsanaPanel', 'AsanaProjectPicker', 'previewWidthAt', 'avatarColor', 'statusKind', 'initials', 'dueLabel', 'searchProjects', 'projectTasksPage', 'myProjectTasks', 'projectWorkspace', 'openSubtasks', 'taskDetails', 'taskComments', 'relativeTime',
   'filterTasks', 'taskPrompt', 'readAsanaToken', 'saveAsanaToken'];
 async function load(host = {}) {
-  host = { fetch: () => assert.fail('unexpected request'), Button: () => {}, claudeModels, claudeEfforts, codexHome, codexModels, isClaudeLauncher, isCodexLauncher, sessionKind, shownOptions, orderedOptions, effortLabel, settingsKey, launcherOption, accountAddresses, folderKey,
+  host = { agentWorkflowFields, launchWorkflowOptions, workflowExecutor: () => null, fetch: () => assert.fail('unexpected request'), Button: () => {}, claudeModels, claudeEfforts, codexHome, codexModels, isClaudeLauncher, isCodexLauncher, sessionKind, shownOptions, orderedOptions, effortLabel, settingsKey, launcherOption, accountAddresses, folderKey,
     glyph: () => element(), home: () => '/home', shared: () => null, setShared() {}, closeOverlay() {}, Select: () => element(), SelectState: class {}, ...host };
+  host.ToolbarButton ||= host.Button;
   Object.assign(host, await evaluateNative('../mods/herdr-zed-asana/rest.js', host, 'asanaRequest'));
   host.asanaApi = await evaluateNative('../mods/herdr-zed-asana/api.js', host, 'getUser, getProject, searchWorkspaceProjects, listProjectTasks, listTasks, listSubtasks, getTask, listStories');
   Object.assign(host, await evaluateNative('../mods/herdr-zed-asana/source-api.js', host, 'searchProjects, projectTasksPage, myProjectTasks, projectWorkspace, openSubtasks, taskDetails, taskComments, projectFields'));

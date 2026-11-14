@@ -8,6 +8,7 @@ import { parseSharedMcp } from './components/shared-mcp-model.js';
 import { acquireFileLock } from './devkits-save.js';
 import { parseEcc, eccItemEnabled } from './ecc-model.js';
 import { readEccCatalog } from './ecc-catalog.js';
+import { applyEccProfile, eccCostSkill } from './ecc-profiles.js';
 
 const optional = async path => { try { return await readFile(path, 'utf8'); } catch (error) { if (error.code === 'ENOENT') return null; throw error; } };
 const entries = async path => { try { return await readdir(path, { withFileTypes: true }); } catch (error) { if (error.code === 'ENOENT') return []; throw error; } };
@@ -91,7 +92,7 @@ export async function readSharedState(home) {
   return { items, selection, revision: hash(JSON.stringify([text, items])) };
 }
 
-export async function prepareSharedGuidance(home, provider, folder = null, switches = {}) {
+export async function prepareSharedGuidance(home, provider, folder = null, switches = {}, options = {}) {
   if (!['claude', 'codex'].includes(provider)) throw Error('Choose claude or codex.');
   const { items, selection } = await readSharedState(home), catalog = devkitsCatalog(home);
   const { projectIdentity, projectPolicyPath, parseProjectPolicy, effectiveProjectPolicy } = await import('./ecc-project.js');
@@ -127,9 +128,16 @@ export async function prepareSharedGuidance(home, provider, folder = null, switc
   }
   const guidance = devkitsGuidance(config, catalog, servers, platform(), missing, provider);
   const ecc = parseEcc(await optional(join(home, 'data', 'herdr-zed', 'ecc.json')));
-  const policy = effectiveProjectPolicy({ config: ecc, policy: projectPolicy }, provider);
+  let policy = effectiveProjectPolicy({ config: ecc, policy: projectPolicy }, provider);
+  let source;
+  if (options.eccProfile != null) {
+    source = await readEccCatalog(ecc.source || join(home, 'mods', 'herdr-zed-agents', 'ecc-source'));
+    const config = { selection: { [provider]: { ...policy.selection } } };
+    applyEccProfile(config, provider, source.items, options.eccProfile, policy.enabled && Boolean(policy.selection[eccCostSkill]));
+    policy = { ...policy, enabled: true, selection: config.selection[provider] };
+  }
   if (policy.enabled && Object.entries(policy.selection).some(([id, enabled]) => enabled && id.startsWith('skills:'))) {
-    const source = await readEccCatalog(ecc.source || join(home, 'mods', 'herdr-zed-agents', 'ecc-source'));
+    source ||= await readEccCatalog(ecc.source || join(home, 'mods', 'herdr-zed-agents', 'ecc-source'));
     for (const item of source.items) {
       if (item.group !== 'skills' || !eccItemEnabled({ selection: { [provider]: policy.selection } }, provider, item)) continue;
       if (item.unavailable) throw Error(`${item.name}: ${item.unavailable}`);

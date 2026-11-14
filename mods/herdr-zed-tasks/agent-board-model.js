@@ -98,6 +98,7 @@ export function taskActions(task) {
   const archived = Boolean(task?.archived);
   const busy = Boolean(task?.agents?.some(agent => ['working', 'blocked'].includes(agent.status) || agent.needsInput));
   const active = Boolean(task && (busy || task.attention && task.attention.kind !== 'error' || task.execution?.status === 'waiting'
+    || task.execution?.supervisor && (!['done', 'fail', 'stopped'].includes(task.execution.status) || task.execution.stopConfirmed === false)
     || task.execution?.status === 'starting' && Date.now() - task.execution.startedAt < 60000));
   const todo = task?.status === 'todo' && !archived && !active;
   // A task that is not Done and has no active agent can start another session, with the same or another agent:

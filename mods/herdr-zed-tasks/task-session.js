@@ -2,16 +2,17 @@ import { div } from 'gpui-kit';
 import { h_flex, v_flex, TextareaState, Textarea } from 'gpui-base';
 import { shared, setShared, home, readTextFile, notify } from 'herdr';
 import { effortLabel, claudeModels, claudeEfforts, codexHome, codexModels, isClaudeLauncher, isCodexLauncher, sessionKind, shownOptions, orderedOptions, settingsKey, launcherOption, accountAddresses } from './components/session-model.js';
+import { agentWorkflowFields, launchWorkflowOptions } from './components/agent-launch-options.js';
+import { workflowExecutor } from './components/agent-workflows.js';
 import { Select, SelectState } from './components/select.js';
-import { Button } from './components/button.js';
+import { ToolbarButton } from './components/button.js';
 import { glyph } from './components/icon.js';
 import { continuationPrompt } from './task-prompt.js';
 import { pasteClipboardImage, withAttachments, AttachmentStrip } from './components/image-attachments.js';
 
-const sessionButton = (id, t) => Button(id, t).rounded(t.appearance === 'linear' ? 999 : 6);
 export class TaskSession {
   init(cx) {
-    this.selects = { agent: new SelectState(cx), model: new SelectState(cx), effort: new SelectState(cx) };
+    this.selects = Object.fromEntries(['agent', 'model', 'effort', 'workflow', 'eccProfile'].map(name => [name, new SelectState(cx)]));
     this.codexModels = new Map();
     // One editor for the shown task (state cannot be created during render); `prompt` records which task it holds.
     this.promptState = TextareaState.new({ placeholder: 'Extra instructions for the agent (optional)…' });
@@ -38,7 +39,8 @@ export class TaskSession {
     return { state: this.promptState };
   }
 
-  render(task, agents, start, t, cx) {
+  render(task, agents, start, t, cx, project = {}) {
+    this.machine = project.machine || null;
     this.cx = cx;
     try { return this.launchRow(task, agents, start, t); } finally { this.cx = null; }
   }
@@ -51,7 +53,11 @@ export class TaskSession {
     const model = models.find(item => item.key === saved.model) ? saved.model : null;
     const profile = this.profileFor(agent);
     const efforts = this.effortsFor(agent, model || profile.model);
-    return { agent, models, model, efforts, effort: efforts.includes(saved.effort) ? saved.effort : null };
+    const fields = agentWorkflowFields(agent, shared('herdr-zed.profile-sessions')?.[settingsKey(agent)] || {},
+      { local: !this.machine, executor: workflowExecutor('supervisor') });
+    const values = Object.fromEntries(fields.map(field => [field.id, field.value]));
+    return { agent, models, model, efforts, effort: efforts.includes(saved.effort) ? saved.effort : null,
+      fields, values, workflow: values.workflow || 'direct' };
   }
 
   // Only the models and efforts Manage leaves checked are offered.
@@ -99,31 +105,42 @@ export class TaskSession {
     const fallback = { model: profile.model && (this.allModels(current.agent).find(item => item.key === profile.model)?.label || profile.model),
       effort: defaultEffort && effortLabel(defaultEffort) };
     const pick = (id, name, label, value, options, onChange) => Select(id, this.selects[name], value || 'default',
-      [option('default', fallback[name] ? `Default (${fallback[name]})` : 'Default'), ...options], label, onChange, t, { width: 168, prefix: label, boxed: t.appearance !== 'linear', radius: 6 });
+      [option('default', fallback[name] ? `Default (${fallback[name]})` : 'Default'), ...options], label, onChange, t, { width: 180, toolbar: true });
     const prompt = this.promptFor(task);
     return v_flex().gap(8)
       .child(div().text_size(12).font_medium().child(resume ? 'Continue with' : 'Instructions'))
+      .child(v_flex().id('task-session-composer').w_full().min_w(0).border(1).border_color(t.border).bg(t.popover)
       .child(Textarea.new(prompt.state).id('task-session-prompt').accessibility_label(resume ? 'Prompt for the next session' : 'Extra instructions')
-        .w_full().text_size(12))
+        .w_full().px(12).py(10).border(0).text_size(13))
       .when(this.images.length > 0, el => el.child(AttachmentStrip('task-session-images', this.images,
         (index, cx) => { this.images = this.images.filter((_item, at) => at !== index); cx.notify(); }, t, 'herdr-zed-tasks')))
-      .child(h_flex().gap(8).items_center().flex_wrap()
+      .child(h_flex().id('task-session-primary-row').w_full().px(8).py(6).gap(8).items_center().border_t(1).border_color(t.border)
+      .child(h_flex().id('task-session-controls').flex_1().min_w(0).gap(4).items_center().flex_wrap()
       .when(agents.length > 0, el => el.child(Select('task-session-agent', this.selects.agent, current.agent.key,
         agents.map(agent => launcherOption(agent, accountAddresses(shared))).map(option => ({ ...option, color: option.unknown ? t.muted : t.foreground })), 'Agent',
-        key => remember({ agent: key, model: null, effort: null }), t, { width: 200, prefix: 'Agent', boxed: t.appearance !== 'linear', radius: 6 })))
+        key => remember({ agent: key, model: null, effort: null }), t, { width: 200, toolbar: true })))
       .when(current.models.length > 0, el => el.child(pick('task-session-model', 'model', 'Model', current.model,
         current.models.map(model => option(model.key, model.label)), key => remember({ model: key === 'default' ? null : key }))))
       .when(current.efforts.length > 0, el => el.child(pick('task-session-effort', 'effort', 'Effort', current.effort,
-        current.efforts.map(effort => option(effort, effortLabel(effort))), key => remember({ effort: key === 'default' ? null : key }))))
-      .child(div().flex_1())
-      .child(sessionButton('task-session-start', t).h(28).px(10).gap(6).disabled(!current.agent)
+        current.efforts.map(effort => option(effort, effortLabel(effort))), key => remember({ effort: key === 'default' ? null : key })))))
+      .child(ToolbarButton('task-session-start', t, { icon: true }).disabled(!current.agent)
+        .tooltip(resume ? 'Continue task' : 'Start session')
         .accessibility_label(resume ? 'Continue this task in a new session' : 'Start a session for this task')
         .on_click((_event, cx) => { if (current.agent) start(current.agent, task, {
           model: current.model || profile.model || null,
           effort: current.effort || defaultEffort,
           instructions: withAttachments(prompt.state.value(), this.images),
+          ...launchWorkflowOptions(current.values),
         }, cx); this.prompt = null; this.images = []; })
-        .child(glyph(resume ? 'play' : 'plus', 12)).child(resume ? 'Continue' : 'Start session')));
+        .child(glyph('arrow-up', 16))))
+      .when(current.fields.length > 0, el => el.child(h_flex().id('task-session-workflow-row').px(8).pb(6).gap(8).items_center().flex_wrap()
+      .children(current.fields.map(field => Select(`task-session-${field.id}`, this.selects[field.id], field.value,
+        field.options.map(item => option(item.key, item.label)), field.label, value => {
+          const key = settingsKey(current.agent), sessions = shared('herdr-zed.profile-sessions') || {};
+          setShared('herdr-zed.profile-sessions', { ...sessions, [key]: { ...sessions[key], [field.id]: value } });
+        }, t, { width: 220, toolbar: true }))))))
+      .when(current.workflow === 'supervisor', el => el.child(div().text_size(11).text_color(t.muted)
+        .child('Research → Implementation → Review · research and review are read only.')));
   }
 
 }

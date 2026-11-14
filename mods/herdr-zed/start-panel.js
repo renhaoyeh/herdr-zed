@@ -20,7 +20,7 @@ export const LAUNCH_INTENTS = 'herdr-zed.launch.intents';
 // Starred options: { [launcher or '']: { [menu]: [option keys] } }, listed first in that control's menu.
 export const START_FAVORITES_KEY = 'herdr-zed.start-favorites';
 // The program control and at most this many minus one launcher fields.
-const START_MENUS = 7;
+const START_MENUS = 8;
 // How long Start waits for the new thread's tab before it gives the task back to edit.
 export const START_WAIT_MS = 30000;
 // `git status --porcelain=v1 -b`: the branch line, then one line per changed path.
@@ -161,7 +161,8 @@ export const startPanel = {
   },
   startCommandScope() {
     const start = this.startTarget;
-    return start?.intent ? JSON.stringify([start.intent.launcher, start.intent.choice, startProjectKey(start.target)]) : null;
+    return start?.intent ? JSON.stringify([start.intent.launcher, start.intent.choice, startProjectKey(start.target),
+      Object.entries(start.intent.values || {}).sort(([a], [b]) => a.localeCompare(b))]) : null;
   },
   startCommandQuery() { return /^\s*\/([a-zA-Z0-9_-]*)$/.exec(this.startTask?.value() || '')?.[1] ?? null; },
   startCommandOpen() {
@@ -194,7 +195,7 @@ export const startPanel = {
     this.startCommandCaches.set(scope, this.startCommandCache);
     const queued = shared(COMPOSER_COMMAND_REQUESTS) || [];
     setShared(COMPOSER_COMMAND_REQUESTS, [...queued.filter(item => item?.expiresAt > now).slice(-31),
-      { id, launcher: start.intent.launcher, choice: start.intent.choice, target: start.target, expiresAt }]);
+      { id, launcher: start.intent.launcher, choice: start.intent.choice, target: start.target, values: { ...start.intent.values }, expiresAt }]);
     cx.notify();
   },
   reloadStartCommands(cx) {
@@ -270,6 +271,10 @@ export const startPanel = {
     const defaults = JSON.stringify(choice.fields.map(field => [field.id, field.value]));
     const values = this.startValues(choice, { ...this.startValues(choice), [id]: value, __defaults: defaults });
     setShared('herdr-zed.start-values', { ...all, [choice.key]: { ...values, __defaults: defaults } });
+    if (this.startTarget?.intent?.choice === choice.key) {
+      this.startTarget.intent.values = values;
+      this.refreshStartCommands(cx);
+    }
     cx.notify();
   },
   // The project's Git state for the panel header, read at most every 5 s while the panel is drawn.
@@ -357,7 +362,7 @@ export const startPanel = {
     return Popup.new(`${id}-popup`, button).anchor('top_left').when(open, el => el.content(this.startMenu(id, index, menu, t)));
   },
   // The session controls, split like Zed's: the program, then one control per launcher field (a select is a menu, a
-  // toggle is an icon button). All session controls stay in the input toolbar.
+  // toggle is an icon button). The launcher may put fields in a second toolbar row.
   startSessionControls(project, session, t) {
     const { choice, values, launcher } = session;
     const icon = item => div().size(14).flex_none().flex().items_center().justify_center()
@@ -366,10 +371,12 @@ export const startPanel = {
     const controls = [this.startControl('project-start-program', 0, { icon: icon(choice), text: choice?.label || 'No agents available', label: `Program: ${choice?.label || 'No agents available'}` },
       { launcher, menu: 'program', label: 'Program', items: programs, value: choice?.key || 'terminal',
         choose: (key, cx) => this.chooseStartAgent(project, key, cx) }, t)];
+    const secondaryControls = [];
     (choice?.fields || []).slice(0, START_MENUS - 1).forEach((field, i) => {
+      const row = field.row === 'secondary' ? secondaryControls : controls;
       if (field.type === 'toggle') {
         const on = values[field.id] === true;
-        controls.push(ToolbarButton(`project-start-${field.id}`, t, { icon: true, selected: on })
+        row.push(ToolbarButton(`project-start-${field.id}`, t, { icon: true, selected: on })
           .tooltip(`${field.label} ${on ? 'on' : 'off'}`).accessibility_label(`${field.label} ${on ? 'on' : 'off'}`)
           .on_click((_event, cx) => this.pickStartValue(choice, field.id, !on, cx))
           .child(glyph('zap', 16).text_color(on ? t.working : t.muted)));
@@ -377,13 +384,14 @@ export const startPanel = {
       }
       const shown = field.options.filter(option => composerOptionShown(option, values))
         .map(option => ({ key: option.key, label: option.label }));
+      if (!shown.length) return;
       const current = shown.find(option => option.key === values[field.id]);
-      controls.push(this.startControl(`project-start-${field.id}`, i + 1,
+      row.push(this.startControl(`project-start-${field.id}`, i + 1,
         { text: current?.label || field.label, label: `${field.label}: ${current?.label || field.label}` },
         { launcher, menu: `${choice.key}:${field.id}`, label: field.label, items: shown, value: values[field.id],
           choose: (key, cx) => this.pickStartValue(choice, field.id, key, cx) }, t));
     });
-    return { controls, usage: this.startUsageView(project, session, t) };
+    return { controls, secondaryControls, usage: this.startUsageView(project, session, t) };
   },
   // Every account's quota below the composer, side by side, drawn like the Usage sidebar's meters (design.md, Start a thread).
   // A card starts its account's first program in the menu; an account the menu does not offer stays inert.
@@ -478,7 +486,9 @@ export const startPanel = {
         .child(ToolbarButton('project-start-submit', t, { icon: true }).disabled(!ready || Boolean(this.startPending))
           .tooltip(this.startPending ? 'Starting…' : action).accessibility_label(this.startPending ? 'Starting…' : action)
           .on_click((_event, cx) => this.submitStart(cx))
-          .child(glyph(this.startPending ? 'loader' : 'arrow-up', 16))));
+          .child(glyph(this.startPending ? 'loader' : 'arrow-up', 16))))
+      .when(Boolean(session.secondaryControls?.length), el => el.child(h_flex().id('project-start-secondary-toolbar')
+        .px(8).pb(6).gap(8).items_center().flex_wrap().children(session.secondaryControls)));
     return v_flex().id('project-start').size_full().bg(t.background).text_color(t.foreground).items_center().p(24).overflow_y_scroll()
       .when(shared('herdr-zed.ctrl-enter-submit') !== false, el => el.key_context('HerdrComposerSubmit'))
       .on_action('herdr-composer-submit', (_event, cx) => { cx.stop_propagation(); this.submitStart(cx); })

@@ -27,10 +27,10 @@ export function SelectTrigger(id, color, t, width = 144) {
 
 // Label fields above their triggers so the setting name stays separate from the chosen value. `boxed` draws the
 // trigger as a bordered field instead of an underline, for rows inside bordered tables.
-export function Select(id, state, value, options, label, onChange, t, { width = 144, prefix, boxed = false, radius = 0, fullWidth = false } = {}) {
+export function Select(id, state, value, options, label, onChange, t, { width = 144, prefix, boxed = false, radius = 0, fullWidth = false, toolbar = false } = {}) {
   const selected = options.find(option => option.key === value) || options[0];
-  const linear = t.appearance === 'linear', naturalWidth = linear;
-  const triggerColor = linear ? t.secondary : selected.color;
+  const linear = t.appearance === 'linear', naturalWidth = linear || toolbar;
+  const triggerColor = toolbar ? t.foreground : linear ? t.secondary : selected.color;
   const query = linear ? state.search?.value().trim().toLowerCase() || '' : '';
   const items = options.filter(option => !query || option.label.toLowerCase().includes(query));
   const hasIcons = options.some(option => Boolean(option.icon));
@@ -41,7 +41,10 @@ export function Select(id, state, value, options, label, onChange, t, { width = 
   const close = cx => { state.open = false; state.trigger.focus(); cx.notify(); };
   const choose = (option, cx) => { if (!option) return; cx.stop_propagation(); onChange(option.key, cx); close(cx); };
   // A hovered row already uses t.hover or t.selected, so a boxed trigger hovers with the stronger input color.
-  const base = linear
+  const base = toolbar
+    ? h_flex().id(id).h(28).px(8).gap(6).items_center().min_w(0).max_w(width).text_size(12)
+      .bg(state.open ? t.selected : '#00000000').hover(el => el.bg(t.hover)).cursor_pointer()
+    : linear
     ? h_flex().id(id).h(28).py(0).pl(6).pr(10).gap(6).items_center().flex_none().rounded(999).text_size(13).font_medium()
       .when(naturalWidth, el => el.w_auto()).when(!naturalWidth, el => el.w(width))
       .border(boxed ? 1 : 0).border_color(t.controlBorder).bg(state.open ? t.hover : boxed ? t.control : '#00000000')
@@ -50,7 +53,8 @@ export function Select(id, state, value, options, label, onChange, t, { width = 
     ? h_flex().id(id).w(width).h(28).px(8).gap(8).items_center().flex_none().rounded(0).text_size(12).text_color(selected.color)
       .border(1).border_color(t.border).bg(t.popover).hover(el => el.bg(t.input)).cursor_pointer()
     : SelectTrigger(id, selected.color, t, width);
-  const trigger = base.rounded(linear ? 999 : radius)
+  const trigger = base.rounded(toolbar ? 0 : linear ? 999 : radius)
+    .when(toolbar, el => el.tooltip(`${label}: ${selected.label}`))
     .when(fullWidth, el => el.w_full().min_w(0).on_size_change((size, cx) => {
       if (size.width > 0 && state.width !== size.width) { state.width = size.width; cx.notify(); }
     }))
@@ -103,7 +107,8 @@ export function Select(id, state, value, options, label, onChange, t, { width = 
         .child(svg('mods/herdr-zed/assets/icons/check.svg').size(14))))))));
   const control = NativeSelect.new(`${id}-select`).open(state.open).accessibility_label(`${label}: ${selected.label}`)
     .when(fullWidth, el => el.w_full().min_w(0))
-    .when(linear, el => el.flex_none().w_auto().self_start())
+    .when(linear && !toolbar, el => el.flex_none().w_auto().self_start())
+    .when(toolbar, el => el.w_auto().min_w(0).max_w(width).flex_shrink(1))
     .track_focus(state.trigger).content_focus_handle(state.list)
     .on_open_change((open, cx) => {
       state.open = open; state.index = options.indexOf(selected);

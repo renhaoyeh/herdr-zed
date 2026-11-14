@@ -16,6 +16,26 @@ export function skillCommandTask(task, selected, commands = []) {
   return `Use the skill at \`${command.path.replaceAll('\\', '/')}\` for this task. Read its SKILL.md and resolve supporting files relative to it.\n\n${task.slice(match[0].length)}`;
 }
 
+// Keep task reporting available in Plan mode, and prevent hooks from approving an exit into editing.
+function claudeReadOnlyArgv(argv) {
+  const executable = argv.findIndex(arg => !arg.includes('=') && /(?:^|[/\\])claude(?:\.exe|\.cmd)?$/i.test(arg));
+  const rules = {
+    '--allowedTools': ['mcp__herdr_tasks__report_task', 'mcp__herdr_tasks__list_projects', 'mcp__herdr_tasks__list_tasks'],
+    '--disallowedTools': ['ExitPlanMode'],
+  };
+  const rest = [];
+  for (let i = executable + 1; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === '--') { rest.push(...argv.slice(i)); break; }
+    const [flag, ...value] = arg.split('=');
+    const key = flag === '--allowed-tools' ? '--allowedTools' : flag === '--disallowed-tools' ? '--disallowedTools' : flag;
+    if (!Object.hasOwn(rules, key)) { rest.push(arg); continue; }
+    if (value.length) rules[key].push(value.join('='));
+    else while (i + 1 < argv.length && !argv[i + 1].startsWith('-')) rules[key].push(argv[++i]);
+  }
+  return [...argv.slice(0, executable + 1), ...Object.entries(rules).flatMap(([flag, values]) => [flag, ...values]), ...rest];
+}
+
 export async function prepareSession(agent, target = {}, options = {}) {
   const space = spaces().find(item => item.id === target.space);
   const machine = target.machine || space?.machine || null;
@@ -42,6 +62,13 @@ export async function prepareSession(agent, target = {}, options = {}) {
   if (hidden.efforts?.includes(session.effort)) session.effort = null;
 
   const remote = Boolean(machine);
+  if (options.eccProfile != null && (remote || !['codex', 'claude'].includes(sessionKind(current))))
+    throw Error('Session ECC profiles require a local Codex or Claude Code project.');
+  if (options.readOnly !== undefined && typeof options.readOnly !== 'boolean') throw Error('readOnly must be a boolean.');
+  if (options.readOnly) {
+    if (remote || !['codex', 'claude'].includes(sessionKind(current))) throw Error('Read-only workflow stages require local Codex or Claude Code.');
+    session.permission = sessionKind(current) === 'claude' ? 'plan' : 'read-only';
+  }
   if (remote && options.command) throw Error('This skill is available only for local sessions.');
   let task = null;
   let argv = current && sessionArgv(current, launcherArgv(current, session.permission), {
@@ -54,9 +81,9 @@ export async function prepareSession(agent, target = {}, options = {}) {
       config = (shared('herdr-zed.agent-configs') || []).find(item => item.key === agent.key && item.profileKey === agent.profileKey);
       if (!config) throw new Error('Agent configuration is unavailable. Choose another agent configuration.');
     }
-    const ecc = await prepareEcc(current, argv, { ...target, folder: target.folder || space?.folder });
+    const ecc = await prepareEcc(current, argv, { ...target, folder: target.folder || space?.folder }, options);
     argv = await sessionMcpArgv(current, ecc.argv, ecc.mcp);
-    const kits = await sessionDevkits(current, { ...target, folder: target.folder || space?.folder }, ecc.mcp, argv);
+    const kits = await sessionDevkits(current, { ...target, folder: target.folder || space?.folder }, ecc.mcp, argv, options);
     task = skillCommandTask(target.task, options.command, kits?.commands);
     if (kits?.argv) argv = kits.argv;
     if (kits || ecc.instructions) {
@@ -64,6 +91,7 @@ export async function prepareSession(agent, target = {}, options = {}) {
       rules = text ? { ...rules, composed: true, text } : rules;
     }
     argv = rulesArgv(current, argv, rules, config?.instructions);
+    if (options.readOnly && sessionKind(current) === 'claude') argv = claudeReadOnlyArgv(argv);
   }
   if (agent?.profileKey && !(shared('herdr-zed.agent-configs') || []).some(item => item.key === agent.key && item.profileKey === agent.profileKey))
     throw new Error('Agent configuration is unavailable. Choose another agent configuration.');

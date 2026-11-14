@@ -261,7 +261,7 @@ user clicks + / invokes New Thread (New terminal opens directly from the project
   `herdr-zed.composer.<id>` = `{ updatedAt, machines: { [machine | '']: { choices, usage? } } }`; a choice is
   `{ key, label, icon?, tint?, fields }`, and `usage` (`composerUsage`) lists the accounts the Usage sidebar shows, in its
   order and names: `{ key, label, icon?, tint?, muted?, menu?: { view, width }, windows: [{ label, minutes, usedPercent, resetsAt }] }`
-  (`resetsAt` in epoch seconds or null; the shell derives reset time and elapsed share). A field is a `select` (`{ id, label, value, options: [{ key, label, only? }] }`,
+  (`resetsAt` in epoch seconds or null; the shell derives reset time and elapsed share). A field optionally declares `row: "secondary"` to render below the primary toolbar (absent means primary). It is a `select` (`{ id, label, value, options: [{ key, label, only? }] }`,
   `only` = `{ [field id]: keys }` it is offered with) or a `toggle` (`{ id, label, value: boolean }`). The shell draws
   them without knowing what they mean and drops malformed choices. It only appends intents; the launcher takes its own
   off the queue, prepares the session from `values` and emits a launch request as above, notifying its own errors.
@@ -271,12 +271,12 @@ user clicks + / invokes New Thread (New terminal opens directly from the project
   Offered models/efforts and order use `herdr-zed.session-options[claude|codex]`, managed only on the root Models page.
   Every account and named profile shares its provider's list. Agents preparation, the profile editor, New thread and Tasks read the same scope.
 - **Composer slash commands**: the shell appends read-only requests to `herdr-zed.composer-command.requests`:
-  `{ id, launcher, choice, target, expiresAt }`, scoped to the chosen program and project (same target validation as
+  `{ id, launcher, choice, target, values, expiresAt }`, scoped to the chosen program, project and invocation field values (same target validation as
   launches; expiry within 60 s). The launcher consumes its own requests and publishes expiring results in
   `herdr-zed.composer-command.results[id]`: `{ items: [{ id, name, description }], error?, expiresAt }`.
   Command IDs are opaque to the shell; names are slash-safe identifiers, unique within each result, with bounded
   descriptions and at most 1,000 entries. The shell validates results and ignores late results from other scopes.
-  Each composer view caches lists per launcher choice and project for its lifetime; Refresh (or Retry after an
+  Each composer view caches lists per launcher choice, project and sorted invocation values for its lifetime; Refresh (or Retry after an
   error) reloads the current scope. Transport expiry bounds pending requests, not successfully cached lists.
   Typing `/` at the start of New thread filters the active project's commands in a native `Popup` anchored below
   the complete task composer including its toolbar, outside layout flow (it never grows the composer),
@@ -286,7 +286,7 @@ user clicks + / invokes New Thread (New terminal opens directly from the project
   the actual launch snapshot, rejects unavailable selections and expands the leading command into a skill
   instruction while retaining the task suffix. Discovery never starts an agent or installs native plugins.
   Agents offers selected Shared Skills and built-in skills whose platform/MCP requirements are satisfied,
-  plus enabled ECC skills under `ecc-` command names, using the provider's effective global/project selection.
+  plus enabled ECC skills under `ecc-` command names, using the provider's effective global/project selection or the explicitly selected conversation ECC preset.
   ECC command targets snapshot each skill and its supporting files without installing a plugin or adding
   standing guidance; launch revalidates the selection. Remote or unsupported programs return an empty list. No provider names, paths or
   skill parsing enter the shell; no manifest schema changes are required.
@@ -417,6 +417,12 @@ holds edits it has not saved; `null` otherwise. `unsavedKey` and `SETTINGS_CLOSE
 - A page never closes the dialog with `closeOverlay`; Esc inside it runs `herdr-zed.settings-close`.
 - The shell draws the reminder (design.md, Unsaved changes). Single-mod dialogs keep their own draft state and ask in
   their own footer (`DiscardPrompt` in `components/dialog.js`); they use no key.
+
+### 3.11 Optional Agent Runtime workflow executors
+
+`components/agent-workflows.js` is the public registration/request contract, copied into Agents and Tasks. Executors lease `herdr-zed.agents.workflow.executors[workflow]` as `{ owner, label, providers, expiresAt }` for 15 seconds, renewing only near expiry. Agents hides entries whose owner is disabled or whose lease expired. New thread renders the launcher's generic fields without importing Work code or recognizing provider/workflow names in the shell.
+
+Agents appends validated requests to `herdr-zed.agents.workflow.requests`: `{ id, workflow, owner, agent, target, task, options, expiresAt }`, retaining the original composer intent ID and expiry (at most 30 seconds). Target follows the existing local launch-target grammar; task text is bounded to 20,000 characters and options contain only workflow/model/effort/service tier and an optional ECC preset. The downstream executor claims only its owner's requests, revalidates scope/profile and deduplicates the intent against its durable records. Tasks accepts `supervisor`, creates its tracked task and queues the same service-owned stage sequence used by the board. The first real stage tab resolves the shell composer's existing pending-launch UI. No account object, provider import, manifest schema change or separate shell dispatch path is introduced.
 
 ## 4. Mods and move order
 
@@ -607,7 +613,20 @@ are overridden; unrelated native plugins/account settings are retained. Existing
 no startup cleanup removes old snapshots. Remote launches do not use this local library. No shell contract
 or manifest schema changes are required.
 
-ECC is enabled by default for new local Claude/Codex sessions when no global configuration exists; explicit saved switches and project overrides remain authoritative. The bundled source supplies native specialist roles and workflows. Tasks owns progress and user acceptance, not a separate supervisor/worker dispatcher.
+ECC is enabled by default for new local Claude/Codex sessions when no global configuration exists; explicit saved switches and project overrides remain authoritative. The bundled source supplies native specialist roles and workflows. Tasks owns progress, user acceptance and its explicit local Codex/Claude Supervisor execution sequence. ECC's Supervisor capability preset remains a selection of Skills, separate from this execution option.
+
+### Supervisor task execution
+
+New thread and Tasks offer Single session or Supervisor for local Codex and Claude profiles. Supervisor is an explicit, remembered launch choice, independent of ECC selection; it does not change existing conversations or auto-classify chat as engineering work. Every stage uses the selected main model; research and review have no separate model controls. All stages retain the chosen profile's effective Rules, Skills and MCP policy. Agents accepts an invocation-only `readOnly: true` prepare/launch option: Codex uses its native read-only sandbox; Claude uses Plan mode, allows task reporting/list tools and denies ExitPlanMode so hooks cannot silently switch into editing. Account defaults stay unchanged.
+
+New thread and Tasks share the ECC and Workflow field definitions and per-profile preferences through `components/agent-launch-options.js`. Both offer an ECC preset: inherit global/project defaults, Basic, Development, Supervisor or Code review. Explicit presets compile invocation-only packages through the existing project-runtime path, even without a saved project override; they never save project policy or change global ECC/Guide defaults. Active inherited cost guidance, hook mode and MCP switches remain authoritative. Supervisor carries the selected preset into every stage. Full ECC component, hook and connection management remains in Settings; capability presets do not start workflow stages. Slash inventories follow the selected invocation preset, and changing fields invalidates the current discovery scope; submitting a selected skill revalidates its full immutable snapshot against the invocation preset.
+
+The Tasks service owns a durable `execution.supervisor` containing the chosen profile key, model choices and ordered stages. Each stage has a unique run, kind, status, launch receipt, bound tab and result. Tasks starts research, implementation and independent review as separate conversations through the existing AgentClient launch contract; research/review request read-only preparation. The launch `origin` remains `{ extension: 'tasks', ref }`, with `ref` set to the stage run rather than the parent task gid. Tasks resolves it back to its own record using the shell's thread read model, so no provider-specific logic or new manifest fields enter the shell.
+
+Supervisor reports require the matching live HC terminal, native thread origin and exact stage run. The Tasks MCP server forwards its own `HC_TERMINAL_ID` for explicit runs as well as ordinary reports; caller-supplied terminal identities remain rejected. A stage `done` report retains its result and queues the next stage, but never puts the parent in For review. The service starts that stage only after earlier workers stop working, preserving one writer at a time. A completed review requires the explicit optional `report_task.verdict` field (`pass` or `changes_requested`); it is rejected on other reports. Passing review finishes the attempt and puts the task in For review for user acceptance. Changes requested return to implementation once, then another independent review; a second rejection fails the attempt to bound automatic spend. Stage failures, stopped attempts and unconfirmed/failed launches never advance or auto-retry. Restarted services reuse pending state; ambiguous starts are left for inspection rather than duplicated. Closing a stage conversation does not archive its Supervisor task; task archival is explicit. Automatic crash recovery retains exact stage lineage, while manually reopening an unfinished stage is refused: stop that attempt and start another.
+
+The gate establishes that Herdr launched separate stages and received their assigned results. It does not prove review quality or parse arbitrary Codex/native subagent transcripts. Validation uses mocked launchers and temporary state; it does not launch agents against real projects. Existing Single session progress/report behavior is unchanged.
+
 
 ECC component selection is opt-in (missing IDs are off), independent of upstream catalog defaults. Functional profiles resolve bundled component IDs for each provider and replace only its selection map after preview; profile identity is derived from the selection, with no new persisted schema. Profile application does not start agents or enable Hooks, Workflows or MCP templates. The default is Basic with hook mode off; explicit saved choices remain authoritative.
 

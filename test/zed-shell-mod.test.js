@@ -185,7 +185,9 @@ test('native sidebar, pane menu, dock controls and empty editor render without e
   const choice = { key: 'codex', label: 'Codex', fields: [
     { id: 'model', label: 'Model', type: 'select', value: 'default', options: [{ key: 'default', label: 'Default model' }] },
     { id: 'effort', label: 'Effort', type: 'select', value: 'high', options: [{ key: 'default', label: 'Default effort' }, { key: 'high', label: 'High' }] },
-    { id: 'fast', label: 'Fast', type: 'toggle', value: true }] };
+    { id: 'fast', label: 'Fast', type: 'toggle', value: true },
+    { id: 'workflow', label: 'Workflow', type: 'select', row: 'secondary', value: 'direct', options: [{ key: 'direct', label: 'Single session' }] },
+    { id: 'eccProfile', label: 'ECC', type: 'select', row: 'secondary', value: 'inherit', options: [{ key: 'inherit', label: 'Global/project default' }] }] };
   const usage = [{ key: 'codex', label: 'Codex', windows: [{ label: '5h', minutes: 300, usedPercent: 20, resetsAt: null }] },
     { key: 'claude', label: 'Work', windows: [{ label: 'Week', minutes: 10080, usedPercent: 91, resetsAt: null }] }];
   view.startSession = () => ({ launcher: 'agents', choices: [choice], usage, choice, values: view.startValues(choice), ready: true });
@@ -201,6 +203,10 @@ test('native sidebar, pane menu, dock controls and empty editor render without e
   assert.ok(has(composer, 'project-start-model-popup'));
   assert.ok(has(composer, 'project-start-effort-popup'), 'Effort is directly accessible');
   assert.ok(has(composer, 'project-start-fast'), 'Fast is directly accessible');
+  const secondary = elements(composer).find(element => element.attributes.id === 'project-start-secondary-toolbar');
+  assert.ok(has(secondary, 'project-start-workflow-popup'));
+  assert.ok(has(secondary, 'project-start-eccProfile-popup'));
+  assert.equal(has(toolbar, 'project-start-workflow-popup'), false, 'Secondary choices stay below the model toolbar');
   assert.equal(has(composer, 'project-start-options'), false, 'no extra options menu');
   assert.doesNotMatch(text(composer), /Ctrl\+Enter|⌘ Enter|Start task/, 'keyboard hints and button text stay out of the composer');
   const usageRow = elements(composer).find(element => element.attributes.id === 'project-start-usage');

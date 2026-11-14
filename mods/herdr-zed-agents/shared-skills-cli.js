@@ -6,7 +6,7 @@ if (await isMain(import.meta.url)) {
   try {
     const [action, home, ...args] = process.argv.slice(2);
     let result = action === 'list' ? await readSharedLibrary(home)
-      : ['prepare', 'commands'].includes(action) ? await prepareSharedGuidance(home, args[0], args[1] || null, JSON.parse(args[2] || '{}'))
+      : ['prepare', 'commands'].includes(action) ? await prepareSharedGuidance(home, args[0], args[1] || null, JSON.parse(args[2] || '{}'), JSON.parse(args[4] || '{}'))
       : action === 'import' ? await importSharedSkill(home, args[0], args[1] || null) : (() => { throw Error('Unknown shared skills action.'); })();
     if (action === 'commands') result = (result?.commands || []).map(({ path, ...command }) => command);
     if (action === 'prepare' && args[3]) {

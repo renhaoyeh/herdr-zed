@@ -6,7 +6,10 @@ import { launcherChoices, launcherLabel, isAccountLauncher, sessionKind, setting
 import { emitLaunch, LAUNCHER_ID } from './launch.js';
 import { UsageClient } from './components/usage.js';
 import { COMPOSER_COMMAND_REQUESTS, COMPOSER_COMMAND_RESULTS, validComposerCommandRequest, composerCommands } from './components/extension-contract.js';
-import { providerCommands } from './devkits.js';
+import { providerCommands, providerDevkits } from './devkits.js';
+import { skillCommandTask } from './session-preparation.js';
+import { workflowExecutor, requestAgentWorkflow } from './components/agent-workflows.js';
+import { agentWorkflowFields, launchWorkflowOptions } from './components/agent-launch-options.js';
 
 export const COMPOSER_KEY = `herdr-zed.composer.${LAUNCHER_ID}`;
 export const LAUNCH_INTENTS = 'herdr-zed.launch.intents';
@@ -26,7 +29,7 @@ export function composerUsage(snapshot, machine = null) {
 }
 
 /** One composer choice per visible program: its fields and the account's saved session defaults. */
-export function composerChoice(agent, codexList, { sessions = {}, options = {} } = {}) {
+export function composerChoice(agent, codexList, { sessions = {}, options = {}, workflows = [], local = true } = {}) {
   const kind = sessionKind(agent), settings = options[kind] || {}, saved = sessions[settingsKey(agent)] || {};
   const { models } = sessionChoices(kind, codexList, settings, null);
   const fields = [];
@@ -44,6 +47,7 @@ export function composerChoice(agent, codexList, { sessions = {}, options = {} }
         return { key: effort, label: effortLabel(effort), ...(only ? { only: { model: only } } : {}) };
       }) });
     if (kind === 'codex') fields.push({ id: 'fast', label: 'Fast', type: 'toggle', value: saved.serviceTier === 'fast' });
+    fields.push(...agentWorkflowFields(agent, saved, { local, executor: workflows[0] }));
   }
   return { key: choiceKey(agent), label: (agent.profileKey || isAccountLauncher(agent)) && launcherLabel(agent.name) || agent.name, ...(agent.icon ? { icon: agent.icon } : {}),
     ...(agent.tint ? { tint: true } : {}), fields };
@@ -58,7 +62,7 @@ export function composerEnvelope(cache, codexModelsByHome, userHome, state = {})
     const agents = launcherChoices(availableAgents(profiles, machine), state.order || [])
       .filter(choice => choice.agent && !hidden.includes(choice.key)).map(choice => choice.agent);
     machines[machine || ''] = { choices: agents.map(agent => composerChoice(agent,
-      machine ? [] : codexModelsByHome.get(codexHome(agent, userHome)) || [], state)).filter(Boolean),
+      machine ? [] : codexModelsByHome.get(codexHome(agent, userHome)) || [], { ...state, local: !machine })).filter(Boolean),
       usage: composerUsage(state.usage?.contexts?.[JSON.stringify(machine)], machine) };
   }
   return { machines };
@@ -67,7 +71,8 @@ export function composerEnvelope(cache, codexModelsByHome, userHome, state = {})
 // The values a composer sent, as prepareSession options. Unknown fields are ignored; Default adds no flag.
 export function intentOptions(values = {}) {
   const pick = value => typeof value === 'string' && value && value !== DEFAULT ? value : null;
-  return { model: pick(values.model), effort: pick(values.effort), serviceTier: values.fast === true ? 'fast' : null };
+  return { model: pick(values.model), effort: pick(values.effort), serviceTier: values.fast === true ? 'fast' : null,
+    ...launchWorkflowOptions(values) };
 }
 
 export class Composer {
@@ -91,7 +96,14 @@ export class Composer {
           const cache = shared('herdr-zed.agent-cache')?.[JSON.stringify(request.target.machine || null)] || [];
           const agent = availableAgents(cache, request.target.machine).find(item => choiceKey(item) === request.choice);
           if (!agent) throw Error('This program is no longer available.');
-          const items = await providerCommands(agent, request.target);
+          const options = intentOptions(request.values);
+          let items;
+          if (options.eccProfile) {
+            const kind = sessionKind(agent);
+            if (request.target.machine || !['claude', 'codex'].includes(kind)) throw Error('ECC presets require local Claude Code or Codex.');
+            const kits = await providerDevkits(kind, request.target, {}, '', { eccProfile: options.eccProfile });
+            items = (kits?.commands || []).map(({ id, name, description }) => ({ id, name, description }));
+          } else items = await providerCommands(agent, request.target);
           if (!composerCommands({ items, expiresAt: request.expiresAt })) throw Error('Invalid skill list response.');
           result = { items };
         } catch (error) { result = { items: [], error: error.message }; }
@@ -125,7 +137,7 @@ export class Composer {
     const envelope = composerEnvelope(shared('herdr-zed.agent-cache'), this.codexModelsByHome, home(), {
       sessions: shared('herdr-zed.profile-sessions') || {}, options: shared('herdr-zed.session-options') || {},
       hidden: shared('herdr-zed.hidden-launchers') || [], order: shared('herdr-zed.launcher-order') || [],
-      usage: shared('herdr-zed.usage.snapshot') || {} });
+      usage: shared('herdr-zed.usage.snapshot') || {}, workflows: [workflowExecutor('supervisor')].filter(Boolean) });
     const text = JSON.stringify(envelope);
     if (text === this.published) return;
     this.published = text;
@@ -149,12 +161,28 @@ export class Composer {
           const agent = availableAgents(cache, machine).find(item => choiceKey(item) === intent.choice);
           if (!agent) throw new Error('This program is no longer available. Choose another.');
           if (intent.command !== undefined && (typeof intent.command !== 'string' || !intent.command || intent.command.length > 200)) throw Error('Invalid selected skill.');
-          await emitLaunch(agent, { ...intent.target, ...(intent.task ? { task: intent.task } : {}) },
-            { ...intentOptions(intent.values), ...(intent.command ? { command: intent.command } : {}) });
+          const options = intentOptions(intent.values);
+          if (options.eccProfile && (machine || spaces().find(space => space.id === intent.target?.space)?.machine
+            || !['claude', 'codex'].includes(sessionKind(agent)))) throw Error('ECC presets require local Claude Code or Codex.');
+          if (options.workflow === 'supervisor') {
+            const executor = workflowExecutor('supervisor'), kind = sessionKind(agent);
+            if (machine || spaces().find(space => space.id === intent.target?.space)?.machine || !['claude', 'codex'].includes(kind)
+              || !executor?.providers.includes(kind)) throw Error('Supervisor is no longer available for this project and program.');
+            const kits = intent.command || /^\s*\//.test(intent.task || '')
+              ? await providerDevkits(kind, intent.target, {}, '', { eccProfile: options.eccProfile }) : null;
+            const commands = kits?.commands || [];
+            const task = skillCommandTask(intent.task, intent.command, commands);
+            requestAgentWorkflow('supervisor', agent, { ...intent.target, task: task || intent.task }, options, { id: intent.id, expiresAt: intent.expiresAt });
+          } else {
+            await emitLaunch(agent, { ...intent.target, ...(intent.task ? { task: intent.task } : {}) },
+              { ...options, ...(intent.command ? { command: intent.command } : {}) });
+          }
           // The composer's last choice becomes the account's default, like the picker's menus.
-          const key = settingsKey(agent), sessions = shared('herdr-zed.profile-sessions') || {}, options = intentOptions(intent.values);
-          setShared('herdr-zed.profile-sessions', { ...sessions, [key]: { ...sessions[key], model: options.model, effort: options.effort,
-            ...(sessionKind(agent) === 'codex' ? { serviceTier: options.serviceTier } : {}) } });
+          const key = settingsKey(agent), sessions = shared('herdr-zed.profile-sessions') || {};
+          setShared('herdr-zed.profile-sessions', { ...sessions, [key]: { ...sessions[key], model: options.model, effort: options.effort, eccProfile: options.eccProfile || null,
+            ...(sessionKind(agent) === 'codex' ? { serviceTier: options.serviceTier } : {}),
+            ...(options.workflow ? { workflow: options.workflow }
+              : intent.values?.workflow === 'direct' ? { workflow: 'direct' } : {}) } });
         } catch (error) { notify({ title: 'Could not start thread', body: error.message, level: 'error' }); }
       });
     }

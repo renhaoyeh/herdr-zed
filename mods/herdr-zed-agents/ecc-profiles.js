@@ -1,15 +1,8 @@
 import { eccItemEnabled } from './ecc-model.js';
 
 export const eccCostSkill = 'skills:cost-aware-llm-pipeline';
-export const eccProfiles = [
-  { id: 'basic', name: 'Basic', description: 'No optional ECC components. Herdr task progress stays available.', ids: [] },
-  { id: 'development', name: 'Development', description: 'Test-driven implementation, failure diagnosis and verification.',
-    ids: ['skills:tdd-workflow', 'skills:agent-introspection-debugging', 'skills:verification-loop'] },
-  { id: 'supervisor', name: 'Supervisor', description: 'Task decomposition, model tiers, work ownership and result verification.',
-    ids: ['skills:agentic-engineering', 'skills:team-agent-orchestration', 'skills:verification-loop', 'agents:planner.md', 'agents:code-reviewer.md'] },
-  { id: 'review', name: 'Code review', description: 'Change verification and security review; specialist reviewers on Claude Code.',
-    ids: ['skills:verification-loop', 'skills:security-review', 'agents:code-reviewer.md', 'agents:security-reviewer.md'] },
-];
+export { eccProfiles } from './components/agent-launch-options.js';
+import { eccProfiles } from './components/agent-launch-options.js';
 
 export function eccProfilePlan(items, provider, id, cost = false) {
   const profile = eccProfiles.find(profile => profile.id === id);

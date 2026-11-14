@@ -1,7 +1,10 @@
+import { agentWorkflowFields, launchWorkflowOptions } from '../components/agent-launch-options.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as contract from '../components/extension-contract.js';
 import { evaluateNative } from './source-harness.js';
+import { sessionKind } from '../components/session-model.js';
+import { eccProfiles } from '../mods/herdr-zed-agents/ecc-profiles.js';
 
 const commands = [{ id: 'mine:skills:review', name: 'review', description: 'Review code' },
   { id: 'visual-studio', name: 'visual-studio', description: 'Build the solution' }];
@@ -10,7 +13,7 @@ async function shell() {
   const memory = {}, events = {}, bindings = [], scrolled = [], cx = { notify() {}, stop_propagation() {}, bind_keys: keys => bindings.push(...keys) };
   const input = { text: '', on(name, fn) { events[name] = fn; }, set_auto_grow() {}, value() { return this.text; }, set_value(value) { this.text = value; },
     set_selected_range(range) { this.range = range; }, focus() {} };
-  const host = { ...contract, shared: key => memory[key], setShared: (key, value) => { memory[key] = value; }, spaces: () => [],
+  const host = { ...contract, launchWorkflowOptions, shared: key => memory[key], setShared: (key, value) => { memory[key] = value; }, spaces: () => [],
     withAttachments: text => text, ScrollHandle: { new: () => ({ scroll_to_item: index => scrolled.push(index), release() {} }) }, TextareaState: { new: () => input } };
   const { startPanel, LAUNCH_INTENTS } = await evaluateNative('../mods/herdr-zed/start-panel.js', host, 'startPanel, LAUNCH_INTENTS');
   const view = { ...startPanel }; view.initStartPanel(cx);
@@ -29,6 +32,7 @@ test('slash menu requests scoped commands, filters, selects by keyboard and hand
   })));
   const request = h.memory[contract.COMPOSER_COMMAND_REQUESTS][0];
   assert.equal(request.launcher, 'custom-provider'); assert.equal(request.choice, 'account'); assert.equal(request.target.folder, '/project');
+  assert.deepEqual(request.values, {});
   h.memory[contract.COMPOSER_COMMAND_RESULTS] = { [request.id]: { items: commands, expiresAt: request.expiresAt } };
   h.view.refreshStartCommands(h.cx);
   assert.deepEqual(h.view.startCommandItems(), commands);
@@ -118,11 +122,51 @@ test('failed skill discovery can be retried without keeping the failed scope cac
   assert.deepEqual(h.view.startCommandItems(), commands);
 });
 
+test('invocation choices scope skill caches and changing ECC immediately requests its skills without reusing late results', async () => {
+  const h = await shell(), choice = { key: 'account', fields: [
+    { id: 'eccProfile', type: 'select', value: 'inherit', options: ['inherit', 'development', 'basic'].map(key => ({ key, label: key })) },
+    { id: 'fast', type: 'toggle', value: false },
+  ] };
+  h.view.startTarget.intent.values = { eccProfile: 'inherit', fast: false };
+  h.edit('/');
+  const inherited = h.memory[contract.COMPOSER_COMMAND_REQUESTS][0], originalScope = h.view.startCommandScope();
+  h.memory[contract.COMPOSER_COMMAND_RESULTS] = { [inherited.id]: { items: commands, expiresAt: inherited.expiresAt } };
+  h.view.refreshStartCommands(h.cx);
+  h.view.startTarget.intent.values = { fast: false, eccProfile: 'inherit' };
+  assert.equal(h.view.startCommandScope(), originalScope, 'property insertion order does not change scope');
+
+  h.view.pickStartValue(choice, 'eccProfile', 'development', h.cx);
+  const selected = h.memory[contract.COMPOSER_COMMAND_REQUESTS].at(-1);
+  assert.notEqual(selected.id, inherited.id);
+  assert.deepEqual(selected.values, { eccProfile: 'development', fast: false });
+  assert.deepEqual(inherited.values, { eccProfile: 'inherit', fast: false }, 'queued invocation values are a snapshot');
+  h.view.refreshStartCommands(h.cx);
+  assert.deepEqual(h.view.startCommandItems(), [], 'the inherited result cannot fill the new scope');
+  const presetSkills = [{ id: 'ecc:tdd', name: 'ecc-tdd', description: 'Development skill' }];
+  h.memory[contract.COMPOSER_COMMAND_RESULTS][selected.id] = { items: presetSkills, expiresAt: selected.expiresAt };
+  h.view.refreshStartCommands(h.cx);
+  assert.deepEqual(h.view.startCommandItems(), presetSkills);
+  h.view.chooseStartCommand(presetSkills[0], h.cx);
+  h.view.pickStartValue(choice, 'eccProfile', 'basic', h.cx);
+  assert.equal(h.view.startCommandSelection, null, 'changing invocation values invalidates the selected opaque ID');
+  assert.equal(h.input.text, '/ecc-tdd ', 'changing ECC preserves the draft');
+  h.edit('/');
+  const basic = h.memory[contract.COMPOSER_COMMAND_REQUESTS].at(-1);
+  h.view.pickStartValue(choice, 'eccProfile', 'inherit', h.cx);
+  h.memory[contract.COMPOSER_COMMAND_RESULTS][basic.id] = { items: [], expiresAt: basic.expiresAt };
+  h.view.refreshStartCommands(h.cx);
+  assert.equal(h.view.startCommandScope(), originalScope);
+  assert.deepEqual(h.view.startCommandItems(), commands, 'returning to inheritance restores only its own cached list');
+});
+
 test('command transport rejects unknown fields, invalid targets, duplicates, paths and expired replies', () => {
-  const now = 100, request = { id: 'request:1', launcher: 'agents', choice: 'codex', target: { folder: '/project' }, expiresAt: now + 30000 };
+  const now = 100, request = { id: 'request:1', launcher: 'agents', choice: 'codex', target: { folder: '/project' }, values: { eccProfile: 'development', fast: true }, expiresAt: now + 30000 };
   assert.equal(contract.validComposerCommandRequest(request, now, []), true);
   for (const bad of [{ ...request, token: 'secret' }, { ...request, expiresAt: now }, { ...request, target: { folder: '/project', space: 'unknown' } }])
     assert.equal(contract.validComposerCommandRequest(bad, now, []), false);
+  for (const values of [undefined, null, [], { model: null }, { fast: 1 }, { 'invalid key': 'basic' }, { model: 'x'.repeat(201) },
+    Object.fromEntries(Array.from({ length: 9 }, (_, index) => [`field${index}`, 'value']))])
+    assert.equal(contract.validComposerCommandRequest({ ...request, values }, now, []), false);
   assert.deepEqual(contract.composerCommands({ items: commands, expiresAt: 200 }, now), commands);
   for (const items of [[commands[0], commands[0]], [{ ...commands[0], name: '../review' }], [{ ...commands[0], path: '/source' }]])
     assert.equal(contract.composerCommands({ items, expiresAt: 200 }, now), null);
@@ -130,9 +174,9 @@ test('command transport rejects unknown fields, invalid targets, duplicates, pat
 });
 
 test('provider discovers skills for the requested choice/project without launching and returns errors as retryable results', async () => {
-  const now = Date.now(), requests = [{ id: 'request:1', launcher: 'agents', choice: 'codex', target: { folder: '/project' }, expiresAt: now + 30000 }];
+  const now = Date.now(), requests = [{ id: 'request:1', launcher: 'agents', choice: 'codex', target: { folder: '/project' }, values: { eccProfile: 'inherit' }, expiresAt: now + 30000 }];
   const memory = { [contract.COMPOSER_COMMAND_REQUESTS]: requests, 'herdr-zed.agent-cache': { null: [{ key: 'codex' }] } }, calls = [], jobs = [];
-  const { Composer } = await evaluateNative('../mods/herdr-zed-agents/composer.js', { ...contract, LAUNCHER_ID: 'agents',
+  const { Composer } = await evaluateNative('../mods/herdr-zed-agents/composer.js', { ...contract, launchWorkflowOptions, LAUNCHER_ID: 'agents',
     shared: key => memory[key], setShared: (key, value) => { memory[key] = value; }, spaces: () => [], availableAgents: profiles => profiles,
     providerCommands: async (agent, target) => { calls.push([agent, target]); return commands; } }, 'Composer');
   const service = new Composer(), cx = { spawn: fn => jobs.push(fn()) };
@@ -146,9 +190,31 @@ test('provider discovers skills for the requested choice/project without launchi
   assert.equal(calls.length, 1);
 });
 
+test('explicit ECC skill discovery uses the invocation snapshot for either provider and publishes only command metadata', async () => {
+  for (const kind of ['claude', 'codex']) {
+    const request = { id: `preset:${kind}`, launcher: 'agents', choice: kind, target: { folder: '/project' }, values: { eccProfile: 'development' }, expiresAt: Date.now() + 30000 };
+    const memory = { [contract.COMPOSER_COMMAND_REQUESTS]: [request], 'herdr-zed.agent-cache': { null: [{ key: kind }] } }, calls = [], jobs = [];
+    const { Composer } = await evaluateNative('../mods/herdr-zed-agents/composer.js', { ...contract, launchWorkflowOptions, eccProfiles, sessionKind, LAUNCHER_ID: 'agents',
+      shared: key => memory[key], setShared: (key, value) => { memory[key] = value; }, spaces: () => [], availableAgents: profiles => profiles,
+      providerCommands: async () => { throw Error('Global inventory must not replace the selected preset.'); },
+      providerDevkits: async (...args) => { calls.push(args); return { commands: [{ id: 'ecc:tdd', name: 'ecc-tdd', description: 'Development skill', path: '/immutable/SKILL.md' }] }; } }, 'Composer');
+    const service = new Composer(), cx = { spawn: fn => jobs.push(fn()) };
+    service.pollCommands(cx); await Promise.all(jobs);
+    assert.deepEqual(calls, [[kind, request.target, {}, '', { eccProfile: 'development' }]]);
+    assert.deepEqual(memory[contract.COMPOSER_COMMAND_RESULTS][request.id], {
+      items: [{ id: 'ecc:tdd', name: 'ecc-tdd', description: 'Development skill' }], expiresAt: request.expiresAt,
+    });
+    assert.deepEqual(memory[contract.COMPOSER_COMMAND_REQUESTS], []);
+    memory[contract.COMPOSER_COMMAND_REQUESTS] = [{ ...request, id: `invalid:${kind}`, values: { eccProfile: 'unknown' } }];
+    service.pollCommands(cx); await Promise.all(jobs);
+    assert.match(memory[contract.COMPOSER_COMMAND_RESULTS][`invalid:${kind}`].error, /available ECC preset/);
+    assert.equal(calls.length, 1, 'invalid presets never read a skill snapshot');
+  }
+});
+
 test('the provider launches with the resolved skill task as the actual first prompt', async () => {
   const memory = {}, task = 'Use the skill at `/snapshot/SKILL.md`.\n\nCheck this project.';
-  const { emitLaunch, LAUNCH_REQUESTS } = await evaluateNative('../mods/herdr-zed-agents/launch.js', { ...contract,
+  const { emitLaunch, LAUNCH_REQUESTS } = await evaluateNative('../mods/herdr-zed-agents/launch.js', { ...contract, launchWorkflowOptions,
     shared: key => memory[key], setShared: (key, value) => { memory[key] = value; }, spaces: () => [], window: () => ({ platform: 'windows' }),
     sessionKind: () => 'codex', terminalArgv: argv => argv, prepareSession: async () => ({ argv: ['codex'], session: {}, task }) }, 'emitLaunch, LAUNCH_REQUESTS');
   await emitLaunch({ key: 'codex', name: 'Codex' }, { folder: '/project', task: '/review Check this project.' }, { command: 'mine:skills:review' });
@@ -169,7 +235,7 @@ test('slash results live in a native popup content slot, outside the composer la
       return (...args) => { data.styles[key] = args; return proxy; };
     } }); return proxy;
   };
-  const { startPanel } = await evaluateNative('../mods/herdr-zed/start-panel.js', { ...contract,
+  const { startPanel } = await evaluateNative('../mods/herdr-zed/start-panel.js', { ...contract, launchWorkflowOptions,
     div: () => make('div'), h_flex: () => make('row'), v_flex: () => make('column'), glyph: () => make('icon'),
     shared: key => memory[key], Textarea: { new: () => make('textarea') }, Popup: { new: (id, trigger) => make('popup', id).child(trigger) },
     Button: id => make('button', id), ToolbarButton: id => make('button', id) }, 'startPanel');

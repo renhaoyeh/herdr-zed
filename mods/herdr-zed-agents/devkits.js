@@ -16,9 +16,9 @@ export async function readMineItems() {
   if (result.code !== 0) throw Error(result.stderr?.trim() || 'Could not list your Rules and Skills.');
   return JSON.parse(result.stdout || '[]');
 }
-export async function sessionDevkits(agent, target = {}, switches = {}, argv = []) {
+export async function sessionDevkits(agent, target = {}, switches = {}, argv = [], options = {}) {
   const provider = sessionKind(agent), account = eccAccount(provider, argv, home());
-  const guidance = await providerDevkits(provider, target, switches, account?.directory);
+  const guidance = await providerDevkits(provider, target, switches, account?.directory, options);
   if (!guidance?.flags?.length) return guidance;
   const executable = argv.findIndex(arg => new RegExp(`(?:^|[/\\\\])${provider}(?:\\.exe|\\.cmd)?$`, 'i').test(arg));
   if (executable < 0) throw Error('Could not find the shared Skills agent executable.');
@@ -26,10 +26,10 @@ export async function sessionDevkits(agent, target = {}, switches = {}, argv = [
   if (pluginDir >= 0) return { ...guidance, argv: [...argv.slice(0, pluginDir + 1), guidance.flags[1], ...argv.slice(pluginDir + 1)] };
   return { ...guidance, argv: [...argv.slice(0, executable + 1), ...guidance.flags, ...argv.slice(executable + 1)] };
 }
-export async function providerDevkits(provider, target = {}, switches = {}, directory = '') {
+export async function providerDevkits(provider, target = {}, switches = {}, directory = '', options = {}) {
   if (!['codex', 'claude'].includes(provider)) return null;
   const result = await exec('node', [`${appHome()}/mods/herdr-zed-agents/shared-skills-cli.js`, 'prepare', appHome(), provider,
-    target.folder || '', JSON.stringify(switches), directory], { timeout: 240000 });
+    target.folder || '', JSON.stringify(switches), directory, JSON.stringify({ eccProfile: options.eccProfile })], { timeout: 240000 });
   if (result.code !== 0) throw Error(result.stderr?.trim() || 'Could not prepare shared skills.');
   return JSON.parse(result.stdout || 'null');
 }

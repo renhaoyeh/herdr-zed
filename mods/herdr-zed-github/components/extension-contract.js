@@ -91,8 +91,9 @@ const MAX_LABEL = 80, KEY_PATTERN = /^[\w.:@#-]{1,200}$/;
 /** @param {unknown} field @returns {field is ComposerField} */
 const validField = field => plain(field) && typeof field.id === 'string' && KEY_PATTERN.test(field.id)
   && typeof field.label === 'string' && field.label.length > 0 && field.label.length <= MAX_LABEL
-  && (field.type === 'toggle' ? hasOnlyKeys(field, ['id', 'label', 'type', 'value']) && typeof field.value === 'boolean'
-    : field.type === 'select' && hasOnlyKeys(field, ['id', 'label', 'type', 'value', 'options']) && Array.isArray(field.options)
+  && (field.row === undefined || field.row === 'secondary')
+  && (field.type === 'toggle' ? hasOnlyKeys(field, ['id', 'label', 'type', 'row', 'value']) && typeof field.value === 'boolean'
+    : field.type === 'select' && hasOnlyKeys(field, ['id', 'label', 'type', 'row', 'value', 'options']) && Array.isArray(field.options)
       && field.options.length > 0 && field.options.every(option => plain(option) && hasOnlyKeys(option, ['key', 'label', 'only'])
         && typeof option.key === 'string' && KEY_PATTERN.test(option.key)
         && typeof option.label === 'string' && option.label.length > 0 && option.label.length <= MAX_LABEL
@@ -144,10 +145,13 @@ export const COMPOSER_COMMAND_REQUESTS = 'herdr-zed.composer-command.requests';
 export const COMPOSER_COMMAND_RESULTS = 'herdr-zed.composer-command.results';
 /** @param {unknown} value @param {number} now @param {{id:string, machine?:string|null}[]} spaces @returns {value is ComposerCommandRequest} */
 export function validComposerCommandRequest(value, now, spaces) {
-  return plain(value) && hasOnlyKeys(value, ['id', 'launcher', 'choice', 'target', 'expiresAt'])
+  return plain(value) && hasOnlyKeys(value, ['id', 'launcher', 'choice', 'target', 'values', 'expiresAt'])
     && typeof value.id === 'string' && KEY_PATTERN.test(value.id)
     && typeof value.launcher === 'string' && EXTENSION_ID_PATTERN.test(value.launcher)
     && typeof value.choice === 'string' && KEY_PATTERN.test(value.choice)
+    && plain(value.values) && Object.keys(value.values).length <= 8
+    && Object.entries(value.values).every(([key, item]) => KEY_PATTERN.test(key)
+      && (typeof item === 'boolean' || typeof item === 'string' && KEY_PATTERN.test(item)))
     && typeof value.expiresAt === 'number' && value.expiresAt > now && value.expiresAt <= now + 60_000
     && validateLaunchTarget(value.target, spaces).ok;
 }

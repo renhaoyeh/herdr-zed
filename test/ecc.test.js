@@ -186,6 +186,26 @@ test('never-managed disabled ECC accounts are untouched and preparation returns 
   await assert.rejects(prepareEcc({}, argv), /guidance is unavailable/);
 }));
 
+test('per-conversation ECC profile travels to project preparation and bypasses global synchronization', async () => {
+  for (const provider of ['claude', 'codex']) {
+    const calls = [];
+    const { prepareEcc } = await evaluateNative('../mods/herdr-zed-agents/ecc.js', {
+      ...profiles, appHome: () => '/herdr', home: () => '/home', parseEcc, eccAccount, sessionKind: () => provider,
+      readTextFile: async path => { assert.equal(path, '/selected-guidance.md'); return 'Selected invocation guidance.'; },
+      exec: async (command, args) => { calls.push(args); return { code: 0, stdout: JSON.stringify({ flags: ['--selected'], mcp: { browser: false }, instructionsFile: '/selected-guidance.md' }) }; },
+    }, 'prepareEcc');
+    const argv = ['env', `${provider === 'codex' ? 'CODEX_HOME' : 'CLAUDE_CONFIG_DIR'}=/account`, provider, '--', 'prompt'];
+    const result = await prepareEcc({}, argv, { folder: '/project' }, { eccProfile: 'development' });
+    assert.deepEqual(calls, [['/herdr/mods/herdr-zed-agents/ecc-project-runtime.js', '/herdr', '/project', provider, '/account', 'development']]);
+    assert.deepEqual(result.argv, [...argv.slice(0, 3), '--selected', ...argv.slice(3)]);
+    assert.deepEqual(result.mcp, { browser: false }); assert.equal(result.instructions, 'Selected invocation guidance.');
+    await assert.rejects(prepareEcc({}, argv, { folder: '/project' }, { eccProfile: 'typo' }), /supported ECC profile/);
+    await assert.rejects(prepareEcc({}, argv, {}, { eccProfile: 'basic' }), /local project folder/);
+    await assert.rejects(prepareEcc({}, argv, { folder: '/project', machine: 'remote' }, { eccProfile: 'basic' }), /local project folder/);
+    assert.equal(calls.length, 1, 'Invalid input must fail before execution');
+  }
+});
+
 test('catalog requests ignore older sources and results arriving after the panel closes', async () => {
   const gates = [], tasks = [];
   const { eccSettings } = await evaluateNative('../mods/herdr-zed-agents/ecc-settings.js', {

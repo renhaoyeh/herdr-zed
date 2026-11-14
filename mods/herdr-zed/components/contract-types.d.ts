@@ -53,6 +53,15 @@ export interface ExtensionManifest {
 export interface LaunchTarget {
   space?: string | null; folder: string; projectName?: string; machine?: string | null; overlay?: string;
 }
+/** §3.11 Agent Runtime's optional, leased workflow executors. */
+export interface AgentWorkflowExecutor {
+  owner: ExtensionId; label: string; providers: ('codex' | 'claude')[]; expiresAt: number;
+}
+export interface AgentWorkflowRequest {
+  id: string; workflow: string; owner: ExtensionId; agent: string; target: LaunchTarget; task: string; expiresAt: number;
+  options: { workflow: string; model?: string | null; effort?: string | null; serviceTier?: 'fast' | null;
+    eccProfile?: 'basic' | 'development' | 'supervisor' | 'review' | null; };
+}
 /** Optional provider record a launch belongs to; echoed into the thread read model. */
 export interface LaunchOrigin { extension: ExtensionId; ref: string; }
 export interface LaunchRequest {
@@ -63,8 +72,8 @@ export interface LaunchRequest {
 }
 /** §3.1 Composer: launcher → shell, `herdr-zed.composer.<extension id>`. */
 export type ComposerField =
-  | { id: string; label: string; type: 'select'; value: string; options: { key: string; label: string; only?: Record<string, string[]> }[] }
-  | { id: string; label: string; type: 'toggle'; value: boolean };
+  | { id: string; label: string; type: 'select'; row?: 'secondary'; value: string; options: { key: string; label: string; only?: Record<string, string[]> }[] }
+  | { id: string; label: string; type: 'toggle'; row?: 'secondary'; value: boolean };
 /** `detail`: a short reading beside the choice (e.g. its account's quota); `tone` colours it. */
 export interface ComposerChoice { key: string; label: string; icon?: string; tint?: boolean; fields: ComposerField[]; }
 export interface ComposerUsageWindow { label: string; minutes: number; usedPercent: number; resetsAt: number | null; }
@@ -75,9 +84,9 @@ export interface LaunchIntent {
   id: string; launcher: ExtensionId; target: LaunchTarget; choice: string;
   values: Record<string, string | boolean>; task?: string; command?: string; expiresAt: number;
 }
-/** §3.1 Read-only composer command discovery, scoped to one launcher choice and project. */
+/** §3.1 Read-only composer command discovery, scoped to one launcher choice, project and invocation values. */
 export interface ComposerCommand { id: string; name: string; description: string; }
-export interface ComposerCommandRequest { id: string; launcher: ExtensionId; choice: string; target: LaunchTarget; expiresAt: number; }
+export interface ComposerCommandRequest { id: string; launcher: ExtensionId; choice: string; target: LaunchTarget; values: Record<string, string | boolean>; expiresAt: number; }
 export type Validation<T> = { ok: true; value: T } | { ok: false; error: string };
 
 /** §3.3 provider → shell, `herdr-zed.decorations.<extension id>`. */

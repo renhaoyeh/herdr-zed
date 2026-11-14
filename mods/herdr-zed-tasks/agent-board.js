@@ -365,7 +365,7 @@ export default class AgentBoard {
       ? Select('board-task-priority', this.prioritySelect, task.priority || 'none', boardPriorityOptions(t), 'Priority', setPriority, t, { width: 190 })
       : h_flex().gap(8).items_center().child(glyph(priority.icon, 14).text_color(t.muted)).child(priority.label);
     const reopen = Boolean((task.archiveId || task.conversation) && !task.archived && !task.tabs.length);
-    const launchRow = detail && canStartTask(task) ? this.session.render({ ...detail, runs: task.runs, execution: task.execution }, launchers, actions.start, t, cx) : null;
+    const launchRow = detail && canStartTask(task) ? this.session.render({ ...detail, runs: task.runs, execution: task.execution }, launchers, actions.start, t, cx, project) : null;
     const property = (label, value) => h_flex().min_h(28).gap(12).items_center().text_size(13)
       .child(div().w(74).flex_none().text_color(t.muted).child(label))
       .child(h_flex().min_w(0).flex_1().items_center().child(value));
@@ -400,7 +400,8 @@ export default class AgentBoard {
         .when(Boolean(task.attention), el => el.child(v_flex().id('board-action-required').gap(6)
           .child(div().text_size(12).font_medium().text_color('#b39af5').child('Action Required'))
           .child(div().text_size(13).child(task.attention.message))))
-        .when(Boolean(task.attention || task.agents.some(agent => ['working', 'blocked'].includes(agent.status))), el => el.child(button('board-stop-session', t).h(28).self_start()
+        .when(Boolean(task.attention || task.agents.some(agent => ['working', 'blocked'].includes(agent.status))
+          || task.execution?.supervisor && (!['done', 'fail', 'stopped'].includes(task.execution.status) || task.execution.stopConfirmed === false)), el => el.child(button('board-stop-session', t).h(28).self_start()
           .on_click(() => actions.stop?.(task)).child(glyph('square', 13)).child('Stop session')))
         .when(Boolean(task.interrupted), el => el.child(div().text_size(12).text_color(t.muted).child('Session interrupted. Progress was preserved; choose Todo to start another attempt.')))
         .when(Boolean(this.detail.detailError), el => el.child(div().text_size(12).text_color(t.destructive).child(this.detail.detailError)))
@@ -431,7 +432,11 @@ export default class AgentBoard {
             .child(div().text_size(12).child(`${run.profileName || run.profile || 'Agent'} · ${run.status}${run.model ? ` · ${run.model}` : ''}`))
             .when(Boolean(run.startedAt), el => el.child(div().text_size(10).text_color(t.muted).child(new Date(run.startedAt).toLocaleString())))
             .when(Boolean(run.instructions), el => el.child(TextView.markdown(`run-instructions-${run.id}`, run.instructions).selectable(true).scrollable(false).w_full().text_size(12)))
-            .child(div().text_size(12).text_color(t.muted).child(run.summary || 'No result reported'))))))
+            .child(div().text_size(12).text_color(t.muted).child(run.summary || 'No result reported'))
+            .children((run.supervisor?.stages || []).map(stage => v_flex().pl(12).gap(4)
+              .child(div().text_size(12).child(`${{ research: 'Research', implementation: 'Implementation', review: 'Review' }[stage.kind] || stage.kind} · ${stage.status}${stage.model ? ` · ${stage.model}` : ''}`))
+              .when(Boolean(stage.verdict), el => el.child(div().text_size(12).child(`Verdict: ${stage.verdict}`)))
+              .child(div().text_size(12).text_color(t.muted).child(stage.summary || 'No result reported'))))))))
         .when(Boolean(task.activity?.length), el => el.child(v_flex().id('board-task-activity').gap(10)
           .child(div().text_size(12).font_medium().child('Activity'))
           .children(task.activity.slice(-15).reverse().map(item => v_flex().gap(4)

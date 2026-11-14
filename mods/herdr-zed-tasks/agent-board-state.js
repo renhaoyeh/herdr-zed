@@ -31,6 +31,9 @@ export function archivedConversations(project) {
     if (typeof entry?.tab !== 'string' || folderKey(entry.folder) !== folderKey(project.folder)) continue;
     const link = links[entry.tab];
     const gid = link && folderKey(link.folder) === folderKey(project.folder) ? link.gid : threadTaskId(entry.tab);
+    const supervisor = boardRecords(project)[gid]?.execution?.supervisor;
+    // A workflow owns several conversations; only explicit task Archive archives the task.
+    if (supervisor) continue;
     if (!archived[gid] || (entry.at || 0) > (archived[gid].at || 0)) archived[gid] = entry;
   }
   return archived;

@@ -17,6 +17,8 @@ import { commandArgv } from '../components/session-shell.js';
 import { parseEcc, eccAccount } from '../mods/herdr-zed-agents/ecc-model.js';
 import { prepareSharedGuidance } from '../mods/herdr-zed-agents/shared-skills.js';
 import { prepareSharedPlugin } from '../mods/herdr-zed-agents/shared-skills-runtime.js';
+import { buildEccPackage } from '../mods/herdr-zed-agents/ecc-package.js';
+import { eccProfiles, eccProfilePlan, eccCostSkill } from '../mods/herdr-zed-agents/ecc-profiles.js';
 
 async function listNativeSkills(directory, folder, flags) {
   const [command, ...args] = commandArgv(['codex', '--no-daemon', ...flags, 'app-server', '--listen', 'stdio://'], process.platform === 'win32' ? 'windows' : process.platform);
@@ -219,6 +221,111 @@ test('project overrides control cost skill activation independently of the globa
     }
   }
   assert.equal(await readFile(join(data, 'ecc.json'), 'utf8'), global);
+}));
+
+test('invocation ECC profiles replace selections for both providers without saving defaults or project policy', async () => fixture(async ({ home, folder, root, source, data }) => {
+  for (const id of new Set([...eccProfiles.flatMap(profile => profile.ids), eccCostSkill])) {
+    const [group, name] = id.split(':');
+    const path = group === 'skills' ? join(source, group, name, 'SKILL.md') : join(source, group, name);
+    await mkdir(join(path, '..'), { recursive: true });
+    await writeFile(path, `---\nname: ${name.replace('.md', '')}\ndescription: Test profile component\n---\nSelected ${id}.`);
+  }
+  const globalText = JSON.stringify({ version: 1, enabled: false, source, claudeHooks: 'strict', providerEnabled: { claude: false, codex: false },
+    selection: { claude: { 'skills:alpha': true, [eccCostSkill]: true }, codex: { 'skills:alpha': true, [eccCostSkill]: true } } });
+  await writeFile(join(data, 'ecc.json'), globalText);
+  await writeFile(join(data, 'AGENTS.md'), 'Keep the saved Guide.');
+  const mcpText = await readFile(join(data, 'shared-mcp.json'), 'utf8');
+  const account = join(root, 'account'); await mkdir(account);
+  const oldId = 'ecc@herdr-zed-ecc-0123456789abcdef';
+  const accountText = JSON.stringify({ enabledPlugins: { [oldId]: true, unrelated: true } });
+  await writeFile(join(account, 'settings.json'), accountText);
+  const plugins = { [oldId]: { enabled: true }, unrelated: { enabled: true } };
+  const options = {
+    configService: async () => ({ config: { plugins }, close: async () => {}, write: async edits => {
+      for (const edit of edits) plugins[JSON.parse(edit.keyPath.slice(8, -8))].enabled = edit.value;
+    } }),
+    run: async (_provider, _directory, args) => { plugins[args.at(-2)] = { enabled: true }; },
+  };
+  for (const provider of ['claude', 'codex']) for (const profile of eccProfiles) {
+    let bundle;
+    const prepared = await prepareProjectEcc(home, folder, provider, account, { ...options, profile: profile.id,
+      packageBuilder: async (config, provider, output, catalog, options) => {
+        const plan = eccProfilePlan(catalog.items, provider, profile.id);
+        assert.equal(config.enabled, true); assert.equal(config.claudeHooks, 'strict');
+        assert.deepEqual(Object.keys(config.selection[provider]).sort(), [...plan.ids].sort());
+        bundle = await buildEccPackage(config, provider, output, catalog, options); return bundle;
+      } });
+    assert.deepEqual(prepared.mcp, {});
+    assert.equal(prepared.instructionsFile, null, 'Disabled defaults cannot activate cost guidance');
+    const manifest = JSON.parse(await readFile(join(bundle.root, 'devkits-package.json'), 'utf8'));
+    assert.deepEqual(manifest.selected.sort(), [...eccProfilePlan([], provider, profile.id).ids].sort());
+    await assert.rejects(access(join(bundle.root, 'skills/alpha/SKILL.md')), { code: 'ENOENT' });
+    if (provider === 'claude') {
+      assert.deepEqual(JSON.parse(prepared.flags[prepared.flags.indexOf('--settings') + 1]), { enabledPlugins: { [oldId]: false } });
+      assert.equal(prepared.flags.includes('--plugin-dir'), profile.id !== 'basic');
+    } else {
+      assert.ok(prepared.flags.includes(`plugins.${oldId}.enabled=false`));
+      assert.equal(prepared.flags.includes(`plugins.${bundle.pluginId}.enabled=true`), profile.id !== 'basic');
+      if (profile.id !== 'basic') assert.equal(plugins[bundle.pluginId].enabled, false);
+    }
+    assert.equal(plugins[oldId].enabled, true); assert.equal(plugins.unrelated.enabled, true);
+    assert.equal(await readFile(join(account, 'settings.json'), 'utf8'), accountText);
+    assert.equal(await readFile(join(data, 'ecc.json'), 'utf8'), globalText);
+  }
+  assert.equal(await readFile(join(data, 'AGENTS.md'), 'utf8'), 'Keep the saved Guide.');
+  assert.equal(await readFile(join(data, 'shared-mcp.json'), 'utf8'), mcpText);
+  await assert.rejects(access(join(data, 'project-capabilities')), { code: 'ENOENT' });
+  assert.equal(await prepareProjectEcc(home, folder, 'codex', account, options), null, 'An inherited launch still uses global preparation');
+}));
+
+test('invocation profile inherits active cost selection and project hook/MCP switches without writing policy', async () => fixture(async ({ call, home, folder, root, source, data }) => {
+  await mkdir(join(source, 'skills/cost-aware-llm-pipeline'));
+  await writeFile(join(source, 'skills/cost-aware-llm-pipeline/SKILL.md'), '# Cost guidance\nChoose models by complexity.');
+  const account = join(root, 'account'); await mkdir(account);
+  const options = { configService: async () => ({ config: {}, close: async () => {} }), run: async () => {} };
+  for (const provider of ['claude', 'codex']) {
+    for (const [globalOn, providerOn, selected] of [[true, true, true], [false, true, true], [true, false, true], [true, true, false]]) {
+      const globalText = JSON.stringify({ version: 1, enabled: globalOn, source, claudeHooks: 'minimal', providerEnabled: { [provider]: providerOn },
+        selection: { [provider]: { [eccCostSkill]: selected } } });
+      await writeFile(join(data, 'ecc.json'), globalText);
+      const prepared = await prepareProjectEcc(home, folder, provider, account, { ...options, profile: 'basic' });
+      if (globalOn && providerOn && selected) assert.match(await readFile(prepared.instructionsFile, 'utf8'), /cost-aware-llm-pipeline/);
+      else assert.equal(prepared.instructionsFile, null);
+      assert.equal(await readFile(join(data, 'ecc.json'), 'utf8'), globalText);
+    }
+    const changes = { enabled: true, selection: { [eccCostSkill]: true }, mcp: { browser: true }, ...(provider === 'claude' ? { claudeHooks: 'strict' } : {}) };
+    const preview = await call('preview_project', { provider, changes });
+    await call('apply_project', { provider, changes, revision: preview.revision });
+    const path = projectPolicyPath(home, await projectIdentity(folder)), policyText = await readFile(path, 'utf8');
+    let hooks;
+    const prepared = await prepareProjectEcc(home, folder, provider, account, { ...options, profile: 'basic',
+      packageBuilder: async (...args) => { hooks = args[0].claudeHooks; return buildEccPackage(...args); } });
+    assert.match(await readFile(prepared.instructionsFile, 'utf8'), /cost-aware-llm-pipeline/);
+    assert.deepEqual(prepared.mcp, { browser: true });
+    if (provider === 'claude') assert.equal(hooks, 'strict');
+    assert.equal(await readFile(path, 'utf8'), policyText);
+    await call('reset_project', { provider, revision: (await call('get_project', { provider })).revision });
+    assert.equal(await prepareProjectEcc(home, folder, provider, account, options), null, 'A policy file without this provider still inherits');
+  }
+}));
+
+test('invocation ECC rejects invalid profiles/providers and missing profile components before package or account writes', async () => fixture(async ({ home, folder, root }) => {
+  const account = join(root, 'unused-account');
+  const options = { packageBuilder: () => assert.fail('Invalid input must not build packages'), configService: () => assert.fail('Invalid input must not open accounts') };
+  await assert.rejects(prepareProjectEcc(home, folder, 'codex', account, { ...options, profile: 'unknown' }), /supported ECC profile/);
+  await assert.rejects(prepareProjectEcc(home, folder, 'other', account, { ...options, profile: 'basic' }), /Unsupported project provider/);
+  await assert.rejects(prepareProjectEcc(home, folder, 'claude', account, { ...options, profile: 'development' }), /Profile components unavailable/);
+  await assert.rejects(access(account), { code: 'ENOENT' });
+  await assert.rejects(access(join(home, 'data/herdr-zed/ecc-packages')), { code: 'ENOENT' });
+}));
+
+test('project runtime CLI forwards an optional invocation profile while omitted profiles keep inheritance', async () => fixture(async ({ home, folder, root, data }) => {
+  const script = new URL('../mods/herdr-zed-agents/ecc-project-runtime.js', import.meta.url).pathname;
+  const args = [script, home, folder, 'claude', join(root, 'account')];
+  assert.equal(JSON.parse((await promisify(execFile)(process.execPath, args)).stdout), null);
+  const explicit = JSON.parse((await promisify(execFile)(process.execPath, [...args, 'basic'])).stdout);
+  assert.deepEqual(explicit, { flags: [], mcp: {}, instructionsFile: null });
+  await assert.rejects(access(join(data, 'project-capabilities')), { code: 'ENOENT' });
 }));
 
 test('installed Codex discovers the project marketplace using invocation flags in an isolated account', async () => fixture(async ({ call, home, folder, root }) => {

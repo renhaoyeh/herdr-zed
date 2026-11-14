@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import * as sessions from '../components/session-model.js';
 import * as identity from '../components/tasks-model.js';
 import * as policy from '../mods/herdr-zed-tasks/agent-board-model.js';
+import * as supervisor from '../mods/herdr-zed-tasks/task-supervisor.js';
+import { validateLaunchTarget } from '../components/extension-contract.js';
 import { evaluateNative } from './source-harness.js';
 import { tasksMcpCall } from '../mods/herdr-zed-tasks/mcp-api.js';
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
@@ -37,6 +39,256 @@ const context = () => {
     timer: { every(ms, tick) { timers.push({ ms, tick }); } }, spawn(fn) { const promise = fn(cx); pending.push(promise); return promise; } };
   return { cx, timers, async settle() { while (pending.length) await Promise.all(pending.splice(0)); } };
 };
+
+const supervisorAgent = { key: 'codex', name: 'Codex', run: ['codex'], installed: true };
+async function supervisorHarness(launcher = supervisorAgent) {
+  const task = { gid: 'local:supervised', name: 'Fix login', notes: 'Preserve existing files.', source: 'local', status: 'todo' };
+  const h = await modules({ '["","/project"]': { [task.gid]: task } });
+  h.memory['herdr-zed.agent-cache'] = { null: [launcher] };
+  h.clock = context(); h.project = h.state.projects[0]; h.task = task;
+  h.record = () => h.owner.boardRecords(h.project)[task.gid];
+  h.bind = () => {
+    const stage = h.record().execution.supervisor.stages.at(-1), tab = `tab-${stage.run}`, address = `terminal-${stage.run}`;
+    h.project.tabs.push({ id: tab, name: stage.kind });
+    h.memory['herdr-zed.threads'] = { ...h.memory['herdr-zed.threads'], [tab]: { profile: 'codex', source: 'agents', origin: { extension: 'tasks', ref: stage.run } } };
+    const agent = { address, tab, space: 'p', app: 'pi', status: 'working' };
+    h.state.panes = [...(h.state.panes || []), { tab, terminal: address }];
+    h.state.terminals = [...(h.state.terminals || []), { address, argv: [...launcher.run, stage.run], state: 'live' }];
+    h.state.agents.push(agent); h.runtime.bindLaunchedThreads();
+    return { stage, agent, report: (status, message, verdict) => h.runtime.reportTask(null,
+      { run: stage.run, terminal: address, status, message, ...(verdict ? { verdict } : {}) }) };
+  };
+  h.advance = async () => { h.runtime.refresh(h.clock.cx); await h.clock.settle(); };
+  await h.runtime.startThread(launcher, { space: 'p', folder: '/project', task },
+    { workflow: 'supervisor', model: 'main', effort: 'high' });
+  assert.equal(h.launches.length, 0, 'The board queues work; the persistent service owns every stage launch');
+  await h.advance();
+  return h;
+}
+
+test('Supervisor launches and binds distinct stages; only its independent review can finish the parent', async () => {
+  const h = await supervisorHarness();
+  assert.equal(h.launches.length, 1);
+  assert.equal(h.launches[0].options.model, 'main'); assert.equal(h.launches[0].options.readOnly, true);
+  assert.equal(h.owner.taskActions(h.owner.projectBoardTasks(h.project, h.state.agents)[0]).canStart, false);
+  const research = h.bind();
+  h.state.agents.push({ address: 'unrelated-split', tab: research.agent.tab, status: 'working' });
+  assert.throws(() => h.runtime.reportTask(null, { run: research.stage.run, terminal: 'unrelated-split', status: 'done', message: 'Same tab is not the assigned worker' }), /assigned stage/);
+  assert.throws(() => h.runtime.reportTask(null, { run: h.record().execution.id, terminal: research.agent.address,
+    status: 'done', message: 'Skip all stages' }), /assigned stage/);
+  assert.throws(() => h.runtime.reportTask(null, { run: research.stage.run, status: 'done', message: 'No identity' }), /live HC terminal/);
+  research.report('doing', 'Inspecting'); research.report('done', 'Plan: fix redirect and test expiry.');
+  assert.equal(h.record().status, 'doing');
+  await h.advance(); assert.equal(h.launches.length, 1, 'A done report must not overlap the still-working research agent');
+  research.agent.status = 'idle'; await h.advance();
+  assert.equal(h.launches.length, 2); assert.equal(h.launches[1].options.readOnly, false);
+  assert.match(h.launches[1].target.task, /fix redirect and test expiry/);
+  const implementation = h.bind();
+  implementation.report('done', 'Fixed redirect; expiry tests pass.');
+  const writes = h.writes.length;
+  research.report('done', 'Plan: fix redirect and test expiry.');
+  assert.equal(h.writes.length, writes, 'Retries of a completed stage are idempotent');
+  assert.throws(() => research.report('done', 'Change old plan'), /no longer active/);
+  implementation.agent.status = 'idle'; await h.advance();
+  assert.equal(h.launches.length, 3); assert.equal(h.launches[2].options.readOnly, true);
+  assert.equal(h.launches[2].options.model, 'main');
+  const review = h.bind();
+  assert.throws(() => implementation.report('done', 'Self approval', 'pass'), /no longer active/);
+  assert.throws(() => h.runtime.reportTask(null, { run: review.stage.run, terminal: implementation.agent.address,
+    status: 'done', message: 'Forged reviewer', verdict: 'pass' }), /assigned stage/);
+  assert.throws(() => review.report('done', 'Looks fine'), /verdict/);
+  const result = tasksMcpCall(h.runtime, 'report_task', { run: review.stage.run, terminal: review.agent.address,
+    status: 'done', message: 'Inspected redirect diff and expiry assertions.', verdict: 'pass' });
+  assert.equal(result.task.run, review.stage.run); assert.equal(result.task.stage.kind, 'review');
+  assert.equal(result.task.parentRun, h.record().execution.id);
+  assert.equal(h.record().status, 'review'); assert.equal(h.record().execution.status, 'done');
+  await h.advance(); assert.equal(h.launches.length, 3);
+});
+
+test('a workflow registration conflict leaves existing task execution and snapshots running', async () => {
+  const h = await supervisorHarness(), research = h.bind();
+  research.report('done', 'Ready to implement'); research.agent.status = 'idle';
+  h.memory['herdr-zed.agents.workflow.executors'] = { supervisor: { owner: 'other', expiresAt: Date.now() + 15000 } };
+  const notices = [];
+  const { TaskRuntime } = await evaluateNative('../mods/herdr-zed-tasks/runtime.js', { ...h.owner, notify: notice => notices.push(notice) }, 'TaskRuntime');
+  h.runtime = new TaskRuntime();
+  await h.advance(); await h.advance();
+  assert.equal(h.launches.length, 2, 'Existing Supervisor stages still advance');
+  assert.ok(h.memory['herdr-zed.tasks.snapshot']);
+  assert.equal(notices.length, 1, 'A conflicting lease reports once instead of on every refresh');
+  h.memory['herdr-zed.agents.workflow.executors'] = {};
+  await h.advance();
+  assert.equal(h.memory['herdr-zed.agents.workflow.executors'].supervisor.owner, 'tasks');
+});
+
+test('Supervisor persists revision results, rejects stale attempts and stops on launch failure', async () => {
+  const h = await supervisorHarness();
+  let stage = h.bind(); stage.report('done', 'Research evidence'); stage.agent.status = 'idle'; await h.advance();
+  stage = h.bind(); stage.report('done', 'Implementation result'); stage.agent.status = 'idle'; await h.advance();
+  stage = h.bind(); stage.report('done', 'Add the expired token edge case.', 'changes_requested');
+  assert.equal(h.record().status, 'doing'); assert.equal(h.record().execution.supervisor.stages.at(-1).kind, 'implementation');
+  stage.agent.status = 'idle';
+  // Restarting the service keeps the stored sequence and must not repeat a completed stage.
+  const { TaskRuntime } = await evaluateNative('../mods/herdr-zed-tasks/runtime.js', h.owner, 'TaskRuntime');
+  h.runtime = new TaskRuntime();
+  await h.advance();
+  assert.equal(h.launches.length, 4); assert.match(h.launches[3].target.task, /expired token edge case/);
+  stage = h.bind(); stage.report('done', 'Added edge case'); stage.agent.status = 'idle';
+  h.owner.launchError = Error('Account unavailable');
+  h.owner.notify = () => {};
+  // The harness runtime closes over its original notify binding; suppress only the expected notification.
+  const quiet = { ...h.owner, notify() {} };
+  const { TaskRuntime: QuietRuntime } = await evaluateNative('../mods/herdr-zed-tasks/runtime.js', quiet, 'TaskRuntime');
+  h.runtime = new QuietRuntime();
+  await h.advance();
+  assert.equal(h.record().execution.status, 'fail');
+  assert.match(h.record().execution.summary, /Account unavailable/);
+  const attempts = h.launches.length; await h.advance(); assert.equal(h.launches.length, attempts, 'Uncertain or failed starts never auto-retry');
+  assert.throws(() => stage.report('doing', 'Late work'), /already finished/);
+});
+
+test('stopping Supervisor prevents subsequent launches and historical stage archives do not hide current work', async () => {
+  const h = await supervisorHarness(), research = h.bind();
+  research.report('done', 'Ready for implementation'); research.agent.status = 'idle'; await h.advance();
+  const implementation = h.bind();
+  h.memory['herdr-zed.thread-history'] = [{ tab: research.agent.tab, folder: '/project', at: Date.now(), id: 'closed-research' }];
+  assert.equal(Boolean(h.owner.projectBoardTasks(h.project, h.state.agents)[0].archived), false);
+  h.runtime.agentBoard = { render: (_p, _a, _l, actions) => actions };
+  h.base.hc = async () => ({ code: 0 });
+  // Stop between stages, when no agent needs interruption.
+  implementation.report('done', 'Implemented'); implementation.agent.status = 'idle';
+  h.owner.hc = async () => ({ code: 0, stdout: '{"reason":"exit"}' });
+  const { TaskRuntime } = await evaluateNative('../mods/herdr-zed-tasks/runtime.js', h.owner, 'TaskRuntime');
+  h.runtime = new TaskRuntime(); h.runtime.agentBoard = { render: (_p, _a, _l, actions) => actions };
+  await h.runtime.boardPanel(h.project, h.clock.cx).stop(h.task);
+  assert.equal(h.record().execution.status, 'stopped');
+  await h.advance(); assert.equal(h.launches.length, 2);
+  assert.throws(() => implementation.report('doing', 'Resume old worker'), /already finished/);
+});
+
+test('Supervisor validates local Codex before changing task state and marks unconfirmed starts as failed', async () => {
+  const task = { gid: 'local:bad-workflow', name: 'Task', source: 'local', status: 'todo' };
+  const h = await modules({ '["","/project"]': { [task.gid]: task } });
+  for (const [agent, target] of [[{ key: 'custom', run: ['custom'] }, {}], [supervisorAgent, { machine: 'remote' }]])
+    await assert.rejects(h.runtime.startThread(agent, { space: 'p', folder: '/project', task, ...target }, { workflow: 'supervisor' }), /local Codex/);
+  assert.equal(h.owner.boardRecords(h.state.projects[0])[task.gid].execution, undefined);
+  const active = await supervisorHarness();
+  const current = active.record(), stage = current.execution.supervisor.stages[0];
+  stage.launchedAt = Date.now() - 61000;
+  active.owner.rememberBoardTask(active.project, current, { execution: current.execution });
+  await active.advance();
+  assert.equal(active.record().execution.status, 'fail'); assert.match(active.record().execution.summary, /Could not confirm/);
+  assert.equal(active.launches.length, 1);
+});
+
+test('Supervisor will not advance across missing native state and stopping a booting worker freezes before awaiting kill', async () => {
+  const h = await supervisorHarness(), research = h.bind();
+  research.report('done', 'Plan ready');
+  h.state.agents = [];
+  await h.advance(); assert.equal(h.launches.length, 1, 'Missing native state during reload cannot prove the old worker stopped');
+  h.state.terminals = [{ address: research.agent.address, state: 'finished' }];
+  await h.advance(); assert.equal(h.launches.length, 2);
+  const implementation = h.bind();
+  h.state.agents = [{ tab: implementation.agent.tab, address: 'unrelated', status: 'working' }];
+  h.state.panes = [{ tab: implementation.agent.tab, terminal: 'unrelated' }, { tab: implementation.agent.tab, terminal: implementation.agent.address }];
+  h.state.terminals.push({ address: 'unrelated', argv: ['zsh'], state: 'live' });
+  let release; const commands = [];
+  const { TaskRuntime } = await evaluateNative('../mods/herdr-zed-tasks/runtime.js', { ...h.owner,
+    hc: args => { commands.push(args); return new Promise(resolve => { release = resolve; }); },
+  }, 'TaskRuntime');
+  h.runtime = new TaskRuntime();
+  const stopping = h.runtime.archiveTask(h.project, h.task.gid, 'stop');
+  assert.equal(h.record().execution.status, 'stopped'); assert.equal(h.record().execution.stopConfirmed, false);
+  assert.deepEqual(commands, [['kill', implementation.agent.address]], 'Kill the known native terminal even before OSC exposes an agent');
+  await h.advance(); assert.equal(h.launches.length, 2);
+  release({ code: 1, stderr: 'Could not signal terminal' });
+  await assert.rejects(stopping, /Could not signal/);
+  assert.equal(Boolean(h.record().archived), false);
+  assert.equal(h.owner.taskActions(h.owner.projectBoardTasks(h.project, h.state.agents)[0]).canStart, false);
+  const { TaskRuntime: RetryingRuntime } = await evaluateNative('../mods/herdr-zed-tasks/runtime.js', { ...h.owner, hc: async () => ({ code: 0, stdout: '{"reason":"exit"}' }) }, 'TaskRuntime');
+  h.runtime = new RetryingRuntime();
+  await h.runtime.archiveTask(h.project, h.task.gid, 'stop');
+  assert.equal(h.record().archived, true); assert.equal(h.record().execution.stopConfirmed, true);
+});
+
+test('a bound but unreported Supervisor startup times out and remains available for explicit recovery', async () => {
+  const h = await supervisorHarness(), stage = h.bind();
+  h.state.agents = [];
+  const task = h.record(); task.execution.supervisor.stages[0].launchedAt = Date.now() - 61000;
+  h.owner.rememberBoardTask(h.project, task, { execution: task.execution });
+  await h.advance();
+  assert.equal(h.record().execution.status, 'fail');
+  assert.equal(h.launches.length, 1);
+  assert.equal(h.owner.taskActions(h.owner.projectBoardTasks(h.project, [])[0]).canStart, true);
+  assert.ok(h.record().execution.supervisor.stages[0].tab === stage.agent.tab);
+});
+
+test('Supervisor resumes only the recorded stage session and rebinds its exact native terminal', async () => {
+  const h = await supervisorHarness(), research = h.bind();
+  research.report('doing', 'Researching');
+  const sessionId = '11111111-2222-3333-4444-555555555555';
+  h.memory['herdr-zed.thread-sessions'] = { [research.agent.tab]: { tabId: research.agent.tab,
+    sessionId, address: research.agent.address, command: ['codex'] } };
+  h.runtime.rememberConversations();
+  assert.equal(h.record().execution.supervisor.stages[0].sessionId, sessionId);
+  h.project.tabs = [{ id: 'resumed-stage', name: 'Research' }];
+  h.state.panes = [{ tab: 'resumed-stage', terminal: 't-resumed' }];
+  h.state.terminals = [{ address: 't-resumed', argv: ['codex', 'resume', sessionId], state: 'live' }];
+  h.state.agents = [{ address: 't-resumed', tab: 'resumed-stage', app: 'pi', status: 'working' }];
+  h.memory['herdr-zed.threads'] = { 'resumed-stage': { replaces: research.agent.tab, profile: 'codex', source: 'agents',
+    origin: { extension: 'tasks', ref: research.stage.run } } };
+  h.runtime.reportTask(null, { run: research.stage.run, terminal: 't-resumed', status: 'done', message: 'Resumed research result' });
+  const stored = h.record().execution.supervisor.stages[0];
+  assert.equal(stored.tab, 'resumed-stage'); assert.equal(stored.terminal, 't-resumed');
+  assert.equal(stored.status, 'done');
+});
+
+test('closing a Supervisor stage keeps its task visible and manual restore cannot launch an unbound worker', async () => {
+  const h = await supervisorHarness(), research = h.bind();
+  research.report('waiting', 'Need input');
+  h.memory['herdr-zed.thread-history'] = [{ id: 'closed-stage', tab: research.agent.tab, folder: '/project', argv: ['codex', 'resume', 'recorded-session'] }];
+  h.project.tabs = []; h.state.agents = [];
+  const visible = h.owner.projectBoardTasks(h.project, []);
+  assert.equal(Boolean(visible[0].archived), false);
+  const errors = [];
+  h.runtime.agentBoard = { render: (_p, _a, _l, actions) => actions, setTaskError: (_gid, message) => errors.push(message) };
+  h.runtime.boardPanel(h.project, h.clock.cx).resume(h.task);
+  assert.match(errors[0], /Stop this Supervisor attempt/);
+  assert.deepEqual(h.native, []); assert.equal(h.memory['herdr-zed.pending-profiles'], undefined);
+});
+
+test('New thread workflow requests create one tracked task and launch through the same persistent executor for either provider', async () => {
+  for (const kind of ['codex', 'claude']) {
+    const h = await modules(), clock = context(), launcher = { key: kind, name: kind, run: [kind], installed: true };
+    h.memory['herdr-zed.agent-cache'] = { null: [launcher] };
+    h.runtime.init(clock.cx); await clock.settle();
+    const request = () => h.owner.requestAgentWorkflow('supervisor', launcher,
+      { space: 'p', folder: '/project', task: 'Fix the form\nPreserve the attachment.' },
+      { workflow: 'supervisor', model: 'main', effort: 'high', serviceTier: kind === 'codex' ? 'fast' : null,
+        eccProfile: 'review' }, { id: `intent:${kind}` });
+    request(); h.runtime.refresh(clock.cx); await clock.settle();
+    const records = Object.values(h.owner.boardRecords(h.state.projects[0]));
+    assert.equal(records.length, 1); assert.equal(records[0].workflowRequest, `intent:${kind}`);
+    assert.equal(records[0].notes, 'Fix the form\nPreserve the attachment.');
+    assert.equal(h.launches.length, 1); assert.equal(h.launches[0].agent.key, kind);
+    assert.equal(h.launches[0].options.readOnly, true); assert.equal(h.launches[0].options.model, 'main');
+    assert.equal(h.launches[0].options.eccProfile, 'review');
+    assert.match(h.launches[0].target.task, /Preserve the attachment/);
+    request(); h.runtime.refresh(clock.cx); await clock.settle();
+    assert.equal(Object.values(h.owner.boardRecords(h.state.projects[0])).length, 1);
+    assert.equal(h.launches.length, 1, 'A replayed intent cannot create a duplicate task or session');
+  }
+});
+
+test('Claude Supervisor uses the same independent review gate as Codex', async () => {
+  const h = await supervisorHarness({ key: 'claude', name: 'Claude Code', run: ['claude'], installed: true });
+  let stage = h.bind(); stage.report('done', 'Read project and planned'); stage.agent.status = 'idle'; await h.advance();
+  assert.equal(h.launches[1].agent.key, 'claude'); assert.equal(h.launches[1].options.readOnly, false);
+  stage = h.bind(); stage.report('done', 'Implemented with validation'); stage.agent.status = 'idle'; await h.advance();
+  assert.equal(h.record().status, 'doing'); assert.equal(h.launches[2].options.readOnly, true);
+  stage = h.bind(); stage.report('done', 'Independent changes checked', 'pass');
+  assert.equal(h.record().status, 'review'); assert.equal(h.record().execution.status, 'done');
+});
 
 test('an existing conversation adopts reporting with its own terminal and retains attempts across new work', async () => {
   const h = await modules(), clock = context();
@@ -357,7 +609,7 @@ async function modules(records = {}, projects = [{ id: 'p', folder: '/project', 
     prepareEcc: async (_agent, argv) => ({ argv, instructions: '' }),
     globalThis: { window: { sessionStorage: { getItem: () => null, setItem() {}, removeItem() {} } } },
     shared: key => clone(memory[key]), setShared: (key, value) => { memory[key] = clone(value); writes.push(key); },
-    agents: () => state.agents, spaces: () => state.projects, terminals: () => [], appHome: () => '/herdr', home: () => '/home',
+    agents: () => state.agents, spaces: () => state.projects, terminals: () => state.terminals || [], panes: () => state.panes || [], appHome: () => '/herdr', home: () => '/home',
     props: () => ({ overlay: 'calendar' }), nextCommand: () => new Promise(() => {}),
     knownAgents: async () => [], readTextFile: async () => null,
     exec: async (...args) => { native.push(args); return { code: 0, stdout: '{}' }; },
@@ -368,7 +620,9 @@ async function modules(records = {}, projects = [{ id: 'p', folder: '/project', 
     openOverlay: base.openOverlay, setShared: base.setShared, closeOverlay: base.closeOverlay, props: base.props }, 'openWorkspacePanel')).openWorkspacePanel;
   const client = await evaluateNative('../components/tasks.js', base,
     'tasksSnapshot, listTasks, projectBoardTasks, boardRecords, taskLinkForTab, threadBoardStatus, threadBoardTask, threadTaskArchived, threadVisibleInSidebar, taskActions, sessionThreadTitle, openTasks');
-  const owner = { ...base, ...policy, ...client };
+  const owner = { ...base, ...policy, ...client, ...supervisor, validateLaunchTarget };
+  Object.assign(owner, await evaluateNative('../components/agent-workflows.js', owner,
+    'AGENT_WORKFLOW_EXECUTORS, AGENT_WORKFLOW_REQUESTS, workflowExecutor, registerAgentWorkflow, validateAgentWorkflow, requestAgentWorkflow, takeAgentWorkflows'));
   // Policy and mutations are loaded only into the Tasks context, never into the consumer context.
   Object.assign(owner, policy);
   Object.assign(owner, await evaluateNative('../mods/herdr-zed-tasks/agent-task-evidence.js', owner, 'observeTaskInput, withTaskInputEvidence'));
