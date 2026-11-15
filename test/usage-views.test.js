@@ -75,6 +75,7 @@ test('the usage details dialog renders the account windows without throwing', as
   h.mount('usage-details', { account });
   assert.ok(h.texts.includes('Work'));
   assert.ok(h.texts.some(text => text.includes('42% used')));
+  assert.ok(h.texts.some(text => /^Top: quota used · Bottom: \d+% of window elapsed$/.test(text)));
   assert.ok(h.nodes.has('usage-details-close'), 'the header X closes it; there is no Done footer');
   assert.ok(!h.nodes.has('usage-details-done'));
 });

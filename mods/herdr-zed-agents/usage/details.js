@@ -31,7 +31,7 @@ export class UsageDetails {
             .child(Progress(`usage-detail-meter-${index}`, window.usedPercent, t, elapsed, window.minutes === 300 ? 5 : window.minutes === 10080 ? 7 : 0)
               .accessibility_label(`${window.name} ${duration} used`))
             .when(elapsed !== null, el => el.child(div().text_size(12).text_color(t.muted)
-              .child(`Top: ${Math.round(elapsed)}% of window elapsed · Bottom: quota used`)))
+              .child(`Top: quota used · Bottom: ${Math.round(elapsed)}% of window elapsed`)))
             .child(div().text_size(12).text_color(t.muted)
               .child(quotaResetLabel(window)));
         })))
