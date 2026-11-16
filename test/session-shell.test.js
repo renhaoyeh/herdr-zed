@@ -2,6 +2,21 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { terminalArgv, unwrapTerminalArgv } from '../components/session-shell.js';
+import { commandKind, threadProgram } from '../components/session-model.js';
+
+test('Windows outer PowerShell wrapper preserves the sidebar agent icon', () => {
+  for (const [app, command] of [['codex', 'codex'], ['claude-code', 'claude']]) {
+    const args = ['env', 'EXAMPLE=value', command, '--', "user's task"];
+    const inner = terminalArgv(args, 'windows');
+    const argv = ['powershell.exe', '-NoExit', '-Command',
+      '& ' + inner.map(word => "'" + word.replace(/'/g, "''") + "'").join(' ')];
+    assert.deepEqual(unwrapTerminalArgv(argv), args);
+    assert.equal(commandKind(argv), command);
+    const program = { icon: `icons/${command}.svg` };
+    assert.equal(threadProgram({ agent: { app, address: 'test', program } },
+      [{ address: 'test', argv }]), program);
+  }
+});
 
 const prompt = 'x'.repeat(12000) + '\r\n請讀取 C:\\Users\\RickYeh\\MCP-SETUP.md  user\'s “guide” ’‘\t$HOME `test`';
 

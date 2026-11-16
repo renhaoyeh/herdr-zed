@@ -81,7 +81,8 @@ export function unwrapTerminalArgv(argv = []) {
         argv = words; continue;
       }
       const words = typeof script === 'string' && script.startsWith('& ') && launcherWords(script.slice(2));
-      if (!words || words[0] !== 'git' || words[2] !== 'alias.herdr-zed-shell=!sh') break;
+      if (!words || !(words[0] === 'git' && words[2] === 'alias.herdr-zed-shell=!sh'
+          || /(?:^|[/\\])(?:powershell|pwsh)(?:\.exe)?$/i.test(words[0]))) break;
       argv = words;
     } else if (argv[0] === 'git' && argv[1] === '-c' && argv[2] === 'alias.herdr-zed-shell=!sh'
         && argv[3] === 'herdr-zed-shell' && argv[4] === '-c') {
