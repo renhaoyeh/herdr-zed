@@ -30,6 +30,6 @@ test('settings reads and writes use an npm-style Codex shim without a system she
   await mkdir(account);
   await symlink(account, alias, 'junction');
   const config = await openConfig(alias);
-  try { assert.equal(config.config.model, 'fixture'); await config.write([]); }
+  try { assert.equal(config.config.model, 'fixture'); await config.write([]); assert.deepEqual(await config.request('skills/list', { cwds: [account] }), {}); }
   finally { await config.close(); }
 });

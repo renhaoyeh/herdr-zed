@@ -579,10 +579,14 @@ Tasks keeps workflow stage (`todo`, `doing`, `review`, `done`) separate from run
 
 ### Shared Skills library
 
+New Thread's `/` menu for a local Codex program also lists that account's enabled, locally installed skills, read through Codex's `skills/list` for the project folder over the finite app-server settings connection (no thread or turn). Shared library entries keep their names on conflict. Choosing one resolves like a shared command: the task points the agent at that skill's `SKILL.md`. Herdr does not change Codex's native skill switches.
+
+Plugin metadata may omit the local skill path. Such entries remain in the catalog with a plugin-ID/name identity and plugin source group, rather than becoming errors or disappearing. Their availability is displayed read-only, with no local file read or path-based switch. Local entries keep their absolute-path identity. List rows have fixed height and truncate long names; source headers use short labels and preserve full paths in tooltips/details. Real catalog errors remain inspectable through a collapsed status-row disclosure, keeping the browser body and footer bounded.
+
 Agents owns the shared library independently of ECC. `capabilities/rules/*.md` supplies custom rules;
 `capabilities/skills/<folder>/SKILL.md` and its supporting files supply skills. An optional adjacent
 `herdr.json` has `version: 1`, `providers` (claude/codex), `platforms` (windows/macos/linux), `mcps`
-(shared connection names), and `origin: { source, revision }` for imported sources. Omitted provider/platform
+(shared connection names), and `origin: { source, revision, mode? }` for imported sources (`mode: 'source'` identifies an entry that loads its original installation). Omitted provider/platform
 lists support all; omitted mcps has no dependencies. Missing, disabled or unsupported dependencies keep
 selected skills inactive without installing or enabling a server. Built-in Tasks/ECC endpoints need no setup.
 
@@ -596,15 +600,13 @@ shared selections, dependency problems and origins in overview/project results. 
 the entire shared library (supporting files included). A missing ECC source is reported without preventing
 shared-library-only choices; enabling ECC still requires its valid catalog.
 
-Capabilities Overview imports a local skill folder, including a checkout obtained from an external source,
-and offers revision-checked updates from its saved origin. Import copies files without running scripts or
-fetching/pulling source repositories. Duplicate names require an explicit update using the current revision;
+The shared-library helper can scan a local skill, repository or installed runtime root. A root with a `skills/` directory scans that public subtree; otherwise discovery walks at most six levels, skips links, dependency/build output and hidden directories except native skill configuration folders, and rejects scans over 2,000 directories or 200 skills. Duplicate slugs or names already owned by another source are unavailable. Source references publish metadata-preserving wrappers that read the absolute original SKILL.md and resolve resources from its original directory, preserving sibling references and runtime paths without copying an entire installation. The source must remain available; its instructions can change with installation updates. Copies include only the skill folder tree. Updates preserve the import mode and provider choices and use the current library revision. New-entry selections are written before publishing, under the coordinated capabilities settings lock, and restored on import failure. Confirmed shared-library removal checks the library revision under the same settings and per-skill locks, removes only the library tree and global choices, and keeps the source and immutable session snapshots. Batch results retain successful entries and report failed entries separately, without running scripts or fetching/pulling repositories. Duplicate names require an explicit update using the current revision;
 per-skill locks serialize imports, staged replacement preserves the previous tree on failure. Symlinks and
 special files are rejected; each skill is limited to 2,000 files/directories and 32 MB. Source hashes, rather
 than a guessed upstream release number, identify imported versions.
 
 New local launches snapshot selected skills into content-addressed immutable directories. Rules are embedded
-in the composed guide; skill guidance points to its snapshot with relative supporting files preserved.
+in the composed guide; skill guidance points to its snapshot. Copied skills preserve relative supporting files; source-backed wrappers direct the agent to the original installation, whose contents are not frozen by the wrapper snapshot.
 Shared skills also form a provider-native plugin package: Claude receives one combined `--plugin-dir`
 argument alongside any ECC package; Codex installs the immutable package into its native cache under the
 existing account setup lock, restores the registration to disabled even after installer errors, and enables

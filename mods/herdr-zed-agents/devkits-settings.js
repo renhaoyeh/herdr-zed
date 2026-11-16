@@ -1,6 +1,6 @@
 import { div } from 'gpui-kit';
 import { h_flex, v_flex, TextView, InputState } from 'gpui-base';
-import { appHome, readTextFile, exec, pickFolder, run } from 'herdr';
+import { appHome, readTextFile, exec, run } from 'herdr';
 import { devkitsPath, readDevkitsSkills, readMineItems } from './devkits.js';
 import { parseDevkits, devkitsCatalog, devkitsMcpPresets, resourceSupported, resourceProblems, devkitsPlan, applyDevkitsPlan, mcpUsers, mineRoot, mineSelectionPath, parseMineSelection, providerSupported, mineEnabled, withMine } from './devkits-model.js';
 import { parseSharedMcp, sharedMcpSupported } from './components/shared-mcp-model.js';
@@ -32,7 +32,7 @@ export const devkitsSettings = {
   },
   selectDevkitsSection(tab, cx) {
     if (this.capChecking || this.capSaving || this.capSetup) return;
-    this.capTab = tab; this.capItem = null; this.capSearch.set_value(''); this.capShowSource = false;
+    this.capTab = tab; this.capItem = null; this.capRemove = null; this.capSearch.set_value(''); this.capShowSource = false;
     cx.notify();
   },
   enabled(kind, item, provider = this.capTab) { return item.source === 'mine' ? mineEnabled(this.capMine, item.id, provider) : this.capConfig[kind][item.id] === true; },
@@ -168,16 +168,30 @@ export const devkitsSettings = {
     }))];
   },
   importSharedSkill(cx, item = null) {
-    if (this.capSaving || this.capLoading || this.capChecking || this.capDirty || this.mcpDirty) return;
+    if (!item || this.capSaving || this.capLoading || this.capChecking || this.capDirty || this.mcpDirty) return;
     this.capSaving = true; this.capError = null; cx.notify();
     cx.spawn(async cx => {
       try {
-        const source = item?.origin?.source || await pickFolder({ prompt: 'Choose a skill folder containing SKILL.md' });
+        const source = item.origin?.source;
         if (!source || this.capClosed) return;
-        const result = await exec('node', [`${appHome()}/mods/herdr-zed-agents/shared-skills-cli.js`, 'import', appHome(), source, item?.revision || ''], { timeout: 30000 });
+        const result = await exec('node', [`${appHome()}/mods/herdr-zed-agents/shared-skills-cli.js`, 'import', appHome(), source, item.revision || '', item.origin?.mode || ''], { timeout: 30000 });
         if (result.code !== 0) throw Error(result.stderr?.trim() || 'Could not import shared skill.');
         if (!JSON.parse(result.stdout || '{}').imported) throw Error('Import returned no confirmation.');
         if (!this.capClosed) { this.capSaving = false; this.loadDevkits(cx); }
+      } catch (error) { if (!this.capClosed) this.capError = error.message; }
+      finally { this.capSaving = false; if (!this.capClosed) cx.notify(); }
+    });
+  },
+
+  removeSharedSkill(cx, item) {
+    if (this.capSaving || this.capLoading || this.capDirty || this.mcpDirty) return;
+    this.capSaving = true; this.capError = null; cx.notify();
+    cx.spawn(async cx => {
+      try {
+        const result = await exec('node', [`${appHome()}/mods/herdr-zed-agents/shared-skills-cli.js`, 'remove', appHome(), item.id, item.revision], { timeout: 30000 });
+        if (result.code !== 0) throw Error(result.stderr?.trim() || 'Could not remove shared skill.');
+        if (JSON.parse(result.stdout || '{}').removed !== item.id) throw Error('Removal returned no confirmation.');
+        if (!this.capClosed) { this.capItem = null; this.capRemove = null; this.capSaving = false; this.loadDevkits(cx); }
       } catch (error) { if (!this.capClosed) this.capError = error.message; }
       finally { this.capSaving = false; if (!this.capClosed) cx.notify(); }
     });
@@ -203,13 +217,8 @@ export const devkitsSettings = {
           .child(Button(`devkits-open-${provider.id}`, t, { variant: 'secondary' }).h(28).on_click((_event, cx) => this.selectDevkitsSection(provider.id, cx)).child('Browse'));
       }))
       .child(v_flex().p(12).gap(6).border(1).border_color(t.border)
-        .child(h_flex().justify_between().items_center().gap(8)
-          .child(div().text_size(13).child('Shared Skills library'))
-          .child(Button('shared-skills-import', t, { variant: 'secondary' }).h(28)
-            .disabled(this.capSaving || this.capLoading || this.capDirty || this.mcpDirty)
-            .on_click((_event, cx) => this.importSharedSkill(cx)).child('Import skill…')))
-        .child(div().text_size(12).text_color(t.muted).child('Import a local or checked-out skill folder, including supporting files. Shared Skills have separate Claude Code and Codex switches; project choices can override them. Apply pending edits before importing.'))
-        .child(div().text_size(12).text_color(t.muted).child('New files are on by default. Optional herdr.json declares providers, platforms and MCP dependencies. New sessions use a fixed snapshot; existing sessions keep their version.'))
+        .child(div().text_size(13).child('Shared Rules and Skills'))
+        .child(div().text_size(12).text_color(t.muted).child('Herdr’s shared library has separate Claude Code and Codex switches. Skills installed in a Codex account are always offered in New Thread under /.'))
         .child(div().text_size(11).text_color(t.dim).child(root)));
   },
   devkitsList(t) {
@@ -252,9 +261,22 @@ export const devkitsSettings = {
         .on_click(() => run('herdr-zed.settings:agents:mcp')).child('MCP Connections…')))
       .when(Boolean(selected.origin), el => el
         .child(div().text_size(11).text_color(t.dim).child(`Source: ${selected.origin.source} · ${selected.origin.revision.slice(0, 12)}`))
+        .child(div().text_size(11).text_color(t.dim).child(selected.origin.mode === 'source' ? 'Reference source' : 'Copy folder'))
         .child(Button('shared-skill-update', t, { variant: 'secondary' }).h(28).self_start()
           .disabled(this.capSaving || this.capLoading || this.capDirty || this.mcpDirty)
           .on_click((_event, cx) => this.importSharedSkill(cx, selected)).child('Update from source')))
+      .when(selected.source === 'mine' && kind === 'skills', el => el
+        .child(Button('shared-skill-remove', t, { variant: 'secondary' }).h(28).self_start().text_color(t.ansi1)
+          .disabled(this.capSaving || this.capLoading || this.capDirty || this.mcpDirty)
+          .on_click((_event, cx) => { this.capRemove = selected.id; cx.notify(); }).child('Remove from library…'))
+        .when(this.capRemove === selected.id, body => body.child(v_flex().gap(8).p(12).border(1).border_color(t.border)
+          .child(div().text_size(12).child(`Remove ${selected.name} from the shared library for both providers? The original source folder and existing session snapshots are kept.`))
+          .child(h_flex().gap(8)
+            .child(Button('shared-skill-remove-cancel', t, { variant: 'secondary' }).h(28).disabled(this.capSaving)
+              .on_click((_event, cx) => { this.capRemove = null; cx.notify(); }).child('Cancel'))
+            .child(Button('shared-skill-remove-confirm', t, { variant: 'destructive' }).h(28)
+              .disabled(this.capSaving || this.capLoading || this.capDirty || this.mcpDirty)
+              .on_click((_event, cx) => this.removeSharedSkill(cx, selected)).child('Remove'))))))
       .child(div().text_size(11).text_color(t.dim).child(selected.path))
       .child(Button('devkits-read-description', t, { variant: 'secondary' }).h(28).self_start()
         .on_click((_event, cx) => { this.capShowSource = !this.capShowSource; cx.notify(); }).child(this.capShowSource ? 'Hide content' : 'Show content'))

@@ -3,9 +3,9 @@ import { readdir, readFile, lstat, mkdir, writeFile, rename, rm, realpath } from
 import { join, dirname, basename, isAbsolute } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { mineRoot, mineSelectionPath, mineItems, parseMineSelection, parseDevkits, devkitsCatalog,
-  withMine, devkitsGuidance, resourceProblems, providerSupported } from './devkits-model.js';
+  withMine, devkitsGuidance, resourceProblems, providerSupported, frontmatter } from './devkits-model.js';
 import { parseSharedMcp } from './components/shared-mcp-model.js';
-import { acquireFileLock } from './devkits-save.js';
+import { acquireFileLock, writeChecked } from './devkits-save.js';
 import { parseEcc, eccItemEnabled } from './ecc-model.js';
 import { readEccCatalog } from './ecc-catalog.js';
 import { applyEccProfile, eccCostSkill } from './ecc-profiles.js';
@@ -26,7 +26,8 @@ export function parseSkillMetadata(text) {
       || value[key].some(name => typeof name !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(name) || (allowed && !allowed.includes(name)))))
       throw Error(`Invalid skill ${key}.`);
   }
-  if (value.origin !== undefined && (!object(value.origin) || Object.keys(value.origin).some(key => !['source', 'revision'].includes(key))
+  if (value.origin !== undefined && (!object(value.origin) || Object.keys(value.origin).some(key => !['source', 'revision', 'mode'].includes(key))
+    || (value.origin.mode !== undefined && value.origin.mode !== 'source')
     || typeof value.origin.source !== 'string' || typeof value.origin.revision !== 'string')) throw Error('Invalid skill origin.');
   return { mcps: [], ...value };
 }
@@ -175,7 +176,8 @@ export async function buildSharedPackage(home, provider, skills) {
 }
 
 // Import a checked-out/local skill. Updates require the exact current library revision.
-export async function importSharedSkill(home, source, expected = null) {
+export async function importSharedSkill(home, source, expected = null, mode = null) {
+  if (mode !== null && mode !== 'source') throw Error('Unknown skill import mode.');
   if (!isAbsolute(source)) throw Error('Choose an absolute local skill folder containing SKILL.md.');
   source = await realpath(source);
   const name = basename(source);
@@ -183,6 +185,12 @@ export async function importSharedSkill(home, source, expected = null) {
   const tree = await skillTree(source);
   if (!tree.files.some(file => file.path === 'SKILL.md')) throw Error('The selected folder must contain SKILL.md.');
   const metadata = parseSkillMetadata(tree.files.find(file => file.path === 'herdr.json')?.content.toString('utf8') ?? null);
+  const sourceMode = mode === 'source';
+  const sourceEntry = join(source, 'SKILL.md').replaceAll('\\', '/');
+  const original = tree.files.find(file => file.path === 'SKILL.md').content.toString('utf8');
+  const header = /^---\r?\n[\s\S]*?\r?\n---/.exec(original)?.[0];
+  if (sourceMode && !header) throw Error('Source skills require name/description frontmatter.');
+  const files = sourceMode ? [{ path: 'SKILL.md', executable: false, content: Buffer.from(`${header}\n\n# Installed source skill\n\nRead and follow the original skill at ${JSON.stringify(sourceEntry)}. Resolve all relative links, scripts and executable paths from that original skill directory, not this wrapper directory. Keep the source installation available; if it is missing, report it instead of guessing another installation.\n`) }] : tree.files;
   const root = join(mineRoot(home), 'skills'), target = join(root, name);
   await mkdir(root, { recursive: true });
   const lockPath = join(root, `.${name}.lock`);
@@ -194,11 +202,11 @@ export async function importSharedSkill(home, source, expected = null) {
     try { current = (await skillTree(target)).revision; } catch (error) { if (error.code !== 'ENOENT') throw error; }
     if (current !== expected) throw Error('Skill already exists or changed. Reload before updating.');
     if (source === await realpath(target).catch(error => { if (error.code === 'ENOENT') return null; throw error; })) throw Error('Choose a source outside the shared library.');
-    for (const file of tree.files) {
+    for (const file of files) {
       const path = join(temporary, file.path); await mkdir(dirname(path), { recursive: true });
       await writeFile(path, file.content, { mode: file.executable ? 0o700 : 0o600 });
     }
-    await writeFile(join(temporary, 'herdr.json'), JSON.stringify({ ...metadata, version: 1, origin: { source, revision: tree.revision } }, null, 2));
+    await writeFile(join(temporary, 'herdr.json'), JSON.stringify({ ...metadata, version: 1, origin: { source, revision: tree.revision, ...(sourceMode ? { mode: 'source' } : {}) } }, null, 2));
     if (current && (await skillTree(target)).revision !== current) throw Error('Skill changed while importing. Reload before updating.');
     if (current) { await rename(target, backup); displaced = true; }
     try { await rename(temporary, target); published = true; } catch (error) { if (displaced) { await rename(backup, target); displaced = false; } throw error; }
@@ -208,4 +216,110 @@ export async function importSharedSkill(home, source, expected = null) {
     if (displaced && published) await rm(backup, { recursive: true, force: true });
     await lock.close(); await rm(lockPath);
   }
+}
+
+// Discover entry points without reading binaries or traversing generated/dependency trees.
+export async function discoverSharedSkills(home, source) {
+  if (!isAbsolute(source)) throw Error('Choose an absolute skill, repository or runtime folder.');
+  if ((await lstat(source)).isSymbolicLink()) throw Error('Skill source must be a real directory.');
+  source = await realpath(source);
+  const library = await readSharedLibrary(home), items = [];
+  let visited = 0;
+  const ignored = new Set(['node_modules', 'target', 'dist', 'build', 'vendor', 'bin', '__pycache__']);
+  async function visit(folder, depth) {
+    if (++visited > 2000) throw Error('Skill discovery exceeds 2,000 directories. Choose a narrower root.');
+    const children = await entries(folder);
+    const entry = children.find(item => item.name === 'SKILL.md' && item.isFile());
+    if (entry) {
+      const slug = basename(folder), text = await readFile(join(folder, entry.name), 'utf8'), meta = frontmatter(text);
+      if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(slug) || !meta.name || !meta.description) return;
+      const existing = library.find(item => item.id === `mine:skills:${slug}`);
+      const conflict = Boolean(existing && existing.origin?.source !== folder);
+      items.push({ name: meta.name, description: meta.description, source: folder, slug, conflict, revision: existing?.revision || null,
+        mode: existing ? existing.origin?.mode || 'copy' : null });
+      if (items.length > 200) throw Error('More than 200 skills found. Choose a narrower root.');
+      return;
+    }
+    if (depth >= 6) return;
+    // Runtime/repository roots expose their public discovery entries under skills/.
+    const publicSkills = children.find(item => item.name === 'skills' && item.isDirectory());
+    const folders = publicSkills ? [publicSkills] : children.filter(item => item.isDirectory() && !ignored.has(item.name)
+      && (!item.name.startsWith('.') || ['.agents', '.claude', '.codex'].includes(item.name)));
+    for (const child of folders.sort((a, b) => a.name.localeCompare(b.name))) await visit(join(folder, child.name), depth + 1);
+  }
+  await visit(source, 0);
+  const counts = new Map();
+  for (const item of items) counts.set(item.slug, (counts.get(item.slug) || 0) + 1);
+  return { source, items: items.map(item => ({ ...item, conflict: item.conflict || counts.get(item.slug) > 1 })) };
+}
+
+export async function importSharedSkillSelection(home, source, selected, options = {}) {
+  if (!Array.isArray(selected) || !selected.length || selected.length > 200) throw Error('Select at least one skill.');
+  const mode = options.mode ?? 'source', providers = options.providers ?? [];
+  if (!['source', 'copy'].includes(mode) || !Array.isArray(providers) || providers.some(provider => !['claude', 'codex'].includes(provider)))
+    throw Error('Choose an import mode and valid providers.');
+  const discovered = await discoverSharedSkills(home, source), imported = [], failed = [], seen = new Set();
+  for (const choice of selected) {
+    const item = discovered.items.find(item => item.source === choice?.source);
+    if (!item || item.conflict || seen.has(item.source)) throw Error('Invalid or conflicting skill selection. Scan the root again.');
+    seen.add(item.source);
+  }
+  await withLibrarySettingsLock(home, async () => {
+    for (const choice of selected) {
+      const item = discovered.items.find(item => item.source === choice.source);
+      let previous, updated;
+      try {
+        // Set explicit defaults before publishing a new item, so it is never briefly enabled for everyone.
+        if (!item.revision) {
+          previous = await optional(mineSelectionPath(home));
+          const settings = parseMineSelection(previous), id = `mine:skills:${item.slug}`;
+          for (const provider of ['claude', 'codex']) settings.providers[provider][id] = providers.includes(provider);
+          const next = JSON.stringify(settings, null, 2);
+          await writeChecked(mineSelectionPath(home), next, previous);
+          updated = next;
+        }
+        const importMode = item.mode || mode;
+        imported.push(await importSharedSkill(home, choice.source, choice.revision ?? null, importMode === 'source' ? 'source' : null));
+      } catch (error) {
+        if (updated !== undefined) await writeChecked(mineSelectionPath(home), previous, updated);
+        failed.push({ source: choice.source, message: error.message });
+      }
+    }
+  });
+  return { imported, failed };
+}
+
+async function withLibrarySettingsLock(home, work) {
+  const directory = join(home, 'data', 'herdr-zed');
+  await mkdir(directory, { recursive: true });
+  const path = join(directory, '.capabilities-save.lock'), lock = await acquireFileLock(path);
+  try { return await work(); }
+  finally { await lock.close(); await rm(path); }
+}
+
+export async function removeSharedSkill(home, id, expected) {
+  const slug = /^mine:skills:([a-zA-Z0-9][a-zA-Z0-9_-]*)$/.exec(id)?.[1];
+  if (!slug || typeof expected !== 'string' || !expected) throw Error('Choose a shared skill to remove.');
+  return withLibrarySettingsLock(home, async () => {
+    const libraryRoot = join(mineRoot(home), 'skills');
+    if ((await lstat(libraryRoot)).isSymbolicLink()) throw Error('Shared library must be a real directory.');
+    const root = await realpath(libraryRoot), target = join(root, slug);
+    if (dirname(await realpath(target)) !== root) throw Error('Skill must be inside the shared library.');
+    const lockPath = join(root, `.${slug}.lock`), lock = await acquireFileLock(lockPath);
+    const removed = join(root, `.removed-${randomUUID()}`);
+    let moved = false;
+    try {
+      if ((await skillTree(target)).revision !== expected) throw Error('Skill changed. Reload before removing.');
+      const previous = await optional(mineSelectionPath(home)), settings = parseMineSelection(previous);
+      settings.disabled = settings.disabled.filter(value => value !== id);
+      for (const provider of ['claude', 'codex']) delete settings.providers[provider][id];
+      await rename(target, removed); moved = true;
+      try { await writeChecked(mineSelectionPath(home), JSON.stringify(settings, null, 2), previous); }
+      catch (error) { await rename(removed, target); moved = false; throw error; }
+      return { removed: id };
+    } finally {
+      try { if (moved) await rm(removed, { recursive: true, force: true }); }
+      finally { await lock.close(); await rm(lockPath); }
+    }
+  });
 }

@@ -42,6 +42,7 @@ titles). Where they conflict, this file wins.
 - Agents is the New thread panel's configuration entry. Other management dialogs stay out of thread headers and the status bar.
 - Optional tools' display switches name their content and position, e.g. "Show System metrics in status bar".
 
+
 ## Sidebar
 
 - Top to bottom: the thread list, the sidebar surfaces (Usage; optional tools via Extensions), and the

@@ -39,15 +39,13 @@ Refreshes every installed `herdr-zed*` mod, the layout and the shell icons from 
 files are moved to `backups/herdr-zed-<stamp>/` first and restored if an update step fails. `data/`, shortcuts,
 settings and any mod, layout or theme that is not part of herdr-zed are left alone.
 
-## Shared Skills
+## Skills
 
-Open **Agents → Capabilities → Overview → Import skill…** and choose a local skill folder containing
-`SKILL.md` with its name/description frontmatter and any supporting files. For a skill from Git, clone
-its repository first and choose the individual skill folder. Import records the source folder and content
-revision; **Update from source** copies its current contents again, without running scripts or pulling Git.
-Apply pending settings edits before importing or updating.
+Skills already installed in a Codex account (system, user and plugin skills with a local `SKILL.md`) need no setup: type `/` in **New Thread** with a Codex program to pick one. Herdr asks Codex which skills are enabled for that account and project; enable or disable them in Codex itself.
 
-Browse **Claude Code** or **Codex** to choose shared skills independently. New shared items default on;
+**Claude Code** and **Codex** Capabilities retain Herdr's built-in and shared capabilities. Existing source-backed library entries read their original installation; copied entries retain their folder snapshots. **Update from source** preserves that mode. To remove a shared skill, select it and choose **Remove from library…**, then confirm. This removes its Herdr library entry and global choices for both providers, keeping the original source and session snapshots. Apply pending shared-settings edits before updating or removing.
+
+Shared skills can be chosen independently for Claude Code and Codex. Manually added shared items default on;
 project overrides can be previewed/applied through the built-in `herdr_ecc` tools using `sharedSkills`
 with the library's `mine:skills:*` or `mine:rules:*` IDs. These choices work independently of ECC's switch.
 
@@ -69,8 +67,7 @@ An optional `herdr.json` beside `SKILL.md` declares dependencies and supported p
 
 Omit providers/platforms for all, and mcps for an ordinary skill. Missing or disabled MCPs show setup
 requirements; configure them in **MCP Connections**. Skill selection never installs or enables a server.
-New local sessions load a native plugin with fixed skill versions and supporting files. Running sessions
-keep their version. Account sign-ins remain separate; remote sessions do not use this local library.
+New local sessions load a native plugin with fixed entry snapshots. Copied skills include supporting files; source-backed entries load instructions from their original installation. Running sessions do not gain newly imported entries. Account sign-ins remain separate; remote sessions do not use this local library.
 
 The library lives under `<Herdr home>/data/herdr-zed/capabilities/`, selections in `shared-skills.json`,
 and immutable launch files in `skill-snapshots/` and `skill-packages/` under the same product data root.

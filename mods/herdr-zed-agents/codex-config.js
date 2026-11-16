@@ -53,7 +53,7 @@ export async function openConfig(directory, overrides = []) {
     const layer = result.layers?.find(layer => layer.name.type === 'user' && !layer.name.profile &&
       resolve(layer.name.file) === join(directory, 'config.toml'));
     if (!layer || layer.disabledReason) throw new Error('Codex did not return this account’s user settings. Update Codex CLI and retry.');
-    return { config: layer.config, version: layer.version, close,
+    return { config: layer.config, version: layer.version, close, request,
       write: edits => request('config/batchWrite', { edits, expectedVersion: layer.version,
         filePath: join(directory, 'config.toml'), reloadUserConfig: false }) };
   } catch (error) { await close(); throw error; }

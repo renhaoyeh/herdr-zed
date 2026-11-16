@@ -1,5 +1,5 @@
 import { appHome, home, readTextFile, exec } from 'herdr';
-import { sessionKind } from './components/session-model.js';
+import { sessionKind, codexHome } from './components/session-model.js';
 import { eccAccount } from './ecc-model.js';
 
 export const devkitsPath = () => `${appHome()}/data/herdr-zed/capabilities.json`;
@@ -18,7 +18,9 @@ export async function readMineItems() {
 }
 export async function sessionDevkits(agent, target = {}, switches = {}, argv = [], options = {}) {
   const provider = sessionKind(agent), account = eccAccount(provider, argv, home());
-  const guidance = await providerDevkits(provider, target, switches, account?.directory, options);
+  let guidance = await providerDevkits(provider, target, switches, account?.directory, options);
+  if (provider === 'codex' && String(options.command || '').startsWith('codex:') || provider === 'codex' && !options.command && /^\s*\/[^\s]/.test(target.task || ''))
+    guidance = { ...guidance, commands: await withCodexSkills(guidance?.commands || [], account.directory, target.folder) };
   if (!guidance?.flags?.length) return guidance;
   const executable = argv.findIndex(arg => new RegExp(`(?:^|[/\\\\])${provider}(?:\\.exe|\\.cmd)?$`, 'i').test(arg));
   if (executable < 0) throw Error('Could not find the shared Skills agent executable.');
@@ -39,5 +41,15 @@ export async function providerCommands(agent, target = {}) {
   if (target.machine || !['claude', 'codex'].includes(provider)) return [];
   const result = await exec('node', [`${appHome()}/mods/herdr-zed-agents/shared-skills-cli.js`, 'commands', appHome(), provider, target.folder || ''], { timeout: 30000 });
   if (result.code !== 0) throw Error(result.stderr?.trim() || 'Could not read available skills.');
-  return JSON.parse(result.stdout || '[]');
+  const commands = JSON.parse(result.stdout || '[]');
+  if (provider !== 'codex') return commands;
+  // The composer receives id/name/description only; the launch resolves paths again.
+  return (await withCodexSkills(commands, codexHome(agent, home()), target.folder)).map(({ id, name, description }) => ({ id, name, description }));
+}
+// Add the Codex account's own installed skills; shared entries keep their names.
+export async function withCodexSkills(commands, directory, folder = '') {
+  const result = await exec('node', [`${appHome()}/mods/herdr-zed-agents/codex-skills.js`, 'list', directory, folder || ''], { timeout: 45000 });
+  if (result.code !== 0) throw Error(result.stderr?.trim() || 'Could not read installed Codex skills.');
+  const names = new Set(commands.map(item => item.name));
+  return [...commands, ...JSON.parse(result.stdout || '[]').filter(item => !names.has(item.name))];
 }
