@@ -8,7 +8,7 @@ import { gitToastProject } from './git-result-toast.js';
 import { SidePanelLayout } from './components/side-panel.js';
 
 const editorItemKey = item => item.kind === 'commit' ? `commit:${item.commit.sha}` : item.kind;
-const emptyEditorSession = () => ({ git: [], order: [], history: [], active: null, compose: false, search: false });
+const emptyEditorSession = () => ({ git: [], order: [], pinned: [], history: [], active: null, compose: false, search: false });
 export const COMPOSE_TAB = 'compose';
 export const SEARCH_TAB = 'search';
 
@@ -19,6 +19,7 @@ export default class WorkspaceEditor {
     this.handle = cx.focus_handle();
     this.sessions = new Map(); this.session = emptyEditorSession(); this.projectKey = null;
     this.files = new FileViewer(); this.files.init(cx);
+    this.files.onTabDragStart = () => this.handle.focus();
     this.diff = new DiffViewer(); this.diff.init(cx); this.diff.managedTabs = true;
     this.files.onOpen = (info, cx) => this.fileOpened(info, cx);
     this.diff.onOpen = (item, cx) => this.gitOpened(item || { kind: 'changes' }, cx);
@@ -58,8 +59,8 @@ export default class WorkspaceEditor {
 
   remember() {
     if (!this.projectKey) return;
-    const { git, order, history, active } = this.session;
-    const saved = { git: git.map(({ kind, commit }) => ({ kind, ...(commit ? { commit } : {}) })), order, history, active };
+    const { git, order, pinned, history, active } = this.session;
+    const saved = { git: git.map(({ kind, commit }) => ({ kind, ...(commit ? { commit } : {}) })), order, pinned, history, active };
     const all = shared('herdr-zed.editor-tabs') || {};
     if (JSON.stringify(all[this.projectKey]) === JSON.stringify(order.length ? saved : undefined)) return;
     const next = { ...all };
@@ -74,6 +75,7 @@ export default class WorkspaceEditor {
     if (this.projectKey) this.diff.close();
     if (this.projectKey) this.sessions.set(this.projectKey, this.session);
     this.projectKey = key; this.diffItemKey = null; this.restoreQueued = null; this.tabSwitch = null;
+    this.files.tabDrag = null; this.files.tabMenu = null;
     const cached = this.sessions.get(key);
     if (cached) { this.session = cached; return; }
     const saved = shared('herdr-zed.editor-tabs')?.[key];
@@ -86,7 +88,7 @@ export default class WorkspaceEditor {
       const id = editorItemKey(item);
       if (!seen.has(id)) { this.session.git.push({ kind: item.kind, commit: item.commit }); seen.add(id); }
     }
-    for (const name of ['order', 'history']) this.session[name] = Array.isArray(saved[name]) ? [...new Set(saved[name].filter(key => typeof key === 'string'))] : [];
+    for (const name of ['order', 'pinned', 'history']) this.session[name] = Array.isArray(saved[name]) ? [...new Set(saved[name].filter(key => typeof key === 'string'))] : [];
     this.session.active = typeof saved.active === 'string' ? saved.active : null;
   }
 
@@ -95,6 +97,8 @@ export default class WorkspaceEditor {
       ...(this.session.compose ? [COMPOSE_TAB] : []), ...(this.session.search ? [SEARCH_TAB] : [])];
     const valid = new Set(keys);
     this.session.order = [...this.session.order.filter(key => valid.has(key)), ...keys.filter(key => !this.session.order.includes(key))];
+    this.session.pinned = this.session.pinned.filter(key => valid.has(key));
+    this.sortPinned();
     this.session.history = this.session.history.filter(key => valid.has(key));
     if (!valid.has(this.session.active)) this.session.active = this.files.file ? `file:${this.files.file}` : this.session.order.at(-1) || null;
   }
@@ -104,6 +108,32 @@ export default class WorkspaceEditor {
     if (key) this.session.history = [...this.session.history.filter(item => item !== key), key];
     this.tabSwitch = null;
     this.remember();
+  }
+
+  sortPinned() {
+    const pinned = new Set(this.session.pinned);
+    this.session.order = [...this.session.order.filter(key => pinned.has(key)), ...this.session.order.filter(key => !pinned.has(key))];
+  }
+
+  togglePin(key, cx) {
+    if (!this.session.order.includes(key)) return;
+    const pinned = this.session.pinned.includes(key);
+    this.session.pinned = pinned ? this.session.pinned.filter(item => item !== key) : [...this.session.pinned, key];
+    // A pinned file must not be replaced by the next single-click preview.
+    if (!pinned && key.startsWith('file:') && this.files.preview === key.slice(5)) {
+      this.files.preview = null; this.files.remember();
+    }
+    this.sortPinned(); this.remember(); cx.notify();
+  }
+
+  moveTab(key, target, after, cx) {
+    const order = this.session.order;
+    if (key === target || !order.includes(key) || !order.includes(target)) return;
+    const next = order.filter(item => item !== key);
+    next.splice(next.indexOf(target) + Number(after), 0, key);
+    this.session.order = next;
+    // Reordering never silently changes a tab's pinned state.
+    this.sortPinned(); this.remember(); cx.notify();
   }
 
   fileOpened(info) {
@@ -159,6 +189,7 @@ export default class WorkspaceEditor {
     if (!session) return;
     session.compose = false;
     session.order = session.order.filter(key => key !== COMPOSE_TAB);
+    session.pinned = session.pinned.filter(key => key !== COMPOSE_TAB);
     session.history = session.history.filter(key => key !== COMPOSE_TAB);
     if (session.active === COMPOSE_TAB) session.active = session.history.at(-1) || session.order.at(-1) || null;
   }
@@ -195,6 +226,7 @@ export default class WorkspaceEditor {
       if (key === 'graph') this.diff.graphMode = false;
     }
     this.session.order = this.session.order.filter(item => item !== key);
+    this.session.pinned = this.session.pinned.filter(item => item !== key);
     this.session.history = this.session.history.filter(item => item !== key);
     if (active) {
       const next = this.session.history.at(-1) || this.session.order[Math.max(0, index - 1)];
@@ -204,7 +236,7 @@ export default class WorkspaceEditor {
     this.remember(); cx.notify();
   }
 
-  closeActiveTab(cx) { if (this.session.active) this.closeItem(this.session.active, cx); }
+  closeActiveTab(cx) { if (this.session.active && !this.session.pinned.includes(this.session.active)) this.closeItem(this.session.active, cx); }
 
   cycleTab(direction, cx) {
     if (!this.session.order.length) return;
@@ -253,17 +285,32 @@ export default class WorkspaceEditor {
     const content = v_flex().size_full().min_w(0).min_h(0)
       .when(this.session.order.length > 0, el => el.child(this.files.tabBar(theme(), {
         extra, fileActive: kind === 'files', order: this.session.order, closeFile: (path, cx) => this.closeItem(`file:${path}`, cx),
+        pinned: this.session.pinned, togglePin: (key, cx) => this.togglePin(key, cx), moveTab: (key, target, after, cx) => this.moveTab(key, target, after, cx),
       })))
       .child(div().flex_1().min_w(0).min_h(0).child(kind === 'compose' && compose ? compose() : kind === 'search' && this.search ? this.search.render(project, cx) : kind === 'diff' ? diff.content
         : files.content));
     const body = dock ? SidePanelLayout('workspace-editor-split', this.files.sidePanel, content,
       dock === 'diff' ? diff.panel : files.panel) : content;
-    return div().id('workspace-editor').track_focus(this.handle).key_context('HerdrZedFiles').size_full().min_h(0).bg(theme().background)
+    return div().id('workspace-editor').relative().track_focus(this.handle).key_context('HerdrZedFiles').size_full().min_h(0).bg(theme().background)
+      .on_mouse_move((event, cx) => this.files.updateTabDrag(event, cx))
+      .on_mouse_up('left', (_event, cx) => this.files.endTabDrag(cx))
+      .on_mouse_down_out((_event, cx) => this.files.endTabDrag(cx))
+      .on_hover((inside, cx) => { if (!inside) this.files.endTabDrag(cx); })
+      .on_key_down((event, cx) => {
+        if (event.key === 'escape' && this.files.tabDrag) { cx.stop_propagation(); this.files.endTabDrag(cx); }
+      })
       .on_modifiers_changed(event => { if (!event.modifiers.control) this.tabSwitch = null; })
       // Only the diff draws its own text; the native file editor exposes no search API yet.
       .on_action('herdr-zed-find', (_event, cx) => { if (kind === 'diff' && !this.diff.graphMode) { cx.stop_propagation(); this.diff.openFind(cx); } })
       .on_action('herdr-zed-next-file', (_event, cx) => { cx.stop_propagation(); this.cycleTab(1, cx); })
       .on_action('herdr-zed-prev-file', (_event, cx) => { cx.stop_propagation(); this.cycleTab(-1, cx); })
-      .child(body);
+      .child(body)
+      // Catch releases over native editors/buttons, which otherwise consume
+      // them. Keep the tab strip uncovered so returning to it resumes sorting.
+      .when(Boolean(this.files.tabDrag), el => el.child(div().id('editor-tab-drag-shield').absolute()
+        .top(this.files.tabBarHeight || 32).bottom(0).left(0).right(0).cursor_grabbing()
+        .on_mouse_down('left', (_event, cx) => this.files.endTabDrag(cx))
+        .on_mouse_up('left', (_event, cx) => { cx.stop_propagation(); this.files.endTabDrag(cx); })))
+      .when(Boolean(this.files.tabDrag?.moved && this.files.tabDrag.pointer), el => el.child(this.files.tabDragPreview(theme())));
   }
 }

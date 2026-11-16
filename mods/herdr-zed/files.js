@@ -1,5 +1,5 @@
 import { div, svg } from 'gpui-kit';
-import { h_flex, v_flex, Editor, EditorState, TextView } from 'gpui-base';
+import { h_flex, v_flex, Editor, EditorState, TextView, Popup } from 'gpui-base';
 import { exec, appHome, readTextFile, watchFolder, settings, theme, window, props, openOverlay, closeOverlay, notify, shared, setShared } from 'herdr';
 import { execShell } from './shell.js';
 import { Button, ToolbarButton } from './components/button.js';
@@ -147,6 +147,7 @@ export default class FileViewer {
   get wrapTabs() { return shared('herdr-zed.files-wrap-tabs') === true; }
 
   close() {
+    this.tabDrag = null; this.tabMenu = null; this.suppressTabClick = false;
     this.watcher?.cancel(); this.poll?.cancel(); this.queued?.cancel();
     this.queued = null;
     this.context = null;
@@ -467,16 +468,59 @@ export default class FileViewer {
       .child(SidePanelLayout('files-split', this.sidePanel, content, tree));
   }
 
-  tabBar(t, { extra = [], fileActive = true, order = [], closeFile } = {}) {
+  updateTabDrag(event, cx) {
+    const drag = this.tabDrag;
+    if (!drag) return;
+    const zoom = settings().zoom || 1;
+    drag.pointer = { x: (event.position.x - event.bounds.x) / zoom, y: (event.position.y - event.bounds.y) / zoom };
+    if (!drag.moved && Math.hypot(event.position.x - drag.x, event.position.y - drag.y) >= 5) drag.moved = true;
+    if (drag.moved) cx.notify();
+  }
+
+  tabDragPreview(t) {
+    const drag = this.tabDrag;
+    if (!drag?.moved || !drag.pointer) return null;
+    // Offset from the pointer so the preview cannot cover the drop hit target.
+    return h_flex().id('editor-tab-drag-preview').absolute().left(drag.pointer.x + 12).top(drag.pointer.y + 16)
+      .w(drag.width).h(31).px(12).gap(6).items_center().rounded(0).border(1).border_color(t.border)
+      .bg(t.popover).text_color(t.foreground).shadow_md().opacity(0.95)
+      .child(icon(drag.icon).text_color(t.muted))
+      .child(div().min_w(0).truncate().text_size(12).child(drag.label));
+  }
+
+  endTabDrag(cx, moveTab) {
+    const drag = this.tabDrag;
+    if (!drag) return;
+    this.tabDrag = null;
+    // A cancelled drag must not turn its eventual release into a tab click.
+    if (drag.moved) {
+      this.suppressTabClick = true;
+      const index = drag.order.indexOf(drag.key);
+      const next = drag.order[index + 1], previous = drag.order[index - 1];
+      if (next || previous) moveTab?.(drag.key, next || previous, !next, cx);
+    }
+    cx.notify();
+  }
+
+  tabBar(t, { extra = [], fileActive = true, order = [], closeFile, pinned = [], togglePin, moveTab } = {}) {
     const wrap = this.wrapTabs, name = path => path.split(/[/\\]/).at(-1);
     const counts = new Map();
     for (const doc of this.tabs) counts.set(name(doc.path), (counts.get(name(doc.path)) || 0) + 1);
     const items = [...this.tabs.map(doc => ({ key: `file:${doc.path}`, path: doc.path })), ...extra];
-    const positions = new Map(order.map((key, i) => [key, i]));
+    // Render the working order during the gesture; only release writes project state.
+    const positions = new Map((this.tabDrag?.order || order).map((key, i) => [key, i]));
     items.sort((a, b) => (positions.get(a.key) ?? Infinity) - (positions.get(b.key) ?? Infinity));
     const list = wrap ? h_flex().flex_wrap() : h_flex().id('file-tab-list').h_full().overflow_x_scroll();
     // Like every 32px header, the bar's 32px includes its border: a single row of tabs is 31px tall, wrapped or not.
     return h_flex().id('file-tabs').when(!wrap, el => el.h(32)).flex_none().items_start().bg(t.chrome).border_b(1).border_color(t.border)
+      .on_size_change((size, cx) => {
+        if (this.tabBarHeight === size.height) return;
+        this.tabBarHeight = size.height; cx.notify();
+      })
+      .on_mouse_up('left', (_event, cx) => this.endTabDrag(cx, moveTab))
+      // Leaving a drop target does not end the gesture. The workspace owns
+      // cancellation/release outside this bar, including release over editors.
+      .on_mouse_down_out((_event, cx) => this.endTabDrag(cx))
       .child(list.flex_1().min_w(0).role('tab_list').accessibility_label('Open editor tabs')
         .children(items.map((doc, index) => {
           const active = doc.path ? fileActive && doc.path === this.file : doc.active;
@@ -484,15 +528,51 @@ export default class FileViewer {
           const folder = doc.path?.includes('/') ? doc.path.slice(0, doc.path.lastIndexOf('/')) : '';
           const close = cx => doc.path ? (closeFile ? closeFile(doc.path, cx) : this.closeTab(doc.path, cx)) : doc.close(cx);
           const id = doc.path || doc.key;
-          return Button(`file-tab-${id}`, t, { variant: 'ghost' }).when(wrap, el => el.h(31)).when(!wrap, el => el.h_full()).max_w(240).pl(12).pr(6).gap(6).justify_start()
+          const isPinned = pinned.includes(doc.key);
+          // Keep the drag surface a plain element. A native Button owns its press/release
+          // gesture, preventing the tab strip from receiving the release that commits a move.
+          const tab = h_flex().id(`file-tab-${id}`).flex_none().items_center().rounded(0).cursor_pointer()
+            .hover(el => el.bg(t.hover)).when(wrap, el => el.h(31)).when(!wrap, el => el.h_full()).max_w(240).pl(12).pr(6).gap(6).justify_start()
             .border_r(1).border_color(t.border).bg(active ? t.background : t.chrome).text_color(active ? t.foreground : t.muted)
             .role('tab').selected(active).set_position(index + 1, items.length)
-            .accessibility_label(`${doc.path || doc.label}${preview ? ', preview' : ''}`)
+            .accessibility_label(`${doc.path || doc.label}${preview ? ', preview' : ''}${isPinned ? ', pinned' : ''}`)
+            .when(Boolean(moveTab), el => el
+              .on_mouse_down('left', (event, cx) => {
+                cx.stop_propagation();
+                this.suppressTabClick = false;
+                this.tabDrag = { key: doc.key, x: event.position.x, y: event.position.y, order: items.map(item => item.key),
+                  label: base, icon: doc.icon || 'file', width: Math.min(240, Math.max(80, (event.bounds?.width || 140) / (settings().zoom || 1))) };
+                this.onTabDragStart?.(); cx.notify();
+              })
+              .on_mouse_move((event, cx) => {
+                const drag = this.tabDrag;
+                if (!drag) return;
+                if (!drag.moved && Math.hypot(event.position.x - drag.x, event.position.y - drag.y) < 5) return;
+                if (!drag.moved) { drag.moved = true; cx.notify(); }
+                if (drag.key === doc.key || pinned.includes(drag.key) !== isPinned) return;
+                const from = drag.order.indexOf(drag.key), target = drag.order.indexOf(doc.key);
+                const after = event.position.x > event.bounds.x + event.bounds.width / 2;
+                // Cross the neighbour's midpoint in the direction of travel. Once
+                // layout shifts, hovering the dragged tab itself cannot swap it back.
+                if (from < 0 || target < 0 || (from < target ? !after : after)) return;
+                drag.order.splice(from, 1);
+                drag.order.splice(drag.order.indexOf(doc.key) + Number(after), 0, drag.key);
+                cx.notify();
+              })
+              // The dimmed slot keeps its width while the lifted copy follows the pointer.
+              .when(this.tabDrag?.moved && this.tabDrag.key === doc.key, el => el.bg(t.selected).opacity(0.25)))
+            .when(Boolean(togglePin), el => el.on_mouse_down('right', (_event, cx) => {
+              cx.stop_propagation(); this.tabDrag = null; this.tabMenu = doc.key;
+              this.tabMenuFocus ||= cx.focus_handle(); this.tabMenuFocus.focus(); cx.notify();
+            }))
             .on_hover((inside, cx) => {
               if (!inside && this.hoveredTab !== id) return;
               this.hoveredTab = inside ? id : null; cx.notify();
             })
-            .on_click((event, cx) => doc.path ? event.click_count >= 2 ? this.pin(doc.path, cx) : this.activate(doc.path, cx) : doc.activate(cx))
+            .on_click((event, cx) => {
+              if (this.suppressTabClick || this.tabDrag?.moved) { this.suppressTabClick = false; return; }
+              doc.path ? event.click_count >= 2 ? this.pin(doc.path, cx) : this.activate(doc.path, cx) : doc.activate(cx);
+            })
             .on_mouse_down('middle', (_event, cx) => { cx.stop_propagation(); close(cx); })
             .child(icon(doc.icon || 'file').text_color(t.muted))
             // Italic alone vanishes in UI fonts without an italic face, so a preview tab is also one step dimmer.
@@ -500,11 +580,25 @@ export default class FileViewer {
             // Same-named files show their folder, as Zed does.
             .when(counts.get(base) > 1 && Boolean(folder), el => el.child(div().min_w(0).truncate().text_size(11).text_color(t.dim).child(folder)))
             .child(ToolbarButton(`close-file-tab-${id}`, t, { icon: true, row: true })
-              .opacity(active || this.hoveredTab === id ? 1 : 0)
-              .tooltip(`Close ${base}`)
-              .accessibility_label(`Close ${base}`)
-              .on_click((_event, cx) => { cx.stop_propagation(); close(cx); })
-              .child(icon('close').size(12)));
+              .opacity(isPinned || active || this.hoveredTab === id ? 1 : 0)
+              .tooltip(isPinned ? `Unpin ${base}` : `Close ${base}`)
+              .accessibility_label(isPinned ? `Unpin ${base}` : `Close ${base}`)
+              .on_mouse_down('left', (_event, cx) => { cx.stop_propagation(); this.tabDrag = null; })
+              .on_click((_event, cx) => { cx.stop_propagation(); isPinned ? togglePin(doc.key, cx) : close(cx); })
+              .child(icon(isPinned ? 'pin' : 'close').size(12)));
+          if (!togglePin) return tab;
+          const dismiss = cx => { this.tabMenu = null; cx.notify(); };
+          const choose = cx => { dismiss(cx); togglePin(doc.key, cx); };
+          return Popup.new(`editor-tab-menu-${id}`, tab).relative().flex_none().when(!wrap, el => el.h_full()).anchor('top_left')
+            .when(this.tabMenu === doc.key, el => el.content(DropdownMenuContent(`editor-tab-actions-${id}`, undefined, t).w(224)
+              .role('menu').accessibility_label('Tab actions').track_focus(this.tabMenuFocus)
+              .on_mouse_down_out((_event, cx) => { cx.stop_propagation(); dismiss(cx); })
+              .on_key_down((event, cx) => {
+                if (event.key === 'escape') { cx.stop_propagation(); dismiss(cx); }
+                if (event.key === 'enter' || event.key === 'space') { cx.stop_propagation(); choose(cx); }
+              })
+              .child(DropdownMenuItem(`toggle-pin-${id}`, t).role('menu_item').accessibility_label(isPinned ? 'Unpin tab' : 'Pin tab')
+                .on_click((_event, cx) => { cx.stop_propagation(); choose(cx); }).child(isPinned ? 'Unpin tab' : 'Pin tab'))));
         })))
       .child(DropdownMenu('file-tab-options', this.optionsMenu,
         ToolbarButton('file-tab-options-trigger', t, { icon: true }).when(wrap, el => el.h(31)).when(!wrap, el => el.h_full())

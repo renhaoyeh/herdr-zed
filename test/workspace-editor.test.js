@@ -43,8 +43,16 @@ test('dock switches preserve the document; choosing a file or diff changes the c
 
 async function editorHarness(store = {}) {
   const source = await editorSource();
+  const nodes = new Map();
   const element = () => {
-    const el = new Proxy({}, { get: (_target, key) => key === 'when' ? (condition, fn) => { if (condition) fn(el); return el; } : () => el });
+    const data = { handlers: {}, styles: {} };
+    const el = new Proxy({}, { get: (_target, key) => (...args) => {
+      if (key === 'when') { if (args[0]) args[1](el); }
+      else if (key === 'id') nodes.set(args[0], data);
+      else if (key.startsWith('on_')) data.handlers[`${key}:${typeof args[0] === 'string' ? args[0] : ''}`] = args.at(-1);
+      else data.styles[key] = args;
+      return el;
+    } });
     return el;
   };
   class Files {
@@ -58,6 +66,8 @@ async function editorHarness(store = {}) {
     }
     refresh(project) { this.context = project; this.render(project); }
     tabBar(_t, options) { this.options = options; return element(); }
+    endTabDrag() { this.tabDrag = null; }
+    updateTabDrag(event) { this.lastDragMove = event; }
     activate(path, cx) { this.file = path; this.onOpen({ path }, cx); }
     show(path, cx, replaced, options) {
       if (replaced === true) replaced = undefined;
@@ -83,10 +93,77 @@ async function editorHarness(store = {}) {
     element, element, key => store[key], (key, value) => { store[key] = JSON.parse(JSON.stringify(value)); }, () => ({}), Files, Diff, (_id, _state, content) => content);
   const tasks = [], cx = { notify() {}, stop_propagation() {}, focus_handle: () => ({ focus() {} }), bind_keys() {}, sleep: async () => {}, spawn(fn) { tasks.push(fn(cx)); } };
   const editor = new Editor(); editor.init(cx);
-  return { editor, cx, store, async drain() { while (tasks.length) await Promise.all(tasks.splice(0)); } };
+  return { editor, cx, store, nodes, async drain() { while (tasks.length) await Promise.all(tasks.splice(0)); } };
 }
 
+test('workspace catches releases outside the tab strip and clears drag state on exit or Escape', async () => {
+  const { editor, cx, nodes } = await editorHarness();
+  const project = { id: 'one' };
+  editor.render(project, cx); editor.files.show('a.js', cx);
+  const order = [...editor.session.order];
+  const start = () => {
+    nodes.clear(); editor.files.tabDrag = { moved: true }; editor.files.tabBarHeight = 62;
+    editor.render(project, cx);
+    return nodes.get('workspace-editor').handlers;
+  };
+  let root = start();
+  const move = { position: { x: 80, y: 120 }, bounds: { x: 0, y: 0 } };
+  root['on_mouse_move:'](move, cx);
+  assert.equal(editor.files.lastDragMove, move, 'workspace pointer movement reaches the drag preview');
+  const shield = nodes.get('editor-tab-drag-shield');
+  assert.deepEqual(shield.styles.top, [62], 'wrapped tab rows remain outside the release shield');
+  shield.handlers['on_mouse_up:left']({}, cx);
+  assert.equal(editor.files.tabDrag, null);
+  assert.deepEqual(editor.session.order, order, 'dropping outside the strip cancels rather than committing');
+  root = start(); root['on_hover:'](true, cx);
+  assert.ok(editor.files.tabDrag, 'moving within the workspace keeps the gesture alive');
+  root['on_hover:'](false, cx); assert.equal(editor.files.tabDrag, null);
+  root = start(); root['on_key_down:']({ key: 'escape' }, cx); assert.equal(editor.files.tabDrag, null);
+  root = start(); root['on_mouse_down_out:']({}, cx); assert.equal(editor.files.tabDrag, null);
+  root = start(); root['on_mouse_up:left']({}, cx); assert.equal(editor.files.tabDrag, null);
+});
+
 const editorCommit = letter => ({ sha: letter.repeat(40), shortSha: letter.repeat(7), subject: `Commit ${letter}`, at: 1700000000 });
+
+test('editor tabs reorder and pin across kinds, persist per project, and protect pinned keyboard closes', async () => {
+  const { editor, cx, store } = await editorHarness();
+  const project = { id: 'one', folder: '/repo' };
+  editor.render(project, cx);
+  editor.files.show('one.js', cx); editor.files.show('two.js', cx); editor.diff.openGraph(cx);
+  editor.moveTab('graph', 'file:one.js', false, cx);
+  assert.deepEqual(editor.session.order, ['graph', 'file:one.js', 'file:two.js']);
+  editor.togglePin('file:two.js', cx);
+  assert.deepEqual(editor.session.order, ['file:two.js', 'graph', 'file:one.js']);
+  editor.moveTab('file:two.js', 'file:one.js', true, cx);
+  assert.equal(editor.session.order[0], 'file:two.js');
+  assert.deepEqual(editor.session.pinned, ['file:two.js']);
+  editor.activate('file:two.js', cx); editor.closeActiveTab(cx);
+  assert.ok(editor.session.order.includes('file:two.js'));
+  editor.render({ id: 'other', folder: '/other' }, cx);
+  assert.deepEqual(editor.session.pinned, []);
+  editor.render(project, cx);
+  assert.deepEqual(editor.session.pinned, ['file:two.js']);
+  const restored = await editorHarness(store);
+  restored.editor.switchProject(project);
+  assert.deepEqual(restored.editor.session.pinned, ['file:two.js']);
+  assert.deepEqual(restored.editor.session.order, ['file:two.js', 'graph', 'file:one.js']);
+  editor.togglePin('file:two.js', cx); editor.closeActiveTab(cx);
+  assert.ok(!editor.session.order.includes('file:two.js'));
+});
+
+test('pinning a preview keeps it and closing clears its pin', async () => {
+  const { editor, cx } = await editorHarness();
+  editor.render({ id: 'one' }, cx);
+  editor.files.show('preview.js', cx);
+  editor.files.preview = 'preview.js';
+  let saved = false; editor.files.remember = () => { saved = true; };
+  editor.togglePin('file:preview.js', cx);
+  assert.equal(editor.files.preview, null); assert.equal(saved, true);
+  editor.closeItem('file:preview.js', cx);
+  assert.deepEqual(editor.session.pinned, []);
+  editor.togglePin('missing', cx);
+  assert.deepEqual(editor.session.pinned, []);
+});
 
 test('switching repositories replaces Git tabs while preserving file tabs', async () => {
   const { editor, cx } = await editorHarness({ 'herdr-zed.right-panel': 'diff' });

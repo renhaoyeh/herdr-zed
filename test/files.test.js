@@ -21,6 +21,107 @@ async function load(host = {}) {
     .replace('export default class', 'class').replace(/^export /gm, '') + '\nreturn { FileViewer, FileMenu, fullPath, revealPath, directory, parseStatus, gitStatus };')(...Object.values(host));
 }
 const project = { id: 'project', folder: '/project', machine: 'server' };
+
+test('central tabs reorder live, survive leaving the strip, cancel safely and expose pin actions', async () => {
+  const nodes = new Map(), nativeButtons = new Set();
+  let zoom = 1;
+  const element = id => {
+    const data = { handlers: {}, position: null, styles: {} };
+    if (id) nodes.set(id, data);
+    const el = new Proxy({}, { get: (_target, key) => (...args) => {
+      if (key === 'when') { if (args[0]) args[1](el); }
+      else if (key === 'id') nodes.set(args[0], data);
+      else if (key === 'set_position') data.position = args[0];
+      else if (key.startsWith('on_')) data.handlers[`${key}:${typeof args[0] === 'string' ? args[0] : ''}`] = args.at(-1);
+      else data.styles[key] = args;
+      return el;
+    } });
+    return el;
+  };
+  const { FileViewer } = await load({ div: element, h_flex: element, v_flex: element, svg: element, settings: () => ({ zoom }),
+    Button: id => { nativeButtons.add(id); return element(id); },
+    ToolbarButton: id => { nativeButtons.add(id); return element(id); }, DropdownMenu: () => element(),
+    DropdownMenuContent: element, DropdownMenuItem: element, Popup: { new: element } });
+  const view = new FileViewer(); view.tabs = [{ path: 'a' }, { path: 'b' }];
+  const moved = [], pins = [], cx = { notify() {}, stop_propagation() {}, focus_handle: () => ({ focus() {} }) };
+  const render = (pinned = []) => view.tabBar({}, { moveTab: (...args) => moved.push(args.slice(0, 3)), togglePin: key => pins.push(key), pinned });
+  render();
+  assert.equal(nativeButtons.has('file-tab-a'), false, 'drag surfaces must not use a native Button that consumes mouse release');
+  assert.equal(nativeButtons.has('file-tab-b'), false);
+  const a = nodes.get('file-tab-a').handlers, b = nodes.get('file-tab-b').handlers;
+  a['on_mouse_down:left']({ position: { x: 10, y: 10 } }, cx);
+  b['on_mouse_move:']({ position: { x: 12, y: 10 }, bounds: { x: 0, width: 100 } }, cx);
+  assert.equal(view.tabDrag.moved, undefined);
+  b['on_mouse_move:']({ position: { x: 90, y: 10 }, bounds: { x: 0, width: 100 } }, cx);
+  assert.deepEqual(view.tabDrag.order, ['file:b', 'file:a']);
+  assert.deepEqual(moved, [], 'do not persist intermediate pointer moves');
+  render();
+  assert.equal(nodes.get('file-tab-a').position, 2, 'the rendered tab moves before release');
+  assert.equal(nodes.get('file-tab-b').position, 1, 'the neighbour gives way before release');
+  nodes.get('file-tab-a').handlers['on_mouse_move:']({ position: { x: 90, y: 10 }, bounds: { x: 50, width: 100 } }, cx);
+  assert.deepEqual(view.tabDrag.order, ['file:b', 'file:a'], 'reflow does not swap tabs back under a stationary pointer');
+  // Native buttons stop the release before the ancestor sees it. Model that
+  // boundary so this test fails if the drag target becomes a Button again.
+  const releaseOver = id => {
+    if (!nativeButtons.has(id)) nodes.get('file-tabs').handlers['on_mouse_up:left']({}, cx);
+  };
+  releaseOver('file-tab-b');
+  assert.deepEqual(moved, [['file:a', 'file:b', true]]);
+  a['on_mouse_down:left']({ position: { x: 10, y: 10 } }, cx);
+  b['on_mouse_move:']({ position: { x: 90, y: 10 }, bounds: { x: 0, width: 100 } }, cx);
+  render();
+  assert.equal(nodes.get('file-tab-a').position, 2);
+  assert.equal(nodes.get('file-tabs').handlers['on_hover:'], undefined, 'leaving the strip must not destroy the gesture');
+  // Movement outside any tab does not touch the gesture. Returning can still
+  // reorder it, while an explicit workspace cancellation discards the preview.
+  assert.deepEqual(view.tabDrag.order, ['file:b', 'file:a']);
+  a['on_mouse_move:']({ position: { x: 90, y: 80 }, bounds: { x: 50, width: 100 } }, cx);
+  assert.ok(view.tabDrag);
+  view.endTabDrag(cx);
+  assert.equal(view.tabDrag, null);
+  render();
+  assert.equal(nodes.get('file-tab-a').position, 1, 'cancel restores the saved order');
+  assert.equal(moved.length, 1, 'cancel does not save the working order');
+  nodes.get('file-tab-b').handlers['on_mouse_down:left']({ position: { x: 90, y: 10 } }, cx);
+  nodes.get('file-tab-a').handlers['on_mouse_move:']({ position: { x: 10, y: 10 }, bounds: { x: 0, width: 100 } }, cx);
+  render();
+  assert.equal(nodes.get('file-tab-b').position, 1, 'dragging left also updates layout immediately');
+  releaseOver('file-tab-a');
+  assert.deepEqual(moved.at(-1), ['file:b', 'file:a', false]);
+  render(['file:a']);
+  nodes.get('file-tab-a').handlers['on_mouse_down:left']({ position: { x: 10, y: 10 } }, cx);
+  nodes.get('file-tab-b').handlers['on_mouse_move:']({ position: { x: 90, y: 10 }, bounds: { x: 0, width: 100 } }, cx);
+  assert.deepEqual(view.tabDrag.order, ['file:a', 'file:b'], 'a pinned tab stays within the pinned region');
+  view.endTabDrag(cx);
+  assert.equal(view.tabDrag, null);
+  // A new press outside the strip clears any stale gesture, including a
+  // release the platform did not deliver after leaving the window.
+  nodes.get('file-tab-a').handlers['on_mouse_down:left']({ position: { x: 10, y: 10 } }, cx);
+  nodes.get('file-tabs').handlers['on_mouse_down_out:']({}, cx);
+  assert.equal(view.tabDrag, null);
+  zoom = 2;
+  nodes.get('file-tab-b').handlers['on_mouse_down:left']({ position: { x: 200, y: 40 }, bounds: { width: 240 } }, cx);
+  assert.equal(view.tabDragPreview({}), null, 'press alone does not lift the tab');
+  view.updateTabDrag({ position: { x: 300, y: 100 }, bounds: { x: 100, y: 20 } }, cx);
+  assert.equal(view.tabDrag.label, 'b');
+  view.tabDragPreview({});
+  let floating = nodes.get('editor-tab-drag-preview').styles;
+  assert.deepEqual(floating.left, [112]); assert.deepEqual(floating.top, [56]);
+  assert.deepEqual(floating.w, [120], 'preview width accounts for zoom');
+  render();
+  assert.deepEqual(nodes.get('file-tab-b').styles.opacity, [0.25], 'the lifted tab leaves a dimmed slot');
+  view.updateTabDrag({ position: { x: 340, y: 180 }, bounds: { x: 100, y: 20 } }, cx);
+  view.tabDragPreview({}); floating = nodes.get('editor-tab-drag-preview').styles;
+  assert.deepEqual(floating.left, [132]); assert.deepEqual(floating.top, [96], 'preview follows the pointer outside the strip');
+  view.endTabDrag(cx);
+  assert.equal(view.tabDragPreview({}), null, 'ending the drag removes the floating copy');
+  zoom = 1;
+  a['on_mouse_down:right']({}, cx); render(['file:a']);
+  nodes.get('toggle-pin-a').handlers['on_click:']({}, cx);
+  assert.deepEqual(pins, ['file:a']); assert.equal(view.tabMenu, null);
+  nodes.get('close-file-tab-a').handlers['on_click:']({}, cx);
+  assert.deepEqual(pins, ['file:a', 'file:a']);
+});
 function timers() {
   const scheduled = [];
   const add = (kind, ms, callback) => {
