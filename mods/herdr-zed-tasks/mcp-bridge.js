@@ -29,13 +29,20 @@ export class TasksMcpBridge {
         }
         await diagnostic('request.received', { id, name: request.name });
         let result;
-        try { result = { ok: true, value: tasksMcpCall(runtime, request.name, request.args) }; }
+        try {
+          result = { ok: true, value: tasksMcpCall(runtime, request.name, request.args) };
+          await diagnostic('request.handled', { id, name: request.name });
+        }
         catch (error) { result = { ok: false, error: error.message }; await diagnostic('request.rejected', { id, ...failure(error) }); }
         seen.set(id, result);
         if (seen.size > 256) seen.delete(seen.keys().next().value);
+        await diagnostic('response.write.start', { id });
         await writeTextFile(`${directory}/${id}.json`, JSON.stringify(result), null);
-        runtime.refresh(cx); cx.notify();
+        await diagnostic('response.write.complete', { id });
         await diagnostic('response.written', { id, ok: result.ok });
+        // Projection refresh is owned by the runtime timer. Do not rebuild every
+        // project's board on the serialized transport path after each reply.
+        cx.notify();
       } catch (error) { await diagnostic('request.error', { id, ...failure(error) }); console.log(`Tasks MCP: ${error.message}`); }
     };
     const enqueue = (files, cx) => {
@@ -57,7 +64,7 @@ export class TasksMcpBridge {
     };
     cx.spawn(async cx => {
       await diagnostic('service.start');
-      try { initialize(cx); }
+      try { await initialize(cx, diagnostic); }
       catch (error) { await diagnostic('service.init.error', failure(error)); console.log(`Tasks MCP init: ${error.message}`); return; }
       await scan(cx);
       try {

@@ -29,6 +29,14 @@ test('native check mode never starts a Tasks inbox or process', async () => {
   new TasksMcpBridge().init({}, {});
 });
 
+test('progress reporting does not rebuild the unrelated project snapshot', () => {
+  const runtime = {
+    snapshot() { assert.fail('Reporting must not reconcile all project boards'); },
+    reportTask(_project, args) { return { gid: 'own', status: 'doing', execution: { id: 'run', summary: args.message } }; },
+  };
+  assert.equal(tasksMcpCall(runtime, 'report_task', { status: 'doing', message: 'Working' }).task.run, 'run');
+});
+
 test('MCP uses exact project identity and validates creation fields before calling the owner', () => {
   const calls = [], runtime = { snapshot: () => ({ projects: { local: { project: { folder: '/repo' }, tasks: [] }, remote: { project: { folder: '/repo', machine: 'remote' }, tasks: [] } } }),
     createTask(project, args) { calls.push({ project, args }); return { gid: 'created', status: 'todo' }; } };
@@ -113,7 +121,7 @@ test('hidden bridge uses startup and watcher events without timers, rejects expi
   }, 'TasksMcpBridge');
   // Deliberately no timer API: background transport must never schedule polling.
   const cx = { notify() {}, spawn(fn) { return fn(cx); } };
-  let pending; new TasksMcpBridge().init({ refresh() {} }, { ...cx, spawn(fn) { pending = fn(cx); } });
+  let pending; new TasksMcpBridge().init({ refresh() { assert.fail('Transport must not refresh all boards'); } }, { ...cx, spawn(fn) { pending = fn(cx); } });
   await pending;
   assert.equal(scans, 2, 'Only startup scans; individual file events require no helper');
   assert.equal(calls.length, 1);
@@ -230,4 +238,22 @@ test('runtime initialization failures persist before starting the inbox', async 
   assert.equal(events[0].event, 'service.start');
   assert.equal(events.at(-1).event, 'service.init.error');
   assert.match(events.at(-1).stack, /interrupted in snapshot/);
+});
+
+test('bridge waits for asynchronous runtime initialization before scanning', async () => {
+  let complete, pending, ready = false, scans = 0;
+  const initialization = new Promise(resolve => { complete = resolve; });
+  const { TasksMcpBridge } = await evaluateNative('../mods/herdr-zed-tasks/mcp-bridge.js', {
+    checking: () => false, appHome: () => '/isolated',
+    readTextFile: async () => null, writeTextFile: async () => {}, console: { log() {} },
+    exec: async () => { assert.ok(ready); scans++; return { code: 0, stdout: '[]' }; },
+    watchFolder: () => { throw Error('stop'); },
+  }, 'TasksMcpBridge');
+  const cx = { spawn(fn) { pending = fn(cx); } };
+  new TasksMcpBridge().init({}, cx, async () => { await initialization; ready = true; });
+  await Promise.resolve();
+  assert.equal(scans, 0);
+  complete();
+  await pending;
+  assert.equal(scans, 1);
 });

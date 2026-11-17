@@ -582,6 +582,9 @@ test('stdio MCP creates parent and nested subtasks through an isolated file brid
   const tasks = (await call('list_tasks', { project })).tasks;
   assert.equal(tasks.length, 3);
   assert.equal(tasks.find(task => task.gid === child.gid).parentTask.gid, parent.gid);
+  // The owner publishes projections on its existing timer, independently of MCP replies.
+  for (const timer of clock.timers) timer.tick(clock.cx);
+  await clock.settle();
   assert.equal(h.client.listTasks().find(task => task.gid === child.gid).notes, notes);
   assert.equal(h.client.listTasks().find(task => task.gid === nested.gid).parentId, child.gid);
   assert.ok(h.client.listTasks().every(task => task.status === 'todo' && !task.execution));
@@ -657,6 +660,34 @@ async function modules(records = {}, projects = [{ id: 'p', folder: '/project', 
   const runtime = new TaskRuntime();
   return { base, owner, client, runtime, state, memory, writes, overlays, closed, native, launches };
 }
+
+test('service refresh yields between native phases and coalesces overlapping ticks', async () => {
+  const phases = [], callbacks = [];
+  const { TaskRuntime } = await evaluateNative('../mods/herdr-zed-tasks/runtime.js', {
+    AgentClient: class {}, agents: () => [], terminals: () => [],
+    observeTaskInput: () => phases.push('input'), setShared: () => phases.push('publish'),
+  }, 'TaskRuntime');
+  const runtime = new TaskRuntime();
+  runtime.acceptWorkflowRequests = () => phases.push('workflows');
+  runtime.resolveSessions = () => phases.push('sessions');
+  runtime.rememberConversations = () => phases.push('conversations');
+  runtime.advanceSupervisors = () => phases.push('supervisors');
+  runtime.snapshot = () => { phases.push('snapshot'); return { projects: {} }; };
+  runtime.publishDecorations = () => phases.push('decorations');
+  const cx = { timer: { after(ms, fn) { assert.equal(ms, 0); callbacks.push(fn); } } };
+  const pending = runtime.refreshService(cx);
+  assert.equal(runtime.refreshService(cx), pending);
+  assert.deepEqual(phases, []);
+  for (const phase of ['workflows', 'sessions', 'conversations', 'supervisors', 'input']) {
+    assert.equal(callbacks.length, 1);
+    callbacks.shift()(cx);
+    assert.equal(phases.at(-1), phase);
+  }
+  callbacks.shift()(cx);
+  await pending;
+  assert.deepEqual(phases, ['workflows', 'sessions', 'conversations', 'supervisors', 'input', 'snapshot', 'publish', 'decorations']);
+  assert.equal(runtime.serviceRefresh, null);
+});
 
 test('archived history reads the native board once regardless of conversation count', async () => {
   let boardReads = 0;

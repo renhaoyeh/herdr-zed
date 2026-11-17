@@ -333,6 +333,31 @@ export class TaskRuntime {
     if (next !== this.snapshotSignature) { this.snapshotSignature = next; setShared('herdr-zed.tasks.snapshot', snapshot); }
     this.publishDecorations(snapshot);
   }
+  // Native callbacks have a finite execution budget. Give each reconciliation
+  // phase a fresh callback instead of running every project operation in one turn.
+  refreshService(cx) {
+    if (this.serviceRefresh) return this.serviceRefresh;
+    const steps = [
+      cx => this.acceptWorkflowRequests(cx),
+      () => this.resolveSessions(),
+      () => this.rememberConversations(),
+      cx => this.advanceSupervisors(cx),
+      cx => observeTaskInput(agents(), terminals(), cx),
+      () => {
+        const snapshot = this.snapshot(), next = JSON.stringify(snapshot);
+        if (next !== this.snapshotSignature) { this.snapshotSignature = next; setShared('herdr-zed.tasks.snapshot', snapshot); }
+        this.publishDecorations(snapshot);
+      },
+    ];
+    this.serviceRefresh = new Promise((resolve, reject) => {
+      const next = cx => cx.timer.after(0, cx => {
+        try { steps.shift()(cx); if (steps.length) next(cx); else resolve(); }
+        catch (error) { reject(error); }
+      });
+      next(cx);
+    }).finally(() => { this.serviceRefresh = null; });
+    return this.serviceRefresh;
+  }
   init(cx) {
     this.agentClient.init(cx);
     this.refresh(cx);

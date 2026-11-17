@@ -1,15 +1,15 @@
 // Runs inside the Tasks owner; callers never write shared.json themselves.
 export function tasksMcpCall(runtime, name, args = {}) {
   if (!args || typeof args !== 'object' || Array.isArray(args)) throw new Error('Arguments must be an object.');
-  const snapshot = runtime.snapshot();
-  const projects = Object.entries(snapshot.projects).map(([key, value]) => ({ key, ...value.project }));
-  if (name === 'list_projects') return { projects };
   if (name === 'report_task') {
     const task = runtime.reportTask(null, args);
     const stage = task.execution.supervisor?.stages.find(stage => args.run ? stage.run === args.run : stage.terminal === args.terminal);
     return { task: { gid: task.gid, status: task.status, run: stage?.run || task.execution.id, message: stage?.summary || task.execution.summary,
       ...(stage ? { parentRun: task.execution.id, stage: { kind: stage.kind, status: stage.status, ...(stage.verdict ? { verdict: stage.verdict } : {}) } } : {}) } };
   }
+  const snapshot = runtime.snapshot();
+  const projects = Object.entries(snapshot.projects).map(([key, value]) => ({ key, ...value.project }));
+  if (name === 'list_projects') return { projects };
   const project = projects.find(project => project.key === args.project);
   if (!project) throw new Error('Unknown project. Use list_projects and pass its key.');
   if (name === 'list_tasks') return { tasks: snapshot.projects[project.key].tasks };

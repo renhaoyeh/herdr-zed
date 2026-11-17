@@ -189,11 +189,16 @@ validates expiry and IDs, and writes the response; the caller
 removes its request and response. Native mod commands reach shown copies only, so background progress
 reporting must not use the command bus as its notification transport. Check mode does not start the inbox.
 Diagnostics live outside the watched inbox in `data/herdr-zed/tasks-mcp-diagnostics/`: `service.json`
-records service startup, scans, watch batches/stops, request receipt/rejection and response writes;
+records service startup, scans, watch batches/stops, request receipt/handling/rejection and response write start/completion;
 `client-<pid>.json` records request publication, response receipt, errors and timeouts. Each file keeps
 the latest 100 timestamped events. Request IDs correlate both sides; payloads and results are omitted.
 Logging failures go to the service console or client stderr and do not fail MCP calls. Timeout errors
 include the diagnostics directory. Logs describe failures without restarting the watch or retrying mutations.
+Progress reports skip the all-project snapshot rebuild. The runtime's existing timer publishes refreshed
+projections; the serialized transport does not refresh every board after each response.
+Service initialization awaits its first projection. Service refresh phases run in separate native
+callbacks and overlapping refresh ticks share one in-flight refresh, keeping reconciliation within
+the native callback execution budget.
 
 ### Tasks workspace
 
