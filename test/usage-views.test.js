@@ -44,7 +44,7 @@ async function harness(memory = { 'herdr-zed.usage.snapshot': snapshot }) {
     AgentsService: class { init() {} poll() {} }, UsageService: class { init() {} },
     Analytics: class {}, UsageClient, UsageDetails, newTerminalCommand: () => '', surfaceHeightKey: (e, s) => `herdr-zed.surface-height.${e}.${s}`, LAUNCHER_ID: 'agents', discoverAgents: async () => [],
     autoLauncherKey: 'auto', folderKey: () => '', sessionMenu: {}, accountActions: {}, agentProfiles: {}, mcpSetupSettings: {},
-    devkitsSettings: {}, eccSettings: {}, sharedMcpSettings: {}, globalRulesSettings: {}, agentSelection: {} };
+    devkitsSettings: {}, skillSettings: {}, eccSettings: {}, sharedMcpSettings: {}, globalRulesSettings: {}, agentSelection: {} };
   const { AgentsMod } = await evaluateNative('../mods/herdr-zed-agents/main.js', host, 'AgentsMod');
   // Each mount is a fresh view instance, as the shell creates one per surface or dialog.
   const mount = (view, extra = {}) => { current = { view, overlay: `${view}-overlay`, ...extra }; texts.length = 0; nodes.clear();

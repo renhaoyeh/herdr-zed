@@ -28,7 +28,7 @@ test('Agents Settings declares its seven pages in order, grouped for its nav', a
   assert.deepEqual(settings.pages, [
     { id: 'accounts', title: 'Accounts', group: 'Accounts', icon: 'user-round' }, { id: 'profiles', title: 'Profiles', icon: 'tag' }, { id: 'agents', title: 'Launch menu', group: 'New thread', icon: 'list-tree' },
     { id: 'models', title: 'Models', icon: 'agent' },
-    { id: 'capabilities', title: 'Capabilities', group: 'Sessions', icon: 'extensions' }, { id: 'ecc', title: 'ECC', icon: 'zap' }, { id: 'mcp', title: 'MCP Connections', icon: 'server' }, { id: 'global-rules', title: 'Global Rules', icon: 'book-open' },
+    { id: 'skills', title: 'Skills', group: 'Sessions', icon: 'book-open' }, { id: 'mcp', title: 'MCP Connections', icon: 'server' }, { id: 'global-rules', title: 'Global Rules', icon: 'book-open' }, { id: 'capabilities', title: 'Capabilities', group: 'Advanced', icon: 'extensions' }, { id: 'ecc', title: 'ECC', icon: 'zap' },
   ]);
 });
 

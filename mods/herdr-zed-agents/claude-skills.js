@@ -10,17 +10,19 @@ const entries = async path => { try { return await readdir(path, { withFileTypes
 const digest = text => createHash('sha256').update(text).digest('hex');
 const validName = name => /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}$/.test(name);
 
-export async function readClaudeSkills(userHome) {
+export async function readClaudeSkills(userHome, { includeDisabled = false } = {}) {
   if (!isAbsolute(userHome)) throw Error('Choose an absolute user home for Claude skills.');
   const found = [], root = join(userHome, '.claude', 'skills');
   const settings = JSON.parse(await optional(join(userHome, '.claude', 'settings.json')) || '{}');
-  async function read(folder) {
+  async function read(folder, enabled = true, plugin = null) {
     const path = join(folder, 'SKILL.md'), text = await optional(path);
     if (text === null) return;
     const metadata = frontmatter(text), name = metadata.name || basename(folder);
     if (!validName(name) || !metadata.description) return;
+    if (!plugin && settings.skillOverrides?.[name] === 'off') enabled = false;
+    if (!enabled && !includeDisabled) return;
     const header = /^---\r?\n[\s\S]*?\r?\n---/.exec(text)?.[0];
-    found.push({ id: `claude:${digest(path).slice(0, 16)}`, name, description: metadata.description.slice(0, 500), path, header,
+    found.push({ id: `claude:${digest(path).slice(0, 16)}`, name, description: metadata.description.slice(0, 500), path, header, enabled, plugin,
       userInvocable: !/^user-invocable:\s*false\s*$/m.test(header) });
   }
   for (const entry of (await entries(root)).sort((a, b) => a.name.localeCompare(b.name))) {
@@ -29,21 +31,23 @@ export async function readClaudeSkills(userHome) {
     const manifest = await optional(join(folder, '.claude-plugin', 'plugin.json'));
     if (manifest === null) { await read(folder); continue; }
     const plugin = JSON.parse(manifest);
-    if (settings.enabledPlugins?.[`${plugin.name || entry.name}@skills-dir`] === false) continue;
+    const enabled = settings.enabledPlugins?.[`${plugin.name || entry.name}@skills-dir`] !== false;
+    if (!enabled && !includeDisabled) continue;
     const paths = plugin.skills === undefined ? ['./skills'] : Array.isArray(plugin.skills) ? plugin.skills : [plugin.skills];
     for (const source of paths) {
       if (typeof source !== 'string') throw Error(`Invalid personal plugin skills path: ${folder}`);
       const directory = resolve(folder, source), inside = relative(folder, directory);
       if (inside === '..' || inside.startsWith('../') || inside.startsWith('..\\') || isAbsolute(inside)) throw Error(`Personal plugin skills escape their folder: ${folder}`);
       for (const child of (await entries(directory)).sort((a, b) => a.name.localeCompare(b.name)))
-        if (!child.name.startsWith('.') && child.isDirectory()) await read(join(directory, child.name));
+        if (!child.name.startsWith('.') && child.isDirectory()) await read(join(directory, child.name), enabled, plugin.name || entry.name);
     }
   }
   return found;
 }
 
-export async function inheritClaudeSkills(home, guidance, userHome) {
-  const skills = await readClaudeSkills(userHome);
+export async function inheritClaudeSkills(home, guidance, userHome, disabled = []) {
+  const key = path => process.platform === 'win32' ? resolve(path).replaceAll('\\', '/').toLowerCase() : resolve(path);
+  const skills = (await readClaudeSkills(userHome)).filter(item => !disabled.includes(key(item.path)));
   const commands = [...(guidance?.commands || [])], nativeSkills = [...(guidance?.nativeSkills || [])];
   const names = new Set([...commands, ...nativeSkills].map(item => item.name));
   for (const skill of skills) {

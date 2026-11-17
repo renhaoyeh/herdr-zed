@@ -7,6 +7,7 @@ import { accountActions } from './account-actions.js';
 import { agentProfiles } from './agent-profiles.js';
 import { mcpSetupSettings } from './mcp-setup-settings.js';
 import { devkitsSettings } from './devkits-settings.js';
+import { skillSettings } from './skills-settings.js';
 import { eccSettings } from './ecc-settings.js';
 import { sharedMcpSettings } from './shared-mcp-settings.js';
 import { globalRulesSettings } from './global-rules-settings.js';
@@ -79,7 +80,7 @@ export default class AgentsMod extends View {
     setShared('herdr-zed.last-thread-agents', { ...(shared('herdr-zed.last-thread-agents') || {}), [key]: value });
   }
   async close() {
-    this.storageClosed = true; this.eccClosed = true; this.capClosed = true;
+    this.storageClosed = true; this.eccClosed = true; this.capClosed = true; this.skillsClosed = true;
     // Global Rules saves itself; an edit still waiting for the delay is written before the editor goes.
     this.rulesAuto?.flush().finally(() => this.rulesCustom?.release());
     this.usageClient?.close(); this.agentClient?.close();
@@ -103,4 +104,4 @@ export default class AgentsMod extends View {
     return this.manageLaunchers(t, cx);
   }
 }
-Object.assign(AgentsMod.prototype, sessionMenu, accountActions, agentProfiles, sharedMcpSettings, devkitsSettings, mcpSetupSettings, eccSettings, globalRulesSettings, agentSelection);
+Object.assign(AgentsMod.prototype, sessionMenu, accountActions, agentProfiles, sharedMcpSettings, devkitsSettings, skillSettings, mcpSetupSettings, eccSettings, globalRulesSettings, agentSelection);

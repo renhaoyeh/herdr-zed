@@ -41,6 +41,12 @@ settings and any mod, layout or theme that is not part of herdr-zed are left alo
 
 ## Skills
 
+Open **Agents → Skills** to browse native skills for the chosen Claude Code or Codex account alongside selected Herdr/ECC skills. The page shows each source and its availability, including disabled native entries. Global changes use the program’s own settings: Codex uses its revision-checked configuration API; Claude personal plugins are toggled as a whole. Native plugins without local entry files remain read-only here.
+
+**Install from folder…** scans a local skill, repository or installed runtime, then installs a source reference into `~/.agents/skills/` (Codex) or `~/.claude/skills/` (Claude). Keep the original source folder available. Existing native folders are preserved; no scripts run and nothing is downloaded. New projects inherit the native global state automatically. **This project** records only exclusions; **Inherit all** clears those differences after Apply. Codex receives invocation-only config overrides; isolated Claude accounts omit excluded personal skills from their native package. Claude’s default-account native plugins remain whole-plugin choices. Existing conversations do not reload; refresh an already open New Thread list after changing skills.
+
+Herdr’s built-in/shared capabilities and ECC retain their sources and selectors under **Advanced**; no existing library or plugin is moved automatically. Project skill exclusions live in `data/herdr-zed/skill-overrides/`, outside project repositories, with separate provider choices.
+
 Skills already installed in a Codex account (system, user and plugin skills with a local `SKILL.md`) need no setup: type `/` in **New Thread** with a Codex program to pick one. Herdr asks Codex which skills are enabled for that account and project; enable or disable them in Codex itself.
 
 Local Claude Code conversations inherit personal skill instructions from `~/.claude/skills/`, including skills-directory plugins. They appear in New Thread's `/` menu and load into the conversation's native skill package. Invocation controls are retained, disabled personal plugins are skipped, and supporting files resolve from the original installation. Explicit shared selections take duplicate names. New conversations refresh this inventory; account credentials/settings and plugin hooks, agents and MCP connections are not copied.

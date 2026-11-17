@@ -16,7 +16,7 @@ import { accountStorageDirectory, storageGroups, storageSize } from './account-s
 
 const launcherSections = ['Terminal', 'Agents', 'Your accounts', 'Agent profiles'];
 // The manifest's settings.pages ids, one shell page each (ARCHITECTURE §2.1).
-const settingsPageIds = ['accounts', 'agents', 'models', 'profiles', 'global-rules', 'capabilities', 'mcp', 'ecc'];
+const settingsPageIds = ['accounts', 'agents', 'models', 'profiles', 'skills', 'global-rules', 'capabilities', 'mcp', 'ecc'];
 const modelProviderIcon = (kind, t) => AgentIcon({ icon: `icons/${kind}.svg`, tint: kind === 'codex' }, t).size(14);
 
 // The New thread menu and the Agents settings pages. Mixed into the Agents view, which provides
@@ -35,11 +35,12 @@ export const sessionMenu = {
     const page = (props() || {}).page;
     this.settingsPage = settingsPageIds.includes(page) ? page : 'agents';
     // Only the Agents page is available for remote projects; the other pages are for this computer.
-    const remote = Boolean(spaces().find(space => space.id === (props() || {}).space)?.machine);
+    const remote = Boolean(props()?.context?.machine || props()?.machine || spaces().find(space => space.id === (props() || {}).space)?.machine);
     if (remote && this.settingsPage !== 'agents') this.settingsPage = 'remote-unavailable';
     if (this.settingsPage === 'global-rules') this.initGlobalRules(cx);
     if (['capabilities', 'mcp'].includes(this.settingsPage)) { this.initDevkits(cx); this.capTab = this.settingsPage === 'mcp' ? 'mcp' : 'overview'; }
     if (this.settingsPage === 'ecc') this.initEcc(cx);
+    if (this.settingsPage === 'skills') this.initSkills(cx);
     this.defaultSelects = { permissions: new SelectState(cx), model: new SelectState(cx), effort: new SelectState(cx), profile: new SelectState(cx) };
     if ((props() || {}).view === 'profile-defaults') return;
     if ((props() || {}).view === 'agent-profile-editor') { this.initAgentProfileEditor(cx); return; }
@@ -468,7 +469,7 @@ export const sessionMenu = {
 
   // Edits on the open Settings page that Esc would lose: each page with Save/Discard reports its own draft.
   settingsUnsaved() {
-    return Boolean(this.capDirty || this.mcpDirty || this.eccDirty);
+    return Boolean(this.capDirty || this.mcpDirty || this.eccDirty || this.skillsDirty);
   },
 
   // One shell page of the Agents extension. Projects on a remote machine only get Agents: the other pages read this computer.
@@ -478,6 +479,7 @@ export const sessionMenu = {
     if (page === 'accounts') return this.accountsPage(t, cx);
     if (page === 'profiles') return this.agentProfilesPage(t);
     if (page === 'models') return this.modelsPage(t);
+    if (page === 'skills') return this.skillsPage(t);
     if (page === 'global-rules') return this.withSideNav(this.globalRulesNavigation(t), this.globalRulesPage(t), t);
     if (page === 'mcp') return this.devkitsPage(t);
     if (page === 'capabilities') return this.withSideNav(this.devkitsNavigation(t), this.devkitsPage(t), t);
