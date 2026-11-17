@@ -2,10 +2,32 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { PassThrough } from 'node:stream';
 import { createRequire } from 'node:module';
+import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { execFileSync } from 'node:child_process';
 import { tasksMcpCall } from '../mods/herdr-zed-tasks/mcp-api.js';
 import { sessionArgv, tasksMcpServer } from '../components/session-model.js';
 import { evaluateNative } from './source-harness.js';
 const { start } = createRequire(import.meta.url)('../mods/herdr-zed-tasks/mcp-server.cjs');
+
+test('inbox helper creates an isolated directory and lists only published UUID requests', async t => {
+  const home = await mkdtemp(join(tmpdir(), 'herdr tasks inbox '));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const directory = join(home, 'inbox'), id = '12345678-1234-1234-1234-123456789abc';
+  const list = () => JSON.parse(execFileSync(process.execPath,
+    [fileURLToPath(new URL('../mods/herdr-zed-tasks/mcp-server.cjs', import.meta.url)), '--pending', directory], { encoding: 'utf8', windowsHide: true }));
+  assert.deepEqual(list(), []);
+  for (const name of [`${id}.tmp`, `${id}.json`, `${id}.request.json`, 'invalid.request.json'])
+    await writeFile(join(directory, name), '{}');
+  assert.deepEqual(list(), [`${id}.request.json`]);
+});
+
+test('native check mode never starts a Tasks inbox or process', async () => {
+  const { TasksMcpBridge } = await evaluateNative('../mods/herdr-zed-tasks/mcp-bridge.js', { checking: () => true }, 'TasksMcpBridge');
+  new TasksMcpBridge().init({}, {});
+});
 
 test('MCP uses exact project identity and validates creation fields before calling the owner', () => {
   const calls = [], runtime = { snapshot: () => ({ projects: { local: { project: { folder: '/repo' }, tasks: [] }, remote: { project: { folder: '/repo', machine: 'remote' }, tasks: [] } } }),
@@ -78,19 +100,23 @@ test('MCP discovers reporting and binds ordinary reports to the server terminal 
   }
 });
 
-test('bridge rejects expired and unsafe commands and deduplicates deliveries', async () => {
-  const id = '12345678-1234-1234-1234-123456789abc', commands = ['mcp:../../escape', `mcp:${id}`, `mcp:${id}`, `mcp:${id}`];
-  const writes = [], calls = [], stop = new Error('stop'); let reads = 0;
+test('hidden bridge uses startup and watcher events without timers, rejects expiry and deduplicates', async () => {
+  const id = '12345678-1234-1234-1234-123456789abc', file = `${id}.request.json`;
+  const writes = [], calls = [], batches = [[file], [file], [file]]; let reads = 0, scans = 0;
   const { TasksMcpBridge } = await evaluateNative('../mods/herdr-zed-tasks/mcp-bridge.js', {
-    nextCommand: async () => { if (!commands.length) throw stop; return commands.shift(); }, appHome: () => '/herdr',
+    checking: () => false, appHome: () => '/herdr',
+    exec: async () => { scans++; return { code: 0, stdout: JSON.stringify(['../../escape', file]) }; },
+    watchFolder: async () => { if (!batches.length) throw Error('stop'); return batches.shift(); },
     readTextFile: async () => JSON.stringify({ id, until: ++reads === 1 ? Date.now() - 100 : Date.now() + 5000, name: 'create_task', args: {} }),
     writeTextFile: async (path, text) => writes.push({ path, result: JSON.parse(text) }),
-    tasksMcpCall: () => { calls.push(1); return { task: { gid: 'one' } }; },
+    tasksMcpCall: () => { calls.push(1); return { task: { gid: 'one' } }; }, console: { log() {} },
   }, 'TasksMcpBridge');
-  let pending; new TasksMcpBridge().init({ refresh() {} }, { spawn(fn) { pending = fn({ notify() {} }); } });
-  await assert.rejects(pending, error => error === stop);
-  assert.equal(reads, 3); assert.equal(calls.length, 1); assert.equal(writes.length, 2);
-  assert.deepEqual(writes[0].result, writes[1].result);
+  // Deliberately no timer API: background transport must never schedule polling.
+  const cx = { notify() {}, spawn(fn) { return fn(cx); } };
+  let pending; new TasksMcpBridge().init({ refresh() {} }, { ...cx, spawn(fn) { pending = fn(cx); } });
+  await pending;
+  assert.equal(scans, 2, 'Only startup scans; individual file events require no helper');
+  assert.equal(calls.length, 1); assert.equal(writes.length, 1);
   assert.equal(writes[0].path, `/herdr/data/herdr-zed/tasks-mcp/${id}.json`);
 });
 

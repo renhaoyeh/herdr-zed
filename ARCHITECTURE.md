@@ -179,6 +179,16 @@ for a repository, Git runs with the machine's own credential configuration, unch
   suggest an author from the account's public profile in its own dialog and saves it through the same
   repository-local Git config; the shell's Commit author dialog remains available without the extension.
 
+### Tasks MCP transport
+
+Tasks MCP publishes UUID request files atomically under `data/herdr-zed/tasks-mcp/`.
+The service watches this directory, reconciles requests at startup after arming the watch, and rescans
+only when a native event batch reports the directory root (coalesced events). It has no polling timer
+or idle helper processes. It rearms the watch before processing each batch, serializes calls,
+validates expiry and IDs, and writes the response; the caller
+removes its request and response. Native mod commands reach shown copies only, so background progress
+reporting must not use the command bus as its notification transport. Check mode does not start the inbox.
+
 ### Tasks workspace
 
 Tasks has one status action opening a retained workspace with Tasks, Asana and MantisBT tabs (enabled sources only).

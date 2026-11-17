@@ -8,6 +8,7 @@ import { validateLaunchTarget } from '../components/extension-contract.js';
 import { evaluateNative } from './source-harness.js';
 import { tasksMcpCall } from '../mods/herdr-zed-tasks/mcp-api.js';
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { watch } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
@@ -524,28 +525,32 @@ test('stdio MCP creates parent and nested subtasks through an isolated file brid
   const home = await mkdtemp(join(tmpdir(), 'herdr-tasks-mcp-'));
   t.after(() => rm(home, { recursive: true, force: true }));
   const h = await modules(), clock = context(); h.runtime.init(clock.cx);
-  let deliver, stop;
-  const { TasksMcpBridge } = await evaluateNative('../mods/herdr-zed-tasks/mcp-bridge.js', {
-    tasksMcpCall, appHome: () => home,
-    nextCommand: () => new Promise((resolve, reject) => { deliver = resolve; stop = reject; }),
-    readTextFile: path => readFile(path, 'utf8'), writeTextFile: (path, text) => writeFile(path, text),
-  }, 'TasksMcpBridge');
-  let listening;
-  new TasksMcpBridge().init(h.runtime, { spawn(fn) { listening = fn(clock.cx); } });
-  const stopped = new Error('Test bridge closed');
-  t.after(async () => { stop(stopped); await assert.rejects(listening, error => error === stopped); });
-
   const require = createRequire(import.meta.url), endpoint = { exports: {} };
   runInNewContext(await readFile(new URL('../mods/herdr-zed-tasks/mcp-server.cjs', import.meta.url), 'utf8'), {
-    module: endpoint, process: { env: { HERDR_APP_HOME: home } },
-    require: name => name === 'node:child_process' ? { execFile(command, args, options, callback) {
-      assert.equal(command, 'herdr-app');
-      assert.equal(args[0], 'do');
-      assert.equal(options.env.HERDR_APP_HOME, home);
-      assert.match(args[1], /^herdr-zed-tasks\.mcp:/);
-      deliver(args[1].slice('herdr-zed-tasks.'.length)); callback(null, '');
-    } } : require(name),
+    module: endpoint, process: { env: { HERDR_APP_HOME: home } }, require,
   });
+  const inbox = join(home, 'data', 'herdr-zed', 'tasks-mcp');
+  await endpoint.exports.pendingRequests(inbox);
+  let watcher, deliver;
+  const events = [];
+  const watchInbox = () => {
+    watcher ||= watch(inbox, (_event, filename) => {
+      events.push(join(inbox, String(filename)));
+      if (deliver) { const resolve = deliver; deliver = null; resolve(events.splice(0)); }
+    });
+    return events.length ? Promise.resolve(events.splice(0)) : new Promise(resolve => { deliver = resolve; });
+  };
+  t.after(() => watcher?.close());
+  const { TasksMcpBridge } = await evaluateNative('../mods/herdr-zed-tasks/mcp-bridge.js', {
+    tasksMcpCall, appHome: () => home, checking: () => false,
+    // Real OS file events, with no command bus, visible view or polling timer.
+    watchFolder: watchInbox,
+    exec: async () => ({ code: 0, stdout: JSON.stringify(await endpoint.exports.pendingRequests(join(home, 'data', 'herdr-zed', 'tasks-mcp'))) }),
+    readTextFile: path => readFile(path, 'utf8'), writeTextFile: (path, text) => writeFile(path, text),
+  }, 'TasksMcpBridge');
+  const serviceCx = { notify() {}, spawn(fn) { return fn(serviceCx); } };
+  new TasksMcpBridge().init(h.runtime, serviceCx);
+
   const input = new PassThrough(), output = new PassThrough();
   let raw = '', id = 0;
   output.on('data', chunk => { raw += chunk; });
@@ -564,6 +569,8 @@ test('stdio MCP creates parent and nested subtasks through an isolated file brid
     return result.structuredContent;
   };
   await request('initialize', {});
+  const parallel = await Promise.all(Array.from({ length: 8 }, () => endpoint.exports.bridge('list_projects', {})));
+  assert.ok(parallel.every(result => result.projects.length === 1), 'Concurrent clients receive their own responses via file events');
   const project = (await call('list_projects', {})).projects[0].key;
   assert.deepEqual((await call('list_tasks', { project })).tasks, []);
   const parent = (await call('create_task', { project, name: 'Release' })).task;
@@ -648,6 +655,21 @@ async function modules(records = {}, projects = [{ id: 'p', folder: '/project', 
   const runtime = new TaskRuntime();
   return { base, owner, client, runtime, state, memory, writes, overlays, closed, native, launches };
 }
+
+test('archived history reads the native board once regardless of conversation count', async () => {
+  let boardReads = 0;
+  const history = Array.from({ length: 500 }, (_, index) => ({ tab: `tab-${index}`, folder: '/project', at: index }));
+  const { archivedConversations } = await evaluateNative('../mods/herdr-zed-tasks/agent-board-state.js', {
+    folderKey: sessions.folderKey, boardKey: () => 'project', threadTaskId: policy.threadTaskId,
+    shared: key => {
+      if (key === 'herdr-zed.agent-board') { boardReads++; return { project: { 'thread:tab-0': { execution: { supervisor: {} } } } }; }
+      return key === 'herdr-zed.thread-history' ? history : {};
+    },
+  }, 'archivedConversations');
+  const archived = archivedConversations({ folder: '/project' });
+  assert.equal(Object.keys(archived).length, 499);
+  assert.equal(boardReads, 1, 'Native JSON state must not be copied for every historical conversation');
+});
 
 test('Tasks service publishes one authoritative Sidebar/Calendar projection while its board is closed', async () => {
   const project = { id: 'p', folder: '/project', name: 'Project', active: true, tabs: [{ id: 'thread', name: 'Run task' }, { id: 'shell', name: 'Terminal' }] };

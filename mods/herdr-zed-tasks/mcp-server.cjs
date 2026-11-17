@@ -1,13 +1,10 @@
 // Dependency-free MCP stdio endpoint (2025-06-18); all mutations go to the live owner.
 const { createInterface } = require('node:readline');
-const { execFile } = require('node:child_process');
-const { promisify } = require('node:util');
-const { mkdir, readFile, writeFile, rm } = require('node:fs/promises');
+const { mkdir, readFile, writeFile, rm, rename, readdir } = require('node:fs/promises');
 const { join } = require('node:path');
 const { homedir } = require('node:os');
 const { randomUUID } = require('node:crypto');
 const { setTimeout: delay } = require('node:timers/promises');
-const execute = promisify(execFile);
 const home = process.env.HERDR_APP_HOME || join(homedir(), '.config', 'herdr-app');
 const project = { type: 'string', description: 'Exact project key returned by list_projects.' };
 const tools = [
@@ -22,8 +19,9 @@ async function bridge(name, args) {
   const directory = join(home, 'data', 'herdr-zed', 'tasks-mcp'), file = join(directory, `${id}.json`);
   await mkdir(directory, { recursive: true });
   try {
-    await writeFile(join(directory, `${id}.request.json`), JSON.stringify({ id, until, name, args }), { flag: 'wx' });
-    await execute('herdr-app', ['do', `herdr-zed-tasks.mcp:${id}`], { timeout: 5000, windowsHide: true, env: { ...process.env, HERDR_APP_HOME: home } });
+    // The owner watches complete requests even while its view is hidden.
+    await writeFile(join(directory, `${id}.tmp`), JSON.stringify({ id, until, name, args }), { flag: 'wx' });
+    await rename(join(directory, `${id}.tmp`), join(directory, `${id}.request.json`));
     while (Date.now() < until) {
       try {
         const result = JSON.parse(await readFile(file, 'utf8'));
@@ -32,8 +30,12 @@ async function bridge(name, args) {
       } catch (error) { if (error.code !== 'ENOENT') throw error; }
       await delay(50);
     }
-    throw new Error('Tasks service did not reply. Open the herdr-zed layout in Herdr. The operation may have succeeded; list_tasks before retrying.');
-  } finally { await Promise.all([rm(file, { force: true }), rm(join(directory, `${id}.request.json`), { force: true })]); }
+    throw new Error('Tasks service did not reply within 10 seconds. Check that the Tasks extension is enabled in the herdr-zed layout. The operation may have succeeded; list_tasks before retrying.');
+  } finally { await Promise.all([rm(file, { force: true }), rm(join(directory, `${id}.request.json`), { force: true }), rm(join(directory, `${id}.tmp`), { force: true })]); }
+}
+async function pendingRequests(directory) {
+  await mkdir(directory, { recursive: true });
+  return (await readdir(directory)).filter(name => /^[a-f0-9-]{36}\.request\.json$/.test(name));
 }
 function start(input = process.stdin, output = process.stdout, call = bridge) {
   let initialized = false;
@@ -74,5 +76,8 @@ function start(input = process.stdin, output = process.stdout, call = bridge) {
   }).catch(error => process.stderr.write(`${error.message}\n`)); });
   return { lines, drained: () => pending };
 }
-module.exports = { start, bridge, tools };
-if (require.main === module) start();
+module.exports = { start, bridge, tools, pendingRequests };
+if (require.main === module) {
+  if (process.argv[2] === '--pending') pendingRequests(process.argv[3]).then(files => process.stdout.write(JSON.stringify(files))).catch(error => { process.stderr.write(error.message); process.exitCode = 1; });
+  else start();
+}
