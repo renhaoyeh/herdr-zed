@@ -52,7 +52,7 @@ export default class TasksMod extends View {
     if (this.target.view === IMAGE_PREVIEW_VIEW) { this.imageViewer = new ImageViewer(cx); this.imageViewer.handle.focus(); return; }
     if (!['service', 'local-tasks', 'task-composer', 'archive-task', 'delete-task', 'import-draft'].includes(this.target.view)) { this.invalidView = true; return; }
     this.runtime = new TaskRuntime();
-    if (this.target.view === 'service') { this.runtime.init(cx); new TasksMcpBridge().init(this.runtime, cx); return; }
+    if (this.target.view === 'service') { new TasksMcpBridge().init(this.runtime, cx, serviceCx => this.runtime.init(serviceCx)); return; }
     if (this.target.view === 'local-tasks') {
       this.localHub = new SourceHub(this.target); this.localHub.init();
       this.runtime.openSource = source => this.localHub.open(this.target.sourceHub.tabs.find(tab => tab.id === source));

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { PassThrough } from 'node:stream';
 import { createRequire } from 'node:module';
-import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, writeFile, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -107,7 +107,7 @@ test('hidden bridge uses startup and watcher events without timers, rejects expi
     checking: () => false, appHome: () => '/herdr',
     exec: async () => { scans++; return { code: 0, stdout: JSON.stringify(['../../escape', file]) }; },
     watchFolder: async () => { if (!batches.length) throw Error('stop'); return batches.shift(); },
-    readTextFile: async () => JSON.stringify({ id, until: ++reads === 1 ? Date.now() - 100 : Date.now() + 5000, name: 'create_task', args: {} }),
+    readTextFile: async path => path.endsWith('/service.json') ? null : JSON.stringify({ id, until: ++reads === 1 ? Date.now() - 100 : Date.now() + 5000, name: 'create_task', args: {} }),
     writeTextFile: async (path, text) => writes.push({ path, result: JSON.parse(text) }),
     tasksMcpCall: () => { calls.push(1); return { task: { gid: 'one' } }; }, console: { log() {} },
   }, 'TasksMcpBridge');
@@ -116,8 +116,14 @@ test('hidden bridge uses startup and watcher events without timers, rejects expi
   let pending; new TasksMcpBridge().init({ refresh() {} }, { ...cx, spawn(fn) { pending = fn(cx); } });
   await pending;
   assert.equal(scans, 2, 'Only startup scans; individual file events require no helper');
-  assert.equal(calls.length, 1); assert.equal(writes.length, 1);
-  assert.equal(writes[0].path, `/herdr/data/herdr-zed/tasks-mcp/${id}.json`);
+  assert.equal(calls.length, 1);
+  const responses = writes.filter(write => !write.path.endsWith('/service.json'));
+  assert.equal(responses.length, 1);
+  const journal = writes.filter(write => write.path.endsWith('/service.json')).at(-1).result;
+  assert.ok(journal.events.some(event => event.event === 'request.ignored'));
+  assert.equal(journal.events.at(-1).event, 'watch.stopped');
+  assert.equal(journal.events.at(-1).error, 'stop');
+  assert.equal(responses[0].path, `/herdr/data/herdr-zed/tasks-mcp/${id}.json`);
 });
 
 test('Supervisor reports carry the server terminal with explicit stage runs and validate verdicts', async () => {
@@ -155,4 +161,73 @@ test('local launch configuration preserves account environment and existing flag
   assert.equal(Object.hasOwn(JSON.parse(flags[2]).mcpServers.herdr_tasks, 'env_vars'), false);
   assert.deepEqual(flags.slice(3), ['--mcp-config', 'existing.json']);
   assert.deepEqual(sessionArgv(codex, ['codex']), ['codex']);
+});
+
+
+test('client timeout persists correlated diagnostics without request payloads', async t => {
+  const home = await mkdtemp(join(tmpdir(), 'herdr-tasks-diagnostics-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const source = await readFile(new URL('../mods/herdr-zed-tasks/mcp-server.cjs', import.meta.url), 'utf8');
+  const require = createRequire(import.meta.url), endpoint = { exports: {} };
+  const { runInNewContext } = await import('node:vm');
+  let now = 100000;
+  class Clock extends Date { static now() { return now; } }
+  runInNewContext(source, { module: endpoint, process: { pid: 42, env: { HERDR_APP_HOME: home }, stderr: { write() {} } }, Date: Clock,
+    require: name => name === 'node:timers/promises' ? { setTimeout: async () => { now += 11000; } } : require(name) });
+  await assert.rejects(endpoint.exports.bridge('report_task', { message: 'PRIVATE BODY', run: 'private-run' }), /Diagnostics:/);
+  const journal = await readFile(join(home, 'data/herdr-zed/tasks-mcp-diagnostics/client-42.json'), 'utf8');
+  const events = JSON.parse(journal).events;
+  assert.deepEqual(events.map(event => event.event), ['request.start', 'request.published', 'request.timeout', 'request.error']);
+  assert.ok(events.every(event => event.id === events[0].id));
+  assert.ok(events.every(event => event.name === 'report_task'));
+  assert.ok(!journal.includes('PRIVATE BODY') && !journal.includes('private-run'));
+  assert.deepEqual(await readdir(join(home, 'data/herdr-zed/tasks-mcp')), []);
+});
+
+test('service preserves scan and watcher failure details even when diagnostic writes fail', async () => {
+  for (const writable of [true, false]) {
+    const writes = [], messages = [];
+    let pending;
+    const { TasksMcpBridge } = await evaluateNative('../mods/herdr-zed-tasks/mcp-bridge.js', {
+      checking: () => false, appHome: () => '/isolated',
+      exec: async () => { throw Error('helper unavailable'); },
+      watchFolder: () => { throw Error('watch limit reached'); },
+      readTextFile: async () => writes.length ? JSON.stringify(writes.at(-1)) : null,
+      writeTextFile: async (_path, contents, expected) => {
+        if (!writable) throw Error('read only');
+        assert.equal(expected, writes.length ? JSON.stringify(writes.at(-1)) : null);
+        writes.push(JSON.parse(contents));
+      },
+      console: { log: message => messages.push(message) },
+    }, 'TasksMcpBridge');
+    const cx = { spawn(fn) { pending = fn(cx); } };
+    new TasksMcpBridge().init({}, cx);
+    await pending;
+    if (writable) {
+      const events = writes.at(-1).events;
+      assert.equal(events[0].event, 'service.start');
+      assert.equal(events.find(event => event.event === 'scan.error').error, 'helper unavailable');
+      assert.equal(events.at(-1).event, 'watch.stopped');
+      assert.match(events.at(-1).stack, /watch limit reached/);
+    } else assert.ok(messages.some(message => message.includes('diagnostic write failed')));
+    assert.ok(messages.some(message => message.includes('Tasks MCP watch: watch limit reached')));
+  }
+});
+
+
+test('runtime initialization failures persist before starting the inbox', async () => {
+  const writes = []; let pending;
+  const { TasksMcpBridge } = await evaluateNative('../mods/herdr-zed-tasks/mcp-bridge.js', {
+    checking: () => false, appHome: () => '/isolated',
+    readTextFile: async () => writes.at(-1) || null,
+    writeTextFile: async (_path, text) => { writes.push(text); }, console: { log() {} },
+    exec: () => assert.fail('An uninitialized runtime must not accept requests'),
+  }, 'TasksMcpBridge');
+  const cx = { spawn(fn) { pending = fn(cx); } };
+  new TasksMcpBridge().init({}, cx, () => { throw Error('interrupted in snapshot'); });
+  await pending;
+  const events = JSON.parse(writes.at(-1)).events;
+  assert.equal(events[0].event, 'service.start');
+  assert.equal(events.at(-1).event, 'service.init.error');
+  assert.match(events.at(-1).stack, /interrupted in snapshot/);
 });

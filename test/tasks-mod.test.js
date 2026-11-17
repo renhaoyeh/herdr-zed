@@ -7,7 +7,7 @@ import * as supervisor from '../mods/herdr-zed-tasks/task-supervisor.js';
 import { validateLaunchTarget } from '../components/extension-contract.js';
 import { evaluateNative } from './source-harness.js';
 import { tasksMcpCall } from '../mods/herdr-zed-tasks/mcp-api.js';
-import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { watch } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -523,32 +523,34 @@ test('MCP creates persisted Todos and children through the authoritative Tasks o
 
 test('stdio MCP creates parent and nested subtasks through an isolated file bridge into board rows', async t => {
   const home = await mkdtemp(join(tmpdir(), 'herdr-tasks-mcp-'));
-  t.after(() => rm(home, { recursive: true, force: true }));
+  let watcher, deliver, serviceRun, stopped = false;
+  t.after(async () => { stopped = true; watcher?.close(); deliver?.([]); await serviceRun; await rm(home, { recursive: true, force: true }); });
   const h = await modules(), clock = context(); h.runtime.init(clock.cx);
   const require = createRequire(import.meta.url), endpoint = { exports: {} };
   runInNewContext(await readFile(new URL('../mods/herdr-zed-tasks/mcp-server.cjs', import.meta.url), 'utf8'), {
-    module: endpoint, process: { env: { HERDR_APP_HOME: home } }, require,
+    module: endpoint, process: { pid: process.pid, stderr: process.stderr, env: { HERDR_APP_HOME: home } }, require,
   });
+  await mkdir(join(home, 'data/herdr-zed/tasks-mcp-diagnostics'), { recursive: true });
   const inbox = join(home, 'data', 'herdr-zed', 'tasks-mcp');
   await endpoint.exports.pendingRequests(inbox);
-  let watcher, deliver;
   const events = [];
   const watchInbox = () => {
+    if (stopped) throw Error('Test service closed');
     watcher ||= watch(inbox, (_event, filename) => {
       events.push(join(inbox, String(filename)));
       if (deliver) { const resolve = deliver; deliver = null; resolve(events.splice(0)); }
     });
     return events.length ? Promise.resolve(events.splice(0)) : new Promise(resolve => { deliver = resolve; });
   };
-  t.after(() => watcher?.close());
   const { TasksMcpBridge } = await evaluateNative('../mods/herdr-zed-tasks/mcp-bridge.js', {
     tasksMcpCall, appHome: () => home, checking: () => false,
     // Real OS file events, with no command bus, visible view or polling timer.
     watchFolder: watchInbox,
     exec: async () => ({ code: 0, stdout: JSON.stringify(await endpoint.exports.pendingRequests(join(home, 'data', 'herdr-zed', 'tasks-mcp'))) }),
-    readTextFile: path => readFile(path, 'utf8'), writeTextFile: (path, text) => writeFile(path, text),
+    readTextFile: async path => { try { return await readFile(path, 'utf8'); } catch (error) { if (error.code === 'ENOENT') return null; throw error; } },
+    writeTextFile: async (path, text) => { await writeFile(`${path}.writing`, text); await rename(`${path}.writing`, path); },
   }, 'TasksMcpBridge');
-  const serviceCx = { notify() {}, spawn(fn) { return fn(serviceCx); } };
+  const serviceCx = { notify() {}, spawn(fn) { serviceRun = fn(serviceCx); return serviceRun; } };
   new TasksMcpBridge().init(h.runtime, serviceCx);
 
   const input = new PassThrough(), output = new PassThrough();

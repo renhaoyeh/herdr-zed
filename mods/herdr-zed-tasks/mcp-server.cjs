@@ -6,6 +6,20 @@ const { homedir } = require('node:os');
 const { randomUUID } = require('node:crypto');
 const { setTimeout: delay } = require('node:timers/promises');
 const home = process.env.HERDR_APP_HOME || join(homedir(), '.config', 'herdr-app');
+const diagnostics = join(home, 'data', 'herdr-zed', 'tasks-mcp-diagnostics');
+const diagnosticFile = join(diagnostics, `client-${process.pid}.json`);
+const events = [];
+let logging = Promise.resolve();
+function diagnostic(event, fields = {}) {
+  events.push({ at: new Date().toISOString(), event, pid: process.pid, ...fields });
+  if (events.length > 100) events.shift();
+  const contents = JSON.stringify({ home, events });
+  logging = logging.then(async () => {
+    await mkdir(diagnostics, { recursive: true });
+    await writeFile(diagnosticFile, contents);
+  }).catch(error => process.stderr.write(`Tasks MCP diagnostic write failed: ${error.message}\n`));
+  return logging;
+}
 const project = { type: 'string', description: 'Exact project key returned by list_projects.' };
 const tools = [
   { name: 'list_projects', description: 'List projects available in the running Herdr Tasks service.', inputSchema: { type: 'object', properties: {}, additionalProperties: false }, annotations: { readOnlyHint: true } },
@@ -17,20 +31,28 @@ const tools = [
 async function bridge(name, args) {
   const id = randomUUID(), until = Date.now() + 10000;
   const directory = join(home, 'data', 'herdr-zed', 'tasks-mcp'), file = join(directory, `${id}.json`);
-  await mkdir(directory, { recursive: true });
+  const started = Date.now();
+  await diagnostic('request.start', { id, name, terminal: process.env.HC_TERMINAL_ID || null });
   try {
+    await mkdir(directory, { recursive: true });
     // The owner watches complete requests even while its view is hidden.
     await writeFile(join(directory, `${id}.tmp`), JSON.stringify({ id, until, name, args }), { flag: 'wx' });
     await rename(join(directory, `${id}.tmp`), join(directory, `${id}.request.json`));
+    await diagnostic('request.published', { id, name });
     while (Date.now() < until) {
       try {
         const result = JSON.parse(await readFile(file, 'utf8'));
+        await diagnostic('response.received', { id, name, ok: result.ok, elapsedMs: Date.now() - started });
         if (!result.ok) throw new Error(result.error);
         return result.value;
       } catch (error) { if (error.code !== 'ENOENT') throw error; }
       await delay(50);
     }
-    throw new Error('Tasks service did not reply within 10 seconds. Check that the Tasks extension is enabled in the herdr-zed layout. The operation may have succeeded; list_tasks before retrying.');
+    await diagnostic('request.timeout', { id, name, elapsedMs: Date.now() - started });
+    throw new Error('Tasks service did not reply within 10 seconds. Check that the Tasks extension is enabled in the herdr-zed layout. The operation may have succeeded; list_tasks before retrying. Diagnostics: ' + diagnostics);
+  } catch (error) {
+    await diagnostic('request.error', { id, name, code: error.code || null, error: String(error.message).slice(0, 2000) });
+    throw error;
   } finally { await Promise.all([rm(file, { force: true }), rm(join(directory, `${id}.request.json`), { force: true }), rm(join(directory, `${id}.tmp`), { force: true })]); }
 }
 async function pendingRequests(directory) {

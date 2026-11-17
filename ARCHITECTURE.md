@@ -188,6 +188,12 @@ or idle helper processes. It rearms the watch before processing each batch, seri
 validates expiry and IDs, and writes the response; the caller
 removes its request and response. Native mod commands reach shown copies only, so background progress
 reporting must not use the command bus as its notification transport. Check mode does not start the inbox.
+Diagnostics live outside the watched inbox in `data/herdr-zed/tasks-mcp-diagnostics/`: `service.json`
+records service startup, scans, watch batches/stops, request receipt/rejection and response writes;
+`client-<pid>.json` records request publication, response receipt, errors and timeouts. Each file keeps
+the latest 100 timestamped events. Request IDs correlate both sides; payloads and results are omitted.
+Logging failures go to the service console or client stderr and do not fail MCP calls. Timeout errors
+include the diagnostics directory. Logs describe failures without restarting the watch or retrying mutations.
 
 ### Tasks workspace
 
