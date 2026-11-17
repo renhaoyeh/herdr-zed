@@ -56,7 +56,7 @@ export async function skillTree(root) {
   for (const file of files) digest.update(JSON.stringify([file.path, file.content.length, file.executable])).update(file.content);
   return { files, revision: digest.digest('hex') };
 }
-async function publishTree(root, tree) {
+export async function publishTree(root, tree) {
   const target = join(root, tree.revision);
   if (await optional(join(target, '.herdr-snapshot')) === tree.revision) return target;
   await mkdir(root, { recursive: true });

@@ -31,7 +31,7 @@ export async function sessionDevkits(agent, target = {}, switches = {}, argv = [
 export async function providerDevkits(provider, target = {}, switches = {}, directory = '', options = {}) {
   if (!['codex', 'claude'].includes(provider)) return null;
   const result = await exec('node', [`${appHome()}/mods/herdr-zed-agents/shared-skills-cli.js`, 'prepare', appHome(), provider,
-    target.folder || '', JSON.stringify(switches), directory, JSON.stringify({ eccProfile: options.eccProfile })], { timeout: 240000 });
+    target.folder || '', JSON.stringify(switches), directory, JSON.stringify({ eccProfile: options.eccProfile, ...(provider === 'claude' ? { userHome: home() } : {}) })], { timeout: 240000 });
   if (result.code !== 0) throw Error(result.stderr?.trim() || 'Could not prepare shared skills.');
   return JSON.parse(result.stdout || 'null');
 }
@@ -39,7 +39,7 @@ export async function providerDevkits(provider, target = {}, switches = {}, dire
 export async function providerCommands(agent, target = {}) {
   const provider = sessionKind(agent);
   if (target.machine || !['claude', 'codex'].includes(provider)) return [];
-  const result = await exec('node', [`${appHome()}/mods/herdr-zed-agents/shared-skills-cli.js`, 'commands', appHome(), provider, target.folder || ''], { timeout: 30000 });
+  const result = await exec('node', [`${appHome()}/mods/herdr-zed-agents/shared-skills-cli.js`, 'commands', appHome(), provider, target.folder || '', '{}', '', JSON.stringify(provider === 'claude' ? { userHome: home() } : {})], { timeout: 30000 });
   if (result.code !== 0) throw Error(result.stderr?.trim() || 'Could not read available skills.');
   const commands = JSON.parse(result.stdout || '[]');
   if (provider !== 'codex') return commands;

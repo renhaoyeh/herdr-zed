@@ -43,6 +43,8 @@ settings and any mod, layout or theme that is not part of herdr-zed are left alo
 
 Skills already installed in a Codex account (system, user and plugin skills with a local `SKILL.md`) need no setup: type `/` in **New Thread** with a Codex program to pick one. Herdr asks Codex which skills are enabled for that account and project; enable or disable them in Codex itself.
 
+Local Claude Code conversations inherit personal skill instructions from `~/.claude/skills/`, including skills-directory plugins. They appear in New Thread's `/` menu and load into the conversation's native skill package. Invocation controls are retained, disabled personal plugins are skipped, and supporting files resolve from the original installation. Explicit shared selections take duplicate names. New conversations refresh this inventory; account credentials/settings and plugin hooks, agents and MCP connections are not copied.
+
 **Claude Code** and **Codex** Capabilities retain Herdr's built-in and shared capabilities. Existing source-backed library entries read their original installation; copied entries retain their folder snapshots. **Update from source** preserves that mode. To remove a shared skill, select it and choose **Remove from library…**, then confirm. This removes its Herdr library entry and global choices for both providers, keeping the original source and session snapshots. Apply pending shared-settings edits before updating or removing.
 
 Shared skills can be chosen independently for Claude Code and Codex. Manually added shared items default on;

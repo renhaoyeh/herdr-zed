@@ -625,6 +625,8 @@ are overridden; unrelated native plugins/account settings are retained. Existing
 no startup cleanup removes old snapshots. Remote launches do not use this local library. No shell contract
 or manifest schema changes are required.
 
+Local Claude launches also inherit personal skill instructions from `~/.claude/skills/`, including the skill directories declared by skills-directory plugins. The composer and launch preparation use the same inventory. Herdr publishes metadata-preserving source wrappers in its own immutable package, retaining invocation controls and directing relative resource reads to the original installation. Explicit shared selections keep duplicate names. This inheritance does not copy credentials, account settings, plugin hooks, agents or MCP transports into isolated accounts; remote launches do not consume local personal skills. New conversations refresh the source inventory.
+
 ECC is enabled by default for new local Claude/Codex sessions when no global configuration exists; explicit saved switches and project overrides remain authoritative. The bundled source supplies native specialist roles and workflows. Tasks owns progress, user acceptance and its explicit local Codex/Claude Supervisor execution sequence. ECC's Supervisor capability preset remains a selection of Skills, separate from this execution option.
 
 ### Supervisor task execution

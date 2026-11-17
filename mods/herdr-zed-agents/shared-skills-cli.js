@@ -11,6 +11,11 @@ if (await isMain(import.meta.url)) {
       : action === 'import-selection' ? await importSharedSkillSelection(home, args[0], JSON.parse(args[1] || '[]'), JSON.parse(args[2] || '{}'))
       : action === 'remove' ? await removeSharedSkill(home, args[0], args[1])
       : action === 'import' ? await importSharedSkill(home, args[0], args[1] || null, args[2] || null) : (() => { throw Error('Unknown shared skills action.'); })();
+    const options = JSON.parse(args[4] || '{}');
+    if (['prepare', 'commands'].includes(action) && args[0] === 'claude' && options.userHome) {
+      const { inheritClaudeSkills } = await import('./claude-skills.js');
+      result = await inheritClaudeSkills(home, result, options.userHome);
+    }
     if (action === 'commands') result = (result?.commands || []).map(({ path, ...command }) => command);
     if (action === 'prepare' && args[3]) {
       const { prepareSharedPlugin } = await import('./shared-skills-runtime.js');

@@ -207,7 +207,7 @@ test('launch adapter uses the chosen account and combines Claude plugin director
   const argv = ['env', 'CLAUDE_CONFIG_DIR=/account', 'claude', '--plugin-dir', '/ecc-fixed', '--model', 'test'];
   const prepared = await sessionDevkits({ key: 'claude' }, { folder: '/project' }, { browser: false }, argv);
   assert.deepEqual(prepared.argv, ['env', 'CLAUDE_CONFIG_DIR=/account', 'claude', '--plugin-dir', '/shared-fixed', '/ecc-fixed', '--model', 'test']);
-  assert.deepEqual(calls[0].slice(-4), ['/project', '{"browser":false}', '/account', '{}']);
+  assert.deepEqual(calls[0].slice(-4), ['/project', '{"browser":false}', '/account', '{"userHome":"/user"}']);
 });
 
 test('provider UI toggles shared skills independently and keeps MCP dependency prompts', async () => {
